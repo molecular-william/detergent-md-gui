@@ -65,6 +65,11 @@ DEFAULT_TEMPERATURE = 300.0
 
 _OPTION_KEYS = ('constraints_threshold', 'temperature_k', 'torsion_model', 'torsion_scale')
 
+#: The mapped starting coordinates, stored with the revision so a CG run can start without re-reading the AA
+#: trajectory. `mapped.gro` is the starting frame; `mapped.xtc` is the bead trajectory the fit built, kept because a
+#: stored run's mapping-based analyses read it. Both travel with the terms and are hashed into the record.
+COORDINATE_FILES = ('mapped.gro', 'mapped.xtc')
+
 #: The AA reference's own histograms: what `ff_assess` scores a CG run *against*. It reads them from its `-d` directory
 #: and never computes them, so a run that consumes a parameterization needs them copied into the run.
 #:
@@ -152,6 +157,54 @@ def _record_distributions(content, revision, work):
         (target / path.name).write_bytes(data)
         listing.append({'name': path.name, 'sha256': hashlib.sha256(data).hexdigest()})
     return {'directory': str(target.relative_to(storage_root())), 'files': listing}
+
+
+def _record_coordinates(content, revision, work):
+    """Copy this fit's mapped starting coordinates beside the revision, hashed, and say which files they are.
+
+    The fit already builds `2_mapping/mapped.gro` and `mapped.xtc`; a run that consumes this revision should not have
+    to read the AA trajectory again to start. The files are copied (not referenced) for the same reason the
+    histograms are: a work directory is scratch, and a re-fit overwrites it. They are streamed to disk rather than
+    read whole because an XTC of a long reference is large.
+    """
+    if work is None:
+        return None
+    source = Path(work) / '2_mapping'
+    found = [source / name for name in COORDINATE_FILES if (source / name).is_file()]
+    if not found:
+        return None
+    target = revisions_root(content) / str(revision)
+    target.mkdir(parents=True, exist_ok=True)
+    listing = []
+    for path in found:
+        digest = hashlib.sha256()
+        destination = target / path.name
+        with path.open('rb') as reader, destination.open('wb') as writer:
+            while chunk := reader.read(1024 * 1024):
+                digest.update(chunk)
+                writer.write(chunk)
+        listing.append({'name': path.name, 'sha256': digest.hexdigest(), 'bytes': destination.stat().st_size})
+    return {'directory': str(target.relative_to(storage_root())), 'files': listing,
+            'source': 'the mapped AA frames this fit built (stage 2 of a run)'}
+
+
+def coordinates(mapping, revision=None) -> dict | None:
+    """The revision's stored starting coordinates as an absolute directory and a hashed file list, or None.
+
+    None is an honest answer: a revision fitted before coordinates were stored has none, and a run that wanted them
+    has to say so rather than silently fall back to re-mapping.
+    """
+    try:
+        item = get(mapping, revision)
+    except KeyError:
+        return None
+    recorded = item.get('coordinates')
+    if not isinstance(recorded, dict) or not recorded.get('files'):
+        return None
+    directory = Path(recorded.get('directory') or '')
+    if not directory.is_absolute():
+        directory = storage_root() / directory
+    return {'directory': directory, 'files': recorded['files'], 'revision': item['revision']}
 
 
 def identities(mapping) -> dict:
@@ -573,6 +626,9 @@ def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     distributions = _record_distributions(checked['mapping_content_hash'], revision, work)
     if distributions:
         item['distributions'] = distributions
+    stored_coordinates = _record_coordinates(checked['mapping_content_hash'], revision, work)
+    if stored_coordinates:
+        item['coordinates'] = stored_coordinates
     record['revisions'].append(item)
     record['revision'] = revision
     record['current'] = item

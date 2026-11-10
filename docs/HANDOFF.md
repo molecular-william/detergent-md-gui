@@ -6,6 +6,8 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-10 round built (not yet committed/live).** All phases of `docs/plans/2026-11-10-aa-cg-cg-run-bond-panel.md` are implemented. A fit now forwards `RUN_SETTING_CONSTRAINTS_THRESHOLD` to `ff_inter` (and disables the control for Bartender); Bond Interactions has one display-only Parameterization shown select, a separate Fit a new revision group, a read-only revision strip with one Make current, and read-only Martini 3 references for Lactose (`LAC`) and Glucose (`GLC`, with the GAL-ambiguity sentence); the shared `mapped.gro`/`mapped.xtc` are stored with each revision; the run-type registry is `aa_only`, `cg`, `pdc`, `osmotic`, where `cg` dispatches revision/reference/composition and a revision run defaults to the stored frame with a per-run `remap`; New run has a collapsed input block, named per-workspace presets, the generated `[molecule]-[AA|CG]-[length]ns-[YYYYMMDD]` label, and compositions as named CG models with a derived parameterization and a real CG simulation. `cli/migrate_run_types.py` rewrites the four `aa_cg` records to `cg` (manifest + job row, stages untouched, idempotent); its dry run lists exactly `141cb0d45c76`, `64f272ade054`, `67bc79a995d6`, `ce1318485197`. **Next: run it with `--apply` and restart the dashboard** (no run is active at hand-off), then check a CG revision run starts from the stored frame, the Run view mapping sections appear for a `cg` run, and the New run composition path reaches a real CG simulation. Checks: fast 2619 passed / 1 xfailed, browser 346, slow 24, ruff clean; the four superseded browser modules were replaced (`test_aa_cg_run_panel_browser.py` / `test_new_run_sugar_cg_browser.py` deleted). Untracked and needing `git add`: `molecules/Lactose`, `molecules/Glucose` and the new test modules. `README.md` is modified in the tree (a 15-line deletion of the Martini/setup notes) but was not part of this round and is left uncommitted. Drafts: `docs/design/drafts/2026-11-10-{bond-interactions-parameterization,new-run-aa-cg,cg-compositions-molecules}.html`.
+
 **State at hand-off (2026-11-09).** The round is committed: `16709b7` (refinement fix), `17fe2c4` (torsion explainer),
 `99770d6` (Shape model labels), `b55b9e2` (pdc `pdc-structure`), docs `e72ab89`/`a1f97bf`. The tree is clean apart
 from the pre-existing untracked `molecules/{DM,LMNG,NG,OG,OGNG,UDM}` and `.bench-surfaces`. Checks: fast 2547 passed
@@ -32,6 +34,77 @@ drafts.
 
 ## Next task
 
+**graphify agent skill (2026-11-09).** The `graphify` skill is installed for agents working in this checkout:
+`.agents/skills/graphify/` is tracked (the upstream skill + references, `graphifyy 0.9.104`), `graphifyy` itself lives
+in `.venv` only (a local development tool, not a runtime or test dependency; reinstall with
+`.venv/bin/python -m pip install graphifyy`), and `graphify-out/` is gitignored
+because the graph is rebuilt from the checkout on demand. The stock installer looks for `graphify` on `PATH` and falls
+back to a uv-tool install, which this host's read-only home refuses, so the checked-in `SKILL.md` carries a two-line
+local note that runs every command through `.venv/bin`; `graphify install --platform agents --project` overwrites it
+and the note must be re-applied after an upgrade. AGENTS.md's *Where things are* now teaches the agent-facing rule:
+build/`--update`/`query` through `.venv/bin/graphify`, cross-file questions only, never as a check. Edges are
+`EXTRACTED`/`INFERRED`/`AMBIGUOUS`, and callers are still found by search and pinned with tests. Verified: the skill
+appears in the session catalog; a code-only build of `micelle/` (16 files → 66 AST nodes, 166 edges; graph 75 nodes,
+164 edges, 10 communities, no LLM) and `graphify query "How is the belt radius measured?"` answered from `frame.py`
+(`belt_mask` L69, `belt_points` L78, `_axial` L115). The scoped `graphify-out/` from that check was removed, so the
+first `/graphify .` builds the repository graph.
+
+**Molecule selector and published sugar references in CG Bond Interactions (2026-11-09).** The panel's model card
+now leads with a **Molecule** select; the **Mapping** select lists that molecule's saved mappings, asked of
+`/api/mappings?view=summary&molecule_id=…` rather than filtered in the page. A sugar molecule gets a read-only
+**Martini 3 sugar reference · <ENTRY>** option when the entry is its own published model: Sucrose is SUCR and
+Trehalose is TREH (after the 2026-11-09 decision to unblock it, below). **Maltose is refused**: its layout also
+matches `LAC`, but `LAC` is lactose and identification is stereochemistry-blind (two hexoses, an AB link), so
+`reference.PUBLISHED_FOR` gates the route before the layout check. The new core route
+`GET /api/mappings/reference/<molecule_id>` transcribes the entry with `sugars.reference.run_topology` and answers
+`{"model": {file, name, molecule_id, read_only, reference_entry, beads, rings, connections, topology, reference,
+limitations, status}}`; a molecule with no published entry, no ring, no identified entry or a non-conforming layout is
+404, an unknown molecule 400. The route imports only `dashboard.models.sugars` and the mapping context, never the
+validation feature. The summary rows now also carry `molecule_id`.
+
+A selected reference is shown, never parameterized: the table and Plotly scene read `parseTopology(model.topology)`
+with source `martini-reference` (B01.. joins the candidate's own bead names as a revision does), while AA reference,
+engine, threshold, temperature, torsion controls, **Fit this model** and **Delete this parameterization** are disabled
+with the panel's own read-only sentences; the revision strip says it has no revisions and no
+`/api/bonded-parameterizations*` route is read or written for it. Leaving the reference for a saved mapping restores
+the normal card. Files: `web/templates/dashboard.html`, `bonded.js`, `bonded-parameterization.js`, `mappings.js`,
+`web/routes/mappings.py`, `models/mappings/store.py`, the two bonded browser tests, the new
+`tests/integration/test_reference_models_api.py` (area: mapping), and `test_plotly_lazy_browser.py`'s fixture (now
+built through the editor's molecule+snapshot construction). Checks: fast 2560 passed / 1 xfailed; browser 340 passed;
+the six affected browser modules 48 passed; ruff clean. Live after the 19:44 restart: Sucrose/SUCR and Trehalose/TREH
+each show 14 terms (1 bond, 6 constraints, 4 angles, 1 dihedral, 2 virtual sites) with source `martini-reference`,
+Fit and Delete disabled, the transcript sentence, a drawn Plotly scene and no page errors; Maltose offers no
+reference option (its LAC layout match is refused as lactose); DDM offers none. Plan (local):
+`docs/plans/2026-11-09-bonded-molecule-selector.md`. This slice is uncommitted in the working tree.
+
+**Trehalose unblocked (2026-11-09, the user's decision).** The published `TREH` atom 8 carries residue 1 while its
+parents 5–7 are residue 2. Two readings were wrong, not the candidate: `reference.signature` grouped a virtual site
+by the file's residue column (now it takes the site's residue from its parents), and `coords.ring_layer` gave a 1,1
+linkage's bridging oxygen to the higher ring (now the tie goes to the first ring, matching the entry's SP1r glycosidic
+bead and SN6 linker). `reference.conform` and `sugar_cg` now accept TREH: `GET /api/mappings/reference/Trehalose`
+answers 200, the panel offers the read-only TREH model, and the CG-only Trehalose run is no longer blocked. The
+published file is untouched. The pinned automatic-candidate list for Trehalose moved with the oxygen (deliberate and
+noted in `test_mapping_algorithms.py`); no other molecule's candidate moved. Tests updated: `test_sugar_reference.py`,
+`test_sucrose_reference_candidate.py`, `test_reference_models_api.py` (TREH 200), validation
+`test_sugar_cg_adapter.py` and `test_sucrose_cg_api.py`, and the core `test_new_run_sugar_cg_browser.py` (TREH now
+starts rather than blocks). Live: the route answers TREH with 8 beads (SP1r/SP4r/SP1r/TC4/SN6/SP4r/SP1r/TC4), the
+panel draws its 14 ITP terms read-only, and `/api/sugar-cg/preview?molecule_id=Trehalose&sugar_entry=TREH` reports
+`ready: true, conforms: true` with Start enabled. The `test_dashboard_browser.py` layout test also gained a wait for
+the molecule options before measuring, which is what made its intermittent parallel-tier failure reproducible.
+
+**BARTENDER fit on a preprocessor topology (2026-11-09).** The Maltose panel fit (`31ae7f1695c14e78`,
+`7770e83c37f346b2`) died in its `fit` step after four seconds with `ValueError: invalid literal for int() with base
+10: '#ifdef'`. Cause: `bartender_fit.physical_topology` read the CG model with `itp.sections(text)` and no `defines`,
+so `#ifdef FLEXIBLE` was content; `ff_inter` writes the B2-B5 linkage as a bond under `#ifdef FLEXIBLE` and the same
+pair as a constraint under `#ifndef`, and the `[ bonds ]` branch fed `int()` a directive. The reader now passes
+`defines=()` like every other topology reader (`dihedral_fit`, `bonded_estimate`, `structures`), so only the branch
+`grompp` takes is handed to the fit and the linkage is the constraint it is in the run that consumes the model.
+Regression test: `test_only_the_preprocessor_branch_grompp_reads_is_handed_to_the_fit`. Verified on a copy of the
+Maltose work directory, never the live one: the fit completes and `gmx_out.itp` holds 4 bonds, 3 constraints, 4
+angles and 1 dihedral, and `topology_from_fit` merges them back into the 8-atom model with the virtual sites kept.
+Checks: `test_bartender_fit.py` 13 passed, the neighbouring fitting/topology modules 57 passed, ruff clean. The
+dashboard imports `bartender_fit` at startup, so restart it before retrying the two failed jobs.
+
 **AA constraints in New run (2026-11-09).** The Stage settings now carry a visible
 **Constraints** control: `constraints` (`none` / `h-bonds` / `all-bonds`) is an AA-half `CHOICE_SPECS` entry that
 defaults to the force-field entry's own `all-bonds` and is written into every AA MDP (`aa.mdp_values` +
@@ -45,7 +118,7 @@ and a topology's `[ constraints ]` block (the 0.274 nm B02-B05 link in `64f272ad
 whatever it says. Checks: fast 2551 passed / 1 xfailed, browser 339, ruff clean. Plan
 `docs/plans/2026-11-09-aa-constraints-setting.md` (local). The dashboard was restarted 18:56 and `/api/defaults?run_type=aa_cg` answers `all-bonds`.
 
-Newest first: the paragraph above is the current slice; the 2026-11-09 round is the section above it, and the
+Newest first: the five paragraphs above are the current slices; the 2026-11-09 round is the section above it, and the
 paragraphs below are the slices before that, newest last; the open items table is the queue. The 2026-11-05 nine-point round is implemented and committed (items 1-6, 8, 9; there was no item 7). Its plan is
 `docs/plans/2026-11-05-feature-round.md`, which carries the decisions, the per-lane evidence and the two corrections
 found while building.
@@ -143,8 +216,11 @@ outside `runs/`; `_source_provenance` now names them from the workspace and is p
 The validation feature also adds the CG-only **`sugar_cg`** run type: Sucrose or Trehalose plus the published
 Martini 3 `SUCR`/`TREH` entry, AA coordinates mapped onto the published layout, the reference's own topology, one
 molecule in Martini water, CG minimization/equilibration/production, no AA reference/mapping/fit and no automatic
-comparison analyses. Sucrose conforms; Trehalose is selectable-but-blocked because the published `TREH` second `TC4`
-carries residue 1. The New run form gets the sugar selector, provenance and conformance preview; its `sugar-cg-v1`
+comparison analyses. Sucrose conforms; Trehalose was selectable-but-blocked because the published `TREH` second `TC4`
+carried residue 1. That blocker was retired on 2026-11-09 by reading a site's residue from its parents and giving a
+1,1 linkage's bridging oxygen to the first ring (see the Trehalose paragraph under *Next task*): both entries conform
+and both runs are offered. The New run form gets the sugar selector, provenance and conformance preview; its
+`sugar-cg-v1`
 default is 5 ns equilibration / 10 ns production, and switching to/from sugar re-defaults rather than leaking the
 AA–CG 10 ps/10 ns values. `4ab5bf8` fixed the live order race where the molecule list's DDM fallback could reset a
 sugar selection before Sucrose was chosen, and keeps AA/AA-CG CG choices when those two are toggled. No full CG MD was
@@ -349,8 +425,33 @@ whole leg is sampled and summarised in five blocks.
 
 ## Open items
 
+**Sugar comparison subpanel (deferred, hand-off 2026-11-10).** Add a **Sugar comparison** subpanel to the validation
+workspace: compare the three-bead ring triangles and bead compositions of the published Martini 3 sugar *entries* with
+the sugars we have **mapped/parameterized**. No code has been started. This is a UI and cross-layer change, so a future
+agent starts with a plan in `docs/plans/` and an HTML draft, not code.
+
+Data sources. Reference entries: `dashboard.models.sugars.reference` (`entries`, `entry`, `signature`, `run_topology`;
+the reference constraints are already "15% COG scaled" in the file) and `reference.PUBLISHED_FOR` for the
+molecule-to-entry policy. Our sugars: the saved mapping drafts (`mappings.list_candidates`; each mapping's `rings` and
+`beads`) and the fitted parameterization revisions (their own `[ atoms ]` and `[ constraints ]`); a run's
+`2_mapping/ring_targets.json` carries `raw_mean_nm` and `target_nm` per ring pair, where `target_nm = raw_mean_nm ×
+ring.scale` (default 1.15). Geometry: each ring's three physical beads form a triangle; sides are the mapping
+constraints, area is Heron, angles are the law of cosines, perimeter is the sum; the `TC4` virtual site is the
+equal-weight centroid of its three parents and adds no fourth vertex; the inter-ring link is **unscaled** and is not
+part of the triangle.
+
+Show reference and mapped side by side per sugar unit, with the source named and **raw and scaled distinguished**.
+Rules the panel must keep: a reference entry is citation metadata, not validation; `conform` checks mapping facts only
+and records `stereochemistry: unresolved`; `PUBLISHED_FOR` must keep a layout match from being presented as another
+molecule's model (Maltose identifies `LAC` by layout, but `LAC` is lactose); never label reference numbers as fitted
+values. Measured 2026-11-10 on the scaled values: GLC 7.25 Å², LAC rings 6.82/6.04, TREH 6.70/6.76, our Maltose units
+5.64/5.29. Open question for the panel: our scaled Maltose units (mean 5.47 Å²) are close to the reference's
+**unscaled** sizes (≈5.1–5.5 Å²) rather than its scaled ones (6.0–7.25 Å²); show both and do not conclude a missing
+scale or a chemistry difference until a like-for-like AA source exists (there is no `molecules/Lactose`/`Glucose`).
+
 | item | state | next |
 | --- | --- | --- |
+| Sugar comparison subpanel | not started; hand-off 2026-11-10 | build the validation "Sugar comparison" panel (reference vs mapped triangles and bead compositions); start with a plan + HTML draft; see the paragraph above |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | Runs filters | built 2026-11-09 (`119d5c0`): dense only, checkbox run type/status/method, multi-value `/api/jobs`, `GET /api/run-filters` | the molecule and created-after facets were not added; its own slice if wanted |

@@ -1,14 +1,24 @@
-import { $, cachedApi, post, setText, storage, panelIds } from './shared.js';
+import { $, api, cachedApi, post, setText, invalidateResource, panelIds } from './shared.js';
 import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
+
+//: The AA molecule each published Martini 3 sugar entry is published for (`models/sugars/reference.py:PUBLISHED_FOR`).
+//: It is a *default provenance link*, never a claim: the panel offers the folder only when the catalogue has it, the
+//: reader can clear or change it, and a sugar no line here names simply starts with no link.
+const SUGAR_MOLECULES = {LAC: 'Lactose', SUCR: 'Sucrose', TREH: 'Trehalose', GLC: 'Glucose'};
 
 export function createCompositions({ openBondedModel, openCompositionRun }) {
   const host = $('#'+panelIds().combinations);
   const sugar = $('#composition-sugar'), recipe = $('#composition-tail-recipe');
   const carbon = $('#composition-carbon-count'), head = $('#composition-head-endpoint');
   const tail = $('#composition-tail-endpoint'), profile = $('#composition-linkage-profile');
-  const name = $('#composition-display-name'), previewButton = $('#composition-preview');
+  const name = $('#composition-molecule-name'), headMolecule = $('#composition-head-molecule');
+  const previewButton = $('#composition-preview');
   const saveButton = $('#composition-save'), openBonded = $('#composition-open-bonded'), startRun = $('#composition-start-run');
-  let catalog = null, lastPreview = null, saved = null, generation = 0, mounted = false;
+  let catalog = null, molecules = [], savedModels = [];
+  let lastPreview = null, saved = null, generation = 0, mounted = false;
+  // "Suggested until edited": the molecule name follows the recipe while the reader has not typed one, and the head
+  // link follows the sugar until they choose one. `lastDefault` is what a name still equal to the suggestion may move.
+  let nameEdited = false, lastDefault = '', linkEdited = false;
   const plots = {};
 
   function stageFor(key) {
@@ -137,19 +147,118 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     const chosenTail = (lastPreview?.tail?.beads || []).map(item => ({id: item.name, name: `${item.name} · C${item.carbon_range.join('–C')}`}));
     options(tail, chosenTail.length ? chosenTail : [{id: 'C01', name: 'C01'}]);
   }
+
+  // The model's name and its head link -------------------------------------------------------------------------
+  //
+  // A composition is a named CG model now, so the name is part of the form: it defaults to the sugar residue and
+  // carbon count (`GLC-C12`), and it follows the recipe until the reader types one. The link names the AA molecule
+  // the head fragment came from; it is provenance, and it is what makes the derived parameterization's source
+  // `recipe+reference` rather than `recipe-only`.
+  function defaultName() {
+    const count = Number(carbon?.value);
+    return sugar?.value && Number.isFinite(count) && count > 0 ? `${sugar.value}-C${count}` : '';
+  }
+  function syncNameDefault() {
+    const suggestion = defaultName();
+    if (!suggestion) return;
+    const follows = !nameEdited || !name.value.trim() || name.value.trim() === lastDefault;
+    lastDefault = suggestion;
+    if (follows) { name.value = suggestion; nameEdited = false; }
+  }
+  function defaultHead() {
+    const wanted = SUGAR_MOLECULES[sugar?.value];
+    return molecules.some(record => record.id === wanted) ? wanted : '';
+  }
+  function fillHeadMolecules() {
+    const chosen = headMolecule.value;
+    headMolecule.replaceChildren(new Option('No link (derived only)', ''));
+    for (const record of molecules) {
+      headMolecule.append(new Option(`${record.name || record.id} · molecules/${record.id}`, record.id));
+    }
+    const keep = chosen && molecules.some(record => record.id === chosen) ? chosen : defaultHead();
+    headMolecule.value = keep;
+  }
+  function syncHeadDefault() {
+    if (!linkEdited) headMolecule.value = defaultHead();
+  }
   function payload() {
+    const chosenName = name?.value.trim() || defaultName();
     return {head_fragment_id: `builtin:martini-sugars-v2:${sugar.value}`, tail_recipe_id: recipe.value,
       carbon_count: Number(carbon.value), head_endpoint: {bead: head.value}, tail_endpoint: {bead: tail.value},
-      linkage_profile_id: profile.value, display_name: name.value.trim() || undefined,
+      linkage_profile_id: profile.value, display_name: chosenName || undefined,
+      molecule_name: chosenName || undefined, head_molecule_id: headMolecule?.value || undefined,
       source_sha256: selectedSugar()?.source_sha256};
   }
   function renderDiagnostics(result) {
     const target = $('#composition-diagnostics');
     if (!result) { target.textContent = 'Choose the fragments and preview the candidate.'; return; }
+    // The card beside it states the *saved* model; a preview is reported here, against the model's own measurements.
     target.innerHTML = `<strong>Structural checks: ${result.validation.structural.ok ? 'ready' : 'blocked'}</strong><p>${result.mapping.beads.length} beads · ${result.topology.bonds.length} bonded terms · identity ${result.identity.slice(0, 12)}</p>`;
-    const dls = $('#composition-provenance-list').querySelectorAll('dd');
-    [result.head.id, `${result.tail.recipe_id} · ${result.tail.carbon_count} carbons`, result.profile.name, 'candidate-unvalidated'].forEach((text, index) => setText(dls[index], text));
   }
+
+  // The saved CG model: what Bond Interactions and New run will read -------------------------------------------
+  function termSummary(terms) {
+    const parts = Object.entries(terms || {}).filter(([, count]) => count).map(([kind, count]) => `${count} ${kind}`);
+    return parts.join(' · ') || 'none recorded';
+  }
+  function modelFacts(model) {
+    const parameterization = model?.parameterization;
+    const topology = parameterization?.topology;
+    return {
+      id: model?.molecule_id || model?.id || '—',
+      name: model?.molecule_name || model?.name || '—',
+      head: model?.head_molecule_id || 'No link (derived only)',
+      beads: topology?.beads == null ? '—' : `${topology.beads} beads`,
+      terms: topology?.terms ? termSummary(topology.terms) : '—',
+      parameterization: parameterization
+        ? `derived · revision ${parameterization.revision} · ${parameterization.source}` : 'no derived model',
+      status: model?.status || 'candidate-unvalidated',
+    };
+  }
+  function renderSaved() {
+    const list = $('#composition-provenance-list');
+    const facts = modelFacts(saved);
+    list.replaceChildren();
+    for (const [label, value] of [['Molecule id', facts.id], ['Molecule name', facts.name],
+                                  ['Links to', facts.head], ['Beads', facts.beads], ['Terms', facts.terms],
+                                  ['Parameterization', facts.parameterization], ['Status', facts.status]]) {
+      const dt = document.createElement('dt'); dt.textContent = label;
+      const dd = document.createElement('dd'); dd.textContent = value;
+      list.append(dt, dd);
+    }
+    setText($('#composition-model-summary'),
+      saved ? `${facts.name} · derived CG model` : 'Preview and save to derive a CG model from this recipe.');
+  }
+  function renderSavedModels() {
+    const body = $('#composition-model-rows');
+    body.replaceChildren();
+    for (const model of savedModels) {
+      const facts = modelFacts(model);
+      const row = document.createElement('tr');
+      for (const value of [facts.name, facts.head, facts.beads, facts.terms, facts.status]) {
+        const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+      }
+      const actions = document.createElement('td');
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'secondary'; button.textContent = 'Open the CG run';
+      button.disabled = !model.parameterization;
+      button.addEventListener('click', () => openCompositionRun(model));
+      actions.append(button); row.append(actions);
+      body.append(row);
+    }
+    setText($('#composition-models-status'),
+      savedModels.length ? '' : 'No compositions saved in this workspace yet.');
+  }
+  async function loadSavedModels() {
+    try {
+      const answer = await cachedApi('/api/cg-models?view=summary', {maxAge: 60000});
+      savedModels = (answer.models || []).filter(model => model.kind === 'composition');
+    } catch (error) {
+      savedModels = [];
+    }
+    renderSavedModels();
+  }
+
   function updateActions() {
     const ready = !!lastPreview;
     // The preview needs the catalogue's own values, and until it arrives the selects are empty. A payload built
@@ -161,16 +270,24 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   }
   async function load() {
     if (catalog) return;
-    catalog = await cachedApi('/api/compositions/catalog', {maxAge: 60000});
+    const [catalogAnswer, moleculeAnswer] = await Promise.all([
+      cachedApi('/api/compositions/catalog', {maxAge: 60000}),
+      cachedApi('/api/molecules', {maxAge: 60000}).catch(() => ({molecules: []})),
+    ]);
+    catalog = catalogAnswer;
+    // A CG molecule is a pdc detergent; the atomistic folders are the AA sources a head can link to.
+    molecules = (moleculeAnswer.molecules || []).filter(record => record.kind !== 'cg' && record.valid !== false);
     options(sugar, catalog.sugars); options(recipe, catalog.tail_recipes); options(profile, catalog.linkage_profiles);
-    syncEndpoints(); updateActions();
+    fillHeadMolecules(); syncEndpoints(); syncNameDefault();
+    updateActions();
+    await loadSavedModels();
   }
   async function preview() {
     if (!catalog || !sugar?.value) {
       setText($('#composition-panel-status'), 'Waiting for the fragment catalogue; try again in a moment.');
       return null;
     }
-    const token = ++generation; saved = null; lastPreview = null; updateActions();
+    const token = ++generation; saved = null; lastPreview = null; updateActions(); renderSaved();
     setText($('#composition-panel-status'), 'Building deterministic preview…');
     try {
       const result = await post('/api/compositions/preview', payload());
@@ -182,12 +299,31 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   async function save() {
     if (!lastPreview) return null;
     setText($('#composition-panel-status'), 'Saving immutable composition…');
-    try { saved = await post('/api/compositions', payload()); updateActions(); setText($('#composition-panel-status'), `Saved ${saved.name}.`); return saved; }
-    catch (error) { setText($('#composition-panel-status'), error.message); throw error; }
+    try {
+      const created = await post('/api/compositions', payload());
+      // The row the catalog lists is the record plus its derived parameterization, which the create route does not
+      // repeat; reading it back is what the panel shows, not a second guess at beads and terms.
+      try { saved = await api('/api/cg-models/composition/' + encodeURIComponent(created.id)); }
+      catch (error) { saved = created; }
+      renderSaved();
+      invalidateResource('/api/cg-models'); invalidateResource('/api/molecules');
+      setText($('#composition-panel-status'), `Saved ${modelFacts(saved).name} as a candidate-unvalidated CG molecule.`);
+      updateActions();
+      await loadSavedModels();
+      return saved;
+    } catch (error) { setText($('#composition-panel-status'), error.message); throw error; }
   }
-  sugar?.addEventListener('change', () => { lastPreview = null; saved = null; syncEndpoints(); updateActions(); });
-  recipe?.addEventListener('change', () => { lastPreview = null; saved = null; updateActions(); });
-  carbon?.addEventListener('input', () => { lastPreview = null; saved = null; updateActions(); });
+  function clearResult() {
+    lastPreview = null; saved = null; updateActions();
+    renderSaved();
+  }
+  sugar?.addEventListener('change', () => {
+    clearResult(); syncEndpoints(); syncNameDefault(); syncHeadDefault(); updateActions();
+  });
+  recipe?.addEventListener('change', () => { clearResult(); updateActions(); });
+  carbon?.addEventListener('input', () => { clearResult(); syncNameDefault(); updateActions(); });
+  name?.addEventListener('input', () => { nameEdited = true; });
+  headMolecule?.addEventListener('change', () => { linkEdited = true; });
   previewButton?.addEventListener('click', () => preview().catch(() => {}));
   saveButton?.addEventListener('click', () => save().catch(() => {}));
   openBonded?.addEventListener('click', () => saved && openBondedModel(saved));

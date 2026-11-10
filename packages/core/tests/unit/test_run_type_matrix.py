@@ -58,21 +58,20 @@ def test_the_run_contract_carries_no_bonded_intent_or_state():
     assert 'stop_after' not in source, 'an AA-to-CG run no longer stops itself after stage 3'
 
 
-def test_only_a_run_that_names_a_parameterizer_is_asked_for_one():
-    """A run type whose topology comes from a mapping has no method to choose.
+def test_a_cg_run_names_its_parameterization_and_a_pdc_run_names_none():
+    """Only a CG run has a model to choose; a protein-detergent build takes its topology from its own adapter.
 
-    `aa_cg` (and a payload that states no run type, which is one) must name the parameterizer that maps its atoms; a
-    protein-detergent build, a composition and an osmotic series do not, because each takes its topology from a mapping
-    and its stages from its own adapter. The allow-list used to apply to all of them, which is why queueing a pdc run
-    answered 400 "Unsupported method" from a form that had no method field to fill.
+    The retired types are refused with the migration sentence rather than a generic refusal, and a payload that
+    names no run type is refused too: the historical combined job is retired, so there is no default to fall back
+    on and guessing would queue a CG run with no parameterization.
     """
     admission.validate_run_type({'run_type': 'pdc', 'molecule_id': 'DDM'})
-    admission.validate_run_type({'run_type': 'cg_composition', 'composition_id': 'composition_ddm_belt'})
-    with pytest.raises(ValueError, match='Unsupported method'):
-        admission.validate_run_type({'run_type': 'aa_cg'})
-    with pytest.raises(ValueError, match='Unsupported method'):
+    admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'DDM',
+                                 'parameterization': {'kind': 'revision', 'mapping_candidate': 'ddm.map'}})
+    admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Sucrose',
+                                 'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'}})
+    for retired in ('aa_cg', 'sugar_cg', 'cg_composition'):
+        with pytest.raises(ValueError, match='migrate the run records'):
+            admission.validate_run_type({'run_type': retired})
+    with pytest.raises(ValueError, match='run_type is required'):
         admission.validate_run_type({})
-    with pytest.raises(ValueError, match='Unsupported method'):
-        admission.validate_run_type({'run_type': 'aa_cg', 'method': 'gromacs'})
-    admission.validate_run_type({'run_type': 'aa_cg', 'method': 'fast_forward'})
-    admission.validate_run_type({'run_type': 'aa_cg', 'method': 'bartender'})

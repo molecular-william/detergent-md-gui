@@ -285,7 +285,7 @@ def test_a_cg_molecule_is_not_offered_to_the_aa_run_types(import_service):
     client, root = import_service
     shutil.copytree(FIXTURES / 'cg_og', root / 'molecules' / 'OG')
 
-    readiness = client.get('/api/readiness?run_type=aa_cg&molecule_id=OG').get_json()
+    readiness = client.get('/api/readiness?run_type=cg&molecule_id=OG').get_json()
     assert readiness['ready'] is False
     assert any('coarse-grained' in blocker for blocker in readiness['blockers'])
     queued = client.post('/', json={'run_type': 'aa_only', 'molecule_id': 'OG', 'detergent': 'OG'})

@@ -1,7 +1,7 @@
 """The three ways a run is created, held to one contract.
 
 Queue, retry and clone used to pass different arguments to `create_job`, and the difference was not a
-decoration: `admission.validate_run_type` requires `composition_id` for a `cg_composition` run, so retrying or
+decoration: `admission.validate_run_type` requires a parameterization for a `cg` run, so retrying or
 cloning one answered 400, and a cloned complex run lost the `protein` and `template` it was built from -- a
 different system that happens to share a run type.
 
@@ -36,17 +36,24 @@ def created(dashboard, monkeypatch):
     return calls
 
 
+MODEL = {'kind': 'composition', 'composition_id': '0123456789abcdef',
+         'molecule_id': '0123456789abcdef', 'head_molecule_id': 'Trehalose'}
+"""A composition CG run's model as the New-run form posts it: the composition's own id, and its head link."""
+
+
 def test_cloning_a_composition_run_keeps_the_composition_it_is_a_clone_of(dashboard, created):
-    """The 400 this prevents: admission refuses a `cg_composition` payload with no `composition_id`."""
-    dashboard.coordinator.database().insert(record(id='ab12cd34ef56', run_type='cg_composition',
-                                                   composition_id='composition_ddm_belt', method='bartender'))
+    """The 400 this prevents: admission refuses a `cg` payload with no parameterization or composition."""
+    dashboard.coordinator.database().insert(record(
+        id='ab12cd34ef56', run_type='cg', composition_id=MODEL['composition_id'], method='bartender',
+        parameterization=dict(MODEL)))
 
     response = dashboard.client.post('/api/jobs/ab12cd34ef56/clone', json={'label': 'the clone'})
 
     assert response.status_code == 201, response.data
     assert len(created) == 1
-    assert created[0]['composition_id'] == 'composition_ddm_belt'
-    assert created[0]['run_type'] == 'cg_composition'
+    assert created[0]['composition_id'] == MODEL['composition_id']
+    assert created[0]['run_type'] == 'cg'
+    assert created[0]['parameterization'] == MODEL
 
 
 def test_a_clone_carries_what_a_complex_run_is_built_from(dashboard, created):
@@ -77,13 +84,14 @@ def test_a_retry_carries_the_fields_the_failed_run_was_built_from(dashboard, cre
 
 def test_a_retry_of_a_composition_run_keeps_its_composition(dashboard, created):
     """The same drift on the retry path, which answers 400 without it."""
-    dashboard.coordinator.database().insert(record(id='ab12cd34ef56', run_type='cg_composition',
-                                                   composition_id='composition_ddm_belt'))
+    dashboard.coordinator.database().insert(record(
+        id='ab12cd34ef56', run_type='cg', composition_id=MODEL['composition_id'], parameterization=dict(MODEL)))
 
     response = dashboard.client.post('/retry/ab12cd34ef56', json={})
 
     assert response.status_code == 201, response.data
-    assert created[0]['composition_id'] == 'composition_ddm_belt'
+    assert created[0]['composition_id'] == MODEL['composition_id']
+    assert created[0]['parameterization'] == MODEL
 
 
 def test_a_protein_detergent_payload_reaches_its_own_readiness(dashboard, monkeypatch):
@@ -133,7 +141,9 @@ def test_queue_keeps_the_transferable_mdp_options_and_the_box_shape(dashboard, c
     this posts each family through the panel's own endpoint and reads what reached `create_job`.
     """
     response = dashboard.client.post('/', json={
-        'molecule_id': 'DDM', 'method': 'fast_forward', 'run_type': 'aa_cg',
+        'molecule_id': 'DDM', 'method': 'fast_forward', 'run_type': 'cg',
+        'parameterization': {'kind': 'revision', 'mapping_candidate': 'ddm.map',
+                             'starting_coordinates': 'remap'},
         'nstlog': 500, 'nstenergy': 250, 'nstxtcout': 400, 'xtc_precision': 750, 'nstcomm': 50,
         'nstlist': 30, 'verlet_buffer_tolerance': 0.002, 'rlist': 1.25, 'rcoulomb': 1.0, 'rvdw': 1.0,
         'tau_t': 0.5, 'tau_p': 8.0, 'compressibility': 4.0e-5,
@@ -165,3 +175,34 @@ def test_the_queue_keeps_the_aa_constraint_set_the_form_offers(dashboard, create
 
     assert response.status_code == 201, response.data
     assert created[0]['settings']['constraints'] == 'h-bonds'
+
+
+def test_a_composition_run_names_its_own_molecule_and_never_the_atomistic_catalogue(dashboard, monkeypatch):
+    """A composition's `molecule_id` is the saved CG model, not an `molecules/` folder.
+
+    The queue used to pass every `molecule_id` through the atomistic selection, which refused a well-formed
+    composition run as a missing molecule. The run type is what validates the binding, so the coordinator keeps the
+    id on the record and lets the composition adapter judge it.
+    """
+    from dashboard.execution import tools
+    from dashboard.models import compositions
+
+    monkeypatch.setattr(tools, 'tool_path', lambda name, **kwargs: f'/injected/{name}')
+    record_ = compositions.create_composition({
+        'head_fragment_id': 'builtin:martini-sugars-v2:GLC', 'tail_recipe_id': 'linear-c1',
+        'carbon_count': 12, 'head_endpoint': {'bead': 'C'}, 'tail_endpoint': {'bead': 'C01'},
+        'linkage_profile_id': 'sugar-alkyl-ether-ddm-transfer', 'molecule_name': 'GLC-C12'})
+    # Admission and the worker are the queue's business, not this test's: the job record and its readiness are what
+    # is being read, so the device check is answered and the worker thread does nothing.
+    monkeypatch.setattr(dashboard.coordinator, 'admit_device', lambda job: None)
+    monkeypatch.setattr(dashboard.coordinator, 'run_job', lambda *args, **kwargs: None)
+
+    job = dashboard.coordinator.create_job(
+        record_['id'], None, 'a composition run', run_type='cg', composition_id=record_['id'],
+        molecule_id=record_['id'], parameterization={'kind': 'composition', 'composition_id': record_['id'],
+                                                     'molecule_id': record_['id']})
+
+    assert job['status'] == 'queued', 'the run reached the queue rather than being refused as a missing molecule'
+    assert job['run_type'] == 'cg' and job['molecule_id'] == record_['id']
+    assert job['parameterization']['kind'] == 'composition'
+    assert job['stage_plan'] == ['CG simulation', 'CG assessment']

@@ -145,12 +145,12 @@ def test_the_run_resolves_the_same_stage_plan_from_what_it_recorded(tmp_path, mo
     # second prepared run of the same beads would consume the revision the first one left.
     fitting = prepared(tmp_path / 'fitting', monkeypatch, mapping_candidate=another_mapping())
 
-    plan, _, outputs = protocol.adapter_for('aa_cg').stage_contract(manifest(consuming))
+    plan, _, outputs = protocol.adapter_for('cg').stage_contract(manifest(consuming))
     assert dict(plan)['CG parameterization'] == '3_initial_CG/use_parameterization.sh'
     assert outputs['CG parameterization'] == ('mapped.tpr', 'DDM.itp', 'parameterization_used.json')
     assert manifest(consuming)['stage_plan'] == [[name, relative] for name, relative in plan]
 
-    plan, inputs, outputs = protocol.adapter_for('aa_cg').stage_contract(manifest(fitting))
+    plan, inputs, outputs = protocol.adapter_for('cg').stage_contract(manifest(fitting))
     assert dict(plan)['CG parameterization'] == '3_initial_CG/fit_topology.sh'
     assert outputs['CG parameterization'][0] == 'mapped.tpr'
     assert '_distr.dat' in ' '.join(outputs['CG parameterization'])

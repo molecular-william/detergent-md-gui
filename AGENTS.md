@@ -1,23 +1,20 @@
 # Project guidance for coding agents
 
-Rules and facts for working here. State and open items: `docs/HANDOFF.md`; layout, persistence and procedures:
-`PROJECT_GUIDE.md`; scoring: `DDM_CALIBRATION.md`.
+Rules and facts for working here. State and open items: `docs/HANDOFF.md`; layout, persistence and procedures: `PROJECT_GUIDE.md`; scoring: `DDM_CALIBRATION.md`.
 
 ## What belongs in this file
 A line belongs here only if an agent could damage the project by not knowing it before opening another file: a rule, an
 invariant, a decision not to re-litigate, or a command. How a subsystem works goes in `PROJECT_GUIDE.md`, incidents in
-`HANDOFF.md`, scoring science in `DDM_CALIBRATION.md`.
-`packages/core/tests/unit/test_agents_contract.py` enforces the budget and headings, and that every invariant names code
-or a pointer.
+`HANDOFF.md`, scoring in `DDM_CALIBRATION.md`; `test_agents_contract.py` enforces the budget, headings and code-or-pointer invariants.
 
 ## Goal
 One local Python service orchestrating resumable GROMACS/Martini jobs -- AA to CG, protein-detergent, osmotic series --
 behind a Flask dashboard over persisted manifests and logs. Reproducible; outputs immutable; analyses derived from them.
 
 ## Where things are
-- AA to CG: `execution/adapters/aa.py` then `cg.py` (the only CG pipeline), then Fast_Forward, then GROMACS; any
-  molecule with a compatible AA topology runs it, and `molecules/DDM` is the reference example. A `kind: "cg"` molecule
-  (`molecules/aa.py`) is a pdc detergent only: never an `aa_only`/`aa_cg` source, never a bead-editor entry.
+- Runs: `aa.py` for an AA run; `cg_run.py` dispatches a CG run's parameterization to `cg.py` (mapping revision),
+  the sugar adapter (published reference) or `composition.py` (derived). A `kind: "cg"` molecule is a pdc detergent
+  only, never an AA source or bead-editor entry; a composition is a CG model with a molecule name, not a folder.
 - Protein-detergent: `pdc.py` owns the ten stages, each running a repository `pdc_*.sh`; placement science is
   `micelle/`. Osmotic: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
@@ -27,36 +24,39 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
 - Tests live in `packages/<name>/tests/{unit,integration,browser}`; `tests/harness/` holds the shared fixtures,
   plugins and the area table.
+- graphify (`.agents/skills/graphify`) builds the gitignored `graphify-out/` through `.venv/bin/graphify`; it is
+  navigation only, never a check -- use `query`/`path`/`explain`, and find callers by search and pin them with tests.
 
 ## Run contract
-- Four run types: `aa_only`, `aa_cg`, `pdc`, `osmotic`; each adapter's `STAGES` is the order, `pdc`'s ten are
-  `01_prepare` … `10_backmap`, and `pdc.LEGS`/`stage_by_name` name a leg rather than a caller counting.
+- Run types: `aa_only`, `cg`, `pdc`, `osmotic`; a `cg` run's `parameterization.kind` (revision, reference, composition)
+  picks its adapter and `STAGES`; `pdc`'s ten are `01_prepare` … `10_backmap`, named by `pdc.LEGS`/`stage_by_name`.
 - A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path/sha256 and
   `input_snapshot_sha256` digests it; `stage_scripts`/`python_modules` pin repository code and `mdp_profiles` names each
   MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
   and is recorded `skipped` from `skipped_stages`. Legacy trees are migrated by `cli/migrate_run_layout.py`.
+- `cli/migrate_run_types.py` rewrites retired types' manifests and job rows to `cg`, never their stages.
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
 
 ## Invariants
 - One content identity is one saved mapping: `save_draft` refuses a second (`DuplicateMapping`; the route answers 409
   with `existing`), and a rename is an in-place save, so it is not a duplicate.
 - A parameterization belongs to the mapping: revisions keyed by content hash, one current (`make current`), and an
-  `owners` claim list; the panel deletes it (`DELETE /api/bonded-parameterizations/<content_hash>`), the editor the
-  mapping; no flat store.
+  `owners` claim list; the panel deletes it (`DELETE /api/bonded-parameterizations/<content_hash>`); the shown
+  revision is display-only and only `Make current` changes what a run consumes.
 - A mapping's identity must not depend on how its numbers were spelled: only `candidate_identity` normalises
   (`numbers_as_values`); the `canonical_sha256` digests are byte digests on purpose.
-- New Run pins the AA source to the run a mapping's current revision names (`aa_reference.run_id`), and a null
-  readiness answer is not an unlock.
-- An AA-CG run always fits its own bonded terms (`cg.AA_CG_PROFILE`) unless its mapping carries a current revision,
-  which it then consumes and records that it did.
+- A `cg` revision run consumes the revision it names (default current) and pins its AA source to that revision's
+  `aa_reference.run_id`; a null readiness answer is not an unlock.
+- A revision records the mapped starting coordinates it built; a `cg` run defaults to them and refuses `stored` with
+  a reason when the revision has none, while `remap` re-reads the AA reference (`stage_coordinates.sh`).
 - `ff_inter` writes `funct 9`: one `phi C mult` triplet per line, eight lines per dihedral. A reader that assumes
   `funct 1` refuses the topology; one that reads each line as a dihedral measures one torsion eight times, and a writer must collapse the block's lines (`refine`).
 - `ff_assess` scores against histograms it does not make. A revision recording none still runs, and its assessment stage
   records `skipped` with that reason rather than scoring 0.00.
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses; `kinds.for_every_run()`
-  is empty because the snapshot analysis is retired, and an `aa_cg` run still owes `dihedral-fit`/`bonded-cross-check`.
+  is empty, and a `cg` revision run owes `dihedral-fit`/`bonded-cross-check`, which record `skipped` for the other kinds.
 - A pdc belt is a torus when the protein states a membrane (`radius_nm` is then a floor under the measured
   centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its
   head site.
@@ -133,7 +133,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
 - `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.
 - Phase 4 (sucrose and maltose experimental sources) is deferred, not abandoned.
-- GitNexus graph checks are not used here (removed 2026-11-03); find callers by search and pin them with tests.
+- GitNexus graph checks are gone (2026-11-03); graphify is navigation only, never a check -- find callers by search and pin them with tests.
 
 ## Verify
 ```

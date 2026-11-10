@@ -79,3 +79,72 @@ def test_the_candidate_records_the_reference_it_follows(candidate_data):
     assert candidate_data['reference']['order_basis'] == 'ring size and linkage letters'
     assert candidate_data['name'] == 'Sucrose carbohydrate paper draft'
     assert candidate_data['status'] == 'candidate-unvalidated'
+
+
+@pytest.fixture(scope='module')
+def trehalose_data():
+    structure = mapping_context.as_structure(mapping_context.build_context(MOLECULES, 'Trehalose'))
+    return candidate(structure, 'Trehalose')
+
+
+def test_a_symmetric_one_one_linkage_reproduces_the_published_bead_types(trehalose_data):
+    """Trehalose's 1,1 linkage makes both linkage carbons C1, so the published entry's choice of which ring owns
+    the bridging oxygen is the tie-break: residue 1 bead A is the glycosidic bead (SP1r) and residue 2's is the
+    connecting linker (SN6). The candidate has to reproduce that order to conform, and the site carriers take
+    their residue from their parents rather than the published column."""
+    assert trehalose_data['reference']['entry'] == 'TREH'
+    assert [bead['type'] for bead in trehalose_data['beads']] == [
+        bead['type'] for bead in reference_beads('TREH', 1)] + [
+        bead['type'] for bead in reference_beads('TREH', 2)]
+    assert reference.conform(trehalose_data, 'TREH') == []
+
+
+def _candidate(molecule):
+    structure = mapping_context.as_structure(mapping_context.build_context(MOLECULES, molecule))
+    return candidate(structure, molecule)
+
+
+@pytest.fixture(scope='module')
+def lactose_data():
+    return _candidate('Lactose')
+
+
+@pytest.fixture(scope='module')
+def glucose_data():
+    return _candidate('Glucose')
+
+
+@pytest.fixture(scope='module')
+def maltose_data():
+    return _candidate('Maltose')
+
+
+def test_lactose_identifies_and_conforms_to_its_own_lac_entry(lactose_data):
+    assert lactose_data['reference']['entry'] == 'LAC'
+    assert reference.conform(lactose_data, 'LAC') == []
+    assert reference.accepts_identity(lactose_data, 'Lactose', 'LAC') is True
+    assert reference.layout_note(lactose_data, 'LAC') is None
+
+
+def test_glucose_conforms_to_glc_although_its_layout_identifies_gal(glucose_data):
+    """Every aldohexose has the same four-bead pattern, so identification is blind to the stereochemistry that makes
+    glucose glucose and its first candidate is `GAL`. `GLC` and `GAL` are that one mapping with different published
+    lengths, so the molecule's own identity may select `GLC`; the note says the layout could not."""
+    assert glucose_data['reference']['entry'] == 'GAL'
+    assert reference.conform(glucose_data, 'GLC') == []
+    assert reference.accepts_identity(glucose_data, 'Glucose', 'GLC') is True
+    assert reference.accepts_identity(glucose_data, 'Glucose', 'SUCR') is False
+
+    note = reference.layout_note(glucose_data, 'GLC')
+    assert 'GLC' in note and 'GAL' in note
+    assert 'cannot distinguish' in note
+
+
+def test_maltose_is_not_accepted_as_lactose(maltose_data):
+    """Maltose's layout matches `LAC` and conforms to it, and the identifier cannot tell the two apart; only the
+    published-for map separates them, so a molecule the entry is not published for stays refused."""
+    assert maltose_data['reference']['entry'] == 'LAC'
+    assert reference.conform(maltose_data, 'LAC') == []
+    assert reference.accepts_identity(maltose_data, 'Maltose', 'LAC') is False
+    assert reference.accepts_identity(maltose_data, 'Maltose', 'GLC') is False
+

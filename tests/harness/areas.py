@@ -29,7 +29,8 @@ AREAS = {
         'unit/test_mapping_*', 'unit/test_draft_*', 'unit/test_screen_candidates.py', 'unit/test_ring_scale.py',
         'unit/test_ngl_beads.py', 'unit/test_cg_mapping_script.py', 'unit/test_cg_molecule_names.py',
         'unit/test_export_bundle_imports.py',
-        'integration/test_mapping_*', 'browser/test_mapping_*', 'browser/test_bead_editor_controls_browser.py',
+        'integration/test_mapping_*', 'integration/test_reference_models_api.py',
+        'browser/test_mapping_*', 'browser/test_bead_editor_controls_browser.py',
     ),
     'bonded': (
         'unit/test_bonded*', 'unit/test_bartender_fit.py', 'unit/test_dihedral_fit.py',
@@ -81,6 +82,8 @@ AREAS = {
         'integration/test_request_bodies.py',
         'integration/test_api_error_contract.py', 'integration/test_workspace_panels.py',
         'integration/test_collection_shapes.py',
+        # Named stage-setting presets: the workspace store and the routes the New run form reads.
+        'unit/test_setting_presets.py', 'integration/test_setting_presets_api.py',
         'browser/test_dashboard_browser.py', 'browser/test_lazy_loading.py', 'browser/test_plotly_lazy_browser.py',
         'browser/test_panel_loading_browser.py',
         'browser/test_workspace_navigation_browser.py',
@@ -103,7 +106,8 @@ AREAS = {
         'unit/test_agents_contract.py', 'unit/test_tool_probe.py', 'unit/test_tools.py', 'unit/test_devices.py',
         'unit/test_gpu_launchers.py', 'unit/test_mdrun_gpu*.py', 'unit/test_protocol.py', 'unit/test_profiles.py',
         'unit/test_domain_errors.py', 'unit/test_named_defaults.py', 'unit/test_migrate_digests.py',
-        'unit/test_migrate_run_layout.py', 'unit/test_mdp_writer.py', 'unit/test_martini3.py',
+        'unit/test_migrate_run_layout.py', 'unit/test_migrate_run_types.py', 'unit/test_mdp_writer.py',
+        'unit/test_martini3.py',
         'unit/test_module_layout.py', 'unit/test_module_visibility.py', 'unit/test_test_areas.py',
         'unit/test_test_modules.py',
         'integration/test_operations.py', 'integration/test_reset_workspace.py',

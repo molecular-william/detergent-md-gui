@@ -16,6 +16,7 @@ import pytest
 from dashboard.execution import run_scripts
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings
+from dashboard.models.bonded import parameterization
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
@@ -46,7 +47,33 @@ def ddm_mapping():
     return candidate
 
 
-def prepared_run(tmp_path, monkeypatch, **prepare_arguments):
+def fitted(mapping, *, coordinates=True):
+    """Save a revision the way a real fit does, optionally with the starting frame it recorded.
+
+    The frame is stored beside the revision (`parameterizations.coordinates`), which is what a `stored` CG run
+    starts from.
+    """
+    work = parameterization.work_root() / f'{parameterization.content_identity(mapping)}-{REFERENCE["source_run_id"]}'
+    if coordinates:
+        stage = work / '2_mapping'
+        stage.mkdir(parents=True, exist_ok=True)
+        (stage / 'mapped.gro').write_text('mapped beads\n 1\n    1DDM  B01    1   0.000   0.000   0.000\n'
+                                          '   1.00000   1.00000   1.00000\n')
+        (stage / 'mapped.xtc').write_bytes(b'immutable mapped trajectory for the stored-start check')
+    else:
+        (work / '3_initial_CG').mkdir(parents=True, exist_ok=True)
+    record = {'engine': 'fast-forward', 'topology': '[ moleculetype ]\nDDM 1\n\n[ atoms ]\n',
+              'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
+                          'torsion_model': 'legacy', 'torsion_scale': 1.0},
+              'ensemble': {'frames': 2, 'trajectory': '2_mapping/mapped.xtc',
+                           'source': 'the mapped AA frames'},
+              'aa_reference': {'run_id': REFERENCE['source_run_id'], 'reference_sha256': 'ab' * 32,
+                               'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
+                               'production_ns': 10.0}}
+    return parameterization.save(mapping, record, work=work)
+
+
+def prepared_run(tmp_path, monkeypatch, mapping_candidate=None, **prepare_arguments):
     """One real `prepare()` into a scratch run directory, with the two outside-world seams stubbed."""
     from dashboard.analysis.runs import references as aa_references
     monkeypatch.setattr(aa_references, 'resolve', lambda *args, **kwargs: REFERENCE)
@@ -54,8 +81,8 @@ def prepared_run(tmp_path, monkeypatch, **prepare_arguments):
     run = tmp_path / 'run'
     run.mkdir()
     cg.prepare(run, molecule_snapshot=aa_molecules.selection(MOLECULES, 'DDM'),
-               mapping_candidate=ddm_mapping(), shared_reference=REFERENCE, molecule_root=MOLECULES,
-               **prepare_arguments)
+               mapping_candidate=mapping_candidate or ddm_mapping(), shared_reference=REFERENCE,
+               molecule_root=MOLECULES, **prepare_arguments)
     return run
 
 
@@ -146,3 +173,103 @@ def test_stage_three_is_named_for_what_it_does():
     stages = dict(cg.STAGES)
     assert stages['CG parameterization'] == '3_initial_CG/fit_topology.sh'
     assert 'CG topology (ff_inter)' not in stages
+
+
+# --- the chosen revision and its starting coordinates ---------------------------------------------------------
+
+def test_a_stored_run_stages_the_revision_frame_and_stage_two_is_the_coordinates_script(tmp_path, monkeypatch):
+    """The frame the fit measured is copied into `coordinates/`; stage 2 places it instead of re-mapping AA."""
+    mapping = ddm_mapping()
+    revision = fitted(mapping)
+    run = prepared_run(tmp_path, monkeypatch, mapping_candidate=mapping,
+                       revision=revision['revision'], starting_coordinates='stored')
+
+    manifest = json.loads((run / 'manifest.json').read_text())
+    assert manifest['starting_coordinates'] == 'stored'
+    assert manifest['parameterization'] == {'kind': 'revision', 'mapping': mapping.get('file'),
+                                            'revision': revision['revision'], 'engine': 'fast-forward',
+                                            'aa_reference': revision['aa_reference']}
+    plan = dict(manifest['stage_plan'])
+    assert plan['trajectory mapping'] == '2_mapping/stage_coordinates.sh'
+    assert (run / 'coordinates/mapped.gro').is_file() and (run / 'coordinates/mapped.xtc').is_file()
+    # The chapter's declared inputs and outputs do not move: stage 3 and the analyses still read mapped.*
+    _, inputs, outputs = cg.stage_contract_for(manifest)
+    assert inputs['trajectory mapping'] == ('../../inputs/coordinates/mapped.gro',
+                                           '../../inputs/coordinates/mapped.xtc')
+    assert outputs['trajectory mapping'] == ('mapped.gro', 'mapped.xtc')
+
+
+def test_a_remap_run_keeps_the_mapping_stage(tmp_path, monkeypatch):
+    mapping = ddm_mapping()
+    revision = fitted(mapping)
+    run = prepared_run(tmp_path, monkeypatch, mapping_candidate=mapping,
+                       revision=revision['revision'], starting_coordinates='remap')
+
+    manifest = json.loads((run / 'manifest.json').read_text())
+    assert manifest['starting_coordinates'] == 'remap'
+    assert dict(manifest['stage_plan'])['trajectory mapping'] == '2_mapping/map_trajectory.sh'
+    assert not (run / 'coordinates').exists()
+
+
+def _readiness(monkeypatch, mapping, starting):
+    monkeypatch.setattr(cg, 'probe_tool', lambda executable: (True, 'injected'))
+    monkeypatch.setattr(cg.tools, 'tool_path', lambda name: f'/injected/{name}')
+    monkeypatch.setattr(cg.tools, 'declared_tool_checks', lambda: ([], []))
+    from dashboard.analysis.runs import references as aa_references
+    monkeypatch.setattr(aa_references, 'resolve', lambda *args, **kwargs: REFERENCE)
+    return cg.parameterization_readiness({
+        'molecule_id': 'DDM', 'molecule_root': MOLECULES, 'runs_root': '/runs',
+        'profile': cg.AA_CG_PROFILE, 'mapping_candidate': mapping,
+        'parameterization': {'kind': 'revision', 'starting_coordinates': starting}})
+
+
+def test_readiness_refuses_a_stored_start_a_revision_does_not_record(tmp_path, monkeypatch):
+    """An old revision has no frame; the refusal names the choice that works instead of falling back."""
+    mapping = ddm_mapping()
+    fitted(mapping, coordinates=False)
+
+    stored = _readiness(monkeypatch, mapping, 'stored')
+    assert stored['ready'] is False
+    assert any(cg.NO_STORED_COORDINATES in blocker for blocker in stored['blockers']), stored['blockers']
+
+    remapped = _readiness(monkeypatch, mapping, 'remap')
+    assert not any(cg.NO_STORED_COORDINATES in blocker for blocker in remapped['blockers'])
+
+
+# --- the two delegated kinds -----------------------------------------------------------------------------------
+
+def test_the_reference_kind_delegates_to_the_feature_adapter():
+    from dashboard.execution.adapters import cg_run
+    from detergent_validation.execution.adapters import sugar_cg
+
+    metadata = {'molecule_id': 'Sucrose', 'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'},
+                'settings': {'sugar_entry': 'SUCR'}}
+    assert cg_run._require('reference') is sugar_cg.PROTOCOL
+    contract, _, _ = cg_run.stage_contract(metadata)
+    assert [name for name, _ in contract] == ['CG simulation']
+    assert cg_run._sugar_metadata(metadata)['settings']['sugar_entry'] == 'SUCR'
+
+
+def test_the_composition_kind_delegates_to_the_composition_adapter():
+    from dashboard.execution.adapters import cg_run, composition
+
+    metadata = {'parameterization': {'kind': 'composition', 'composition_id': '0' * 16}}
+    assert cg_run._require('composition') is composition.PROTOCOL
+    contract, _, _ = cg_run.stage_contract(metadata)
+    # A composition is a real CG simulation now: one stage runs `cg_simulation.sh`, and the assessment stage skips
+    # with its reason rather than printing a score.
+    assert [name for name, _ in contract] == ['CG simulation', 'CG assessment']
+    assert dict(contract)['CG simulation'] == '4_CG_sim/cg_simulation.sh'
+    assert cg_run.normalize_settings({'cg_production_ps': 50}, 'standard',
+                                     parameterization={'kind': 'composition'})['cg_production_ps'] == 50.0
+
+
+def test_a_build_without_the_feature_refuses_the_reference_kind_by_name(monkeypatch):
+    from dashboard.execution.adapters import cg_run
+
+    monkeypatch.setattr(cg_run, '_sugar', lambda: None)
+    with pytest.raises(ValueError, match='detergent-validation'):
+        cg_run._require('reference')
+    answer = cg_run.readiness({'molecule_id': 'Sucrose',
+                               'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'}})
+    assert answer['ready'] is False and any('detergent-validation' in blocker for blocker in answer['blockers'])

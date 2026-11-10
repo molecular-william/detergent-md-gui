@@ -11,7 +11,7 @@ Phase 2 adds the other half: the code is not written into the run at all. Every 
 recorded in the manifest's `stage_scripts`, its helpers are repository modules recorded in `python_modules`, and the
 executor re-hashes both before a stage starts.
 
-These tests read the *prepared run* the run type actually writes -- `adapter_for('aa_cg').prepare(run, metadata)`, the
+These tests read the *prepared run* the run type actually writes -- `adapter_for('cg').prepare(run, metadata)`, the
 one entry the coordinator uses -- and then ask the record to verify itself, because a reference the resume path cannot
 check is a reference the run does not really have. The AA reference resolution and the tool report are stubbed: neither
 decides what is referenced.
@@ -77,7 +77,7 @@ def metadata(mapping_candidate):
     return {'detergent': 'DDM', 'profile': cg.AA_CG_PROFILE, 'settings': {'cg_production_ps': 20},
             'mapping_candidate': mapping_candidate, 'shared_reference': REFERENCE,
             'reference_root': Path('/runs'), 'molecule_snapshot': aa_molecules.selection(MOLECULES, 'DDM'),
-            'molecule_root': MOLECULES, 'run_type': 'aa_cg', 'molecule_id': 'DDM'}
+            'molecule_root': MOLECULES, 'run_type': 'cg', 'molecule_id': 'DDM'}
 
 
 def prepare(run, monkeypatch, mapping_candidate):
@@ -90,7 +90,7 @@ def prepare(run, monkeypatch, mapping_candidate):
     monkeypatch.setattr(aa_references, 'resolve', lambda *args, **kwargs: REFERENCE)
     monkeypatch.setattr(cg, 'tool_metadata', lambda: {'gmx': {'path': '/usr/bin/gmx'}})
     run.mkdir()
-    adapter_for('aa_cg').prepare(run, metadata(mapping_candidate))
+    adapter_for('cg').prepare(run, metadata(mapping_candidate))
     return run, json.loads((run / 'manifest.json').read_text())
 
 

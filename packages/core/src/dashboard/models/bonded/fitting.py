@@ -584,6 +584,7 @@ def _fast_forward(loaded, names, record, options, call, timeout) -> dict:
     call(command, stage, env={'MOLECULE_TYPE': names.residue_name, 'INITIAL_ITP': names.initial_itp,
                               'FINAL_ITP': names.final_itp,
                               'RUN_SETTING_TEMPERATURE_K': str(options['temperature_k']),
+                              'RUN_SETTING_CONSTRAINTS_THRESHOLD': str(options['constraints_threshold']),
                               'PYTHON': sys.executable,
                               'PYTHONPATH': str(paths.current().project_root)}, limit=timeout)
     final = stage / names.final_itp
@@ -649,7 +650,8 @@ def _bartender(loaded, names, record, call, timeout) -> dict:
             'temperature_source': 'BARTENDER reads the temperature from the trajectory it is given',
             'diagnostics': {'sections': {section: len(rows) for section, rows in terms.items()}},
             'notes': ['BARTENDER is driven with `-refit -owntraj` against this mapping\'s own mapped '
-                      'reference; it is never asked to generate samples of its own.'],
+                      'reference; it is never asked to generate samples of its own.',
+                      'BARTENDER fits its own bond terms, so the constraint threshold does not apply to it.'],
         },
     }
 

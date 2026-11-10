@@ -1,15 +1,13 @@
-"""`02 · CG MODEL` on the New Run panel: the parameterization this run will consume, before it starts.
+"""The New run parameterization selector: one model, grouped by mapping, chosen before the run starts.
 
-D5 of `docs/design/2026-10-16-parameterization-and-new-run.md`: a run consumes a *model*, and the panel states
-which one -- the mapping's current revision, its engine, its term count, its torsion model and the AA reference it
-was fitted against -- or, when the model carries none, that stage 3 fits it and records that it did. The card is
-read-only and cannot hold Start disabled: an absent parameterization is a state, not a blocker.
+A CG run consumes one parameterization of the selected molecule -- a saved mapping's revision, or the molecule's
+published Martini 3 reference. The selector is grouped by mapping, names each revision's engine, currency and date,
+marks a mapping that has no revision yet, and states whether the revision stored its starting frame. The readiness
+and queue payloads are read here from the requests the panel makes, because the nested `parameterization` object is
+the contract the run type validates.
 
-The two states arrive from `GET /api/readiness`'s `parameterization` key, so they are stubbed here with that
-route's own shape (`dashboard/execution/adapters/cg.py:_parameterization_state`) rather than derived: what this file
-judges is what the panel does with the answer, and a real record would make the test depend on the fitting pipeline
-having run. The mapping list is stubbed for the same reason -- a fixture workspace holds no saved candidate -- and
-because the test needs two mappings to watch the card follow a change.
+The stores are stubbed with the routes' own shapes: a fixture workspace holds no fitted revision, and what this file
+judges is what the panel does with the answer, not the fitting pipeline.
 """
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,334 +15,188 @@ from playwright.sync_api import expect
 
 from tests.harness import browser
 
-#: Two saved candidates, in the shape `/api/mappings?view=summary` answers with. The files are what the picker's
-#: option values carry, and therefore what the readiness answer is keyed by here.
-#: `can_reuse` is not decoration: the picker offers only a mapping a run can reuse, which is the verdict
-#: `models/molecules/draft.py` refuses on. A stub without it would list nothing and this file's own precondition --
-#: two mappings on offer -- would wait forever.
 CANDIDATES = [
-    {'name': 'DDM · ring mapping', 'file': 'ddm-ring.json', 'validation': {'issues': [], 'can_reuse': True}},
-    {'name': 'DDM · tail mapping', 'file': 'ddm-tail.json', 'validation': {'issues': [], 'can_reuse': True}},
+    {'name': 'DDM · ring mapping', 'file': 'ddm-ring.json', 'mapping_hash': 'a' * 64,
+     'mapping_content_hash': 'b' * 64, 'validation': {'issues': [], 'can_reuse': True}},
+    {'name': 'DDM · tail mapping', 'file': 'ddm-tail.json', 'mapping_hash': 'c' * 64,
+     'mapping_content_hash': 'd' * 64, 'validation': {'issues': [], 'can_reuse': True}},
 ]
 
-#: A model with a current revision, with every field the card is asked to state. `engine_label` is the label
-#: `models/bonded/parameterization.py:ENGINE_LABELS` publishes, not one this test invents.
-PARAMETERIZED = {
-    'parameterized': True,
-    'revision': 3,
-    'engine': 'fast-forward',
-    'engine_label': 'Fast-Forward fit (ff_inter)',
-    'terms': 34,
-    'torsion_model': 'circular-harmonic',
-    'checks': ['dihedral-fit', 'bonded-cross-check'],
-    'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32, 'molecule_identity': 'DDM',
-                     'temperature_k': 300.0, 'production_ns': 10.0},
-    'revision_sha256': 'cd' * 32,
-    'statement': 'this model is parameterized -- fitted with Fast-Forward fit (ff_inter) against a54ac8f64710, '
-                 'revision 3, hash cdcbcbcbcbcb, torsion model circular-harmonic; the run uses it and does not '
-                 're-fit',
+RING = {
+    'summary': {'revision': 2, 'parameterized': True},
+    'revisions': [
+        {'revision': 2, 'engine': 'fast-forward', 'created_at': '2026-11-09T10:00:00+00:00',
+         'coordinates': {'directory': 'records/x/2', 'files': [{'name': 'mapped.gro'}, {'name': 'mapped.xtc'}]},
+         'aa_reference': {'run_id': '5a41c02e7d13', 'temperature_k': 300.0, 'production_ns': 10.0}},
+        {'revision': 1, 'engine': 'bartender', 'created_at': '2026-11-05T10:00:00+00:00',
+         'aa_reference': {'run_id': '5a41c02e7d13', 'temperature_k': 300.0, 'production_ns': 10.0}},
+    ],
+    'jobs': [],
 }
+TAIL = {'summary': {'revision': 0, 'parameterized': False}, 'revisions': [], 'jobs': []}
 
-#: The other honest state: no revision, and the sentence the run type keeps beside the code that fits in stage 3.
-#: `terms` is `None` and not `0` -- a count of zero would read as a parameterization of nothing.
-UNPARAMETERIZED = {
-    'parameterized': False,
-    'revision': None,
-    'engine': None,
-    'engine_label': None,
-    'terms': None,
-    'torsion_model': None,
-    'checks': [],
-    'aa_reference': None,
-    'revision_sha256': None,
-    'statement': 'this model carries no parameterization -- the run will fit it in stage 3 and record that it did',
-}
-
-#: The other mapping's revision, so a change of picker is visible as a change of number rather than as a re-render
-#: the assertions cannot tell from the first answer.
-PARAMETERIZED_TAIL = {**PARAMETERIZED, 'revision': 7, 'terms': 12, 'torsion_model': 'legacy',
-                      'engine': 'bartender', 'engine_label': 'BARTENDER fit (-refit -owntraj)'}
+DEFAULT_VALUES = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000, 'temperature_k': 300,
+                  'pressure_bar': 1, 'output_interval_ps': 10, 'box_nm': 4, 'aa_seed': 1,
+                  'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_gpu': 0, 'mdrun_cpt': 10,
+                  'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'constraints': 'all-bonds',
+                  'force_field': 'charmm36-jul2022', 'cg_equil_ps': 10, 'cg_production_ps': 10000, 'cg_seed': 7}
 
 
-#: The AA reference `PARAMETERIZED` was fitted against, in the shape `GET /api/references` answers with -- its own
-#: run record, settings included, because the settings the panel locks are that run's.
-REFERENCE = {'id': 'a54ac8f64710', 'label': 'DDM AA reference', 'created': '2026-10-05T04:29:56+00:00',
-             'run_type': 'aa_only', 'reference_eligible': True, 'scientifically_validated': False,
-             'frames': 20001, 'protocol_version': 3,
-             'settings': {'aa_nvt_ps': 100.0, 'aa_npt_ps': 1000.0, 'aa_production_ps': 200000.0, 'aa_seed': 20260928,
-                          'temperature_k': 303.15, 'pressure_bar': 1.0, 'box_nm': 4.0, 'box_shape': 'cubic',
-                          'output_interval_ps': 10.0, 'mdrun_ntomp': 8.0, 'mdrun_ranks': 1.0,
-                          'mdrun_nb': 'auto', 'mdrun_pme': 'auto',
-                          'force_field': 'charmm36-feb2026_cgenff-4.6'}}
-
-
-def stub(page, states, failing=(), references=(REFERENCE,)):
-    """Serve the mapping list and answer readiness per mapping, recording every question asked.
-
-    `page.route` also sees the document request, so both patterns are anchored on the endpoint's own path -- a stub
-    on the page URL would swallow the page and leave every locator waiting on its own JSON.
-
-    `failing` names mappings whose readiness the server cannot answer: the panel's own error branch, and the state
-    in which the card has no answer for the mapping on the picker.
-    """
-    asked = []
-
-    def readiness(route):
+def stub(page, submissions=None):
+    """Serve the mapping list, each mapping's record, and readiness; record the queue payload."""
+    def defaults(route):
         query = parse_qs(urlsplit(route.request.url).query)
-        mapping = (query.get('mapping_candidate') or [''])[0]
-        asked.append(mapping)
-        if mapping in failing:
-            route.fulfill(status=500, json={'error': 'readiness could not be computed for this mapping'})
-            return
-        route.fulfill(json={'ready': True, 'checks': [], 'blockers': [],
-                            'parameterization': states.get(mapping, UNPARAMETERIZED)})
+        values = dict(DEFAULT_VALUES)
+        if (query.get('parameterization_kind') or [''])[0] == 'reference':
+            values = {'sugar_entry': 'SUCR', 'cg_equil_ps': 5000.0, 'cg_production_ps': 10000.0,
+                      'temperature_k': 310.0, 'cg_seed': 20260911, 'output_interval_ps': 10.0,
+                      'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_gpu': 0, 'mdrun_cpt': 10,
+                      'mdrun_nb': 'auto', 'mdrun_pme': 'auto'}
+        route.fulfill(json={'values': values, 'sources': {'stub': 'stub'}, 'profile': 'stub', 'force_fields': []})
 
-    page.route('**/api/readiness?*', readiness)
-    page.route('**/api/mappings?view=summary*',
+    def records(route):
+        query = parse_qs(urlsplit(route.request.url).query)
+        content = (query.get('content_hash') or [''])[0]
+        route.fulfill(json=RING if content == CANDIDATES[0]['mapping_content_hash'] else TAIL)
+
+    def reference(route):
+        # DDM has no published Martini 3 entry, which is an answer rather than a failure.
+        route.fulfill(status=404, json={'error': 'DDM has no published Martini 3 sugar entry'})
+
+    page.route('**/api/mappings?view=summary&molecule_id=*',
                lambda route: route.fulfill(json={'candidates': CANDIDATES}))
-    page.route('**/api/references?*', lambda route: route.fulfill(json={'references': list(references)}))
-    return asked
+    page.route('**/api/bonded-parameterizations?*', records)
+    page.route('**/api/mappings/reference/*', reference)
+    page.route('**/api/defaults?*', defaults)
+    page.route('**/api/setting-presets?*', lambda route: route.fulfill(json={'presets': [], 'default': None}))
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    if submissions is not None:
+        def submit(route):
+            submissions.append(route.request.post_data_json)
+            route.fulfill(status=201, json={'id': '222222222222'})
+        page.route('**/', submit)
 
 
-def open_panel(page, live_page):
-    """The New Run panel of the validation workspace, mounted and its mapping list filled."""
+def open_panel(page, base_url):
     def ready(page):
-        # Two mappings on offer is this file's precondition, and the molecule has to be a real one before readiness is
-        # asked at all (`checkReadiness` returns early with no molecule record).
+        page.wait_for_function("() => document.querySelector('[name=molecule_id]').value === 'DDM'", timeout=30000)
         page.wait_for_function(
-            "() => document.querySelectorAll('[name=mapping_candidate] option').length > 2", timeout=30000)
-        page.wait_for_function(
-            "() => document.querySelector('[name=molecule_id]').value === 'DDM'", timeout=30000)
+            "() => document.querySelectorAll('#run-parameterization option').length >= 3", timeout=30000)
 
-    return browser.open_panel(page, live_page.base_url, '/detergent-validation/new-run', ready=ready)
+    return browser.open_panel(page, base_url, '/detergent-validation/new-run', ready=ready)
 
 
-def card(page):
-    return page.locator('.cg-model')
+def options(page):
+    return page.evaluate("""Array.from(document.querySelectorAll('#run-parameterization option')).map(option => ({
+        value: option.value, text: option.textContent, kind: option.dataset.kind,
+        mapping: option.dataset.mapping, revision: option.dataset.revision,
+        coordinates: option.dataset.coordinates}))""")
 
 
-def test_the_card_states_the_revision_engine_terms_torsion_and_aa_reference(dashboard, live_page):
-    """A parameterized model: the run's terms are named, with the link into the panel that produced them."""
+def test_the_selector_is_grouped_by_mapping_and_names_each_revision(dashboard, live_page):
+    """A mapping's revisions read as history: number, currency, engine and date, and the draft when there is none."""
     page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED})
-    open_panel(page, live_page)
+    stub(page)
+    open_panel(page, live_page.base_url)
 
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-
-    expect(card(page)).to_be_visible()
-    expect(card(page)).to_contain_text('02 · CG MODEL')
-    expect(card(page).locator('[data-cg-model=name]')).to_contain_text('DDM · ring mapping')
-    expect(card(page).locator('[data-cg-model=parameterization]')).to_have_text('revision 3 · 34 bonded terms')
-    expect(card(page).locator('[data-cg-model=engine]')).to_have_text('Fast-Forward fit (ff_inter)')
-    expect(card(page).locator('[data-cg-model=torsion]')).to_have_text('circular-harmonic')
-    expect(card(page).locator('[data-cg-model=reference]')).to_have_text('a54ac8f64710 · 300 K · 10 ns')
-    # The review's own row reads the same answer, so the panel cannot say two things about one model.
-    expect(page.locator('#run-bonded-summary')).to_have_text('Used as-is · this run does not re-fit')
-    # The door into the panel, addressed by the panel's own route and its mapping by name. The route is the
-    # sub-tab's href, which `sections.py` writes -- not a URL this module keeps for itself.
-    expect(card(page).locator('[data-cg-model=open]')).to_have_attribute(
-        'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-ring.json')
-    expect(card(page).locator('[data-cg-model=open]')).to_have_text('Open in CG Bond Interactions')
+    groups = page.evaluate("Array.from(document.querySelectorAll('#run-parameterization optgroup')).map(g => g.label)")
+    assert groups == ['DDM · ring mapping', 'DDM · tail mapping'], groups
+    listed = options(page)
+    assert [item['text'] for item in listed] == [
+        'DDM · ring mapping · Revision 2 · current · fast-forward · 2026-11-09',
+        'DDM · ring mapping · Revision 1 · earlier · bartender · 2026-11-05',
+        'Draft mapping connectivity (no parameterization)',
+    ], listed
+    assert [item['coordinates'] for item in listed] == ['stored', 'none', 'none']
+    # The first mapping's current revision is what opens, and the review names it.
+    expect(page.locator('#run-parameterization')).to_have_value('revision:ddm-ring.json:2')
+    expect(page.locator('#run-parameterization-summary')).to_contain_text('Revision 2 · current · fast-forward')
+    expect(page.locator('#run-aa-summary')).to_have_text('5a41c02e7d13 · 300 K · 10 ns')
+    expect(page.locator('#run-coordinates-summary')).to_have_text('stored · revision 2')
+    expect(page.locator('#starting-coordinates-field')).to_be_visible()
     assert errors == []
 
 
-def test_a_model_without_a_parameterization_says_stage_three_fits_it_and_start_is_not_blocked(dashboard, live_page):
-    """The fallback: the run still starts, and the card says what it will do rather than what it lacks."""
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': UNPARAMETERIZED})
-    open_panel(page, live_page)
+def test_a_revision_is_posted_nested_and_the_aa_source_is_read_only(dashboard, live_page):
+    """The queue body carries `parameterization`, never a top-level mapping, method or sugar entry."""
+    page = live_page.page
+    submissions = []
+    stub(page, submissions)
+    open_panel(page, live_page.base_url)
 
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-
-    expect(card(page)).to_be_visible()
-    expect(card(page).locator('[data-cg-model=statement]')).to_contain_text(
-        'this model carries no parameterization')
-    expect(card(page).locator('[data-cg-model=statement]')).to_contain_text(
-        'the run will fit it in stage 3 and record that it did')
-    # No provenance is claimed when there is none: the rows are the parameterized state's, and they are gone.
-    expect(card(page).locator('[data-cg-model=terms]')).to_be_hidden()
-    expect(card(page).locator('[data-cg-model=parameterization]')).to_be_hidden()
-    expect(page.locator('#run-bonded-summary')).to_have_text('Stage 3 fits it during the run')
-    # The one assertion this state exists for: an absent parameterization is not a blocker.
-    expect(page.locator('#start-run')).to_be_enabled()
-    expect(card(page).locator('[data-cg-model=open]')).to_have_text(
-        'Parameterize first in CG Bond Interactions…')
-    assert errors == []
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert len(submissions) == 1, submissions
+    body = submissions[0]
+    assert body['run_type'] == 'cg' and body['molecule_id'] == 'DDM'
+    assert body['parameterization'] == {'kind': 'revision', 'mapping_candidate': 'ddm-ring.json',
+                                        'revision': 2, 'starting_coordinates': 'stored'}, body['parameterization']
+    assert 'sugar_entry' not in str(body['parameterization'])
+    for retired in ('method', 'mapping_candidate', 'reference_run_id', 'sugar_entry', 'profile'):
+        assert retired not in body, f'{retired} is still sent: {body}'
+    # The AA half's settings still travel, because the adapter mirrors them into the CG dialect it records.
+    assert body['aa_nvt_ps'] == '100' and body['cg_production_ps'] == '10000'
+    assert live_page.errors == []
 
 
-def test_changing_the_mapping_asks_readiness_again_and_the_card_follows_the_answer(dashboard, live_page):
-    """The card is the answer's, not a copy taken once: a new mapping is a new question and a new model."""
-    page, errors = live_page
-    asked = stub(page, {'ddm-ring.json': PARAMETERIZED, 'ddm-tail.json': PARAMETERIZED_TAIL})
-    open_panel(page, live_page)
+def test_an_earlier_revision_without_a_stored_frame_chooses_re_map(dashboard, live_page):
+    """The stored default is annotated and withdrawn when the revision records no frame; the run re-maps instead."""
+    page = live_page.page
+    submissions = []
+    stub(page, submissions)
+    open_panel(page, live_page.base_url)
 
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-    expect(card(page).locator('[data-cg-model=parameterization]')).to_have_text('revision 3 · 34 bonded terms')
+    page.locator('#run-parameterization').select_option('revision:ddm-ring.json:1')
+    expect(page.locator('#run-parameterization-summary')).to_contain_text('Revision 1 · earlier · bartender')
+    expect(page.locator('#run-coordinates-summary')).to_have_text('re-map the AA reference')
+    stored = page.locator('#run-parameterization option[value="revision:ddm-ring.json:1"]')
+    assert stored.get_attribute('data-coordinates') == 'none'
+    expect(page.locator('#starting-coordinates')).to_have_value('remap')
+    stored_option = page.locator('#starting-coordinates option[value=stored]')
+    expect(stored_option).to_have_text('Stored with this parameterization · no coordinates recorded')
+    expect(page.locator('#starting-coordinates-note')).to_contain_text(
+        'choose Re-map the AA reference')
 
-    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
-    expect(card(page).locator('[data-cg-model=name]')).to_contain_text('DDM · tail mapping')
-    expect(card(page).locator('[data-cg-model=parameterization]')).to_have_text('revision 7 · 12 bonded terms')
-    expect(card(page).locator('[data-cg-model=engine]')).to_have_text('BARTENDER fit (-refit -owntraj)')
-    expect(card(page).locator('[data-cg-model=torsion]')).to_have_text('legacy')
-    expect(card(page).locator('[data-cg-model=open]')).to_have_attribute(
-        'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
-
-    # Both mappings were asked about, the second after the first: the card follows the answer to the question the
-    # picker is asking. What this ordering does not prove is that the card was *empty* while the second answer was
-    # in flight -- that is its own test below, where the second answer never arrives.
-    assert 'ddm-ring.json' in asked and 'ddm-tail.json' in asked, asked
-    assert asked.index('ddm-ring.json') < asked.index('ddm-tail.json'), asked
-    assert errors == []
-
-
-def test_no_answer_for_the_new_mapping_leaves_no_previous_revision_beside_its_name(dashboard, live_page):
-    """A change of picker empties the card before the question is asked, and an error leaves it empty.
-
-    The failure this guards is the one a card keyed by nothing would make: the new mapping's name over the old
-    mapping's revision, engine and torsion model, printed for as long as the readiness answer takes -- or forever,
-    when it never arrives. `#run-bonded-summary` reads the same answer, so it must not claim the old model either.
-    """
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED}, failing={'ddm-tail.json'})
-    open_panel(page, live_page)
-
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-    expect(card(page).locator('[data-cg-model=parameterization]')).to_have_text('revision 3 · 34 bonded terms')
-    expect(page.locator('#run-bonded-summary')).to_have_text('Used as-is · this run does not re-fit')
-
-    # The second mapping's readiness fails. There is no answer for it, so there is nothing to print beside its name.
-    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
-    expect(card(page)).to_be_hidden()
-    # Hidden is not enough: the rows are read out of the DOM by anything that asks, so nothing of revision 3 may
-    # survive the change of mapping.
-    assert 'revision 3' not in (card(page).text_content() or '')
-    assert 'DDM · ring mapping' not in (card(page).text_content() or '')
-    expect(page.locator('#run-bonded-summary')).not_to_have_text('Used as-is · this run does not re-fit')
-
-    # A run-type toggle re-renders from what the panel holds: with no answer for this mapping, that is nothing.
-    page.locator('#run-type').select_option('aa_only')
-    page.locator('#run-type').select_option('aa_cg')
-    expect(card(page)).to_be_hidden()
-    assert 'revision 3' not in (card(page).text_content() or '')
-    expect(page.locator('#run-bonded-summary')).not_to_have_text('Used as-is · this run does not re-fit')
-    assert errors == []
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert submissions[0]['parameterization']['revision'] == 1, submissions
+    assert submissions[0]['parameterization']['starting_coordinates'] == 'remap', submissions
+    assert live_page.errors == []
 
 
-def test_the_link_opens_cg_bond_interactions_on_the_mapping_the_card_names(dashboard, live_page):
-    """The door preselects the mapping it describes -- the second candidate, not the first in the panel's list.
+def test_a_mapping_without_a_revision_is_offered_as_a_draft(dashboard, live_page):
+    """The draft states the mapping's connectivity and carries no revision; it is a state, not a silent fit."""
+    page = live_page.page
+    submissions = []
+    stub(page, submissions)
+    open_panel(page, live_page.base_url)
 
-    The two panels are one document (`tabs.js` switches them in place), so the address alone is not the door: the
-    picker belongs to the panel and is filled by `mappings.js` after the switch. Following the link must leave the
-    picker on the mapping the card names, and a cold load of the same address must land there too.
-    """
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED, 'ddm-tail.json': PARAMETERIZED_TAIL})
-    open_panel(page, live_page)
+    page.locator('#run-parameterization').select_option('draft:ddm-tail.json')
+    expect(page.locator('#run-parameterization-summary')).to_have_text(
+        'Draft mapping connectivity (no parameterization)')
+    expect(page.locator('#run-aa-summary')).to_have_text('no parameterization selected')
+    expect(page.locator('#starting-coordinates-field')).to_be_hidden()
 
-    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
-    door = card(page).locator('[data-cg-model=open]')
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    payload = submissions[0]['parameterization']
+    assert payload['kind'] == 'revision' and payload['mapping_candidate'] == 'ddm-tail.json'
+    assert payload['revision'] is None
+    assert live_page.errors == []
+
+
+def test_the_door_opens_cg_bond_interactions_on_the_selected_mapping(dashboard, live_page):
+    """The door preselects the model the selector names through the hidden bridge the bonded panel keeps for it."""
+    page = live_page.page
+    stub(page)
+    open_panel(page, live_page.base_url)
+
+    page.locator('#run-parameterization').select_option('revision:ddm-ring.json:2')
+    door = page.locator('#open-bonded')
     expect(door).to_have_attribute(
-        'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
-
+        'href', '/detergent-validation/bond-interactions?mapping_candidate=ddm-ring.json')
     door.click()
     expect(page.locator('#bonded')).to_be_visible()
-    expect(page.locator('.bonded-mapping-select')).to_have_value('ddm-tail.json')
-    assert page.url.endswith('/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json'), page.url
-
-    # A copied address or a link opened in a new tab is the same door.
-    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions?mapping_candidate=ddm-tail.json')
-    expect(page.locator('.bonded-mapping-select')).to_have_value('ddm-tail.json', timeout=30000)
-    assert errors == []
-
-
-def test_the_card_belongs_to_the_cg_branch_and_carries_nothing_without_a_mapping(dashboard, live_page):
-    """An AA-only run has no model to describe, and an empty picker has no parameterization to state."""
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED})
-    open_panel(page, live_page)
-
-    # Nothing chosen yet: the card exists (it is built under the picker) and says nothing.
-    expect(card(page)).to_be_hidden()
-
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-    expect(card(page)).to_be_visible()
-
-    page.locator('#run-type').select_option('aa_only')
-    expect(card(page)).to_be_hidden()
-    assert errors == []
-
-
-def test_the_card_fits_a_narrow_window_without_sideways_scroll(dashboard, live_page):
-    """It sits in a card inside a card on a two-column form, so it is measured at the width that has one column.
-
-    The stylesheet is not this module's to change, and a block added to a card that already holds a picker, a hint
-    and a grid is exactly where a horizontal scrollbar appears unnoticed -- `test_lazy_loading.py` only measures the
-    panels it names.
-    """
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED})
-    open_panel(page, live_page)
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-    expect(card(page)).to_be_visible()
-
-    page.set_viewport_size({'width': 390, 'height': 844})
-    expect(card(page)).to_be_visible()
-    # The card's own right edge, against the viewport: a text node that will not break is the usual cause, and
-    # `overflow-wrap:anywhere` on `#run-form .hint` is the rule that has to reach these lines.
-    box = card(page).bounding_box()
-    assert box['x'] >= 0 and box['x'] + box['width'] <= 390, box
-    browser.assert_no_horizontal_scroll(page)
-    assert errors == []
-
-
-def test_a_parameterized_mapping_pins_the_aa_source_and_locks_the_aa_settings(dashboard, live_page):
-    """A fit belongs to one ensemble, so the model chooses its source: the run it was fitted against.
-
-    The revision records `aa_reference.run_id`, and the bonded terms are only as good as that run is. A picker that
-    could point elsewhere would run the model outside the ensemble it was fitted to, and nothing on the panel would say
-    so. The pin also locks the AA half's settings to that run's own record -- a run consuming a reference does not
-    re-run its AA half at new durations -- while the CG settings, which this run does choose, stay editable.
-    """
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED})
-    open_panel(page, live_page)
-
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-
-    source = page.locator('[name=reference_run_id]')
-    expect(source).to_have_value('a54ac8f64710')
-    expect(source).to_be_disabled()
-    expect(page.locator('#reference-help')).to_contain_text('fitted against')
-    expect(page.locator('#reference-help')).to_contain_text('Locked to DDM AA reference')
-    # The AA half's own numbers are the reference's, and they cannot be edited: they already happened.
-    production = page.locator('[name=aa_production_ps]')
-    expect(production).to_have_value('200000')
-    expect(production).to_be_disabled()
-    expect(page.locator('[name=aa_nvt_ps]')).to_have_value('100')
-    expect(page.locator('[name=temperature_k]')).to_have_value('303.15')
-    expect(page.locator('[name=aa_seed]')).to_be_disabled()
-    # The CG half is this run's own choice, so its durations stay editable.
-    expect(page.locator('[name=cg_production_ps]')).to_be_enabled()
-    # Deleting the run the model rests on is not offered from here.
-    expect(page.locator('#delete-reference')).to_be_hidden()
-    assert errors == []
-
-
-def test_an_unparameterized_mapping_leaves_the_source_free_and_the_settings_editable(dashboard, live_page):
-    """The other state: stage 3 fits, the AA half is this run's, and nothing is pinned to the previous model."""
-    page, errors = live_page
-    stub(page, {'ddm-ring.json': PARAMETERIZED, 'ddm-tail.json': UNPARAMETERIZED})
-    open_panel(page, live_page)
-
-    page.locator('[name=mapping_candidate]').select_option('ddm-ring.json')
-    expect(page.locator('[name=reference_run_id]')).to_be_disabled()
-
-    page.locator('[name=mapping_candidate]').select_option('ddm-tail.json')
-
-    source = page.locator('[name=reference_run_id]')
-    expect(source).to_be_enabled()
-    expect(source).to_have_value('')
-    expect(page.locator('#reference-help')).to_contain_text('A new AA simulation runs first')
-    expect(page.locator('[name=aa_production_ps]')).to_be_enabled()
-    expect(page.locator('[name=temperature_k]')).to_be_enabled()
-    assert errors == []
+    expect(page.locator('#bonded-mapping-select')).to_have_value('ddm-ring.json')
+    assert page.url.endswith('/detergent-validation/bond-interactions?mapping_candidate=ddm-ring.json'), page.url
+    assert live_page.errors == []

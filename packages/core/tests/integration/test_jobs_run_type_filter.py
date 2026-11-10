@@ -41,7 +41,7 @@ def _seed(owner):
     """
     _job(owner, 'aaa000000001', 'aa_only', created='2026-10-01T00:00:01+00:00', label='oldest')
     _job(owner, 'bbb000000001', 'osmotic', created='2026-10-01T00:00:02+00:00', label='osmotic first')
-    _job(owner, 'ccc000000001', 'aa_cg', status='failed', created='2026-10-01T00:00:03+00:00')
+    _job(owner, 'ccc000000001', 'cg', status='failed', created='2026-10-01T00:00:03+00:00')
     _job(owner, 'ddd000000001', 'osmotic', created='2026-10-01T00:00:04+00:00', label='osmotic second')
     _job(owner, 'eee000000001', None, created='2026-10-01T00:00:05+00:00', label='legacy, no run type')
 
@@ -49,7 +49,7 @@ def _seed(owner):
 def _more(owner):
     """Two runs of types and methods the first seed has none of, for the repeated-value cases."""
     _job(owner, 'ggg000000001', 'pdc', created='2026-10-01T00:00:07+00:00', det='LMNG', method='gromacs')
-    _job(owner, 'hhh000000001', 'aa_cg', created='2026-10-01T00:00:08+00:00', det='LMNG', method='bartender')
+    _job(owner, 'hhh000000001', 'cg', created='2026-10-01T00:00:08+00:00', det='LMNG', method='bartender')
 
 
 def _get(dashboard, query=''):
@@ -99,11 +99,11 @@ def test_paging_walks_the_narrowed_sequence(dashboard):
 
 
 def test_a_record_with_no_run_type_is_the_historical_combined_job(dashboard):
-    """`protocol.run_type_of` reads an absent run type as `aa_cg`, and the filter agrees rather than reporting it
-    as a job of no type that no filter can reach."""
+    """An absent run type is the combined job the migration rewrites to `cg`, and the filter agrees with that
+    default rather than reporting it as a job of no type that no filter can reach."""
     _seed(dashboard.coordinator)
 
-    body = _get(dashboard, '?limit=100&run_type=aa_cg').get_json()
+    body = _get(dashboard, '?limit=100&run_type=cg').get_json()
 
     assert [job['id'] for job in body['jobs']] == ['eee000000001', 'ccc000000001']
     assert body['total'] == 2
@@ -112,7 +112,7 @@ def test_a_record_with_no_run_type_is_the_historical_combined_job(dashboard):
 def test_the_run_type_and_the_status_filters_compose(dashboard):
     _seed(dashboard.coordinator)
 
-    body = _get(dashboard, '?limit=100&run_type=aa_cg&status=failed').get_json()
+    body = _get(dashboard, '?limit=100&run_type=cg&status=failed').get_json()
 
     assert [job['id'] for job in body['jobs']] == ['ccc000000001']
     assert body['total'] == 1
@@ -126,7 +126,8 @@ def test_a_run_type_the_registry_does_not_have_is_refused_and_the_refusal_names_
 
     assert response.status_code == 400, response.get_data(as_text=True)
     text = response.get_data(as_text=True)
-    assert 'Unknown run type' in text and 'osmotic' in text and 'aa_cg' in text, text
+    assert 'Unknown run type' in text and 'osmotic' in text and 'cg' in text, text
+    assert 'aa_cg' not in text, 'a retired type is not offered as a filter'
 
 
 def test_the_etag_belongs_to_the_answer_the_caller_asked_for(dashboard):
@@ -164,15 +165,15 @@ def test_two_run_types_return_either_and_the_total_is_the_narrowed_list(dashboar
     owner = dashboard.coordinator
     _seed(owner); _more(owner)
 
-    body = _get(dashboard, '?limit=100&run_type=aa_cg&run_type=pdc').get_json()
+    body = _get(dashboard, '?limit=100&run_type=cg&run_type=pdc').get_json()
 
     assert [job['id'] for job in body['jobs']] == ['hhh000000001', 'ggg000000001', 'eee000000001',
-                                                   'ccc000000001'], 'newest first, legacy aa_cg included'
+                                                   'ccc000000001'], 'newest first, the legacy no-type record included'
     assert body['total'] == 4
     # And it is the unfiltered list narrowed, in the same order the table would have shown.
     everything = _get(dashboard, '?limit=100').get_json()['jobs']
     assert [job['id'] for job in body['jobs']] == \
-           [job['id'] for job in everything if (job.get('run_type') or 'aa_cg') in ('aa_cg', 'pdc')]
+           [job['id'] for job in everything if (job.get('run_type') or 'cg') in ('cg', 'pdc')]
 
 
 def test_the_groups_are_an_and_and_the_values_inside_one_are_an_or(dashboard):
@@ -192,7 +193,7 @@ def test_two_statuses_are_an_or_and_compose_with_a_run_type(dashboard):
     body = _get(dashboard, '?limit=100&status=completed&status=failed').get_json()
     assert body['total'] == 5, 'every seeded run is completed or failed'
 
-    narrower = _get(dashboard, '?limit=100&run_type=aa_cg&status=completed&status=failed').get_json()
+    narrower = _get(dashboard, '?limit=100&run_type=cg&status=completed&status=failed').get_json()
     assert [job['id'] for job in narrower['jobs']] == ['eee000000001', 'ccc000000001']
     assert narrower['total'] == 2
 
@@ -241,11 +242,10 @@ def test_the_filter_vocabulary_is_the_registered_types_and_the_methods_on_disk(d
     assert [row['name'] for row in body['types']] == list(protocol.RUN_TYPES)
     labels = {row['name']: row['label'] for row in body['types']}
     assert labels['aa_only'] == 'AA simulation'
-    assert labels['aa_cg'] == 'AA \u2192 CG fitting'
-    assert labels['cg_composition'] == 'CG composition'
+    assert labels['cg'] == 'CG simulation'
     # A feature labels its own; the engine names neither its type nor its words.
     assert labels['osmotic'] == 'Osmotic series'
-    assert labels['sugar_cg'] == 'Sugar, CG only'
+    assert not {'aa_cg', 'sugar_cg', 'cg_composition'} & set(labels), 'a retired type is not offered'
     assert labels.get('pdc') == 'Protein-detergent'
 
     methods = body['methods']

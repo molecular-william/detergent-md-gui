@@ -67,13 +67,14 @@ def test_the_two_kinds_with_a_payload_are_the_features_own():
     assert set(_validator_payload_keys()) == {'carbohydrate-validation', 'mapping-consistency'}
 
 
-def test_default_for_aa_cg_is_the_two_checks_that_re_derive_the_fit():
+def test_default_for_cg_is_the_two_checks_that_re_derive_the_fit():
     """D5: both read stages 2 and 3 only, so they run with every AA-CG run as analyses rather than inside a stage."""
-    assert set(kinds.default_for('aa_cg')) == {'bonded-cross-check', 'dihedral-fit'}
-    assert kinds.default_for('aa_cg') == [name for name, row in kinds.TABLE.items()
-                                          if 'aa_cg' in row.default_for_run_types]
+    assert set(kinds.default_for('cg')) == {'bonded-cross-check', 'dihedral-fit', 'ff-interactions'}
+    assert kinds.default_for('cg') == [name for name, row in kinds.TABLE.items()
+                                       if 'cg' in row.default_for_run_types]
+    for name in ('bonded-cross-check', 'dihedral-fit', 'ff-interactions'):
+        assert kinds.TABLE[name].default_for_run_types == ('cg',), name
     for name in ('bonded-cross-check', 'dihedral-fit'):
-        assert kinds.TABLE[name].default_for_run_types == ('aa_cg',), name
         assert all(source.startswith(('2_mapping/', '3_initial_CG/'))
                    for source in kinds.TABLE[name].sources), f'{name}: a source outside stages 2 and 3'
 
@@ -83,7 +84,7 @@ def test_the_kind_that_needs_a_cg_trajectory_defaults_to_no_run_type():
     validation = kinds.TABLE['carbohydrate-validation']
     assert any(source.startswith('4_CG_sim/') for source in validation.sources)
     assert validation.default_for_run_types == ()
-    assert 'carbohydrate-validation' not in kinds.default_for('aa_cg')
+    assert 'carbohydrate-validation' not in kinds.default_for('cg')
 
 
 def test_a_kind_that_runs_for_every_run_is_not_also_a_run_type_default():
@@ -96,3 +97,30 @@ def test_a_run_type_nobody_defaulted_a_kind_for_gets_an_empty_list():
     """Every run type but `aa_cg`: the ones that consume a pre-parameterized molecule fit nothing to check."""
     for run_type in ('aa_only', 'composition', 'pdc', 'not-a-run-type'):
         assert kinds.default_for(run_type) == [], run_type
+
+
+def test_the_mapped_trajectory_kinds_skip_a_non_revision_cg_run(tmp_path):
+    """A reference- or composition-kind CG run owes the same kinds but has no `2_mapping/` frames.
+
+    Their producers record `skipped` with the reason instead of failing on a missing file, and a revision-kind run
+    is not skipped.
+    """
+    import json
+
+    from dashboard.analysis.runs import layout
+
+    def staged(name, body):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / 'manifest.json').write_text(json.dumps(body))
+        return directory
+
+    layout.require_revision_parameterization(staged('old', {'stages': []}), 'The bonded cross-check')
+    with pytest.raises(layout.NoTrajectory, match='reference parameterization'):
+        layout.require_revision_parameterization(
+            staged('reference', {'parameterization': {'kind': 'reference'}}), 'The bonded cross-check')
+    with pytest.raises(layout.NoTrajectory, match='composition parameterization'):
+        layout.require_revision_parameterization(
+            staged('composition', {'cg_model_kind': 'composition'}), 'The dihedral fit')
+    layout.require_revision_parameterization(
+        staged('revision', {'parameterization': {'kind': 'revision'}}), 'The bonded cross-check')

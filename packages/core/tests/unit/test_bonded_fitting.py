@@ -145,6 +145,44 @@ def test_a_fit_stores_a_revision_with_the_provenance_a_run_side_reading_needs(ca
     assert record['revision_sha256'] == parameterization.revision_sha256(revision)
 
 
+def test_a_fit_stores_the_mapped_starting_coordinates_with_the_revision(candidate):
+    """A CG run can start from the frame the fit measured, without reading the AA trajectory again.
+
+    The files are copied beside the revision and hashed into it, like the reference histograms: a work directory is
+    scratch, and a re-fit overwrites it.
+    """
+    import hashlib
+
+    recorder = Recorder()
+    run_job(candidate, recorder)
+    revision = parameterization.current(candidate)
+
+    recorded = revision['coordinates']
+    assert {entry['name'] for entry in recorded['files']} >= {'mapped.gro', 'mapped.xtc'}
+    stored = parameterization.coordinates(candidate)
+    assert stored['revision'] == revision['revision']
+    for entry in stored['files']:
+        path = stored['directory'] / entry['name']
+        assert path.is_file(), entry['name']
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == entry['sha256'], entry['name']
+        assert path.stat().st_size == entry['bytes'], entry['name']
+
+
+def test_the_fit_forwards_its_constraint_threshold_to_the_engine(candidate):
+    """The panel's number is the engine's number: the script reads it from the environment.
+
+    It used to be recorded on the revision, displayed on the result card and used by the cross-check while
+    `fit_topology.sh` hard-coded 10000 -- a revision that said 12500 and a topology fitted at 10000.
+    """
+    recorder = Recorder()
+    record = run_job(candidate, recorder, options={'constraints_threshold': 12500})
+
+    assert record['status'] == 'completed'
+    assert recorder.fitters[0]['env']['RUN_SETTING_CONSTRAINTS_THRESHOLD'] == '12500.0'
+    revision = parameterization.current(candidate)
+    assert revision['options']['constraints_threshold'] == 12500.0
+
+
 def test_the_job_prepares_the_same_stage_three_directory_a_run_prepares(candidate):
     """One definition of the invocation: the job runs the repository stage script with this fit's temperature, in a
     directory holding what stage 3 reads -- and, like a run, it carries no copy of the code."""

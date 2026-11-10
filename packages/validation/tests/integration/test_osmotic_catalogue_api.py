@@ -53,18 +53,26 @@ def _save_mapping(dashboard, molecule_id):
 
 
 def test_the_catalogue_names_the_repositorys_carbohydrates_in_the_order_it_carries_them(dashboard):
-    """The registry names four; a folder exists for three. Nothing is invented and nothing is silently dropped."""
+    """The registry names four, and the repository now carries a molecule folder for each. The order is the folders',
+    so what can be built comes first; a folder the registry does not name (Lactose has no measured target) is not
+    offered, and nothing in the registry is dropped."""
     body = _catalogue(dashboard)
-    assert [item['molecule_id'] for item in body['sugars']] == ['Maltose', 'Sucrose', 'Trehalose', 'Glucose']
-    assert [item['molecule_folder'] for item in body['sugars']] == [True, True, True, False]
+    assert [item['molecule_id'] for item in body['sugars']] == ['Glucose', 'Maltose', 'Sucrose', 'Trehalose']
+    assert [item['molecule_folder'] for item in body['sugars']] == [True, True, True, True]
     assert [item['ready'] for item in body['sugars']] == [False, False, False, False]
     assert body['solute_files'] == list(SOLUTE_FILES)
     assert body['molality_range'] == [0.0, 2.5]
 
 
-def test_a_carbohydrate_with_no_molecule_folder_is_refused_and_the_blocker_names_the_missing_mapping(dashboard):
-    """Glucose carries a measured target and no molecule: the reason says which of the two is missing."""
+def test_a_carbohydrate_with_no_molecule_folder_is_refused_and_the_blocker_names_the_missing_mapping(dashboard,
+                                                                                                  monkeypatch):
+    """A registry name with no molecule folder is still listed, with the reason naming which of the two sources is
+    missing. The repository happens to carry all four today, so the folder set is narrowed here."""
+    from detergent_validation.web.routes import osmotic as route
+
+    monkeypatch.setattr(route, '_molecule_folders', lambda root: [])
     glucose = _sugar(_catalogue(dashboard), 'Glucose')
+    assert glucose['molecule_folder'] is False
     assert glucose['mappings'] == []
     assert any('No saved CG mapping' in blocker for blocker in glucose['blockers']), glucose['blockers']
     assert any('molecules/' in blocker for blocker in glucose['blockers']), glucose['blockers']

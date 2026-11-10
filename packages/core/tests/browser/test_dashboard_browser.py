@@ -17,13 +17,13 @@ def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):
     page.locator('.job summary').nth(1).click()
     page.get_by_role('tab', name='New run', exact=True).click()
     page.locator('[name=label]').fill('My unsent run')
-    page.locator('#method').select_option('bartender')
+    page.locator('#run-type').select_option('aa_only')
     dashboard.coordinator.database().update(job['id'], error='Updated failure explanation')
     page.get_by_role('tab', name='Runs', exact=True).click()
     expect(page.locator('.job-error')).to_have_text('Updated failure explanation')
     page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('[name=label]')).to_have_value('My unsent run')
-    expect(page.locator('#method')).to_have_value('bartender')
+    expect(page.locator('#run-type')).to_have_value('aa_only')
     expect(page.locator('.job').first.locator('details').filter(has_text='Commands')).to_have_attribute('open', '')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
@@ -228,6 +228,13 @@ def test_the_selectors_sit_above_the_diagram_side_by_side(live_page):
     page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
     page.get_by_role('tab', name='Bead Assignment', exact=True).click()
     expect(page.locator('#mapping-editor-overlay3d')).to_be_visible()
+    # The molecule select is filled after the panel paints, and its option widths decide whether the pair shares a
+    # row. Measuring before they land fails intermittently under the parallel tier while passing alone; the panel's
+    # own busy flag is the end of that load, candidate list included.
+    page.wait_for_function("() => document.querySelectorAll('#mapping-molecule option').length > 1",
+                           timeout=30000)
+    page.wait_for_function(
+        "() => document.querySelector('#mappings')?.getAttribute('aria-busy') === 'false'", timeout=30000)
 
     molecule = page.locator('#mapping-molecule').bounding_box()
     candidate = page.locator('#mapping-candidate-filter').bounding_box()

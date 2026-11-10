@@ -11,6 +11,7 @@ import re
 
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
+from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
 #: A revision's topology with the two kinds the panel must never offer an editor for: a constraint, whose length is
@@ -42,17 +43,57 @@ def save_revision(mapping):
         'ensemble': {'frames': 20001}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
 
 
+def save_mapping(dashboard, molecule='DDM', name=None):
+    """One saved candidate built the way the editor builds it: scoped to a molecule and its snapshot.
+
+    The catalogue route now lists one molecule's mappings, and it filters on both the molecule id and the snapshot the
+    candidate was built from. A fixture that omits either is a mapping no molecule query can find, so the test saves
+    the same construction the route's real caller does rather than a looser one.
+    """
+    context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
+    candidate['molecule_id'] = molecule
+    candidate['molecule_snapshot'] = context['snapshot']
+    if name:
+        candidate['name'] = name
+    return mappings.save_draft(candidate)
+
+
+def choose_mapping(page, file, molecule=None):
+    """Pick a mapping the way a reader does: its molecule first, then the option carrying that mapping's revision."""
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-molecule-select option').length > 0", timeout=30000)
+    if molecule:
+        page.locator('#bonded-molecule-select').select_option(molecule)
+    page.wait_for_function(
+        """(file) => Array.from(document.querySelectorAll('#bonded-parameterization-display option'))
+          .some(option => option.value.startsWith(`revision:${file}:`) || option.value === `draft:${file}`)""",
+        arg=file, timeout=30000)
+    value = page.evaluate("""(file) => {
+      const options = Array.from(document.querySelectorAll('#bonded-parameterization-display option'));
+      const current = options.find(option => option.value.startsWith(`revision:${file}:`)
+        && option.textContent.includes('current'));
+      const draft = options.find(option => option.value === `draft:${file}`);
+      return (current || draft || {}).value || '';
+    }""", file)
+    if page.locator('#bonded-parameterization-display').input_value() != value:
+        page.locator('#bonded-parameterization-display').select_option(value)
+
+
 def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_page):
     """D1, as the page: no state select, and a table that reads a revision rather than a state.
 
     The flat bonded-state store is gone from the codebase, not merely unshown, so there is nothing here to seed: what
     this pins is that a mapping's parameterization is what the panel reads, and that no state-shaped control survives it.
     """
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    saved = save_mapping(dashboard)
 
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    expect(page.locator('.bonded-mapping-select')).to_have_value(saved['file'])
+    # One display selector, showing this mapping's draft because it has no revision yet. The Mapping select is gone
+    # from the viewing path; the element the New run door drives is present but hidden and is not a second choice.
+    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'draft:{saved["file"]}')
+    expect(page.locator('#bonded-mapping-select')).to_be_hidden()
     page.wait_for_selector('.bonded-plot .plotly', timeout=30000)
 
     expect(page.locator('.bonded-state-select')).to_have_count(0)
@@ -78,7 +119,7 @@ def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashb
     control over either. The source column is compared against the store's own `term_sources` rather than restated
     here, so a row's source cannot drift from the term it belongs to.
     """
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    saved = save_mapping(dashboard)
     mapping = mappings.get(saved['file'])
     save_revision(mapping)
     stored = parameterization.get(mapping, 1)
@@ -86,7 +127,7 @@ def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashb
 
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    choose_mapping(page, saved['file'], saved['molecule_id'])
     page.wait_for_selector('.bonded-interaction-table tbody tr', timeout=30000)
 
     rows = page.locator('.bonded-interaction-table tbody tr')
@@ -128,10 +169,10 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
     """
     from dashboard.models import mappings
 
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    saved = save_mapping(dashboard)
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    choose_mapping(page, saved['file'], saved['molecule_id'])
 
     model = page.locator('.bonded-torsion-model')
     scale = page.locator('.bonded-torsion-scale')
@@ -164,7 +205,7 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
                                                              'torsion_scale': 0.5}
     expect(save).to_be_disabled()
     page.reload()
-    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    choose_mapping(page, saved['file'], saved['molecule_id'])
     expect(page.locator('.bonded-torsion-model')).to_have_value('circular-harmonic')
     expect(page.locator('.bonded-torsion-scale')).to_have_value('0.5')
     assert errors == [], errors
@@ -178,10 +219,10 @@ def test_the_torsion_refinement_explains_why_how_and_what_a_run_needs(dashboard,
     screen is the part that changes a decision: what a torsion is for, and how far a stiffness should be trusted.
     Both torsion options, the save control and the scale's tie to the circular model are unchanged.
     """
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    saved = save_mapping(dashboard)
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    choose_mapping(page, saved['file'], saved['molecule_id'])
 
     fieldset = page.locator('fieldset.bonded-torsion')
     expect(fieldset).to_be_visible()
@@ -268,7 +309,7 @@ def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(
 
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    page.locator('.bonded-mapping-select').select_option(saved['file'])
+    choose_mapping(page, saved['file'], saved['molecule_id'])
     plot = page.locator('.bonded-plot')
     # The bundle is several megabytes and the scene is WebGL: 5 s is enough alone and not enough with two
     # dozen workers loading it at once, which is what a bare `to_be_visible` answers here.
@@ -287,3 +328,180 @@ def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(
             f'axis {axis}: the diagram draws {drawn[axis]} nm where Sucrose itself spans {want} nm '
             f'(drawn {drawn}, the molecule its own {expected})')
     assert errors == []
+
+
+def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashboard, live_page):
+    """The molecule select is the catalogue's first question: its mappings, then its published reference.
+
+    A molecule's list is the route's answer for that molecule -- not a filter applied here -- and the reference is a
+    read-only transcription of an upstream ITP rather than a saved candidate. The panel must draw its own terms
+    (kind, parameters, `martini-reference`) in the table and the scene, offer no fit and no delete, and read no
+    parameterization route for it. Leaving the reference for the saved mapping restores the normal card.
+    """
+    ddm = save_mapping(dashboard, 'DDM')
+    sucrose = save_mapping(dashboard, 'Sucrose')
+    detail = dashboard.client.get(f'/api/mappings/{sucrose["file"]}').get_json()
+
+    # The reference route's model, built from the same beads and connections the saved mapping states, so the scene
+    # has a geometry to draw and the table has the ITP's own rows. Its atoms are named the way an exported topology
+    # names them (`B01` is the first bead), so the scene proves the same alias join a revision uses.
+    topology = '\n'.join([
+        '[ moleculetype ]', 'SUCR 1', '',
+        '[ atoms ]',
+        *[f'{index} SP1r 1 SUCR B{index:02d} 1 0 54'
+          for index in range(1, len(detail['beads']) + 1)],
+        '',
+        '[ bonds ]',
+        '1 2 1 0.32 5000',
+        '',
+        '[ angles ]',
+        '1 2 3 10 141.6 26.8',
+    ]) + '\n'
+    model = {
+        'file': 'reference:Sucrose', 'name': 'Martini 3 sugar reference · SUCR',
+        'molecule_id': 'Sucrose', 'read_only': True, 'reference_entry': 'SUCR',
+        'beads': detail['beads'], 'rings': detail.get('rings', []),
+        'connections': detail.get('connections', []), 'topology': topology,
+        'reference': {'path': 'references/SUCR.itp', 'sha256': 'f' * 64, 'commit': 'abc1234',
+                      'paper_doi': '10.1000/example', 'martini_version': '3.0.0'},
+        'limitations': [], 'status': 'published-reference',
+    }
+
+    def molecules(route):
+        route.fulfill(json={'molecules': [
+            {'id': 'DDM', 'name': 'DDM', 'kind': 'aa'},
+            {'id': 'Sucrose', 'name': 'Sucrose', 'kind': 'aa'},
+            {'id': 'C12E4', 'name': 'C12E4', 'kind': 'cg'},
+        ]})
+
+    def reference(route):
+        if route.request.url.endswith('/Sucrose'):
+            route.fulfill(json={'model': model})
+        else:
+            route.fulfill(status=404, json={'error': 'no published reference for this molecule'})
+
+    page, errors = live_page
+    page.route(re.compile(r'/api/molecules$'), molecules)
+    page.route(re.compile(r'/api/mappings/reference/[^/]+$'), reference)
+    # Every engine left needs an AA run, and this workspace has none: a mapping-only engine makes Fit's enabled state
+    # a statement about the mapping, which is what the test is reading.
+    page.route(re.compile(r'/api/bonded-parameterizations/engines$'),
+               lambda route: route.fulfill(json={'engines': [
+                   {'value': 'mapping-only', 'label': 'Mapping only', 'needs_reference': False}]}))
+    asks = []
+    page.on('request', lambda request: asks.append((request.method, request.url))
+            if '/api/bonded-parameterizations' in request.url else None)
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-molecule-select option').length > 0", timeout=30000)
+    offered = page.locator('#bonded-molecule-select option').evaluate_all(
+        "options => options.map(option => option.value)")
+    assert 'C12E4' not in offered, offered  # a cg detergent is not an AA source for the mapping editor
+    assert {'DDM', 'Sucrose'} <= set(offered), offered
+
+    page.locator('#bonded-molecule-select').select_option('DDM')
+    page.wait_for_function(
+        """(file) => Array.from(document.querySelectorAll('#bonded-parameterization-display option'))
+          .some(option => option.value === `draft:${file}`)""", arg=ddm['file'], timeout=30000)
+    ddm_options = page.locator('#bonded-parameterization-display option').evaluate_all(
+        "options => options.map(option => option.value)")
+    assert f'draft:{ddm["file"]}' in ddm_options, ddm_options
+    assert not any(sucrose['file'] in value for value in ddm_options), ddm_options
+    assert 'draft:reference:Sucrose' not in ddm_options, ddm_options
+
+    page.locator('#bonded-molecule-select').select_option('Sucrose')
+    page.wait_for_function(
+        "() => Array.from(document.querySelectorAll('#bonded-parameterization-display option'))"
+        ".some(option => option.value === 'draft:reference:Sucrose')", timeout=30000)
+    sucrose_options = page.locator('#bonded-parameterization-display option').evaluate_all(
+        "options => options.map(option => option.value)")
+    assert sucrose_options == [f'draft:{sucrose["file"]}', 'draft:reference:Sucrose'], sucrose_options
+    expect(page.locator('#bonded-parameterization-display option').nth(1)).to_have_text(
+        'Martini 3 reference · SUCR (read-only)')
+    # Wait for the saved mapping's own record to land before clearing the list: its read is in flight until the card
+    # reports the switch finished.
+    expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false', timeout=30000)
+
+    asks.clear()
+    page.locator('#bonded-parameterization-display').select_option('draft:reference:Sucrose')
+    page.wait_for_selector('.bonded-interaction-table tbody tr', timeout=30000)
+    rows = page.locator('.bonded-interaction-table tbody tr')
+    expect(rows).to_have_count(2)
+    first_row = rows.nth(0).locator('td')
+    expect(first_row.nth(0)).to_have_text('bonds')
+    expect(first_row.nth(3)).to_contain_text('0.32 nm')
+    expect(first_row.nth(4)).to_have_text('martini-reference')
+    angle_row = rows.nth(1).locator('td')
+    expect(angle_row.nth(0)).to_have_text('angles')
+    expect(angle_row.nth(3)).to_contain_text('141.6')
+    expect(angle_row.nth(4)).to_have_text('martini-reference')
+    expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
+    # The terms are drawn, which is what says the ITP's `B01..` names found the mapping's own beads: a term whose
+    # names do not resolve is skipped, not drawn somewhere invented.
+    page.wait_for_function(
+        "() => (document.querySelector('.bonded-plot').data || [])"
+        ".filter(trace => trace.meta === 'term').length >= 2", timeout=30000)
+    drawn = page.locator('.bonded-plot').evaluate(
+        "(el) => el.data.filter(trace => trace.meta === 'term')"
+        ".map(trace => trace.name.split(' · ')[0])")
+    assert set(drawn) == {'bonds', 'angles'}, drawn
+
+    # The panel says what this is, and every control a fit would use is disabled rather than hidden.
+    expect(page.locator('#bonded-model-summary')).to_contain_text('published Martini 3 sugar reference')
+    expect(page.locator('#bonded-model-badge')).to_have_text('published reference')
+    expect(page.locator('#bonded-revisions')).to_contain_text('no revisions')
+    expect(page.locator('#bonded-fit')).to_be_disabled()
+    expect(page.locator('#bonded-delete-parameterization')).to_be_disabled()
+    # A published reference cannot become what a run consumes: it is not a fit of this molecule, and Make current is
+    # the one control that changes that, so it is inert here too.
+    expect(page.locator('#bonded-make-current')).to_be_disabled()
+    expect(page.locator('#bonded-make-current')).to_have_attribute(
+        'title', 'The published reference is read-only: it cannot be made current.')
+    for control in ('#bonded-aa-reference', '#bonded-engine', '#bonded-constraints-threshold',
+                    '#bonded-temperature', '#bonded-torsion-model', '#bonded-save-torsion'):
+        expect(page.locator(control)).to_be_disabled()
+    expect(page.locator('#bonded-job')).to_be_hidden()
+    expect(page.locator('#bonded-result')).to_be_hidden()
+
+    # No parameterization route is read for a reference, and none is written.
+    page.wait_for_timeout(400)
+    assert asks == [], asks
+
+    # Leaving the reference for the saved mapping restores the card and hands every control back.
+    page.locator('#bonded-parameterization-display').select_option(f'draft:{sucrose["file"]}')
+    expect(page.locator('#bonded-fit')).to_be_enabled(timeout=30000)
+    expect(page.locator('#bonded-model-badge')).to_have_text('no parameterization')
+    expect(page.locator('#bonded-aa-reference')).to_be_enabled()
+    expect(page.locator('#bonded-constraints-threshold')).to_be_enabled()
+    expect(page.locator('#bonded-temperature')).to_be_enabled()
+    assert errors == [], errors
+
+
+def test_a_context_that_cannot_be_read_draws_nothing_rather_than_another_molecule(dashboard, live_page):
+    """The packaged molecule is not a fallback: a context that fails means no drawing, and the panel says why.
+
+    The old `resolveStructure` answered the workspace's packaged DDM structure whenever the molecule's own context
+    failed, so a candidate mapped a different molecule's atoms while the card named this one. The bead aliases and the
+    bond table are the model's, but their positions must come from the molecule the model names -- or not be drawn.
+    """
+    saved = save_mapping(dashboard)
+    save_revision(mappings.get(saved['file']))
+
+    page, errors = live_page
+    page.route(re.compile(r'/api/mappings/context\?'),
+               lambda route: route.fulfill(status=500, json={'error': 'the molecule could not be read'}))
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    choose_mapping(page, saved['file'], saved['molecule_id'])
+    expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false', timeout=30000)
+
+    # The reason names the molecule and the failed read, and the scene is empty: no packaged atoms stand in.
+    message = page.locator('.bonded-panel-message')
+    expect(message).to_contain_text('The diagram is not drawn')
+    expect(message).to_contain_text('the coordinates of DDM could not be read')
+    expect(page.locator('.bonded-selection-status')).to_contain_text('could not be read')
+    page.wait_for_selector('.bonded-plot .plotly', timeout=30000)
+    drawn = page.locator('.bonded-plot').evaluate(
+        "(el) => (el.data || []).filter(trace => trace.meta === 'bead' || trace.meta === 'term').length")
+    assert drawn == 0, f'the scene drew {drawn} traces without the named molecule'
+    assert errors == [], errors

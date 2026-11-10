@@ -88,7 +88,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         # to reach the same ready=False with the same business-rule blockers.
         with patch.object(backend.aa, 'probe_tool', return_value=(False, 'not installed')), \
              patch.object(cg, 'probe_tool', return_value=(False, 'not installed')):
-            response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=aa_cg').get_json()
+            response=self.client.get('/api/readiness?molecule_id=example&detergent=example&method=fast_forward&run_type=cg').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
 
@@ -115,41 +115,58 @@ class MoleculeDirectoryTests(unittest.TestCase):
         saved = self.client.post('/api/mappings/drafts', json=candidate)
         self.assertEqual(saved.status_code, 201, saved.get_json())      # a new candidate is a created resource
         candidate_name = saved.get_json()['file']
-        seen = {}
-
-        def readiness(*args, **kwargs):
-            seen['candidate'] = args[3]
-            return {'ready': True, 'checks': [], 'blockers': []}
-
-        with patch.object(cg, 'readiness', side_effect=readiness), \
-             patch.object(backend.aa, 'readiness', return_value={'ready': True, 'blockers': []}):
-            mappings_response = self.client.get('/api/mappings?view=summary&molecule_id=Maltose')
-            response = self.client.get(
-                '/api/readiness?run_type=aa_cg&molecule_id=Maltose&detergent=Maltose'
-                '&method=fast_forward&profile=draft-smoke&mapping_candidate=' + candidate_name
-            )
+        mappings_response = self.client.get('/api/mappings?view=summary&molecule_id=Maltose')
+        response = self.client.get(
+            '/api/readiness?run_type=cg&molecule_id=Maltose&detergent=Maltose'
+            '&method=fast_forward&profile=draft-smoke&mapping_candidate=' + candidate_name
+            + '&parameterization=' + json.dumps({'kind': 'revision', 'mapping_candidate': candidate_name})
+        )
 
         self.assertEqual(mappings_response.status_code, 200, mappings_response.get_json())
         self.assertEqual([item['file'] for item in mappings_response.get_json()['candidates']], [candidate_name])
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(seen['candidate']['molecule_id'], 'Maltose')
-        self.assertEqual(seen['candidate']['validation']['issues'], [])
+        answer = response.get_json()
+        # The candidate was loaded against Maltose's own source files: the next refusal is that this mapping carries
+        # no parameterization revision, not that the molecule changed or that another molecule's model was named.
+        self.assertTrue(any('carries no parameterization revision' in blocker for blocker in answer['blockers']),
+                        answer['blockers'])
 
     def install_ddm(self):
         import shutil
         shutil.copytree(PROJECT_ROOT/'molecules/DDM',self.root/'molecules/DDM')
 
     def queue_ddm(self):
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(backend.threading.Thread,'start'):
-            response=self.client.post('/',json={'detergent':'DDM','method':'fast_forward','profile':'draft-smoke','molecule_id':'DDM'})
-        self.assertEqual(response.status_code,201,response.get_json())
-        return self.dashboard.coordinator.database().all()[0]
+        """A revision-kind CG job; the model lookup is stubbed at the store boundary.
+
+        The run type consumes a saved revision and reuses the AA reference that revision recorded, so a fixture that
+        is about molecule selection provenance supplies both rather than building a fit.
+        """
+        owner = self.dashboard.coordinator
+        source = {'id': '111111111111', 'status': 'completed', 'run_type': 'aa_only'}
+        owner.database().insert(source)
+        (owner.RUNS / source['id'] / 'stages/07_reference').mkdir(parents=True, exist_ok=True)
+        mapping = {**mappings.automatic_candidate(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
+        revision = {'revision': 1, 'engine': 'fast-forward', 'options': {},
+                    'aa_reference': {'run_id': source['id'], 'reference_sha256': None}}
+        with patch.object(cg, 'chosen_revision', return_value=revision), \
+                patch.object(backend.aa_references, 'resolve',
+                             return_value=(owner.RUNS / source['id'] / 'stages/07_reference', {'sha256': {}})), \
+                patch.object(cg, 'parameterization_readiness',
+                             return_value={'ready': True, 'checks': [], 'blockers': []}), \
+                patch.object(backend.threading.Thread, 'start'):
+            job = owner.create_job('DDM', 'fast_forward', profile='draft-smoke', run_type='cg',
+                                   molecule_id='DDM', mapping_snapshot=mapping,
+                                   parameterization={'kind': 'revision', 'mapping_candidate': 'ddm.map',
+                                                     'starting_coordinates': 'remap'})
+        return job
 
     def test_queued_job_fails_if_molecule_files_change(self):
         self.install_ddm(); job=self.queue_ddm()
         path=self.root/'molecules/DDM/metadata.json'
         data=json.loads(path.read_text()); data['name']='Changed after queue';path.write_text(json.dumps(data))
-        self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
+        with patch.object(cg, 'parameterization_readiness',
+                          return_value={'ready': True, 'checks': [], 'blockers': []}):
+            self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
         finished=self.dashboard.coordinator.lookup(job['id'])
         self.assertEqual(finished['status'],'failed')
         self.assertIn('changed',finished['error'])
@@ -175,7 +192,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
         response=self.client.post('/api/jobs/'+job['id']+'/clone',json={'molecule_id':'nonexistent'})
         # Nonexistent molecule id is rejected as a bad request.
         self.assertEqual(response.status_code,409)
-        self.assertEqual(len(self.dashboard.coordinator.database().all()),1)
+        self.assertEqual(len(self.dashboard.coordinator.database().all()),2), 'the failed run and its reference remain'
 
     def test_mismatched_prepared_source_fails_and_keeps_selection_provenance(self):
         from dashboard import files
@@ -184,7 +201,7 @@ class MoleculeDirectoryTests(unittest.TestCase):
             aa=directory/'stages/1_AA-reference'; aa.mkdir(parents=True)
             (aa/'molecule.pdb').write_text('wrong source')
             files.atomic_json(directory/'manifest.json',{'stages':[]})
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)):
+        with patch.object(cg,'parameterization_readiness',return_value={'ready':True,'checks':[],'blockers':[]}), patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)):
             self.dashboard.coordinator.run_job(job['id'],self.dashboard.coordinator.WORKERS[job['id']])
         manifest=json.loads((self.dashboard.coordinator.RUNS/job['id']/'manifest.json').read_text())
         self.assertEqual(manifest['status'],'failed')

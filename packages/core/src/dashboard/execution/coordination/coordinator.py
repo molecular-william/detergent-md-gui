@@ -15,7 +15,7 @@ from ... import features
 from ...analysis import kinds
 from ...analysis.runs import observability
 from ...analysis.runs import references as aa_references
-from ...models import compositions, mappings
+from ...models import mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
 from ...web import views
@@ -36,6 +36,56 @@ def application_context(function):
         with self.app.app_context():
             return function(self, *args, **kwargs)
     return invoke
+
+
+def generated_label(molecule, run_type, settings=None, profile='standard'):
+    """`[molecule]-[AA|CG]-[length]ns-[YYYYMMDD]`: the label an unnamed run is given.
+
+    The New run panel suggests the same string while its label field is untouched (`new-run.js`), so a caller
+    that posts none gets what the form would have shown. Length is the total simulated time: the AA half's
+    NVT + NPT + production, the CG half's equilibration + production. A composition run configures no
+    duration, so its label carries no length segment rather than a false `0ns`.
+    """
+    name = re.sub(r'\s+', '-', str(molecule or '').strip()) or 'run'
+    tag = 'AA' if run_type == 'aa_only' else 'CG'
+    try:
+        values = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
+    except ValueError:
+        # The run's own normalization refuses these settings a moment later; the label must not be the thing
+        # that changes the refusal, so it is derived from what can be read and the length is left out.
+        values = settings if isinstance(settings, dict) else {}
+    total = simulated_nanoseconds(run_type, values)
+    tail = '-'.join([tag] + ([f'{total:g}ns'] if total is not None else [])
+                    + [datetime.now().strftime('%Y%m%d')])
+    # The cap trims the molecule's name, never the tail: a cut date or run-type tag would stop naming the run.
+    return f'{name[:max(1, 160 - len(tail) - 1)]}-{tail}'
+
+
+def simulated_nanoseconds(run_type, settings):
+    """The total simulated length a run's settings state, in ns rounded to 0.1; `None` when they state none."""
+    keys = (('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps') if run_type == 'aa_only'
+            else ('cg_equil_ps', 'cg_production_ps'))
+    try:
+        ps = sum(float(settings[key]) for key in keys)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return round(ps / 1000, 1) if ps > 0 else None
+
+
+def preset_record(value):
+    """The `settings_preset` provenance a queue payload may carry, or `None`.
+
+    It is metadata, not a setting: the run records which named preset its form started from, so where its
+    numbers came from is readable later. Anything that is not an id/name pair is no record rather than an
+    error -- a preset deleted between opening the form and starting the run must not cost the run.
+    """
+    if not isinstance(value, dict):
+        return None
+    preset_id, name = value.get('id'), value.get('name')
+    if not isinstance(preset_id, str) or not preset_id.strip():
+        return None
+    caption = name.strip()[:120] if isinstance(name, str) and name.strip() else preset_id.strip()[:64]
+    return {'id': preset_id.strip()[:64], 'name': caption}
 
 
 class Coordinator:
@@ -378,7 +428,6 @@ class Coordinator:
                 if job.get('molecule_snapshot') and not (job.get('resume_of') or in_place):
                     aa_molecules.verify_selection(self.ROOT/'molecules', job['molecule_snapshot'])
                 aa_only=job.get('run_type')=='aa_only'
-                composition_only=job.get('run_type')=='cg_composition'
                 resuming = in_place or bool(job.get('resume_of'))
                 if resuming:
                     readiness = {'ready': True}
@@ -390,6 +439,8 @@ class Coordinator:
                         'composition_id': job.get('composition_id'), 'root': self.ROOT,
                         'protein': job.get('protein'), 'template': job.get('template'),
                         'settings': job.get('settings') or {},
+                        'parameterization': job.get('parameterization'),
+                        'molecule_snapshot': job.get('molecule_snapshot'), 'runs_root': self.RUNS,
                         'solute_root': (job.get('settings') or {}).get('solute_root'),
                         'project_root': str(self.ROOT)})
                 prepare_metadata = features.prepare_for(job.get('run_type'))
@@ -400,10 +451,6 @@ class Coordinator:
                 try:
                     if job.get('resume_of'):
                         workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
-                    elif not in_place and (aa_only or composition_only):
-                        protocol.adapter_for(job.get('run_type')).prepare(
-                            work, {'molecule_root': self.ROOT/'molecules', 'molecule_snapshot': job.get('molecule_snapshot'),
-                                   'composition_id': job.get('composition_id'), 'settings': job.get('settings')})
                     elif not in_place and prepare_metadata is not None:
                         # A feature's run type states the arguments its own adapter's `prepare` takes; the CG kwargs
                         # below describe a molecule and are not a shape every run type shares.
@@ -414,11 +461,15 @@ class Coordinator:
                         # coordinator used to filter the settings and assemble the arguments before calling into the
                         # orchestrator, which put a run type's vocabulary in the queue.
                         protocol.adapter_for(protocol.run_type_of(job)).prepare(work, {
-                            'detergent': job['detergent'], 'profile': job.get('profile', 'standard'),
+                            'detergent': job.get('detergent'), 'profile': job.get('profile', 'standard'),
                             'settings': job.get('settings') or {},
                             'mapping_candidate': job.get('mapping_snapshot'),
                             'molecule_snapshot': job.get('molecule_snapshot'),
                             'molecule_root': self.ROOT / 'molecules',
+                            'molecule_id': job.get('molecule_id') or job.get('detergent'),
+                            'composition_id': job.get('composition_id'),
+                            'parameterization': job.get('parameterization'),
+                            'runs_root': self.RUNS,
                             **({'shared_reference': job['shared_reference'], 'reference_root': self.RUNS}
                                if job.get('shared_reference') else {})})
                 finally:
@@ -432,13 +483,17 @@ class Coordinator:
                             run_inputs.verify_manifest(work, prepared)
                         else:
                             files.verify(workflow.stage_root(work)/'common/molecule', job['molecule_snapshot']['sha256'])
-                    elif job.get('run_type') == 'aa_cg' and not job.get('shared_reference'):
-                        # Only a CG run consumes an AA reference. A protein-detergent build names the detergent's
-                        # molecule for provenance, and demanding a reference for it refused every pdc job.
+                    elif (job.get('run_type') == 'cg'
+                          and (job.get('parameterization') or {}).get('kind', 'revision') == 'revision'
+                          and not job.get('shared_reference')):
+                        # Only a revision-kind CG run consumes an AA reference. A reference or composition run
+                        # carries its own coordinates and topology.
                         raise ValueError('CG run is missing its shared AA reference')
                     prepared.update(molecule_id=job['molecule_id'], molecule_snapshot=job['molecule_snapshot'])
-                if composition_only:
-                    prepared.update(composition_id=job['composition_id'], composition_snapshot_sha256=job['composition_snapshot_sha256'])
+                if job.get('composition_id'):
+                    prepared.update(composition_id=job['composition_id'])
+                    if job.get('composition_snapshot_sha256'):
+                        prepared['composition_snapshot_sha256'] = job['composition_snapshot_sha256']
                 prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
                 if job.get('shared_reference'):prepared['settings']=job['settings']
                 files.atomic_json(work/'manifest.json', prepared)
@@ -460,51 +515,64 @@ class Coordinator:
                     fp.write(f'\nRun failed: {exc}\n')
 
 
-    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None):
+    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None, settings_preset=None, parameterization=None):
         try:
             admission.validate_run_type({'run_type': run_type, 'composition_id': composition_id,
                                          'molecule_id': molecule_id, 'molecule_snapshot': molecule_snapshot,
                                          'reference_run_id': reference_run_id, 'mapping_candidate': mapping_candidate,
                                          'mapping_snapshot': mapping_snapshot,
-                                         'method': method,
+                                         'method': method, 'parameterization': parameterization,
                                          **(settings or {})})
         except ValueError as exc:
             raise InvalidRequest(str(exc))
-        if run_type == 'cg_composition':
-            try:
-                record = compositions.get(composition_id)
-                from ..adapters.composition import readiness as composition_readiness
-                ready = composition_readiness(composition_id, self.ROOT)
-                if not ready['ready']: raise RunConflict('; '.join(ready['blockers']))
-            except (ValueError, OSError, KeyError, FileNotFoundError) as exc: raise RunNotFound(str(exc))
-            job = {'id': uuid.uuid4().hex[:12], 'detergent': record.get('name', composition_id),
-                   'method': 'gromacs', 'label': str(label)[:160], 'status': 'queued', 'stage': 'queued',
-                   'created': self.now(), 'retry_of': retry_of, 'profile': profile,
-                   'settings': settings or {}, 'scientifically_validated': False,
-                   'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
-                   'run_type': run_type, 'workflow_version': 'cg-composition-v1', 'layout_version': 2,
-                   'stage_plan': ['CG simulation', 'CG assessment', 'CG SASA'], 'resume_of': resume_of,
-                   'resume_from': resume_from}
-            return self.admit_jobs([job], job)
+        # An unnamed run gets the panel's own suggestion, derived here so an API caller that posts no label is
+        # not left with a run that has none. The settings are the ones the run will use, so the length is the
+        # length the manifest will state.
+        if not str(label or '').strip():
+            label = generated_label(molecule_id or detergent, run_type, settings, profile)
+        settings_preset = preset_record(settings_preset)
         if run_type=='aa_only':
             if molecule_snapshot and not resume_of:
                 try:aa_molecules.verify_selection(self.ROOT/'molecules',molecule_snapshot)
                 except (OSError,ValueError) as exc:raise RunConflict(str(exc))
             job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None,profile)
-            job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from)
+            job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from,settings_preset=settings_preset)
             return self.admit_jobs([job],job)
-        shared=run_type=='aa_cg'
-        if shared:molecule_id=molecule_id or detergent
+        # The CG run type's parameterization kind decides whether it consumes a shared AA reference. Only the
+        # `revision` kind does: a published reference and a composition carry their own coordinates and topology.
+        parameterization = dict(parameterization) if isinstance(parameterization, dict) else {}
+        if run_type == 'cg':
+            parameterization.setdefault('kind', 'revision')
+            if parameterization['kind'] == 'revision':
+                parameterization.setdefault('starting_coordinates', 'stored')
+                mapping_candidate = (mapping_candidate or parameterization.get('mapping_candidate')
+                                     or parameterization.get('mapping'))
+                if not parameterization.get('mapping_candidate') and mapping_candidate:
+                    parameterization['mapping_candidate'] = mapping_candidate
+            if parameterization['kind'] == 'reference':
+                # The entry is a choice of the sugar adapter, carried in settings where its readiness reads it.
+                settings = {**(settings or {}),
+                            'sugar_entry': parameterization.get('sugar_entry') or (settings or {}).get('sugar_entry', 'SUCR')}
+            if parameterization['kind'] == 'composition' and not composition_id:
+                composition_id = parameterization.get('composition_id')
+        shared = run_type == 'cg' and parameterization.get('kind') == 'revision'
+        # A composition's molecule is the saved CG model itself, not an `molecules/` folder: its `molecule_id` is the
+        # composition record's id, and the composition adapter is what validates the binding. Reading it through the
+        # atomistic catalogue would refuse a well-formed composition run as a missing molecule.
+        composition_model = run_type == 'cg' and parameterization.get('kind') == 'composition'
+        if shared and molecule_id is None:
+            molecule_id = detergent
         if molecule_id is not None:
             try:
                 aa_molecules.validate_id(molecule_id)
             except ValueError as exc: raise InvalidRequest(str(exc))
-            try:
-                selected = molecule_snapshot if resume_of and molecule_snapshot else aa_molecules.selection(self.ROOT/'molecules', molecule_id)
-                if molecule_snapshot and not resume_of and selected != molecule_snapshot:
-                    raise ValueError('Molecule files changed; clone with a fresh selection instead')
-                molecule_snapshot = selected if not resume_of else molecule_snapshot
-            except (OSError, ValueError) as exc: raise RunConflict(str(exc))
+            if not composition_model:
+                try:
+                    selected = molecule_snapshot if resume_of and molecule_snapshot else aa_molecules.selection(self.ROOT/'molecules', molecule_id)
+                    if molecule_snapshot and not resume_of and selected != molecule_snapshot:
+                        raise ValueError('Molecule files changed; clone with a fresh selection instead')
+                    molecule_snapshot = selected if not resume_of else molecule_snapshot
+                except (OSError, ValueError) as exc: raise RunConflict(str(exc))
         if mapping_snapshot is not None:
             mapping_snapshot = cg.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
         elif mapping_candidate:
@@ -523,15 +591,35 @@ class Coordinator:
         # type rather than a per-run choice (D1), so nothing can be handed to a run any more and there is nothing
         # left to refuse. `models/bonded` keeps the states and their own compatibility checks untouched: they are
         # still fitted, edited and compared in the Bonded workspace.
-        settings = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
+        adapter = protocol.adapter_for(run_type or 'aa_cg')
+        if run_type == 'cg':
+            settings = adapter.normalize_settings(settings, profile, parameterization=parameterization)
+        else:
+            settings = adapter.normalize_settings(settings, profile)
         tweak = features.create_settings_for(run_type or 'aa_cg')
         if tweak is not None:
             settings = tweak(settings, {'protein': protein, 'template': template,
                                         'mapping_snapshot': mapping_snapshot, 'settings': settings})
         reference_snapshot=None
-        if reference_run_id and shared:
+        expected_reference=None
+        if shared:
+            # The AA reference is the revision's own, never a new AA parent job. The revision records the run it was
+            # fitted against and that run's digests, and this verifies both: a revision pointing at a reference that
+            # changed under it is refused here rather than three stages in.
             try:
-                _,reference_snapshot=aa_references.resolve(self.RUNS,reference_run_id,molecule_snapshot=molecule_snapshot,settings=settings)
+                chosen = cg.chosen_revision(mapping_snapshot, parameterization.get('revision'))
+            except KeyError as exc:
+                raise InvalidRequest(str(exc)) from None
+            recorded_reference = (chosen or {}).get('aa_reference') or {}
+            if parameterization.get('revision') is None and chosen is not None:
+                parameterization['revision'] = chosen['revision']
+            if not recorded_reference.get('run_id'):
+                raise SourceUnavailable('The chosen parameterization records no AA reference to reuse')
+            reference_run_id = recorded_reference['run_id']
+            expected_reference = recorded_reference.get('reference_sha256')
+            try:
+                _,reference_snapshot=aa_references.resolve(self.RUNS,reference_run_id,expected_reference,
+                                                           molecule_snapshot=molecule_snapshot)
                 if self.lookup(reference_run_id).get('status')!='completed':raise ValueError('AA source must be completed')
             except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
         elif reference_run_id:
@@ -545,11 +633,17 @@ class Coordinator:
                               'settings': settings or {}, 'molecule_root': self.ROOT / 'molecules',
                               'solute_root': (settings or {}).get('solute_root')}, self.ROOT)
         else:
-            ready = cg.readiness(molecule_id or detergent, method, profile, mapping_snapshot, molecule_root=self.ROOT / 'molecules')
+            ready = adapter.readiness({'molecule_id': molecule_id or detergent, 'method': method,
+                                       'profile': profile, 'mapping_candidate': mapping_snapshot,
+                                       'molecule_snapshot': molecule_snapshot,
+                                       'molecule_root': self.ROOT / 'molecules', 'runs_root': self.RUNS,
+                                       'composition_id': composition_id, 'settings': settings or {},
+                                       'parameterization': parameterization})
         if not ready['ready']:
             raise RunConflict('; '.join(ready['blockers']))
         job = {'id': uuid.uuid4().hex[:12], 'detergent': detergent, 'method': method, 'label': str(label)[:160],
-               'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation)}
+               'status': 'queued', 'stage': 'queued', 'created': self.now(), 'retry_of': retry_of, 'profile': profile, 'settings': settings, 'reference_run_id': reference_run_id, 'scientifically_validated': False, 'temporary_validation': bool(temporary_validation),
+               'settings_preset': settings_preset}
         # What the run will fit is the mapping it was given; no bonded state and no intent ride on the record any
         # more (D1). A run that finds one in an old payload simply ignores it, which is where the retired pair of
         # controls now leads.
@@ -557,6 +651,8 @@ class Coordinator:
         # stage plan, which adapter writes the run -- is chosen by it, and a job that only carries a method is read
         # as a CG run by the adapter that answers about methods.
         job['run_type'] = run_type or 'aa_cg'
+        if run_type == 'cg':
+            job['parameterization'] = parameterization
         if protein is not None:
             job['protein'] = protein
         if template is not None:
@@ -565,30 +661,25 @@ class Coordinator:
             job.update(mapping_candidate=mapping_snapshot.get('file'), mapping_snapshot=mapping_snapshot)
         if molecule_snapshot is not None:
             job.update(molecule_id=molecule_snapshot['id'], molecule_snapshot=molecule_snapshot)
+        elif composition_model and molecule_id is not None:
+            # A composition's molecule is its own record, so there is no snapshot to store beside it; the id is kept
+            # so a retry, a clone and the run's own reader name the same model.
+            job['molecule_id'] = molecule_id
         job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
         # The stage plan and the workflow version belong to the run's own type. Stamping every job that reaches here
         # as a CG run is why a protein-detergent job was answered by the CG adapter's readiness check -- which knows
         # only the methods it fits -- and refused as "not connected to an executable workflow".
-        if job['run_type'] == 'aa_cg':
-            job.update(workflow_version='aa-cg-v2', stage_plan=[name for name, _ in cg.STAGES])
+        if job['run_type'] == 'cg':
+            job.update(workflow_version=f"cg-{parameterization.get('kind', 'revision')}-v1",
+                       stage_plan=[stage.name for stage in adapter.stages({'parameterization': parameterization})])
         else:
             job.update(workflow_version=f"{job['run_type']}-v1",
                        stage_plan=[stage.name for stage in protocol.adapter_for(job['run_type']).stages({})])
         if shared:
-            if reference_snapshot:
-                job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
-                return self.admit_jobs([job],job)
-            if resume_of:raise SourceUnavailable('Shared CG resume requires its AA reference source')
-            # The AA source is an aa_only run, so its settings are the ones an aa_only run accepts -- both
-            # vocabularies it publishes, numeric and choice-typed: a choice dropped here (the force field, the
-            # constraint set) is one the reference would carry at the default while this run records the one asked
-            # for, and `aa_references.verify` would then refuse the very reference it was given.
-            aa_vocabulary = ({**protocol.adapter_for('aa_only').settings_specs(),
-                              **protocol.adapter_for('aa_only').choice_specs()})
-            aa_settings = {key: value for key, value in settings.items() if key in aa_vocabulary}
-            parent=self.aa_job_record(molecule_id,(str(label)+' · AA source').strip(),aa_settings,profile=profile)
-            job.update(status='waiting',stage='Waiting for AA reference',reference_run_id=parent['id'])
-            return self.admit_jobs([parent,job],parent,result=job)
+            # A CG run reuses a published AA reference; it never creates one, so there is no waiting job and no AA
+            # parent to admit. The reference was resolved and verified above.
+            job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
+            return self.admit_jobs([job],job)
         worker = self.Worker()
         with self.JOBS_LOCK:
             self.admit_device(job)
@@ -615,7 +706,7 @@ class Coordinator:
                 'method':'gromacs','run_type':'aa_only','workflow_version':aa.VERSION,'protocol_version':aa.VERSION,
                 'stage_plan':[name for name,_ in aa.STAGES],'label':str(label)[:160],
                 'status':'queued','stage':'queued','created':self.now(),'settings':settings,'profile':profile,
-                'layout_version':2,'scientifically_validated':False,'reference_eligible':False}
+                'layout_version':2,'scientifically_validated':False,'reference_eligible':False,'settings_preset':None}
 
 
     def admit_jobs(self, records,first,result=None):

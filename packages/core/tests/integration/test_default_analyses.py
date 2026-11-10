@@ -2,7 +2,7 @@
 
 A run type declares the checks it owes without anyone asking (`kinds.TABLE`'s `default_for_run_types`), and the run's
 own worker notifies the analysis coordinator when its stages are done. Two things must hold, and they are the two the
-wiring can get wrong: a completed `aa_cg` run gets its own checks without anyone asking, and a run whose producer
+wiring can get wrong: a completed `cg` run gets its own checks without anyone asking, and a run whose producer
 finds nothing to analyse records the producer's own reason as a `skipped` task -- the run stays `completed`.
 
 The analyses themselves are not run here: a worker standing in for the subprocess is what makes these fast.
@@ -37,7 +37,7 @@ def seed(dashboard, *, trajectory=False, analyses=(), run_type=None):
     return coordinator, run
 
 
-def plant_aa_cg_sources(run):
+def plant_cg_sources(run):
     """The two AA-CG checks declare inputs in stages 2 and 3; these are where the queue resolves them."""
     for relative in SOURCES:
         source = run / 'stages' / relative
@@ -53,12 +53,12 @@ def test_a_runs_own_kinds_are_its_types_defaults(dashboard):
     is not a special case, and neither is a record that names none at all.
     """
     coordinator, run = seed(dashboard, trajectory=True)
-    plant_aa_cg_sources(run)
+    plant_cg_sources(run)
 
     assert coordinator.automatic_analyses(JID) == []
 
-    coordinator.database().update(JID, run_type='aa_cg')
-    assert coordinator.automatic_analyses(JID) == ['bonded-cross-check', 'dihedral-fit']
+    coordinator.database().update(JID, run_type='cg')
+    assert coordinator.automatic_analyses(JID) == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions']
 
     coordinator.database().update(JID, run_type='aa_only')
     assert coordinator.automatic_analyses(JID) == []
@@ -79,8 +79,8 @@ def wait_for_a_task(coordinator, timeout=5.0):
 
 
 def test_a_finished_run_queues_its_own_checks_without_being_asked(dashboard, monkeypatch):
-    coordinator, run = seed(dashboard, trajectory=True, run_type='aa_cg')
-    plant_aa_cg_sources(run)
+    coordinator, run = seed(dashboard, trajectory=True, run_type='cg')
+    plant_cg_sources(run)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
 
     coordinator.analysis_coordinator.run_completed(run)
@@ -97,8 +97,8 @@ def test_the_checks_wait_for_the_run_its_worker_still_holds(dashboard, monkeypat
     the run's lease and its slot in `WORKERS` while the terminal status is written. `queue` refuses exactly that,
     so the checks are queued a moment later rather than by weakening the refusal.
     """
-    coordinator, run = seed(dashboard, run_type='aa_cg')
-    plant_aa_cg_sources(run)
+    coordinator, run = seed(dashboard, run_type='cg')
+    plant_cg_sources(run)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     coordinator.database().update(JID, status='running')
     coordinator.WORKERS[JID] = object()
@@ -215,7 +215,7 @@ def test_the_runs_own_defaults_are_queued_by_the_path_that_queues_them(dashboard
 
     def resolver(jid):
         asked.append(jid)
-        return ['bonded-cross-check', 'dihedral-fit']
+        return ['bonded-cross-check', 'dihedral-fit', 'ff-interactions']
 
     def queue(jid, kind, payload, automatic=False):
         attempted.append(kind)
@@ -227,5 +227,5 @@ def test_the_runs_own_defaults_are_queued_by_the_path_that_queues_them(dashboard
     coordinator.analysis_coordinator.queue_defaults(JID)
 
     assert asked == [JID], 'the queueing path must ask the run what it owes its reader'
-    assert attempted == ['bonded-cross-check', 'dihedral-fit'], \
+    assert attempted == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions'], \
         'every kind the resolver names is attempted, in its order'

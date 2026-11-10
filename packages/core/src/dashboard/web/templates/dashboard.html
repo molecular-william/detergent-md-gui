@@ -163,45 +163,58 @@
     <section class="card" id="molecule-panel" aria-labelledby="molecule-title">
       <span class="eyebrow">MOLECULE INPUTS</span><h3 id="molecule-title">Choose a molecule directory</h3>
       <p class="hint">Select a folder under <code>molecules/</code> containing an ITP and matching GRO or PDB, including nested SwissParam output. Missing metadata is generated automatically; PDB is converted to GRO before simulation.</p>
-      <label>Molecule<select name="molecule_id" id="molecule-directory" required aria-describedby="molecule-details"><option value="">Loading molecule directories…</option></select></label>
+      <label>Molecule<select name="molecule_id" id="molecule-directory" required aria-describedby="molecule-inputs-status"><option value="">Loading molecule directories…</option></select></label>
       <button type="button" id="refresh-molecules" class="secondary">Refresh directories</button>
-      <div id="molecule-details" aria-live="polite">Checking input files…</div>
+      {# The input check folds away: its verdict and the molecule's facts stay in the summary, and the per-file
+         list, the blockers and the notes live inside. Closed on first paint, so the form opens on the settings
+         rather than on a file list; the panel keeps each molecule's open state (new-run.js). #}
+      <details id="molecule-inputs">
+        <summary><span class="status-dot" data-state="pending" aria-hidden="true"></span><span id="molecule-inputs-status" role="status" aria-live="polite"><strong>Checking input files…</strong></span></summary>
+        <div id="molecule-details">Checking input files…</div>
+      </details>
       <input type="hidden" name="detergent" value="DDM">
       <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. A recognised sugar can also run CG-only from the published Martini 3 sugar reference.</p>
     </section>
-    {% if 'sugar_cg' in workspace.run_types %}<section class="card" id="sugar-panel" aria-labelledby="sugar-title" hidden>
-      <span class="eyebrow">CG-ONLY SUGAR</span><h3 id="sugar-title">Published Martini 3 sugar reference</h3>
-      <p class="hint">One molecule in Martini water. The starting coordinates are the sugar's AA coordinates mapped onto the published bead layout; the topology is the reference's own published terms. There is no AA stage, no mapping comparison and no Fast-Forward fit. The reference is one source, not a validation.</p>
-      <div class="sugar-config-row">
-        <label>Sugar reference entry<select name="sugar_entry" id="sugar-entry"><option value="SUCR">SUCR · sucrose</option><option value="TREH">TREH · trehalose</option></select></label>
-        <label>Reference source<input id="sugar-reference-source" value="martini_v3.0.0_sugars_v2.itp" readonly aria-describedby="sugar-reference-detail"></label>
-      </div>
-      <p id="sugar-reference-detail" class="hint">Reading the installed reference and the mapped candidate…</p>
-      <div id="sugar-preview" class="sugar-preview" aria-live="polite">Checking conformance…</div>
-    </section>{% endif %}
     <section class="card" aria-labelledby="execution-title">
-    <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">Execution and CG inputs</h3>
-    <p class="hint" id="run-type-help">Choose the workflow before selecting CG-specific inputs.</p>
-    <div class="run-config-trio">
-    <label>Run type<select name="run_type" id="run-type"><option value="aa_cg">AA–CG run</option><option value="aa_only">AA run only</option><option value="cg_composition">CG composition screening</option>{% if 'sugar_cg' in workspace.run_types %}<option value="sugar_cg" hidden>CG sugar run (Martini 3 reference)</option>{% endif %}</select></label>
-    <label class="cg-setting">Method<select name="method" id="method"><option value="fast_forward">Fast_Forward</option><option value="bartender">Bartender</option></select></label>
+    <span class="eyebrow">RUN CONFIGURATION</span><h3 id="execution-title">CG run settings</h3>
+    <p class="hint" id="run-type-help">A CG run consumes an existing parameterization of one molecule; an AA run publishes the reference a later fit can use.</p>
+    <div class="run-config-row">
+    <label>Run type<select name="run_type" id="run-type"><option value="cg">CG run</option><option value="aa_only">AA run</option></select></label>
     <label>Force field<select name="force_field" id="force-field"><option value="charmm36-feb2026_cgenff-4.6">CHARMM36m (Feb 2026, CGenFF 4.6)</option><option value="charmm36-jul2022">CHARMM36 (Jul 2022)</option></select></label>
   </div>
     <input type="hidden" name="clone_of"><p id="clone-notice" class="hint" role="status"></p><button id="leave-clone" type="button" class="secondary" hidden>Use settings for a new run</button>
-    <p class="hint cg-setting">Candidate screening checks mapping, fitting and comparison using uncalibrated bead types. It does not validate a scientific model.</p>
+    <p class="hint cg-setting">A CG run compares a parameterization against its source; uncalibrated bead types and a published reference are sources, not validation.</p>
     <div class="cg-only" id="cg-inputs">
-    <label>CG mapping<select name="mapping_candidate" id="run-mapping"><option value="">Select a saved mapping</option></select></label>
-    <p class="hint cg-run-facts">An AA–CG run consumes this model's parameterization: when the mapping has one, stage 3, <strong>CG parameterization</strong>, uses the revision current in <strong>CG Bond Interactions</strong> and the run does not re-fit it; when it has none, stage 3 fits it during the run and records that it did. The one switch, the torsion model, is a property of the mapping and is set in CG Bond Interactions.</p>
-    <label id="composition-run-selector">CG composition<select name="composition_id"><option value="">Select a saved composition</option></select></label>
-    <p class="hint">Choose a saved candidate for screening. Each run keeps its own mapping snapshot. Structural approval does not establish scientific validation.</p>
-    <label>AA reference source<select name="reference_run_id" id="reference-run"><option value="">Run a new AA reference</option></select><button type="button" class="danger secondary" id="delete-reference" hidden>Delete selected AA reference</button></label>
-    <p id="reference-help" class="hint">A new AA simulation runs first as a separate job. Compatible completed AA-only references are shared by CG runs without trajectory copies.</p>
+    {# One selector, grouped by mapping: every revision of every saved mapping, each mapping's draft connectivity when
+       it has no revision yet, and the molecule's published Martini 3 reference when the route answers one. The select
+       carries no `name`: the payload's `parameterization` is built from it by `new-run.js`, never submitted raw. #}
+    <label>Parameterization<select id="run-parameterization" aria-describedby="parameterization-help"><option value="">Select a molecule first</option></select></label>
+    <p id="parameterization-help" class="hint">A CG run consumes one parameterization of the selected molecule. A saved mapping's revision is fitted in CG Bond Interactions; a published Martini 3 reference and a saved composition's derived model are read-only.</p>
+    <div class="toolbar parameterization-actions"><a class="button secondary" id="open-bonded" href="#">Open in CG Bond Interactions</a></div>
+    {# The revision kind's second choice. A revision that predates the stored frame cannot start from it, and the option
+       says so rather than letting readiness refuse the default silently. #}
+    <label id="starting-coordinates-field">Starting coordinates<select id="starting-coordinates" aria-describedby="starting-coordinates-note"><option value="stored">Stored with this parameterization · default</option><option value="remap">Re-map the AA reference</option></select></label>
+    <p id="starting-coordinates-note" class="hint">The fit saved its starting frame with the revision, so the run starts from it. Re-map when you need the mapped trajectory itself, or when the revision records no frame.</p>
+    <p class="hint">The AA source is not chosen here: the parameterization names the run it was fitted against.</p>
     </div>
 
-    <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
+    <label>Run label<span class="setting-control"><input name="label" maxlength="160" placeholder="Optional label for this run"><button type="button" class="secondary" id="suggest-label">Suggest</button></span></label>
     </section></div>
     <aside class="new-run-settings">
     <fieldset class="run-settings card"><legend>Stage settings</legend>
+      {# A preset bar at the top of the settings it applies: Load fills the numeric and choice controls, Save
+         stores them under a name, and Set as default is what the form applies on mount and on a run-type change.
+         The select carries no `name`, so it is never submitted as a run setting. #}
+      <div class="preset-bar" role="group" aria-label="Stage-setting presets">
+        <label>Preset<select id="preset-select"><option value="">Profile defaults (no preset)</option></select></label>
+        <div class="toolbar preset-actions">
+          <button type="button" class="secondary" id="preset-load">Load</button>
+          <button type="button" class="secondary" id="preset-save">Save current as preset…</button>
+          <button type="button" class="secondary" id="preset-default">Set as default</button>
+          <button type="button" class="secondary danger" id="preset-delete">Delete</button>
+        </div>
+        <span id="preset-marker" class="hint" role="status"></span>
+      </div>
       <p class="hint">One molecule in water: minimization → NVT → NPT → NPT production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
       <section class="new-option-group" aria-labelledby="new-sampling-title">
         <h4 id="new-sampling-title" class="new-option-title">Sampling</h4>
@@ -230,9 +243,9 @@
           <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="cg_seed">Default</button></span></label>
         </div>
       </section>
-      {# Distance constraints belong to the atomistic half: the CG profiles state `none` in their own reviewed
-         files, so a run type with no AA half shows this control disabled at `none` and posts no value for it. #}
-      <section class="new-option-group" aria-labelledby="new-constraints-title">
+      {# Distance constraints are the atomistic leg's own choice, so only an AA run shows this group; a CG run consumes
+         a reference that already ran. The group stays in the document for the AA form's presets, hidden otherwise. #}
+      <section class="new-option-group" id="new-constraints-group" aria-labelledby="new-constraints-title">
         <h4 id="new-constraints-title" class="new-option-title">Constraints</h4>
         <div class="settings-grid">
           <label>AA constraints<span class="setting-control"><select name="constraints"><option value="all-bonds">All bonds · protocol default</option><option value="h-bonds">H-bonds · GROMACS manual</option><option value="none">None · diagnostic</option></select><button type="button" class="secondary use-default" data-field="constraints">Default</button></span></label>
@@ -293,11 +306,11 @@
       <p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
     </fieldset>
     <section class="card run-review" aria-labelledby="run-checks-title"><div class="review-heading"><h3 id="run-checks-title">Review before launch</h3><span id="review-status" class="review-status" role="status">Checking readiness…</span></div>
-    <dl id="run-input-summary" class="review-grid"><dt>Molecule</dt><dd id="run-molecule-summary">Select a molecule</dd><dt>Directory</dt><dd id="run-directory-summary">—</dd><dt>Run type</dt><dd id="run-type-summary">AA–CG run</dd><dt>AA source</dt><dd id="run-aa-summary">New reference</dd><dt>CG mapping</dt><dd id="run-mapping-summary">Select a mapping</dd><dt>Bonded fit</dt><dd id="run-bonded-summary">Fitted from the AA reference by the run</dd><dt>Settings</dt><dd id="run-settings-summary">300 K · AA/CG durations</dd></dl>
+    <dl id="run-input-summary" class="review-grid"><dt>Molecule</dt><dd id="run-molecule-summary">Select a molecule</dd><dt>Run type</dt><dd id="run-type-summary">CG run</dd><dt>Parameterization</dt><dd id="run-parameterization-summary">Select a parameterization</dd><dt>AA source</dt><dd id="run-aa-summary">—</dd><dt>Coordinates</dt><dd id="run-coordinates-summary">—</dd><dt>Preset</dt><dd id="run-preset-summary">Profile defaults</dd><dt>Length</dt><dd id="run-length-summary">—</dd><dt>Label</dt><dd id="run-label-summary">—</dd></dl>
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
     <p id="launch-blocker" class="hint" role="status"></p>
     <details id="run-provenance"><summary>View detailed provenance and stages</summary><p id="new-storage" class="hint"></p><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
-    <button type="submit" id="start-run" disabled>Start run</button>
+    <button type="submit" id="start-run" disabled>Start CG run</button>
     </section></aside>
   </form>
 {% endif %}
@@ -388,14 +401,17 @@
       <label>Head endpoint<select id="composition-head-endpoint"></select></label>
       <label>Tail endpoint<select id="composition-tail-endpoint"></select></label>
       <label>Linkage profile<select id="composition-linkage-profile"></select></label>
-      <label>Display name<input id="composition-display-name" maxlength="160" placeholder="Optional name"></label>
-      <div class="toolbar"><button type="button" id="composition-preview" disabled>Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save composition</button></div>
+      <label>Molecule name<input id="composition-molecule-name" maxlength="160" placeholder="GLC-C12" aria-describedby="composition-name-note"></label>
+      <p id="composition-name-note" class="hint">Shown in Bond Interactions and New run. Defaults to the sugar residue and carbon count, and follows them until you type one.</p>
+      <label>Links to molecule<select id="composition-head-molecule"><option value="">No link (derived only)</option></select></label>
+      <div class="toolbar"><button type="button" id="composition-preview" disabled>Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save as CG molecule</button></div>
       <p id="composition-panel-status" class="hint" role="status"></p>
     </section>
     <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">
-      <h3 id="composition-provenance-title">Provenance</h3>
-      <dl id="composition-provenance-list"><dt>Head source</dt><dd>—</dd><dt>Tail</dt><dd>—</dd><dt>Linkage</dt><dd>—</dd><dt>Status</dt><dd>candidate-unvalidated</dd></dl>
-      <div class="toolbar"><button type="button" class="secondary" id="composition-open-bonded" disabled>Open CG Bond Interactions</button><button type="button" class="secondary" id="composition-start-run" disabled>Start CG-only run</button></div>
+      <h3 id="composition-provenance-title">Saved CG model</h3>
+      <p id="composition-model-summary" class="hint">Preview and save to derive a CG model from this recipe.</p>
+      <dl id="composition-provenance-list"><dt>Molecule id</dt><dd>—</dd><dt>Molecule name</dt><dd>—</dd><dt>Links to</dt><dd>—</dd><dt>Beads</dt><dd>—</dd><dt>Terms</dt><dd>—</dd><dt>Parameterization</dt><dd>—</dd><dt>Status</dt><dd>—</dd></dl>
+      <div class="toolbar"><button type="button" class="secondary" id="composition-open-bonded" disabled>Open in Bond Interactions</button><button type="button" class="secondary" id="composition-start-run" disabled>Open the CG run</button></div>
     </aside>
     </div>
     <section class="card composition-preview" aria-labelledby="composition-preview-title">
@@ -409,6 +425,12 @@
       <div id="composition-diagnostics" class="composition-diagnostics" aria-live="polite">Choose the fragments and preview the candidate.</div>
     </section>
   </div>
+  <section class="card composition-models" aria-labelledby="composition-models-title">
+    <h3 id="composition-models-title">Saved CG molecules</h3>
+    <p class="hint">Every saved composition is a derived, candidate-unvalidated CG model; these are the rows Bond Interactions and New run read.</p>
+    <div class="table-scroll"><table><caption>One row per saved composition</caption><thead><tr><th>Molecule</th><th>Links to</th><th>Beads</th><th>Terms</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="composition-model-rows"></tbody></table></div>
+    <p id="composition-models-status" class="hint" role="status">Loading saved compositions…</p>
+  </section>
 </section>
 <section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
   <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Produce a CG model's parameterization — the bonded terms fitted to this mapping — from one of its AA references. A fit makes no MD, so nothing from this panel appears in Runs; a run consumes the revision this panel makes current and never re-fits it.</p></div></div>
@@ -422,12 +444,41 @@
       <span class="badge" id="bonded-model-badge">no parameterization</span>
     </div>
     <p class="hint" id="bonded-mapping-facts"></p>
+    {# The model card's one display control: the molecule, then the parameterization shown. Its options are the
+       molecule's saved mappings grouped by mapping -- each mapping's revisions, or its draft connectivity when it has
+       none -- and the published Martini 3 reference when the route offers one. Choosing an option changes only what
+       the table, the diagram and the result card draw. #}
+    <div class="form-grid">
+      <label>Molecule<select id="bonded-molecule-select" aria-describedby="bonded-mapping-facts"></select></label>
+      <label>Parameterization shown<select id="bonded-parameterization-display" aria-describedby="bonded-mapping-facts"></select></label>
+    </div>
+    {# A hidden bridge for the New run door: `new-run.js` preselects a saved mapping by setting this select's value
+       and dispatching `change`. It is not part of the viewing path, which is `#bonded-parameterization-display`. #}
+    <select id="bonded-mapping-select" class="bonded-mapping-select" hidden aria-hidden="true" tabindex="-1"></select>
+    <p class="hint" id="bonded-shown-status" role="status"></p>
+    <div class="toolbar">
+      <button type="button" class="secondary" id="bonded-make-current" disabled>Make current</button>
+      {# This control removes the selected model's *parameterization* -- its revisions, the fits that produced them, the
+         frames those fits built and the reference histograms recorded with them. The saved mapping itself is not
+         touched: deleting a mapping is the editor's own button, and this panel only edits models. #}
+      <button type="button" class="secondary danger" id="bonded-delete-parameterization" disabled
+              title="Choose a saved mapping first.">Delete this parameterization</button>
+    </div>
+  </section>
+
+  {# Fit a new revision, in a card of its own: these settings configure the next fit and never change what the model
+     card shows. Keeping them in the display grid made them read as a second way to choose the model. #}
+  <section class="card bonded-fit" aria-labelledby="bonded-fit-title">
+    <div class="section-heading">
+      <div><span class="eyebrow">Fit</span><h3 id="bonded-fit-title">Fit a new revision</h3>
+        <p class="hint">These settings configure the next fit only. The table, the diagram and the result stay on the
+          parameterization shown above until a new revision is fitted or chosen.</p></div>
+    </div>
     {# The fields and the torsion fieldset are one body: the fieldset states a property of the same mapping, and it is
        read beside the fields rather than stacked under them -- four rows of fields put the first button below the
-       fold. Three fields to a row, because seven fields in two columns is the height this removes. #}
+       fold. Three fields to a row, because six fields in two columns is the height this removes. #}
     <div class="bonded-model-body">
       <div class="form-grid bonded-model-fields">
-        <label>Mapping<select id="bonded-mapping-select" class="bonded-mapping-select" aria-describedby="bonded-mapping-facts"></select></label>
         <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
         <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
         <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
@@ -470,11 +521,6 @@
     <p class="hint" id="bonded-engine-note"></p>
     <div class="toolbar">
       <button type="button" id="bonded-fit">Fit this model</button>
-      {# This control removes the selected model's *parameterization* -- its revisions, the fits that produced them, the
-         frames those fits built and the reference histograms recorded with them. The saved mapping itself is not
-         touched: deleting a mapping is the editor's own button, and this panel only edits models. #}
-      <button type="button" class="secondary danger" id="bonded-delete-parameterization" disabled
-              title="Choose a saved mapping first.">Delete this parameterization</button>
     </div>
     <p class="hint" id="bonded-fit-status" role="status"></p>
     <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
@@ -515,22 +561,24 @@
   <div class="bonded-columns">
     <section class="card">
       <h3>Interactions</h3>
-      <p class="hint">The terms of the revision shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. A constraint's length and a virtual site's parents are the mapping's own and are shown read-only — no route in this slice writes a revision's terms, so nothing here is an input. Select a row to highlight it in the diagram.</p>
+      <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. A constraint's length and a virtual site's parents are the mapping's own and are shown read-only — no route in this slice writes a revision's terms, so nothing here is an input. Select a row to highlight it in the diagram.</p>
       <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
     </section>
     <section class="card">
       <h3>Molecular connectivity</h3>
+      <p class="hint">Bead centres are measured on the molecule's current coordinates: a revision records terms, not a
+        frame, so the drawing can differ in detail from the frame the terms were fitted to.</p>
       <p class="hint bonded-selection-status">Select a bead to read its name.</p>
       <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
     </section>
   </div>
 
-  {# The revision strip, in place of the flat bonded-state select: a mapping's revisions are its
-     parameterization's history, and one of them is current. #}
+  {# The revision strip is the parameterization's history, read-only: each card names its engine, date and term counts,
+     and one of them is current. Choosing what is shown is the model card's selector, never a control here. #}
   <section class="card bonded-revisions" aria-labelledby="bonded-revisions-title">
     <div class="section-heading">
       <div><span class="eyebrow">Revisions</span><h3 id="bonded-revisions-title">Revisions of this mapping</h3>
-        <p class="hint">A run consumes the current revision and records which. Making an earlier one current rewrites nothing — the numbers stay, and every revision keeps its own engine, ensemble and checks.</p></div>
+        <p class="hint">History, not a selector: what the table and the diagram draw is chosen above. A run consumes the current revision and records which; making a different one current rewrites nothing — the numbers stay, and every revision keeps its own engine, ensemble and checks.</p></div>
     </div>
     <ol class="bonded-revision-strip" id="bonded-revisions"></ol>
   </section>

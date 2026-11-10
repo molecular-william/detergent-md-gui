@@ -193,7 +193,7 @@ def test_the_engine_registers_its_own_workspace_when_none_is_installed():
         sections.ensure_default()
         assert set(SECTIONS) == {'core'}
         assert SECTIONS['core']['tabs'] == ('runs', 'run-view', 'new-run')
-        assert SECTIONS['core']['run_types'] == ('aa_only', 'aa_cg')
+        assert SECTIONS['core']['run_types'] == ('aa_only', 'cg')
     finally:
         SECTIONS.clear()
         SECTIONS.update(saved)

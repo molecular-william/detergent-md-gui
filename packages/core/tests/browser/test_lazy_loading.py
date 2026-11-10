@@ -37,7 +37,9 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     assert not any('/figures?' in u for u in urls), urls
     assert not any('/artifacts?' in u for u in urls)
     page.locator('#tab-new').click()
-    expect(page.locator('#run-mapping option')).to_have_count(2)
+    # A mapping with no revision is offered as its draft connectivity -- the only model this bare workspace holds.
+    expect(page.locator('#run-parameterization option')).to_have_count(1)
+    expect(page.locator('#run-parameterization')).to_contain_text('Draft mapping connectivity')
     # The panel used to offer a bonded-state select here, filled from a flat store that no longer exists. Fitting is
     # the AA-CG run type's own (D1), so the control is gone and the page asks nothing bonded-shaped at all: the only
     # bonded question left in the dashboard is the CG Bond Interactions panel's, and it carries a mapping's content hash.
@@ -153,8 +155,14 @@ def test_readiness_debounces_changes_and_ignores_cancelled_response(dashboard, l
     expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
     page.clock.fast_forward(200)
     page.wait_for_function('readinessRequests.length === 1')
-    page.locator('#method').select_option('bartender')
-    page.locator('#method').select_option('fast_forward')
+    # The starting-coordinate choice is a per-run question, so changing it re-asks readiness. Two changes in a row
+    # are one question, and the first request is cancelled rather than answered.
+    def choose_coordinates(value):
+        page.evaluate("""(value) => { const select = document.querySelector('#starting-coordinates');
+            select.value = value; select.dispatchEvent(new Event('change', {bubbles: true})); }""", value)
+
+    choose_coordinates('remap')
+    choose_coordinates('stored')
     page.clock.fast_forward(200)
     page.wait_for_function('readinessRequests.length === 2')
     assert page.evaluate('readinessRequests[0].signal.aborted')
@@ -163,7 +171,7 @@ def test_readiness_debounces_changes_and_ignores_cancelled_response(dashboard, l
     page.evaluate('readinessRequests[0].reply(true)')
     expect(page.locator('#start-run')).to_be_disabled()
     expect(page.locator('#launch-blocker')).to_have_text('Latest check blocked')
-    page.locator('#method').select_option('bartender')
+    choose_coordinates('remap')
     page.clock.fast_forward(200)
     page.wait_for_function('readinessRequests.length === 3')
     page.locator('#tab-runs').click()

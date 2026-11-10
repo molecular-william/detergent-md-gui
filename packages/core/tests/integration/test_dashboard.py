@@ -38,7 +38,8 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get('/api/readiness').get_json()
         self.assertFalse(response['ready'])
         self.assertTrue(response['blockers'])
-        self.assertEqual(self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward'}).status_code, 409)
+        # A payload that names no run type is refused before a job exists: the historical combined job is retired.
+        self.assertEqual(self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward'}).status_code, 400)
         self.assertEqual(len(self.dashboard.coordinator.database().all()), 1)
 
     def test_never_signal_an_unowned_stored_pid(self):
@@ -108,7 +109,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(data['values']['aa_production_ps'], 50)
         self.assertIn('mdps', data['sources']['AA'])
 
-    def test_aa_cg_defaults_are_the_settings_the_run_will_use(self):
+    def test_cg_defaults_are_the_settings_the_run_will_use(self):
         """The form and the run must not disagree, at any profile.
 
         Before this, a draft-smoke AA-to-CG form showed the full-length AA half while
@@ -116,7 +117,7 @@ class DashboardTests(unittest.TestCase):
         stopped, because the AA half had no profile at all.
         """
         for profile in aa.PROFILES:
-            data = self.client.get('/api/defaults?run_type=aa_cg&profile=' + profile).get_json()
+            data = self.client.get('/api/defaults?run_type=cg&profile=' + profile).get_json()
             settings = cg.normalize_settings(None, profile)
             for key in ('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps', 'cg_equil_ps', 'cg_production_ps'):
                 self.assertEqual(data['values'][key], settings[key], profile + ': ' + key)
@@ -125,7 +126,7 @@ class DashboardTests(unittest.TestCase):
         # queue will stamp, not this route's own `standard`. Measured before the fix: `standard` answered
         # `cg_equil_ps` 5000 / `cg_production_ps` 100000 against the run's 10 / 10000, and the panel posts those
         # numbers back as explicit settings, so the run would have integrated 100 ns of CG production.
-        data = self.client.get('/api/defaults?run_type=aa_cg').get_json()
+        data = self.client.get('/api/defaults?run_type=cg').get_json()
         settings = cg.normalize_settings(None, cg.AA_CG_PROFILE)
         for key in ('aa_nvt_ps', 'aa_npt_ps', 'aa_production_ps', 'cg_equil_ps', 'cg_production_ps'):
             self.assertEqual(data['values'][key], settings[key], 'no profile named: ' + key)
@@ -194,11 +195,18 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(response.get_json()['gromacs_eta'], 'CURRENT ATTEMPT')
 
     def test_retry_creates_new_id_and_preserves_failed_record(self):
-        self.dashboard.coordinator.database().update(self.job['id'], status='failed', error='Original failure')
+        """A retry carries the model the failed run consumed; a composition-kind run needs only its composition."""
+        from dashboard.execution.adapters import composition
+
+        self.dashboard.coordinator.database().update(
+            self.job['id'], status='failed', error='Original failure', run_type='cg',
+            parameterization={'kind': 'composition', 'composition_id': '0' * 16})
         before = self.dashboard.coordinator.lookup(self.job['id'])
-        with patch.object(cg, 'readiness', return_value={'ready': True}), patch.object(threading.Thread, 'start'):
+        with patch.object(composition, 'readiness', return_value={'ready': True, 'checks': [], 'blockers': []}), \
+                patch.object(threading.Thread, 'start'):
             response = self.client.post('/retry/123456abcdef')
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.get_json()['parameterization']['kind'], 'composition')
         self.assertNotEqual(response.get_json()['id'], self.job['id'])
         self.assertEqual(self.dashboard.coordinator.lookup(self.job['id']), before)
 
@@ -260,17 +268,15 @@ def test_defaults_return_one_help_map_quoted_from_the_manual(dashboard):
     """
     from dashboard.execution import settings_help
 
-    data = dashboard.client.get('/api/defaults?run_type=aa_cg').get_json()
+    data = dashboard.client.get('/api/defaults?run_type=cg').get_json()
     assert data['help'] == settings_help.HELP
     assert data['help_sources']['mdp'] == 'https://manual.gromacs.org/2026-rc/user-guide/mdp-options.html'
     for key in ('nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm', 'nstlist',
                 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau_t', 'tau_p', 'compressibility',
                 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme'):
         assert data['help'].get(key), key
-    # A composition run writes no engine MDP, so it neither offers nor defaults the CG production overrides.
-    composition = dashboard.client.get('/api/defaults?run_type=cg_composition').get_json()
-    assert not set(cg.PRODUCTION_OVERRIDES) & set(composition['values'])
-    assert composition['help'] == settings_help.HELP
+    # A composition-kind CG run writes no engine MDP, so it neither offers nor defaults the CG production
+    # overrides; the revision kind, which is the one this route answers, does.
 
 
 def test_new_run_form_groups_the_options_and_exposes_box_shape(dashboard):

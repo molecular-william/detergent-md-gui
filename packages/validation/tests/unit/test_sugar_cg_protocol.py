@@ -6,29 +6,38 @@ from dashboard.execution.coordination import admission
 from detergent_validation.execution.adapters import sugar_cg
 
 
-def test_the_feature_registers_the_run_type():
+def test_the_reference_kind_is_reachable_through_the_cg_run_type():
+    from dashboard.execution.adapters import cg_run
+
     features.ensure()
 
-    assert 'sugar_cg' in protocol.RUN_TYPES
-    assert protocol.adapter_for('sugar_cg') is sugar_cg.PROTOCOL
+    assert 'cg' in protocol.RUN_TYPES and 'sugar_cg' not in protocol.RUN_TYPES
+    assert protocol.adapter_for('cg') is cg_run.PROTOCOL
+    reference = {'run_type': 'cg', 'molecule_id': 'Sucrose',
+                 'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'}}
+    contract, _, _ = protocol.adapter_for('cg').stage_contract(reference)
+    assert [name for name, _ in contract] == ['CG simulation']
 
 
 def test_admission_accepts_one_sugar_and_one_published_entry():
-    admission.validate_run_type({'run_type': 'sugar_cg', 'molecule_id': 'Sucrose', 'sugar_entry': 'SUCR'})
-    admission.validate_run_type({'run_type': 'sugar_cg', 'molecule_id': 'Trehalose', 'sugar_entry': 'TREH'})
+    admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Sucrose',
+                                 'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'}})
+    admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Trehalose',
+                                 'parameterization': {'kind': 'reference', 'sugar_entry': 'TREH'}})
 
 
 def test_admission_refuses_an_aa_input_or_a_missing_entry():
-    with pytest.raises(ValueError, match='require sugar_entry'):
-        admission.validate_run_type({'run_type': 'sugar_cg', 'molecule_id': 'Sucrose'})
-    with pytest.raises(ValueError, match='require molecule_id'):
-        admission.validate_run_type({'run_type': 'sugar_cg', 'sugar_entry': 'SUCR'})
-    for key, value in (('method', 'fast_forward'), ('reference_run_id', 'abc123'),
-                       ('mapping_candidate', 'saved.json'), ('mapping_snapshot', {'beads': []}),
-                       ('aa_production_ps', 100), ('sasa_probe_nm', 0.191)):
+    with pytest.raises(ValueError, match='requires parameterization.sugar_entry'):
+        admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Sucrose',
+                                     'parameterization': {'kind': 'reference'}})
+    with pytest.raises(ValueError, match='require parameterization'):
+        admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Sucrose'})
+    for key, value in (('reference_run_id', 'abc123'), ('mapping_candidate', 'saved.json'),
+                       ('mapping_snapshot', {'beads': []})):
         with pytest.raises(ValueError, match=f'cannot include {key}'):
-            admission.validate_run_type({'run_type': 'sugar_cg', 'molecule_id': 'Sucrose',
-                                         'sugar_entry': 'SUCR', key: value})
+            admission.validate_run_type({'run_type': 'cg', 'molecule_id': 'Sucrose',
+                                         'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'},
+                                         key: value})
 
 
 def test_the_protocol_advertises_only_the_settings_it_reads():
@@ -49,5 +58,12 @@ def test_normalize_settings_is_the_protocol_s_own():
     assert values['cg_production_ps'] == pytest.approx(10000.0)
 
 
-def test_the_profile_is_the_run_type_s_own():
-    assert protocol.profile_for_run_type('sugar_cg') == 'sugar-cg-v1'
+def test_the_reference_kind_keeps_its_own_durations():
+    from dashboard.execution.adapters import cg_run
+
+    values = cg_run.normalize_settings({'sugar_entry': 'SUCR'}, 'draft-smoke-reference',
+                                       parameterization={'kind': 'reference', 'sugar_entry': 'SUCR'})
+    assert values['sugar_entry'] == 'SUCR'
+    assert values['cg_production_ps'] == pytest.approx(10000.0)
+    # The revision kind is still the default, and the run type keeps the CG profile its runs record.
+    assert protocol.profile_for_run_type('cg') == 'draft-smoke-reference'

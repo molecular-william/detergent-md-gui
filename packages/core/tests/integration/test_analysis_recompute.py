@@ -4,7 +4,7 @@ Two things this pins, and the second is the defect the first was hiding:
 
 * **One kind at a time.** `queue` takes one analysis per run and refuses a second with `RunBusy` while the first holds
   the worker, which is what keeps a person's cancel meaningful. Asking for the whole owed list at once therefore
-  started exactly one kind and dropped the others on the floor: run `ce1318485197`, an `aa_cg` run owing
+  started exactly one kind and dropped the others on the floor: run `ce1318485197`, a `cg` run owing
   `bonded-cross-check` and `dihedral-fit`, never reached the second, with no record that it had ever been considered.
 * **The rest follow.** What the drain cannot start is named in `owed`, and the next kind starts when one settles --
   which is what makes the button a request rather than a race with whoever is already analysing something.
@@ -21,7 +21,7 @@ SOURCES = ('2_mapping/mapped.gro', '2_mapping/mapped.xtc', '2_mapping/model.json
            '3_initial_CG/SUCR_ff_inter.itp', '3_initial_CG/SUCR_initial.itp')
 
 
-def seed(dashboard, *, run_type='aa_cg'):
+def seed(dashboard, *, run_type='cg'):
     """A finished AA-to-CG run with the sources its two own kinds are resolved from."""
     coordinator = dashboard.coordinator
     job = {'id': JID, 'label': 'Recompute', 'detergent': 'DDM', 'method': 'fast_forward', 'profile': 'draft-smoke',
@@ -66,7 +66,7 @@ def test_draining_starts_one_kind_and_names_the_ones_waiting(dashboard, monkeypa
 
     assert kinds(coordinator) == ['bonded-cross-check'], 'queue takes one analysis per run; the rest are owed, not queued'
     assert answer['queued'] == [coordinator.lookup(JID)['analyses'][0]['id']]
-    assert answer['owed'] == ['dihedral-fit']
+    assert answer['owed'] == ['dihedral-fit', 'ff-interactions']
 
 
 def test_the_next_kind_starts_when_the_running_one_settles(dashboard, monkeypatch):
@@ -77,8 +77,9 @@ def test_the_next_kind_starts_when_the_running_one_settles(dashboard, monkeypatc
     settle(coordinator, wait_for_a_task(coordinator)[0])
     answer = coordinator.analysis_coordinator.drain(JID)
 
+    # One analysis per run at a time: settling the first starts the second, and the third waits its turn.
     assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit']
-    assert answer['owed'] == []
+    assert answer['owed'] == ['ff-interactions']
 
 
 def test_a_failed_attempt_does_not_chain_because_it_would_queue_itself_again(dashboard, monkeypatch):
@@ -103,7 +104,7 @@ def test_recompute_offers_a_failed_kind_again(dashboard, monkeypatch):
     answer = coordinator.analysis_coordinator.drain(JID)
 
     assert kinds(coordinator) == ['bonded-cross-check', 'bonded-cross-check'], 'a second attempt beside the failed one'
-    assert answer['queued'] and answer['owed'] == ['dihedral-fit']
+    assert answer['queued'] and answer['owed'] == ['dihedral-fit', 'ff-interactions']
 
 
 def test_recompute_is_refused_while_the_run_is_still_working(dashboard):
@@ -124,7 +125,7 @@ def test_recompute_queues_the_run_and_says_what_is_still_waiting(dashboard, monk
 
     assert response.status_code == 202
     assert response.get_json() == {'queued': [coordinator.lookup(JID)['analyses'][0]['id']],
-                                   'owed': ['dihedral-fit']}
+                                   'owed': ['dihedral-fit', 'ff-interactions']}
 
 
 def test_recompute_twice_with_nothing_changed_queues_nothing(dashboard, monkeypatch):
@@ -144,4 +145,4 @@ def test_recompute_twice_with_nothing_changed_queues_nothing(dashboard, monkeypa
     answer = coordinator.analysis_coordinator.drain(JID)
 
     assert answer == {'queued': [], 'owed': []}
-    assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit']
+    assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions']

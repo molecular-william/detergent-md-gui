@@ -210,7 +210,7 @@ export function createRunView() {
     const remembered = (state.pair || []).filter(id => runs.some(job => job.id === id));
     const known = runs.find(job => job.id === wanted);
     const first = known || runs.find(job => job.id === remembered[0])
-      || runs.find(job => String(job.run_type) === 'aa_cg') || runs[0];
+      || runs.find(job => String(job.run_type) === 'cg') || runs[0];
     if (!first && !wanted) {
       note.textContent = 'No completed run in this workspace yet.';
       return;

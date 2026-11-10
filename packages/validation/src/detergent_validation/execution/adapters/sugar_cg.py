@@ -38,7 +38,7 @@ SCRIPT = 'dashboard/execution/scripts/sugar_cg_simulation.sh'
 SUGAR_REFERENCE = martini3.SUGARS[0]
 SUGAR_PROVENANCE = martini3.SUGARS[1]
 WATER_BOX = 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro'
-ENTRIES = ('SUCR', 'TREH')
+ENTRIES = ('SUCR', 'TREH', 'LAC', 'GLC')
 
 #: One stage: the CG build's minimisation, equilibration and production, the same command sequence the AA-CG
 #: pipeline's `cg_simulation.sh` runs. The checkpoint is production's own, so Restart re-enters only that leg. The
@@ -165,6 +165,10 @@ def assess(molecule_id, entry, *, molecule_root):
     Returns checks and blockers in the readiness shape, plus whatever was read so the preview does not read the
     molecule twice. A refusal is a blocker, never an exception: a caller that does not know what this run type needs
     must still get an answer. This reads the molecule; it never writes to it.
+
+    The entry has to be the one published *for* this molecule, with one exception in `reference.accepts_identity`:
+    glucose's layout identifies `GAL` because every aldohexose shares the four-bead pattern, and because `GLC` and
+    `GAL` are that one mapping with different published lengths, the molecule's own entry stands.
     """
     checks, blockers = [], []
     provenance = reference_provenance()
@@ -198,13 +202,23 @@ def assess(molecule_id, entry, *, molecule_root):
     checks.append({'label': 'Sugar candidate', 'path': str(folder), 'ready': True,
                    'detail': f"{len(candidate['beads'])} beads"})
     found = candidate.get('reference') or {}
+    identified = found.get('entry')
+    published = reference.PUBLISHED_FOR.get(str(molecule_id or ''))
+    accepted = reference.accepts_identity(candidate, molecule_id, entry)
     if entry not in ENTRIES:
         blockers.append(f'unknown sugar reference entry {entry!r}; this run type offers ' + ', '.join(ENTRIES))
-    if found.get('entry') != entry:
-        blockers.append(f'the candidate mapping identifies {found.get("entry") or "no reference entry"}, '
+    if published is None:
+        blockers.append(f'{molecule_id} has no published Martini 3 sugar entry; a matching bead layout is not the '
+                        'same as being the molecule the entry describes')
+    elif published != entry:
+        blockers.append(f'{molecule_id} is published for {published}, not for the selected {entry}')
+    if not accepted and identified != entry:
+        blockers.append(f'the candidate mapping identifies {identified or "no reference entry"}, '
                         f'not the selected {entry}')
-    if not found.get('unambiguous') or not found.get('covers_whole_molecule'):
+    if not accepted and not found.get('unambiguous'):
         blockers.append('the candidate mapping is not an unambiguous whole-molecule match to the reference')
+    if not found.get('covers_whole_molecule'):
+        blockers.append('the candidate mapping does not cover the whole molecule')
     issues = []
     if entry in ENTRIES:
         try:
@@ -242,7 +256,9 @@ def preview(molecule_id, entry='SUCR', *, molecule_root):
     answer = assess(molecule_id, entry, molecule_root=molecule_root)
     candidate = answer.get('candidate')
     record = None
+    note = None
     if entry in ENTRIES:
+        note = reference.layout_note(candidate or {}, entry)
         try:
             record = reference.signature(reference.entry(entry))
         except (KeyError, OSError):
@@ -272,7 +288,7 @@ def preview(molecule_id, entry='SUCR', *, molecule_root):
             'The start coordinates are the mapped AA geometry; adopting published constraints moves the start.',
             'No atomistic reference, mapping comparison, overlap, surface or back-map exists in this run.',
             'The reference is a published force-field entry, not an experimental measurement of these AA topologies.',
-        ],
+        ] + ([note] if note else []),
         'scientifically_validated': False,
     }
 

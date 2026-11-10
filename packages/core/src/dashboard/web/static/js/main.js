@@ -23,7 +23,7 @@ function prefetchCatalogues() {
     '/api/cg-models?view=summary',
     '/api/mappings?view=summary&molecule_id=' + encodeURIComponent(molecule),
     '/api/references?molecule_id=' + encodeURIComponent(molecule),
-    '/api/defaults?run_type=aa_cg',
+    '/api/defaults?run_type=cg',
   ];
   for (const path of paths) cachedApi(path, {maxAge: CATALOGUE_MAX_AGE}).catch(() => {});
 }

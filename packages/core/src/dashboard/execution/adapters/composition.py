@@ -1,154 +1,290 @@
-"""Explicit CG-only workflow for immutable molecule compositions.
+"""The CG run over an immutable composition: a real GROMACS simulation of the composed molecule.
 
-What this module offers the rest of the application: PROTOCOL (the run-type
-surface at the end of this file), the STAGE_DEFS/STAGES stage tables, and
-readiness()/prepare_run() -- the two operations the protocol forwards. Two facts
-are stated here rather than left to be inferred from absent attributes: a
-composition screening run configures no setting (SETTING_SPECS is empty), and it
-calls no external executable, so its tool report records the Python interpreter
-alone.
+A composition run is not an AA-to-CG run with its atomistic half skipped, and it is no longer a screening stub: it
+builds one coarse-grained system from the composition's own immutable topology and coordinates and runs the CG
+build's minimisation, equilibration and production. There is no AA reference stage, no mapping stage and no
+parameterization fit; the model the run consumes is the composition's **derived** parameterization, and the run says
+so in its manifest.
+
+The stage plan is two stages:
+
+* ``CG simulation`` -- the repository's ``cg_simulation.sh``, the same command sequence the AA-to-CG CG half and the
+  sugar CG run execute. This adapter writes what that script reads: the composition's geometry as
+  ``2_mapping/mapped.gro``, its topology as ``3_initial_CG/<residue>.itp``, a Martini 3 system that includes it, and
+  the reviewed CG MDPs at the run's own numbers.
+* ``CG assessment`` -- records ``skipped`` (exit 4 plus ``skip.json``). A composition has no atomistic reference
+  trajectory, so there is no AA reference distribution to score the CG trajectory against; the stage says that
+  rather than printing a score of 0.00 that would read like a measurement.
+
+SASA is not offered for the same reason: the engine's SASA analysis compares an AA surface with a CG surface, and
+this run has no AA half. The stage plan omits it rather than recording a second skip for one absent reference.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from ... import files, paths
+from ... import martini3, paths
 from ...models import compositions
-from .. import protocol, run_inputs
-from ..environment import recorded_environment
+from .. import devices, protocol, run_inputs, tools
+from ..environment import ROOT, environment, recorded_environment
+from ..mdp import write_mdp
+from ..settings import normalize
 from ..stages import Stage, stage_tables
+from . import aa as aa_adapter
+from . import cg
 
-ARTIFACTS = ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json')
+VERSION = 'cg-composition-v2'
+SIMULATION_SCRIPT = 'dashboard/execution/scripts/cg_simulation.sh'
+ASSESSMENT_SCRIPT = 'dashboard/execution/scripts/composition_assessment.sh'
 
-#: The three stages run repository scripts, recorded in the manifest's `stage_scripts` by path and digest. Nothing
-#: executable is written into the run any more: the screening stubs are this repository's code, and the artifact they
-#: copy is resolved from the run's own input record rather than stamped into a generated script.
+#: The artifact names a composition run reads. `compositions.artifacts` is the reader; this is the declared vocabulary
+#: the stage contract and the readiness checks name.
+ARTIFACTS = compositions.ARTIFACTS
+
+#: What a composition does not have, said in the run's own words rather than left to be inferred from an absent file.
+NO_REFERENCE = 'no AA reference distribution to score against'
+
+#: One stage runs the CG build; the second states that there is nothing to score. Inputs are spelled relative to each
+#: stage's own directory, the way `cg_simulation.sh` opens them.
 STAGE_DEFS = (
-    Stage('CG simulation', '1_CG-simulation/cg_simulation.sh',
-          ('../../inputs/inputs.json',), ('cg.gro', 'screening.json'),
-          script='dashboard/execution/scripts/composition_simulation.sh'),
-    Stage('CG assessment', '2_CG-assessment/assess.sh',
-          ('../1_CG-simulation/cg.gro',), ('validation.json',),
-          script='dashboard/execution/scripts/composition_assessment.sh'),
-    Stage('CG SASA', '3_CG-SASA/sasa.sh',
-          ('../1_CG-simulation/cg.gro',), ('sasa.json',),
-          script='dashboard/execution/scripts/composition_sasa.sh'),
+    Stage('CG simulation', '4_CG_sim/cg_simulation.sh',
+          ('../2_mapping/mapped.gro', '../3_initial_CG/{itp}', 'system_EMPTY.top',
+           'inputs/minimization.mdp', 'inputs/eq.mdp', 'inputs/md.mdp'),
+          ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc'),
+          script=SIMULATION_SCRIPT, checkpoint='md.cpt'),
+    # The assessment stage skips before it reads anything, so it declares no input and no output of its own: the
+    # one file it writes is `skip.json`, and the executor records the stage `skipped` from the exit code.
+    Stage('CG assessment', '5_assessment/assess.sh', (), (), script=ASSESSMENT_SCRIPT),
 )
-STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
-VERSION = 'cg-composition-v1'
+STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS, {'itp': 'composition.itp'})
+
+#: The reviewed MDP profiles this run writes, keyed by their path relative to `stages/` -- the spelling the executor's
+#: `mdp_profiles` record uses. The three are the CG half's own, read from `cg` rather than restated.
+MDP_PROFILES = {key: value for key, value in cg.MDP_PROFILES.items() if key.startswith('4_CG_sim/')}
+
+#: The composition has no AA half, so it owns cg's CG numbers and the execution keys its scripts read -- not the AA
+#: durations `cg.normalize_settings` derives the CG equilibration from for an AA-to-CG run.
+AA_HALF = ('aa_equil_ps', 'aa_production_ps', 'sasa_probe_nm')
+SETTING_SPECS = {key: spec for key, spec in cg.SETTING_SPECS.items() if key not in AA_HALF}
+SETTING_SPECS.update({key: aa_adapter.SETTING_SPECS[key] for key in cg.RUN_EXECUTION_SETTINGS})
+CHOICE_SPECS = {key: aa_adapter.CHOICE_SPECS[key]
+                for key in ('mdrun_nb', 'mdrun_pme', 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme')}
+_INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'mdrun_gpu': 'mdrun_gpu must be an integer',
+              'mdrun_cpt': 'mdrun_cpt must be an integer', 'nstlog': 'nstlog must be an integer',
+              'nstenergy': 'nstenergy must be an integer', 'nstxtcout': 'nstxtcout must be an integer',
+              'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer'}
 
 
-def readiness(composition_id: str, root: Path) -> dict:
-    checks = []
+def _profile(profile):
+    return profile or 'standard'
+
+
+def stage_defaults(profile='standard'):
+    """The values a composition run starts from: the CG profile's own numbers plus the execution defaults.
+
+    Read from `cg.stage_defaults` rather than restated, so a review that moves a duration moves the form and the run
+    together. The AA durations that function also carries are dropped: this run has no atomistic half.
+    """
+    values = cg.stage_defaults(_profile(profile))['values']
+    result = {key: values[key] for key in SETTING_SPECS if key in values}
+    result.update({key: aa_adapter.DEFAULTS[key] for key in cg.RUN_EXECUTION_SETTINGS})
+    result.update({key: aa_adapter.DEFAULTS[key] for key in CHOICE_SPECS if key in aa_adapter.DEFAULTS})
+    return {'values': result, 'sources': {'CG': 'cg.stage_defaults', 'composition': VERSION},
+            'profile': _profile(profile)}
+
+
+def normalize_settings(settings=None, profile='standard'):
+    """Normalize the run's numbers in the CG-only dialect, at the profile the run is stamped with."""
+    if settings is not None and not isinstance(settings, dict):
+        raise ValueError('Composition CG settings must be an object')
+    values = normalize(
+        settings, stage_defaults(_profile(profile))['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
+        object_message='Composition CG settings must be an object',
+        unknown_prefix='Unknown composition CG setting: ', label_messages=True, integrals=_INTEGRALS)
+    if values['output_interval_ps'] > values['cg_production_ps']:
+        raise ValueError('Trajectory interval must not exceed the CG production duration')
+    return values
+
+
+def _composition_id(metadata):
+    payload = metadata.get('parameterization') if isinstance(metadata, dict) else None
+    return (payload.get('composition_id') if isinstance(payload, dict) else None) \
+        or (metadata.get('composition_id') if isinstance(metadata, dict) else None)
+
+
+def _record(metadata):
+    composition_id = _composition_id(metadata)
+    if not composition_id:
+        raise ValueError('composition_id is required to check a composition run')
+    return compositions.get(composition_id)
+
+
+def _context(metadata):
+    """The placeholders the stage contract resolves with: the topology file the run will write."""
+    names = metadata.get('cg_names') if isinstance(metadata, dict) else None
+    if not isinstance(names, dict):
+        try:
+            names = compositions.names(_record(metadata))
+        except (OSError, ValueError, KeyError, FileNotFoundError):
+            names = None
+    return {'itp': (names or {}).get('final_itp') or 'composition.itp'}
+
+
+def stage_contract(metadata):
+    """The stage plan and its declared inputs/outputs, resolved for the composition's residue name."""
+    return stage_tables(STAGE_DEFS, _context(metadata))
+
+
+def stages(metadata):
+    return tuple(stage.resolve(_context(metadata)) for stage in STAGE_DEFS)
+
+
+def readiness(composition_id, molecule_id=None):
+    """Can this composition run start? Its artifacts, their immutability, the molecule binding and GROMACS.
+
+    A refusal is a blocker, never an exception: a caller that does not know what this run type needs must still get
+    an answer. Nothing here writes to the store.
+    """
+    checks, blockers = [], []
     try:
         record = compositions.get(composition_id)
-        artifact_root = Path(record['artifact_root'])
-        for name in ('composition.gro', 'composition.itp', 'mapping.json', 'bonded-state.json'):
-            path = artifact_root / name
-            checks.append({'label': name, 'path': str(path), 'ready': path.is_file() and not path.is_symlink(),
-                           'detail': 'Immutable composition artifact' if path.is_file() else 'Missing artifact'})
-    except (ValueError, OSError, KeyError, FileNotFoundError) as exc:
-        return {'ready': False, 'blockers': [str(exc)], 'checks': []}
-    blockers = [f"Missing composition artifact: {item['label']}" for item in checks if not item['ready']]
-    return {'ready': not blockers, 'blockers': blockers, 'checks': checks}
+        root = compositions.artifact_root(record)
+        bound = compositions.molecule_id(record)
+        artifacts = compositions.artifacts(record)
+    except (OSError, ValueError, KeyError, FileNotFoundError) as exc:
+        return {'ready': False, 'checks': [], 'blockers': [str(exc)]}
+    for name in ARTIFACTS:
+        checks.append({'label': name, 'path': str(artifacts[name]), 'ready': True,
+                       'detail': 'Immutable composition artifact'})
+    if molecule_id and bound != molecule_id:
+        blockers.append(f'This composition belongs to {bound}, not {molecule_id}')
+        checks.append({'label': 'Molecule binding', 'path': str(root), 'ready': False,
+                       'detail': f'bound to {bound}'})
+    executable = tools.tool_path('gmx')
+    checks.append({'label': 'gmx', 'path': executable or 'gmx', 'ready': bool(executable),
+                   'detail': 'GROMACS executable resolved' if executable else 'Executable not found'})
+    if not executable:
+        blockers.append('gmx: Executable not found')
+    return {'ready': not blockers, 'checks': checks, 'blockers': blockers}
 
 
-def prepare_run(run_dir: Path, composition_id: str, settings=None) -> None:
-    record = compositions.get(composition_id)
-    artifact_root = Path(record['artifact_root']).resolve()
-    if artifact_root.is_symlink() or not artifact_root.is_dir():
-        raise ValueError('Composition artifact directory is unavailable')
+def tool_metadata():
+    """The tools a composition run executes: GROMACS, and nothing else."""
+    return tools.record_versions('gmx', env=environment(),
+                                 missing=lambda name: ValueError('GROMACS executable is unavailable'))
+
+
+def _artifact_entries(record, names):
+    """The immutable artifacts named in place, by workspace-relative path where the store is inside it."""
     workspace = paths.current().workspace.resolve()
-    try:
-        relative_root = artifact_root.relative_to(workspace).as_posix()
-    except ValueError:
-        references = [run_inputs.absolute('composition_artifact', artifact_root / name, label=name)
-                      for name in ARTIFACTS]
-    else:
-        references = [run_inputs.store('composition_artifact', f'{relative_root}/{name}', label=name,
-                                       workspace_root=workspace)
-                      for name in ARTIFACTS]
-    # The stage directories are where each stage works; the scripts themselves are repository files, named in the
-    # manifest and run with the stage directory as their working directory. A run holds no `.sh` and no `.py`.
-    stages = Path(run_dir) / 'stages'
-    for stage in STAGE_DEFS:
-        (stages / stage.relative).parent.mkdir(parents=True, exist_ok=True)
-    inputs = Path(run_dir) / 'inputs'
-    inputs.mkdir(parents=True, exist_ok=True)
-    metadata = {'run_type': 'cg_composition', 'workflow_version': VERSION,
-                'execution_kind': 'screening-stub',
-                'limitations': ['Composition screening is a stub: the stage scripts copy the composition '
-                                'geometry and write declaration files. No GROMACS MD, assessment or SASA was '
-                                'executed, and no trajectory or plot exists.'],
-                'composition_id': composition_id, 'composition_snapshot_sha256': record['snapshot_hash'],
-                'composition_identity': record['identity'], 'scientifically_validated': False,
-                'settings': settings or {}}
-    protocol.write_prepared_manifest(Path(run_dir), metadata, tools={}, plan=[name for name, _ in STAGES],
-                                     environment=recorded_environment(), references=references,
-                                     scripts={stage.name: stage.script for stage in STAGE_DEFS})
+    entries = []
+    for name in ARTIFACTS:
+        source = names[name]
+        try:
+            relative = source.relative_to(workspace).as_posix()
+        except ValueError:
+            entries.append(run_inputs.absolute('composition_artifact', source, label=name))
+        else:
+            entries.append(run_inputs.store('composition_artifact', relative, label=name,
+                                            workspace_root=workspace))
+    return entries
 
 
-SETTING_SPECS: dict = {}
-"""Composition screening runs expose no configurable setting.
+def prepare(run_dir, metadata):
+    """Write the CG build's inputs and the run's manifest. There is no AA stage and no mapping stage to prepare."""
+    run_dir = Path(run_dir)
+    composition_id = _composition_id(metadata)
+    record = _record(metadata)
+    names = compositions.names(record)
+    bound = compositions.molecule_id(record)
+    selected = metadata.get('molecule_id')
+    if selected and selected != bound:
+        raise ValueError(f'This composition belongs to {bound}, not {selected}')
+    settings = normalize_settings(metadata.get('settings'), metadata.get('profile'))
+    devices.require(settings['mdrun_gpu'])
+    artifacts = compositions.artifacts(record)
 
-The prepared scripts fix their own durations, so there is no bound to check and
-nothing a caller could tune. The mapping is empty and declared, not missing.
-"""
+    stages = run_dir / 'stages'
+    mapping = stages / '2_mapping'
+    initial = stages / '3_initial_CG'
+    sim = stages / '4_CG_sim'
+    for directory in (mapping, initial, sim / 'inputs', stages / '5_assessment'):
+        directory.mkdir(parents=True, exist_ok=True)
+    # The composition's own geometry and topology, copied into the stage that reads them. The copies are the run's
+    # generated data; the store stays the immutable original the input record names.
+    (mapping / 'mapped.gro').write_bytes(artifacts['composition.gro'].read_bytes())
+    (initial / names['final_itp']).write_bytes(artifacts['composition.itp'].read_bytes())
+    (sim / 'system_EMPTY.top').write_text(
+        f'#include "{martini3.include(cg.MARTINI_FF, sim)}"\n'
+        f'#include "{martini3.include(cg.MARTINI_SOLVENTS, sim)}"\n'
+        f'#include "{names["final_itp"]}"\n'
+        f'[ system ]\n{names["residue_name"]} composition in Martini water\n'
+        f'[ molecules ]\n{names["residue_name"]} 1\n')
+    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp')
+    write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', cg.mdp_values(settings, 'cg-equilibration-v1'))
+    write_mdp('cg-production-v1', sim / 'inputs/md.mdp', cg.mdp_values(settings, 'cg-production-v1'))
 
-
-def stage_defaults() -> dict:
-    """No settings means no defaults: an empty mapping, not an absent hook."""
-    return {}
-
-
-def normalize_settings(settings=None) -> dict:
-    """Accept an object of settings and pass it through unchanged.
-
-    Nothing here is range-checked, because no setting affects a composition run.
-    The type check keeps the failure mode the same as the other adapters'.
-    """
-    if settings is not None and not isinstance(settings, dict):
-        raise ValueError('Composition settings must be an object')
-    return dict(settings or {})
-
-
-def tool_metadata() -> dict:
-    """Record the interpreter, the only tool a composition run executes.
-
-    The prepared scripts copy immutable artifacts and write screening JSON with
-    shell builtins, so there is no external executable to report. Reporting the
-    Python interpreter keeps the record's shape the same as the other run types
-    without inventing a tool this run never calls.
-    """
-    executable = sys.executable
-    return {'python': {'path': executable, 'version_output': sys.version, 'sha256': files.sha256(executable)}}
-
-
-def _protocol_stage_contract(metadata):
-    """Composition stages carry no run-specific placeholders."""
-    return STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS
+    references = [
+        run_inputs.installed('martini_force_field', martini3.path(cg.MARTINI_FF),
+                             label='Martini 3 force field (martini_v3.0.0.itp)'),
+        run_inputs.installed('martini_solvents', martini3.path(cg.MARTINI_SOLVENTS),
+                             label='Martini 3 solvents (martini_v3.0.0_solvents_v1.itp)'),
+        run_inputs.published('martini_water', cg.WATER_BOX.relative_to(ROOT),
+                             label='Martini 3 water box (water.gro)'),
+        *_artifact_entries(record, artifacts),
+    ]
+    profile = _profile(metadata.get('profile'))
+    head = record.get('head_molecule_id')
+    document = {
+        'run_type': 'cg', 'workflow_version': VERSION, 'profile': profile,
+        'execution_kind': 'cg-simulation',
+        'composition_id': composition_id,
+        'composition_snapshot_sha256': record.get('snapshot_hash'),
+        'composition_identity': record.get('identity'),
+        'molecule_id': bound,
+        'molecule_name': compositions.molecule_name(record),
+        'head_molecule_id': head,
+        'status': record.get('status', 'candidate-unvalidated'),
+        'parameterization': {'kind': 'composition', 'composition_id': composition_id,
+                             'molecule_id': bound, 'head_molecule_id': head},
+        'cg_names': names,
+        'settings': settings,
+        'mdp_profiles': dict(MDP_PROFILES),
+        'scientifically_validated': False,
+        'limitations': [
+            "The parameterization is derived from the tail recipe and the head fragment's published Martini 3 "
+            'reference terms; it is not fitted to an atomistic trajectory of this molecule.',
+            'The starting coordinates are the composition\'s own generated geometry, not a mapped AA trajectory.',
+            f'The CG assessment records skipped: {NO_REFERENCE}. No score and no SASA curve are produced.',
+        ],
+    }
+    plan = [name for name, _ in STAGES]
+    return protocol.finish_prepared_run(
+        run_dir, stages, metadata=document, tools=tool_metadata(), plan=plan,
+        environment=recorded_environment(), references=references,
+        scripts={'CG simulation': SIMULATION_SCRIPT, 'CG assessment': ASSESSMENT_SCRIPT})
 
 
 def _protocol_readiness(metadata):
-    composition_id = metadata.get('composition_id')
+    composition_id = _composition_id(metadata)
     if not composition_id:
         return protocol.blocked('composition_id is required to check a composition run')
-    return readiness(composition_id, metadata.get('root'))
+    return readiness(composition_id, metadata.get('molecule_id'))
 
 
 def _protocol_prepare(run_dir, metadata):
-    prepare_run(run_dir, metadata['composition_id'], metadata.get('settings'))
+    return prepare(run_dir, metadata)
 
 
 PROTOCOL = protocol.Protocol(
     name='cg_composition',
-    stage_contract=_protocol_stage_contract,
-    stages=lambda metadata: tuple(STAGE_DEFS),
-    settings_specs=lambda: SETTING_SPECS,
-    stage_defaults=stage_defaults,
-    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings),
+    stage_contract=stage_contract,
+    stages=stages,
+    settings_specs=lambda: devices.published_settings(SETTING_SPECS),
+    stage_defaults=lambda: stage_defaults(),
+    normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
     tool_report=tool_metadata,
+    choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

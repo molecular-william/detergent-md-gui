@@ -74,9 +74,9 @@ TAB_IDS = {
 DEFAULT_SECTION = ('core', {
     'slug': 'dashboard',
     'label': 'Dashboard',
-    'blurb': 'the engine on its own: queue and read AA-only and AA-CG runs',
+    'blurb': 'the engine on its own: queue and read AA-only and CG runs',
     'tabs': ('runs', 'run-view', 'new-run'),
-    'run_types': ('aa_only', 'aa_cg'),
+    'run_types': ('aa_only', 'cg'),
     'panel_labels': {},
 })
 

@@ -75,7 +75,7 @@ def seed(dashboard, *, status='completed', mapping_candidate=None):
     if parameterization.current(candidate) is None:
         fitted(candidate)
     job = {'id': JID, 'label': 'Rescore', 'detergent': 'DDM', 'method': 'fast_forward',
-           'profile': 'draft-smoke', 'status': status, 'stage': 'complete', 'run_type': 'aa_cg',
+           'profile': 'draft-smoke', 'status': status, 'stage': 'complete', 'run_type': 'cg',
            'created': coordinator.now(), 'analyses': []}
     coordinator.database().replace([job])
     run = coordinator.RUNS / JID
@@ -86,7 +86,7 @@ def seed(dashboard, *, status='completed', mapping_candidate=None):
     (assessment / 'score_matrix_LIG1.png').write_bytes(b'\x89PNG first')
     (assessment / 'report_distances.out').write_text('Overall distance score : 0.0\n')
     files.atomic_json(run / 'manifest.json', {
-        'id': JID, 'status': status, 'run_type': 'aa_cg',
+        'id': JID, 'status': status, 'run_type': 'cg',
         'cg_names': {'residue_name': 'DDM', 'initial_itp': 'DDM_initial.itp', 'final_itp': 'DDM.itp'},
         'mapping_candidate': candidate,
         'stage_plan': [[name, f'{name}/script.sh'] for name in STAGES],

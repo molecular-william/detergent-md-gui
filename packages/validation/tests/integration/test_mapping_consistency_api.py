@@ -20,7 +20,8 @@ COMPARISON = {
 def job(dashboard, jid, **overrides):
     runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
     record = {'id': jid, 'label': 'Sucrose CG consumer', 'detergent': 'Sucrose', 'method': 'fast_forward',
-              'run_type': 'aa_cg', 'profile': 'draft-smoke-reference', 'reference_run_id': '03875cf39790',
+              'run_type': 'cg', 'profile': 'draft-smoke-reference',
+              'parameterization': {'kind': 'revision'}, 'reference_run_id': '03875cf39790',
               'molecule_id': 'Sucrose', 'status': 'completed', 'stage': 'complete',
               'created': dashboard.coordinator.now(), **overrides}
     dashboard.coordinator.database().replace([record])
@@ -232,7 +233,20 @@ def test_an_atomistic_only_run_is_refused(dashboard):
     response = dashboard.client.post('/api/jobs/ef56ab12cd34/mapping-consistency', json={})
 
     assert response.status_code == 400
-    assert 'AA-to-CG run' in response.json['error']
+    assert 'CG run' in response.json['error']
+
+
+def test_a_reference_or_composition_kind_cg_run_is_refused(dashboard):
+    """Only a revision-kind CG run has the mapped trajectory and the terms this comparison reads."""
+    job(dashboard, 'ab12cd34ef57', parameterization={'kind': 'reference', 'sugar_entry': 'SUCR'})
+    (dashboard.coordinator.RUNS / 'ab12cd34ef57').mkdir(parents=True)
+    (dashboard.coordinator.RUNS / 'ab12cd34ef57' / 'manifest.json').write_text(json.dumps(
+        {'parameterization': {'kind': 'reference', 'sugar_entry': 'SUCR'}}))
+
+    response = dashboard.client.post('/api/jobs/ab12cd34ef57/mapping-consistency', json={})
+
+    assert response.status_code == 400
+    assert 'parameterization revision' in response.json['error']
 
 
 # ------------------------------------------------------------------------------------ Fast-Forward interactions

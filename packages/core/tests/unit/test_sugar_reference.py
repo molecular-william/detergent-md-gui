@@ -81,6 +81,44 @@ def test_the_signature_reports_residues_and_inter_residue_links():
     assert signature['residues'][1][3]['virtual_site'] is True
 
 
+def test_a_virtual_sites_residue_comes_from_its_parents_and_not_the_published_column():
+    """TREH atom 8 is the published file's own anomaly: its residue column says 1, its parents are residue 2.
+
+    The site belongs to the ring that builds it. Reading the column put two sites in residue 1 and none in
+    residue 2, which made the chemically correct trehalose candidate fail `conform` and kept a correct reference
+    model out of CG Bond Interactions.
+    """
+    entry = reference.entry('TREH')
+    assert entry['atoms'][7]['residue'] == 1, 'the published column this test pins; the parents say residue 2'
+    signature = reference.signature(entry)
+
+    assert [bead['name'] for bead in signature['residues'][1]] == ['A', 'B', 'C', 'VS']
+    assert [bead['name'] for bead in signature['residues'][2]] == ['A', 'B', 'C', 'VS']
+    assert signature['virtual_sites'] == {1: ['VS'], 2: ['VS']}
+    assert signature['links'] == [{'a': [1, 'A'], 'b': [2, 'A'], 'length': 0.417, 'force': 9000}]
+
+
+def test_the_published_entries_name_lactose_and_glucose():
+    assert reference.PUBLISHED_FOR['Sucrose'] == 'SUCR'
+    assert reference.PUBLISHED_FOR['Trehalose'] == 'TREH'
+    assert reference.PUBLISHED_FOR['Lactose'] == 'LAC'
+    assert reference.PUBLISHED_FOR['Glucose'] == 'GLC'
+
+
+def test_the_epimers_share_one_mapping_but_not_their_published_numbers():
+    """Glucose and galactose differ only in the arrangement around one carbon, which bead connectivity cannot see:
+    one mapping layout, different constrained lengths. That is why the layout identifies `GAL` for glucose and why
+    the molecule's identity, not the layout, has to choose `GLC` (see `accepts_identity`)."""
+    assert reference.same_layout('GLC', 'GAL') is True
+    assert reference.mapping_signature('GLC') == reference.mapping_signature('GAL')
+    assert reference.same_layout('GLC', 'SUCR') is False
+
+    glucose = {(item['i'], item['j']): item['length'] for item in reference.entry('GLC')['constraints']}
+    galactose = {(item['i'], item['j']): item['length'] for item in reference.entry('GAL')['constraints']}
+    assert glucose == {(1, 2): 0.380, (1, 3): 0.470, (2, 3): 0.396}
+    assert galactose == {(1, 2): 0.361, (1, 3): 0.478, (2, 3): 0.381}
+
+
 def test_an_unknown_moleculetype_is_refused_by_name():
     try:
         reference.entry('NOPE')

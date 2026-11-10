@@ -44,7 +44,7 @@ def run_dir(tmp_path):
 
 def stage_records(run, log_name='console.log'):
     """The shape the manifest holds: the running stage, naming one log -- here the console one."""
-    return {'run_type': 'aa_cg', 'status': 'running', 'id': run.name}, [
+    return {'run_type': 'cg', 'status': 'running', 'id': run.name}, [
         {'name': 'CG simulation', 'status': 'running', 'log': str(run / 'logs' / log_name)}]
 
 

@@ -128,8 +128,9 @@ def pages_of_runs(c, page, limit, statuses=(), search='', run_types=(), methods=
     and the caller (the route) is what checks a run type against the registry. A group with no values contributes
     no clause, which is why "no box ticked" is "everything".
 
-    An absent `run_type` on a record means the historical combined AA-to-CG job
-    (`protocol.run_type_of`), so filtering for `aa_cg` finds those too rather than reporting them as nothing.
+    An absent `run_type` on a record is the historical combined AA-to-CG job, which the run-type migration rewrites
+    to `cg` (`protocol.run_type_of` and `cli/migrate_run_types` agree on that default), so filtering for `cg` finds
+    those too rather than reporting them as nothing.
 
     The one-filter-or-none case delegates to `Store.page`, so the answer every pre-existing caller gets is not
     merely equal to the store's but is the store's own query.
@@ -141,7 +142,7 @@ def pages_of_runs(c, page, limit, statuses=(), search='', run_types=(), methods=
     tests = ["(?='' OR instr(lower(data),lower(?))>0)"]
     args = [search, search]
     for column, values in (("json_extract(data,'$.status')", statuses),
-                           ("COALESCE(json_extract(data,'$.run_type'),'aa_cg')", run_types),
+                           ("COALESCE(json_extract(data,'$.run_type'),'cg')", run_types),
                            ("json_extract(data,'$.method')", methods)):
         if values:
             tests.append(f'{column} IN ({",".join("?" * len(values))})')
@@ -270,7 +271,7 @@ def queue():
     # saying which shape ran. A caller that names one explicitly still gets what it asked for -- an AA-CG run attaching
     # a short AA reference is a case the reference-compatibility check below has to be able to see and refuse.
     profile = data.get('profile') or protocol.profile_for_run_type(run_type)
-    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=profile, settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None)
+    job = c.create_job(data.get('detergent') or data.get('molecule_id') or data.get('composition_id'), data.get('method'), data.get('label', ''), profile=profile, settings={k: data.get(k) for k in specs if data.get(k) not in (None, '')}, reference_run_id=data.get('reference_run_id') or None, mapping_candidate=data.get('mapping_candidate'), temporary_validation=str(data.get('temporary_validation','')).lower() in ('1','true','yes'), molecule_id=data.get('molecule_id'),run_type=data.get('run_type'), composition_id=data.get('composition_id'), protein=data.get('protein') or None, template=data.get('template') or None, settings_preset=data.get('settings_preset'), parameterization=data.get('parameterization'))
     return jsonify(view_of(c, job)), 201
 
 
@@ -282,6 +283,26 @@ def control(jid, action):
     return jsonify(view_of(c, job)), status
 
 
+def _parameterization_of(job):
+    """The model a run consumed, for a retry or a clone; a migrated record states its kind in `cg_model_kind`.
+
+    A retry rebuilds the same run, so it must carry the same model. A record written after the migration has the
+    payload; one the migration rewrote keeps the old fields, and its kind plus the mapping it was built from is
+    enough to reconstruct the choice.
+    """
+    if isinstance(job.get('parameterization'), dict):
+        return job['parameterization']
+    kind = job.get('cg_model_kind') or job.get('run_type')
+    if kind == 'revision' or job.get('mapping_candidate'):
+        return {'kind': 'revision', 'mapping_candidate': job.get('mapping_candidate'),
+                'starting_coordinates': job.get('starting_coordinates') or 'remap'}
+    if kind == 'reference':
+        return {'kind': 'reference', 'sugar_entry': (job.get('sugar') or {}).get('entry')}
+    if kind == 'composition':
+        return {'kind': 'composition', 'composition_id': job.get('composition_id')}
+    return None
+
+
 @blueprint.post('/retry/<jid>')
 def retry(jid):
     c = coordinator()
@@ -291,7 +312,7 @@ def retry(jid):
     # A retry rebuilds the same run, so it carries the fields that run was built from: a composition run without its
     # `composition_id` is refused by admission, and a complex run without `protein`/`template` is built from whatever
     # the defaults name -- a different system that happens to share a run type.
-    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'), composition_id=job.get('composition_id'), protein=job.get('protein') or None, template=job.get('template') or None)
+    new = c.create_job(job['detergent'], job['method'], job.get('label', ''), retry_of=jid, profile=job.get('profile', 'standard'), settings=job.get('settings'), reference_run_id=job.get('reference_run_id'), mapping_snapshot=job.get('mapping_snapshot'), molecule_id=job.get('molecule_id'), molecule_snapshot=job.get('molecule_snapshot'),run_type=job.get('run_type'), composition_id=job.get('composition_id'), protein=job.get('protein') or None, template=job.get('template') or None, settings_preset=job.get('settings_preset'), parameterization=_parameterization_of(job))
     return jsonify(view_of(c, new)), 201
 
 
@@ -360,6 +381,7 @@ def clone_job(jid):
     # What the source states and the payload does not is still part of the run being cloned: validation and the new
     # record both read the same merged view, so a composition clone cannot lose the composition it is a clone of.
     carried={key:source.get(key) for key in ('composition_id','protein','template') if source.get(key)}
+    carried['parameterization'] = _parameterization_of(source)
     # The method is the source's -- `create_job` takes it from the record, not from the payload -- so the payload this
     # check sees carries that one too. Without it, every clone whose payload did not restate `method` (the panel does
     # not) was refused, whatever its run type.
@@ -374,7 +396,9 @@ def clone_job(jid):
                      run_type=effective_type,
                      composition_id=data.get('composition_id', source.get('composition_id')),
                      protein=(data.get('protein', source.get('protein')) or None),
-                     template=(data.get('template', source.get('template')) or None))
+                     template=(data.get('template', source.get('template')) or None),
+                     settings_preset=data.get('settings_preset'),
+                     parameterization=data.get('parameterization', _parameterization_of(source)))
     return jsonify(view_of(c, new)), 201
 
 

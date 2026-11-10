@@ -176,4 +176,4 @@ def test_the_checks_the_analysis_layer_declares_still_find_what_the_consuming_st
         missing = [pattern for pattern in declared
                    if not any(Path(relative).match(pattern) or relative == pattern for relative in written)]
         assert missing == [], f'{name} is declared against files this run will not have: {missing}'
-        assert name in kinds.default_for('aa_cg'), 'and an AA-CG run still gets both without being asked'
+        assert name in kinds.default_for('cg'), 'and a CG run still gets both without being asked'

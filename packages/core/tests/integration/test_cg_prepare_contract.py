@@ -1,4 +1,4 @@
-"""What `adapter_for('aa_cg').prepare(run_dir, metadata)` promises, now that it is the only way in.
+"""What `adapter_for('cg').prepare(run_dir, metadata)` promises, now that it is the only way in.
 
 Option A of the audit's Phase 2. `aa_cg` used to be prepared by `workflow.prepare_run`, which assembled the
 arguments, built the stage directory, copied it to `inputs/` and wrote the manifest -- while the four other run
@@ -31,7 +31,8 @@ METADATA = dict(
     mapping_candidate={'label': 'a-mapping'}, bonded_state_snapshot={'states': []},
     bonded_intent='fit_and_simulate', molecule_snapshot=SNAPSHOT, molecule_root=Path('/molecules'),
     shared_reference={'source_run_id': '111111111111'}, reference_root=Path('/runs'),
-    run_type='aa_cg', molecule_id='DDM', runs_root=Path('/runs'))
+    run_type='cg', molecule_id='DDM', runs_root=Path('/runs'),
+    parameterization={'kind': 'revision', 'starting_coordinates': 'remap'})
 
 RECORD = {'stage_plan': [['AA reference', '1_AA-reference/aa_reference.sh'],
                          ['trajectory mapping', '2_mapping/map_trajectory.sh']],
@@ -60,7 +61,7 @@ def prepared(monkeypatch, tmp_path):
     monkeypatch.setattr(cg, 'prepare', stub_prepare(seen))
     run = tmp_path / 'run'
     run.mkdir()
-    adapter_for('aa_cg').prepare(run, METADATA)
+    adapter_for('cg').prepare(run, METADATA)
     return {'run': run, 'seen': seen}
 
 
@@ -87,7 +88,7 @@ def test_metadata_the_run_type_has_no_argument_for_is_dropped(prepared):
     kwargs = prepared['seen'][0]['kwargs']
     for absent in ('run_type', 'runs_root', 'molecule_id', 'bonded_state_snapshot', 'bonded_intent'):
         assert absent not in kwargs
-    assert set(kwargs) == {'detergent', 'profile', 'settings', 'mapping_candidate',
+    assert set(kwargs) == {'detergent', 'profile', 'settings', 'mapping_candidate', 'revision', 'starting_coordinates',
                            'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root'}
     assert kwargs['shared_reference']['source_run_id'] == '111111111111', 'the reference still arrives'
     assert kwargs['molecule_snapshot'] == SNAPSHOT

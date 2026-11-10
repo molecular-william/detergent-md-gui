@@ -27,12 +27,13 @@ from dashboard.execution.protocol import adapter_for
 # business knowing -- so only the blocked path is comparable, and comparing it is what pins the two wordings together.
 CASES = (
     ('aa_only', 'run_type=aa_only'),
-    ('aa_cg', 'run_type=aa_cg'),
+    ('cg', 'run_type=cg&molecule_id=DDM'),
     ('pdc', 'run_type=pdc'),
-    ('cg_composition', 'run_type=cg_composition'),
+
 )
 
-METADATA = {'molecule_id': 'DDM', 'method': 'fast_forward', 'mapping_candidate': None, 'composition_id': None}
+METADATA = {'molecule_id': 'DDM', 'method': 'fast_forward', 'mapping_candidate': None, 'composition_id': None,
+            'parameterization': {'kind': 'revision'}}
 """The metadata the route builds for a query that names no profile.
 
 No `profile` key on purpose: the route passes no profile when the query names none, and each run type answers with
@@ -75,15 +76,15 @@ def test_the_route_and_the_protocol_agree_for_a_run_that_cannot_start(dashboard,
         f'{run_type}: the route says {essentials(route)} where the protocol says {essentials(via_protocol)}')
 
 
-def test_an_aa_cg_run_needs_both_halves(dashboard):
-    """The rule the route was carrying: a coarse-grained run of an atomistic molecule needs the molecule too.
+def test_a_cg_run_needs_the_molecule_its_model_belongs_to(dashboard):
+    """The rule the route was carrying: a CG run consumes a parameterization of the selected molecule.
 
-    Stated as a test of the *adapter* rather than of the route, because that is where it is moving: an `aa_cg` plan
-    cannot prepare its reference without a molecule, so a missing one is a blocker for the run type and not a detail
-    of one page that asks about it.
+    Stated as a test of the *adapter* rather than of the route, because that is where it lives: a CG run cannot
+    stage a model without the molecule it was fitted for, so a missing one is a blocker for the run type.
     """
-    answer = adapter_for('aa_cg').readiness({'molecule_id': 'NOT-A-MOLECULE', 'method': 'fast_forward',
-                                            'profile': 'standard',
-                                            'molecule_root': dashboard.coordinator.ROOT / 'molecules'})
+    answer = adapter_for('cg').readiness({'molecule_id': 'NOT-A-MOLECULE', 'method': 'fast_forward',
+                                         'profile': 'standard',
+                                         'parameterization': {'kind': 'revision'},
+                                         'molecule_root': dashboard.coordinator.ROOT / 'molecules'})
     assert answer['ready'] is False
-    assert answer['blockers'], 'a molecule that does not exist is a blocker for an aa_cg run'
+    assert answer['blockers'], 'a molecule that does not exist is a blocker for a CG run'

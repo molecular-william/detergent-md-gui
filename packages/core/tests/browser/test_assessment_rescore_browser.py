@@ -25,7 +25,7 @@ def seed(dashboard):
     runs = dashboard.coordinator.RUNS
     dashboard.coordinator.database().replace([
         {'id': job_id, 'label': label, 'detergent': 'DDM', 'method': 'fast_forward', 'profile': 'draft-smoke',
-         'status': 'completed', 'stage': 'complete', 'run_type': 'aa_cg', 'created': '2026-09-16T10:00:00+00:00',
+         'status': 'completed', 'stage': 'complete', 'run_type': 'cg', 'created': '2026-09-16T10:00:00+00:00',
          'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2, 'analyses': []}
         for job_id, label in ((ASSESSED, 'Scored once'), (UNASSESSED, 'Never assessed'))])
     for job_id, names in ((ASSESSED, STAGES), (UNASSESSED, STAGES[:-2])):

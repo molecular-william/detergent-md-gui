@@ -4,7 +4,7 @@ D5 in the audit. The converter assumed `Stage` records or `(name, relative)` pai
 whatever else it was handed. An `aa_cg` prepared manifest records a plain list of names, so the fallback read the
 first two *characters* of the first two names:
 
-    plan_pairs({'run_type': 'aa_cg', 'stage_plan': ['AA reference', 'trajectory mapping']})
+    plan_pairs({'run_type': 'cg', 'stage_plan': ['AA reference', 'trajectory mapping']})
     -> [['A', 'A'], ['t', 'r']]
 
 That is the failure mode this file exists to prevent, and the reason its third test asserts the *manifest's* shape
@@ -21,7 +21,7 @@ from dashboard.execution.protocol import plan_pairs
 from dashboard.execution.stages import Stage
 from dashboard.execution.workflow import stage_definitions
 
-AA_CG_NAMES = {'run_type': 'aa_cg', 'stage_plan': ['AA reference', 'trajectory mapping']}
+AA_CG_NAMES = {'run_type': 'cg', 'stage_plan': ['AA reference', 'trajectory mapping']}
 
 
 def test_a_name_list_is_resolved_through_the_stage_definitions_rather_than_indexed():
@@ -37,7 +37,7 @@ def test_a_name_list_is_resolved_through_the_stage_definitions_rather_than_index
 def test_a_stage_record_and_a_pair_still_convert():
     """The two shapes the converter already knew, kept working -- a fix must not narrow what it accepts."""
     records = {'run_type': 'pdc', 'stage_plan': [Stage('AA reference', '1_AA-reference/aa.sh')]}
-    pairs = {'run_type': 'aa_cg', 'stage_plan': [['AA reference', '1_AA-reference/aa.sh']]}
+    pairs = {'run_type': 'cg', 'stage_plan': [['AA reference', '1_AA-reference/aa.sh']]}
     for metadata in (records, pairs):
         assert plan_pairs(metadata) == [['AA reference', '1_AA-reference/aa.sh']]
 
@@ -45,9 +45,9 @@ def test_a_stage_record_and_a_pair_still_convert():
 def test_an_entry_the_converter_cannot_read_raises_rather_than_guessing():
     """The old fallback read characters off whatever it was given. A shape nobody taught it is an error."""
     with pytest.raises((TypeError, ValueError)):
-        plan_pairs({'run_type': 'aa_cg', 'stage_plan': [42]})
+        plan_pairs({'run_type': 'cg', 'stage_plan': [42]})
     with pytest.raises((TypeError, ValueError)):
-        plan_pairs({'run_type': 'aa_cg', 'stage_plan': ['a name that is not a stage']})
+        plan_pairs({'run_type': 'cg', 'stage_plan': ['a name that is not a stage']})
 
 
 def test_a_cg_prepared_manifest_records_pairs_so_the_shape_cannot_come_back():

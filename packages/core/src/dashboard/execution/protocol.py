@@ -20,7 +20,7 @@ Shapes, as of this module:
   its own control, and empty for a run type that has none.
 - ``normalize_settings(settings, profile)`` -> the settings the run will use,
   range-checked and completed with that run type's defaults. A run type whose
-  stages need both an AA and a CG view composes them itself (``aa_cg`` does),
+  stages need both an AA and a CG view composes them itself (``cg`` does),
   rather than making its caller merge two dialects. What it accepts and what it
   publishes are the same vocabulary, which its own test asserts.
 - ``readiness(metadata)`` -> a mapping that always carries ``ready``, ``checks``
@@ -97,9 +97,25 @@ def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None,
     return document
 
 
+#: The run types this registry no longer answers. A record that still names one is a record written before the
+#: migration, and the refusal says how to move it rather than reading as a typo.
+RETIRED_RUN_TYPES: tuple[str, ...] = ('aa_cg', 'sugar_cg', 'cg_composition')
+
+RETIRED_RUN_TYPE_MESSAGE = (
+    'run type {name!r} is retired; migrate the run records with '
+    '`python -m dashboard.cli.migrate_run_types --apply`')
+
+
 def run_type_of(metadata) -> str:
-    """The run type a metadata document names; absent means the historical combined AA-to-CG job."""
-    return metadata.get('run_type') or 'aa_cg'
+    """The run type a metadata document names; absent means the run the migration rewrote to ``cg``.
+
+    An absent type is the historical combined AA-to-CG job, which `aa_cg` was the name of. `dashboard.cli.
+    migrate_run_types` rewrites those records to ``cg`` with ``cg_model_kind: revision``, exactly as it rewrites a
+    record naming ``aa_cg`` explicitly, so this default agrees with the record the migration leaves behind. Partial
+    metadata that a caller holds rather than reads from a manifest (a stage list, a filter) therefore resolves to
+    the one run type whose stage vocabulary and settings are the CG pipeline's.
+    """
+    return (metadata.get('run_type') if isinstance(metadata, dict) else None) or 'cg'
 
 
 def profile_for_run_type(run_type: str) -> str:
@@ -118,13 +134,9 @@ def profile_for_run_type(run_type: str) -> str:
     """
     if run_type not in RUN_TYPES:
         raise ValueError(f'Unknown run type: {run_type}')
-    if run_type == 'aa_cg':
+    if run_type == 'cg':
         from .adapters import cg
         return cg.AA_CG_PROFILE
-    if run_type == 'sugar_cg':
-        # The CG-only sugar run's own preset: the reviewed CG profiles at 5 ns equilibration and 10 ns production.
-        # Named here because every caller asks this one resolver, and the engine may not import a feature to ask.
-        return 'sugar-cg-v1'
     return 'standard'
 
 
@@ -219,20 +231,14 @@ def _aa_protocol() -> Protocol:
     return aa.PROTOCOL
 
 
-def _cg_protocol() -> Protocol:
-    from .adapters import cg
-    return cg.PROTOCOL
-
-
-def _composition_protocol() -> Protocol:
-    from .adapters import composition
-    return composition.PROTOCOL
+def _cg_run_protocol() -> Protocol:
+    from .adapters import cg_run
+    return cg_run.PROTOCOL
 
 
 _BUILDERS: dict[str, Callable[[], Protocol]] = {
     'aa_only': _aa_protocol,
-    'aa_cg': _cg_protocol,
-    'cg_composition': _composition_protocol,
+    'cg': _cg_run_protocol,
 }
 
 RUN_TYPES: tuple[str, ...] = tuple(_BUILDERS)
@@ -244,13 +250,12 @@ published tuple. A list that has to agree with a dict is a second source of trut
 
 RUN_TYPE_LABELS: Mapping[str, str] = {
     'aa_only': 'AA simulation',
-    'aa_cg': 'AA \u2192 CG fitting',
-    'cg_composition': 'CG composition',
+    'cg': 'CG simulation',
 }
 """What the engine's own run types are called where a person reads them.
 
 Presentation only: the vocabulary is `RUN_TYPES`, and a name with no label reads as its own slug. A feature labels
-its own types (`Feature.run_type_labels`) so that `pdc` or `sugar_cg` never has to be spelled out in the engine --
+its own types (`Feature.run_type_labels`) so that `pdc` or `osmotic` never has to be spelled out in the engine --
 the shell must not learn a feature's vocabulary by being edited.
 """
 
@@ -262,12 +267,15 @@ def register(builders: Mapping[str, Callable[[], Protocol]]) -> None:
     a feature never writes to `_BUILDERS` directly.
     """
     global RUN_TYPES
+    retired = sorted(set(builders) & set(RETIRED_RUN_TYPES))
+    if retired:
+        raise ValueError('a retired run type cannot be registered: ' + ', '.join(retired))
     _BUILDERS.update(builders)
     RUN_TYPES = tuple(_BUILDERS)
 
 
 def adapter_for(run_type: str) -> Protocol:
-    """Return the protocol for a run type, or raise ValueError for an unknown one.
+    """Return the protocol for a run type, or raise ValueError for an unknown or retired one.
 
     Discovery is forced here because not every caller builds an application: a unit test, a CLI command and the
     analysis subprocess all reach a run type without `create_app`, and a feature run type missing from the table
@@ -278,4 +286,6 @@ def adapter_for(run_type: str) -> Protocol:
     try:
         return _BUILDERS[run_type]()
     except KeyError as exc:
+        if run_type in RETIRED_RUN_TYPES:
+            raise ValueError(RETIRED_RUN_TYPE_MESSAGE.format(name=run_type)) from exc
         raise ValueError(f'Unknown run type: {run_type}') from exc

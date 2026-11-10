@@ -24,17 +24,19 @@ def no_tool_probe(monkeypatch):
 
 
 def _prepare(run, *, molecule_id='Sucrose', entry='SUCR'):
+    """A reference-kind CG run, through the one registered run type the UI posts."""
     snapshot = aa_molecules.selection(MOLECULES, molecule_id)
-    return sugar_cg.prepare(run, {'molecule_id': molecule_id, 'molecule_snapshot': snapshot,
-                                  'settings': {'sugar_entry': entry},
-                                  'profile': 'sugar-cg-v1', 'molecule_root': MOLECULES})
+    return protocol.adapter_for('cg').prepare(
+        run, {'molecule_id': molecule_id, 'molecule_snapshot': snapshot,
+              'settings': {'sugar_entry': entry}, 'profile': 'sugar-cg-v1',
+              'parameterization': {'kind': 'reference', 'sugar_entry': entry},
+              'molecule_root': MOLECULES})
 
 
-def test_the_run_type_is_reachable_and_has_one_cg_stage():
-    entry = protocol.adapter_for('sugar_cg')
+def test_the_reference_kind_is_reachable_and_has_one_cg_stage():
+    from dashboard.execution.adapters import cg_run
 
-    assert entry is sugar_cg.PROTOCOL
-    assert entry.name == 'sugar_cg'
+    assert protocol.adapter_for('cg') is cg_run.PROTOCOL
     assert [stage.name for stage in sugar_cg.STAGE_DEFS] == ['CG simulation']
     assert 'AA reference' not in [stage.name for stage in sugar_cg.STAGE_DEFS]
     # The stage's plan is the engine's existing CG spellings, so the run view's trajectory readers need no new code.
@@ -47,14 +49,16 @@ def test_the_preset_is_the_lead_decided_five_and_ten_nanoseconds():
     assert values['cg_equil_ps'] == pytest.approx(5000.0)
     assert values['cg_production_ps'] == pytest.approx(10000.0)
     assert sugar_cg.stage_defaults()['profile'] == 'sugar-cg-v1'
-    assert protocol.profile_for_run_type('sugar_cg') == 'sugar-cg-v1'
     # The reviewed MDP files are unchanged; the preset changes only the duration the renderer passes them.
     assert sugar_cg.MDP_PROFILES == {'inputs/minimization.mdp': 'cg-minimization-v1',
                                      'inputs/eq.mdp': 'cg-equilibration-v1',
                                      'inputs/md.mdp': 'cg-production-v1'}
 
 
-def test_sucrose_conforms_and_trehalose_is_blocked_by_the_published_residue_column():
+def test_sucrose_and_trehalose_conform_to_their_published_entries():
+    """Trehalose's published atom 8 says residue 1 while its parents are residue 2; the reader takes a site's
+    residue from its parents, and a symmetric 1,1 linkage's bridging oxygen follows the published entry's choice
+    of the first ring. With both read the reference's way, the chemically correct candidate conforms."""
     sucrose = sugar_cg.preview('Sucrose', 'SUCR', molecule_root=MOLECULES)
     assert sucrose['ready'] is True
     assert sucrose['conforms'] is True
@@ -63,10 +67,43 @@ def test_sucrose_conforms_and_trehalose_is_blocked_by_the_published_residue_colu
                                                            'SN6', 'SP4r', 'SP1r', 'TC4']
 
     trehalose = sugar_cg.preview('Trehalose', 'TREH', molecule_root=MOLECULES)
-    assert trehalose['ready'] is False
-    assert trehalose['conforms'] is False
-    assert any("do not match the reference ['A', 'B', 'C', 'VS', 'VS']" in blocker
-               for blocker in trehalose['blockers']), trehalose['blockers']
+    assert trehalose['ready'] is True
+    assert trehalose['conforms'] is True
+    assert trehalose['blockers'] == []
+    assert [bead['type'] for bead in trehalose['beads']] == ['SP1r', 'SP4r', 'SP1r', 'TC4',
+                                                             'SN6', 'SP4r', 'SP1r', 'TC4']
+
+
+def test_lactose_and_glucose_are_ready_reference_runs():
+    """Lactose identifies `LAC`. Glucose's layout identifies `GAL`, because every aldohexose has the same four-bead
+    pattern; `GLC` and `GAL` are one mapping with different published lengths, so the adapter accepts the molecule's
+    own entry and the preview states the ambiguity in its limitations."""
+    lactose = sugar_cg.preview('Lactose', 'LAC', molecule_root=MOLECULES)
+    assert lactose['ready'] is True
+    assert lactose['conforms'] is True
+    assert lactose['blockers'] == []
+    assert len(lactose['beads']) == 8
+
+    glucose = sugar_cg.preview('Glucose', 'GLC', molecule_root=MOLECULES)
+    assert glucose['ready'] is True
+    assert glucose['conforms'] is True
+    assert glucose['blockers'] == []
+    assert len(glucose['beads']) == 4
+    assert any('GLC' in line and 'GAL' in line and 'cannot distinguish' in line
+               for line in glucose['limitations']), glucose['limitations']
+
+
+def test_maltose_is_not_a_published_sugar_run():
+    """Maltose's layout matches and conforms to `LAC`, which is lactose's model; a molecule the published set does
+    not name stays blocked even though the candidate itself conforms."""
+    answer = sugar_cg.preview('Maltose', 'LAC', molecule_root=MOLECULES)
+
+    assert answer['ready'] is False
+    assert any('no published Martini 3 sugar entry' in blocker for blocker in answer['blockers'])
+
+
+def test_the_offered_entries_are_the_published_sugars_in_a_stable_order():
+    assert sugar_cg.ENTRIES == ('SUCR', 'TREH', 'LAC', 'GLC')
 
 
 def test_an_entry_mismatch_is_a_blocker_not_a_silent_swap():
@@ -80,7 +117,6 @@ def test_prepare_writes_a_cg_only_run_with_the_published_terms(tmp_path):
     run = tmp_path / 'run'
     document = _prepare(run)
 
-    assert document['run_type'] == 'sugar_cg'
     assert document['workflow_version'] == 'sugar-cg-v1'
     assert document['topology_source'] == 'published-reference'
     assert document['scientifically_validated'] is False
@@ -90,6 +126,8 @@ def test_prepare_writes_a_cg_only_run_with_the_published_terms(tmp_path):
     assert not (run / 'stages/2_mapping').exists()
 
     manifest = json.loads((run / 'manifest.json').read_text())
+    assert manifest['run_type'] == 'cg'
+    assert manifest['parameterization'] == {'kind': 'reference', 'sugar_entry': 'SUCR'}
     assert manifest['stage_plan'] == ['CG simulation']
     assert manifest['stage_scripts']['CG simulation']['path'] == sugar_cg.SCRIPT
     assert manifest['cg_names'] == {'residue_name': 'SUCR', 'initial_itp': 'SUCR.itp', 'final_itp': 'SUCR.itp'}
@@ -122,9 +160,20 @@ def test_prepare_writes_a_cg_only_run_with_the_published_terms(tmp_path):
     assert conformance['parameter_delta'][0]['generated'] == pytest.approx(0.305)
 
 
-def test_prepare_refuses_a_nonconforming_entry(tmp_path):
+def test_prepare_refuses_a_nonconforming_entry(tmp_path, monkeypatch):
+    """The refusal is the run type's, not a fixture molecule's: a candidate that departs from the entry's bead
+    layout is refused before a run is written. Every real molecule in the workspace now conforms, so the departure
+    is made here."""
+    original = sugar_cg.coords.candidate
+
+    def renamed(structure, name):
+        candidate = original(structure, name)
+        candidate['beads'][0]['letter'] = 'Z'
+        return candidate
+
+    monkeypatch.setattr(sugar_cg.coords, 'candidate', renamed)
     with pytest.raises(ValueError, match='do not match the reference'):
-        _prepare(tmp_path / 'run', molecule_id='Trehalose', entry='TREH')
+        _prepare(tmp_path / 'run')
 
 
 def test_parameter_delta_reads_the_run_layout(tmp_path):
@@ -145,8 +194,8 @@ def test_settings_refuse_a_field_this_run_does_not_use():
 
     with pytest.raises(ValueError, match='Unknown sugar CG setting'):
         sugar_cg.normalize_settings({'aa_nvt_ps': 100})
-    with pytest.raises(ValueError, match='must be one of SUCR, TREH'):
-        sugar_cg.normalize_settings({'sugar_entry': 'LAC'})
+    with pytest.raises(ValueError, match='must be one of SUCR, TREH, LAC, GLC'):
+        sugar_cg.normalize_settings({'sugar_entry': 'GAL'})
     with pytest.raises(ValueError, match='Trajectory interval'):
         sugar_cg.normalize_settings({'cg_production_ps': 10, 'output_interval_ps': 11})
 

@@ -63,7 +63,8 @@ const signedPercent = (value, digits = 1) => {
 //: record that predates the type.
 function isComparisonRun(job) {
   if (!job) return false;
-  if (String(job.run_type || '') === 'aa_cg') return true;
+  const kind = (job.parameterization || {}).kind || job.cg_model_kind || 'revision';
+  if (String(job.run_type || '') === 'cg' && kind === 'revision') return true;
   return (job.analyses || []).some(task => task.kind === 'mapping-consistency');
 }
 

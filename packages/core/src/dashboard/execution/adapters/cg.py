@@ -148,12 +148,56 @@ PARAMETERIZED = {
 }
 
 
-def stage_definitions(parameterized=False) -> tuple:
-    """This run type's stages, with stage 3 and stage 5 shaped for what the run will do."""
-    if not parameterized:
+#: The starting coordinates a CG run may take: the frame its parameterization stored, or a fresh mapping of the AA
+#: reference. `stored` is the default because it is the frame the fit measured; `remap` is the choice a revision with
+#: no stored frame needs, and it also produces the mapped trajectory the trajectory-reading analyses declare.
+STARTING_COORDINATES: tuple[str, ...] = ('stored', 'remap')
+DEFAULT_STARTING_COORDINATES = 'stored'
+NO_STORED_COORDINATES = ('this parameterization records no starting coordinates; choose Re-map the AA reference')
+
+#: The stage-2 replacement for a `stored` run: it copies the revision's own `mapped.gro`/`mapped.xtc` into
+#: `2_mapping/` from the files staged beside the run's inputs. The stage keeps its name and its two outputs, so stage
+#: 3 and every analysis that declares `2_mapping/mapped.*` keep their declared inputs.
+STORED_MAPPING = {
+    'trajectory mapping': {
+        'relative': '2_mapping/stage_coordinates.sh',
+        'inputs': ('../../inputs/coordinates/mapped.gro', '../../inputs/coordinates/mapped.xtc'),
+        'outputs': ('mapped.gro', 'mapped.xtc'),
+        'script': 'dashboard/execution/scripts/stage_coordinates.sh',
+    },
+}
+
+
+def stage_definitions(parameterized=False, *, starting_coordinates='remap') -> tuple:
+    """This run type's stages, with stage 2 shaped for the coordinates and stages 3/5 for what the run will do."""
+    def replace_one(stage):
+        if stage.name == 'trajectory mapping' and parameterized and starting_coordinates == 'stored':
+            return replace(stage, **STORED_MAPPING[stage.name])
+        return replace(stage, **PARAMETERIZED[stage.name]) if parameterized and stage.name in PARAMETERIZED else stage
+
+    if not parameterized and starting_coordinates != 'stored':
         return STAGE_DEFS
-    return tuple(replace(stage, **PARAMETERIZED[stage.name]) if stage.name in PARAMETERIZED else stage
-                 for stage in STAGE_DEFS)
+    return tuple(replace_one(stage) for stage in STAGE_DEFS)
+
+
+def chosen_revision(mapping_candidate, revision=None):
+    """The parameterization revision a run consumes: the named one, or the mapping's current revision.
+
+    A number that names no revision is refused by the store, which raises `KeyError` naming it: a run that asked
+    for revision 3 of a mapping holding two must not silently consume revision 2.
+    """
+    if not isinstance(mapping_candidate, dict):
+        return None
+    if revision is None:
+        return parameterizations.current(mapping_candidate)
+    return parameterizations.get(mapping_candidate, revision)
+
+
+def stored_coordinates(mapping_candidate, revision):
+    """The revision's stored starting frame, or `None` when it recorded none."""
+    if revision is None:
+        return None
+    return parameterizations.coordinates(mapping_candidate, revision.get('revision'))
 
 
 def consumes_parameterization(metadata) -> bool:
@@ -168,9 +212,38 @@ def consumes_parameterization(metadata) -> bool:
     return bool(isinstance(bonded, dict) and bonded.get('consumes_parameterization'))
 
 
-def stage_contract(names: CGNames | None = None, *, parameterized: bool = False):
+def stage_contract(names: CGNames | None = None, *, parameterized: bool = False,
+                   starting_coordinates: str = 'remap'):
     """Return the executable stage contract for one molecule naming context."""
-    return stage_tables(stage_definitions(parameterized), (names or _DEFAULT_NAMES).env())
+    return stage_tables(stage_definitions(parameterized, starting_coordinates=starting_coordinates),
+                        (names or _DEFAULT_NAMES).env())
+
+
+def starting_coordinates_of(metadata) -> str:
+    """The coordinates a record states it used: top-level, then inside `parameterization`, else the historical re-map."""
+    payload = metadata.get('parameterization')
+    recorded = metadata.get('starting_coordinates') or (payload.get('starting_coordinates')
+                                                       if isinstance(payload, dict) else None)
+    return recorded or 'remap'
+
+
+def stage_contract_for(metadata, *, parameterized: bool = True):
+    """The contract for the metadata a caller holds, in the shape a CG run always has: it consumes a revision."""
+    snapshot = metadata.get('molecule_snapshot')
+    names = CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
+    starting = starting_coordinates_of(metadata)
+    return stage_contract(names, parameterized=parameterized or consumes_parameterization(metadata),
+                          starting_coordinates=starting)
+
+
+def stages_for(metadata, *, parameterized: bool = True):
+    """The resolved stage declarations for the metadata's molecule, in the same shape as `stage_contract_for`."""
+    snapshot = metadata.get('molecule_snapshot')
+    names = CGNames.for_snapshot(snapshot) if snapshot else CGNames.ddm_defaults()
+    starting = starting_coordinates_of(metadata)
+    return tuple(stage.resolve(names.env())
+                 for stage in stage_definitions(parameterized=parameterized or consumes_parameterization(metadata),
+                                                starting_coordinates=starting))
 
 
 SETTING_SPECS = {
@@ -369,16 +442,17 @@ def stage_parameterization(directory: Path, data, *, names, molecule_root=None) 
         f'[ system ]\n{names.residue_name} draft\n[ molecules ]\n{names.residue_name} 1\n')
 
 
-def _recorded_histograms(mapping_candidate=None, beads=None, recorded=None):
+def _recorded_histograms(mapping_candidate=None, beads=None, recorded=None, revision=None):
     """The revision's recorded reference histograms as `(inventory, [(absolute path, name, digest)])`.
 
     Read, never written: the files stay in the parameterization store, which is immutable per revision and
     hashed by the run's `inputs` record. Returns no files, with the reason, when the revision records none.
     """
     if recorded is None:
-        recorded = parameterizations.distributions(mapping_candidate)
+        recorded = parameterizations.distributions(mapping_candidate, revision)
     if not recorded:
-        engine = (parameterizations.current(mapping_candidate) or {}).get('engine')
+        engine = ((parameterizations.get(mapping_candidate, revision) if revision is not None
+                   else parameterizations.current(mapping_candidate)) or {}).get('engine')
         if engine == 'bartender':
             return _inventory([], [], beads, "BARTENDER measured no reference histograms when this model was fitted, "
                               "and its own analysis is not built yet (D6a of "
@@ -408,7 +482,7 @@ def _recorded_histograms(mapping_candidate=None, beads=None, recorded=None):
     return _inventory(listing, pairs, beads, reason), files
 
 
-def reference_distributions(mapping_candidate=None, beads=None):
+def reference_distributions(mapping_candidate=None, beads=None, revision=None):
     """The revision's histograms named in place, as `(inventory, store entries, [(path, name, digest)])`.
 
     `ff_assess` does not measure the reference: it reads `<group>_<type>_<distr>.dat` files from its `-d` directory and
@@ -434,14 +508,14 @@ def reference_distributions(mapping_candidate=None, beads=None):
     return inventory, entries, files
 
 
-def stage_distributions(directory, mapping_candidate=None, beads=None):
+def stage_distributions(directory, mapping_candidate=None, beads=None, revision=None):
     """Copy the revision's histograms into `directory`, for the one caller that stages its own attempt.
 
     A re-score (`assessment_rescore`) is not a run being prepared: it makes a new attempt directory beside the first
     assessment and hands `assess.sh` that directory as `-d`. That directory is the attempt's own, so the files are
     copied into it; a prepared run references them instead.
     """
-    inventory, files = _recorded_histograms(mapping_candidate, beads)
+    inventory, files = _recorded_histograms(mapping_candidate, beads, revision=revision)
     directory = Path(directory)
     for path, name, _ in files:
         (directory / name).write_bytes(path.read_bytes())
@@ -498,7 +572,7 @@ def shared_inputs(*, data):
     return references
 
 
-def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None):
+def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None, revision=None, starting_coordinates=None):
     """Prepare one AA-to-CG run's stage directory.
 
     What this run type stages, it stages for every AA-to-CG run: the mapping export, the seeded
@@ -520,9 +594,15 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     names = CGNames.for_snapshot(molecule_snapshot)
     # A caller that names no mapping has no model to read a parameterization from; the mapping is
     # loaded below and that is where the absence is refused, in the order this function has always
-    # refused it (the reference first, then the mapping).
-    revision = parameterizations.current(mapping_candidate) if isinstance(mapping_candidate, dict) else None
-    stage_plan, _, _ = stage_contract(names, parameterized=revision is not None)
+    # refused it (the reference first, then the mapping). The revision is the caller's choice or the
+    # mapping's current one; `starting_coordinates` is `None` for a caller that did not choose, and
+    # such a run keeps the historical re-map shape.
+    chosen = chosen_revision(mapping_candidate, revision)
+    starting_coordinates = starting_coordinates or 'remap'
+    if starting_coordinates not in STARTING_COORDINATES:
+        raise ValueError(f'Unknown starting coordinates: {starting_coordinates!r}')
+    stage_plan, _, _ = stage_contract(names, parameterized=chosen is not None,
+                                      starting_coordinates=starting_coordinates)
 
     aa_dir = run_dir / '1_AA-reference'
     aa_dir.mkdir()
@@ -546,6 +626,27 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     references = shared_inputs(data=data)
     stage_mapping(run_dir / '2_mapping', data, names=names)
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
+    if chosen is not None and starting_coordinates == 'stored':
+        # The frame the fit measured, copied out of the immutable revision into the run's generated inputs. Stage 2
+        # then copies it into `2_mapping/` instead of mapping the AA reference again; the file is hashed like every
+        # other generated input, and the copy is the run's own so a later re-fit cannot move a prepared run's start.
+        stored = stored_coordinates(mapping_candidate, chosen)
+        if stored is None:
+            raise ValueError(NO_STORED_COORDINATES)
+        coordinates = run_dir / 'coordinates'
+        coordinates.mkdir()
+        positions, trajectory = stored['directory'] / 'mapped.gro', stored['directory'] / 'mapped.xtc'
+        if not positions.is_file() or not trajectory.is_file():
+            raise ValueError(NO_STORED_COORDINATES)
+        for source in (positions, trajectory):
+            (coordinates / source.name).write_bytes(source.read_bytes())
+        (coordinates / 'coordinates.json').write_text(json.dumps({
+            'revision': chosen['revision'], 'mapping': (mapping_candidate or {}).get('file'),
+            'aa_reference': chosen.get('aa_reference'),
+            'files': [{'name': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                      for path in (positions, trajectory)],
+            'source': 'the mapped AA starting frame stored with this parameterization revision',
+        }, indent=2, sort_keys=True) + '\n')
     cg = run_dir / '3_initial_CG'
     stage_parameterization(cg, data, names=names, molecule_root=molecule_root)
     recorded, unscored = None, None
@@ -554,13 +655,14 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     # to; a run that consumes a model reads them from the revision that recorded them. Both answers are data the run
     # writes down (`references.txt`), never a script: the shared `assess.sh` reads the directory it is told.
     reference_directory = '../3_initial_CG'
-    if revision is not None:
+    if chosen is not None:
         # The model's own terms, and the driver that writes them instead of fitting. The revision's reference
         # histograms are *named*, not staged: `ff_assess` scores a CG trajectory against pre-computed
         # `<group>_<type>_distr.dat` files in its `-d` directory and never makes them, and a run that consumes a model
         # reads them from the revision that recorded them. A run that reaches stage 5 with nothing to score records
         # `skipped`, with the reason in the inventory below, rather than a matrix of zeros.
-        inventory, histogram_entries, histograms = reference_distributions(mapping_candidate, beads=len(data['beads']))
+        inventory, histogram_entries, histograms = reference_distributions(
+            mapping_candidate, beads=len(data['beads']), revision=chosen['revision'])
         references += histogram_entries
         recorded, unscored = inventory['files'], inventory['reason']
         # The run's own inventory: the store files it reads in place, by absolute path, so the consuming stage checks
@@ -570,10 +672,10 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         absolute = [{'name': str(path), 'sha256': digest} for path, _, digest in histograms]
         (cg / 'distributions.json').write_text(
             json.dumps({'directory': '.', **{**inventory, 'files': absolute}, 'source':
-                        f"revision {(revision or {}).get('revision')} of this mapping's parameterization"},
+                        f"revision {(chosen or {}).get('revision')} of this mapping's parameterization"},
                        indent=2, sort_keys=True) + '\n')
-        (cg / 'parameterization.json').write_text(json.dumps(revision, indent=2, sort_keys=True) + '\n')
-        recorded_distributions = parameterizations.distributions(mapping_candidate)
+        (cg / 'parameterization.json').write_text(json.dumps(chosen, indent=2, sort_keys=True) + '\n')
+        recorded_distributions = parameterizations.distributions(mapping_candidate, chosen['revision'])
         if recorded_distributions is not None and (inventory.get('pairs') or {}).get('files'):
             # The store's revision directory holds the histograms and is immutable (its files are named in the run's
             # `inputs` record), so stage 5 is pointed at it instead of at a farm of links inside the run. A revision
@@ -613,19 +715,25 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
     metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan],
                     mdp_profiles=dict(MDP_PROFILES))
+    # The parameterization this run consumed, in the shape a reader asks for it: which kind, which model, which
+    # revision, which engine wrote the terms, and the AA reference the revision was fitted against.
+    metadata['starting_coordinates'] = starting_coordinates if chosen is not None else None
+    metadata['parameterization'] = ({'kind': 'revision', 'mapping': (mapping_candidate or {}).get('file'),
+                                     'revision': chosen['revision'], 'engine': chosen.get('engine'),
+                                     'aa_reference': chosen.get('aa_reference')} if chosen is not None else None)
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
     # Which of the two stage-3 shapes this run has, recorded as one fact the stage contract and every
     # later reader resolve the run's own plan from (D5). `fitted` is the run type's old behaviour and
     # stays the answer for a mapping with no parameterization: the run fits in stage 3 and this says so.
     metadata['bonded'] = {
-        'consumes_parameterization': revision is not None,
-        'fitted': revision is None,
-        'revision': (revision or {}).get('revision'),
-        'engine': (revision or {}).get('engine'),
-        'torsion_model': ((revision or {}).get('options') or {}).get('torsion_model'),
-        'terms': parameterizations.total_terms(revision) if revision else None,
-        'revision_sha256': parameterizations.revision_sha256(revision) if revision else None,
-        'aa_reference': (revision or {}).get('aa_reference'),
+        'consumes_parameterization': chosen is not None,
+        'fitted': chosen is None,
+        'revision': (chosen or {}).get('revision'),
+        'engine': (chosen or {}).get('engine'),
+        'torsion_model': ((chosen or {}).get('options') or {}).get('torsion_model'),
+        'terms': parameterizations.total_terms(chosen) if chosen else None,
+        'revision_sha256': parameterizations.revision_sha256(chosen) if chosen else None,
+        'aa_reference': (chosen or {}).get('aa_reference'),
         # The baseline stage 5 scores against, read from the revision's record: named here so a reader can see which
         # histograms a run's numbers were measured against without opening the store.
         'reference_distributions': [entry['name'] for entry in (recorded or [])],
@@ -633,16 +741,16 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
         # molecule of this many beads needs. The count is what says whether stage 5 can score at all, so it is recorded
         # rather than left to be counted out of a 68-name list. A run that fits records `None` here: nothing was staged,
         # and its own stage 3 is what measures them.
-        'reference_pairs': ((inventory or {}).get('pairs') if revision is not None else None),
+        'reference_pairs': ((inventory or {}).get('pairs') if chosen is not None else None),
         # Whether this run's assessment can score anything. Recorded so a reader knows before the simulation ends
         # that stage 5 will be `skipped`, and why -- D6a's deferred BARTENDER analysis is one reason it happens, a
         # revision whose record carries no pairwise histograms is the other. A run that fits leaves its own histograms
         # in stage 3 (`ff_inter -dists -dist-matrix` measures them while fitting), so it is scored however little the
         # mapping recorded; a consuming run is scored only if the model brought a scorable baseline.
         'assessment': ({'scored': bool(((inventory or {}).get('pairs') or {}).get('files')), 'reason': unscored}
-                       if revision is not None else {'scored': True, 'reason': None}),
-        'source': ("the mapping's current parameterization"
-                   if revision else 'fitted by this run, in stage 3, from the AA reference it consumes'),
+                       if chosen is not None else {'scored': True, 'reason': None}),
+        'source': (f"revision {chosen['revision']} of the mapping's parameterization"
+                   if chosen else 'fitted by this run, in stage 3, from the AA reference it consumes'),
     }
     if shared_reference:
         metadata.update(shared_reference=shared_reference, reference_reused=True, reference_run_id=shared_reference['source_run_id'])
@@ -661,7 +769,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     # names how a reader may read the run at all -- MDAnalysis 2.10 cannot read this GROMACS build's TPR.
     metadata['analysis_topology'] = 'GRO atom/residue order + explicit ITP interactions; MDAnalysis 2.10 does not support GROMACS 2026 TPR 138. Trajectories made whole with gmx trjconv.'
     metadata['limitations'] = ['Draft mapping and nonbonded bead types, not scientifically validated', f'AA production {settings["aa_production_ps"]} ps; CG production {settings["cg_production_ps"]} ps; pure water', 'Bonded parameters fit to the recorded AA reference; no convergence or thermodynamic validation']
-    if revision is not None:
+    if chosen is not None:
         # The consequence of consuming rather than fitting, said in the run's own words: the atomistic reference
         # distributions stage 5 compares against are a fit's output, and this stage produced none of its own -- the ones
         # it will score against came from the revision's record, and the run says how many or says there are none.
@@ -673,9 +781,9 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
                   'reference to score against and records `skipped`')
         metadata['limitations'].append(
             "Stage 3 used the model's parameterization (revision "
-            f"{revision['revision']}) and fitted nothing while writing the terms: "
+            f"{chosen['revision']}) and fitted nothing while writing the terms: "
             f'{staged}.')
-        linked = (revision.get('aa_reference') or {}).get('run_id')
+        linked = (chosen.get('aa_reference') or {}).get('run_id')
         if linked and linked != shared_reference['source_run_id']:
             metadata['limitations'].append(
                 f"The model's parameterization was fitted against AA reference {linked}, and this run "
@@ -782,23 +890,22 @@ def readiness(molecule_id, method, profile='standard', mapping_candidate=None, m
 
 def _protocol_stage_contract(metadata):
     """Resolve a naming context from the metadata a caller holds."""
-    snapshot = metadata.get('molecule_snapshot')
-    names = CGNames.for_snapshot(snapshot) if snapshot else metadata.get('names')
-    return stage_contract(names, parameterized=consumes_parameterization(metadata))
+    return stage_contract_for(metadata, parameterized=consumes_parameterization(metadata))
 
 
 def _protocol_stages(metadata):
     """Resolve the named stage declarations for the metadata's molecule."""
-    snapshot = metadata.get('molecule_snapshot')
-    names = CGNames.for_snapshot(snapshot) if snapshot else CGNames.ddm_defaults()
-    return tuple(stage.resolve(names.env())
-                 for stage in stage_definitions(consumes_parameterization(metadata)))
+    return stages_for(metadata, parameterized=consumes_parameterization(metadata))
 
 
 def _protocol_readiness(metadata):
     molecule_id = metadata.get('molecule_id')
     if not molecule_id:
         return protocol.blocked('molecule_id is required to check an AA to CG run')
+    if isinstance(metadata.get('parameterization'), dict):
+        # The `cg` run type: it always consumes a parameterization revision, and never builds or fits one. Its AA
+        # reference is the revision's own, verified here rather than auto-created.
+        return parameterization_readiness(metadata)
     # This adapter *is* the AA-CG run type, so its own profile is the fallback rather than `standard`: the panel
     # offers no profile choice for this run type and sends none, and a `standard` fallback silently skipped the
     # mapping check below (`if profile in ('draft-smoke','draft-smoke-reference')`) while asking the readiness list
@@ -837,7 +944,87 @@ def _protocol_readiness(metadata):
     return ready
 
 
-def _parameterization_state(metadata) -> dict:
+def parameterization_readiness(metadata) -> dict:
+    """Can this CG run start from the model it chose? The run type's own gate.
+
+    A revision-kind CG run stages an existing revision and reuses the AA reference that revision recorded. It does
+    not create an AA parent job, so the reference is resolved and verified here by the revision's own digests; a
+    revision that records none is refused rather than silently mapped again. The starting coordinates are the
+    second gate: a revision fitted before coordinates were stored refuses `stored` with the sentence the panel
+    shows, and offers `remap` instead.
+    """
+    from ...analysis.runs import references as aa_references
+    molecule_root = Path(metadata.get('molecule_root') or ROOT / 'molecules')
+    profile = metadata.get('profile') or AA_CG_PROFILE
+    aa.validate_profile(profile)
+    checks, blockers = [], []
+    try:
+        molecule = aa_molecules.inspect(molecule_root, metadata['molecule_id'])
+    except ValueError as exc:
+        return {**protocol.blocked(str(exc)), 'profile': profile,
+                'scientific_gate': {'scientifically_validated': False, 'production_allowed': False,
+                                    'reason': 'No scientifically validated CG model is registered.'}}
+    checks.append({'label': 'Molecule', 'path': molecule['path'], 'ready': molecule['valid'],
+                   'detail': 'Input consistency checked' if molecule['valid'] else '; '.join(molecule['issues'])})
+    if molecule.get('kind') == 'cg':
+        # A CG-only molecule is a pdc detergent, not an atomistic source: a revision run needs the AA molecule its
+        # model was fitted for. The refusal names that reason rather than a missing model.
+        reasons = list(molecule.get('blockers') or molecule.get('issues') or [])
+        return protocol.blocked(*(reasons or ['a coarse-grained (cg) molecule is not an all-atom topology']))
+    mapping = metadata.get('mapping_candidate')
+    payload = metadata.get('parameterization') or {}
+    chosen = None
+    if not isinstance(mapping, dict):
+        blockers.append('Select a saved CG model: a CG run consumes a parameterization revision')
+        checks.append({'label': 'CG parameterization', 'path': 'none selected', 'ready': False,
+                       'detail': 'Select a saved CG model'})
+    else:
+        bound = mapping.get('molecule_id')
+        if bound and bound != metadata['molecule_id']:
+            blockers.append(f'This model belongs to {bound}, not {metadata["molecule_id"]}')
+        try:
+            chosen = chosen_revision(mapping, payload.get('revision'))
+        except KeyError as exc:
+            blockers.append(str(exc))
+        if chosen is None:
+            blockers.append('This mapping carries no parameterization revision; fit one in Bond Interactions '
+                            'before running it')
+        starting = payload.get('starting_coordinates') or DEFAULT_STARTING_COORDINATES
+        if starting not in STARTING_COORDINATES:
+            blockers.append(f'Unknown starting coordinates: {starting}')
+        elif chosen is not None and starting == 'stored' and stored_coordinates(mapping, chosen) is None:
+            blockers.append(NO_STORED_COORDINATES)
+        checks.append({'label': 'CG parameterization',
+                       'path': (mapping.get('file') or 'selected model'),
+                       'ready': chosen is not None,
+                       'detail': (parameterizations.describe(chosen) if chosen is not None
+                                  else 'No revision selected')})
+        reference = (chosen or {}).get('aa_reference') or {}
+        reference_run_id = reference.get('run_id')
+        if chosen is not None and not reference_run_id:
+            blockers.append('The parameterization records no AA reference, so its shared reference cannot be resolved')
+        elif reference_run_id:
+            try:
+                aa_references.resolve(metadata.get('runs_root'), reference_run_id,
+                                      reference.get('reference_sha256'))
+                checks.append({'label': 'AA reference', 'path': reference_run_id, 'ready': True,
+                               'detail': 'Shared reference verified'})
+            except (OSError, ValueError) as exc:
+                blockers.append(str(exc))
+    declared_checks, _ = tools.declared_tool_checks()
+    checks.extend(declared_checks)
+    for tool, (executable, ok, detail) in zip(READINESS_TOOLS, _probe_tools(READINESS_TOOLS)):
+        checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
+    blockers.extend(x['label'] + ': ' + x['detail'] for x in checks if not x['ready'] and x['label'] in READINESS_TOOLS)
+    state = _parameterization_state(metadata, chosen)
+    return {'ready': not blockers, 'checks': checks, 'blockers': blockers, 'profile': profile,
+            'parameterization': state,
+            'scientific_gate': {'scientifically_validated': False, 'production_allowed': False,
+                                'reason': 'No scientifically validated CG model is registered; reviewer approval '
+                                          'of a mapping alone cannot authorize production.'}}
+
+
+def _parameterization_state(metadata, chosen=None) -> dict:
     """What the run panel prints about the model's bonded terms, in the shape it prints them in.
 
     Both sentences are the run type's: the panel renders them rather than composing them, so the
@@ -855,7 +1042,7 @@ def _parameterization_state(metadata) -> dict:
                 'terms': None, 'torsion_model': None, 'checks': [], 'aa_reference': None,
                 'revision_sha256': None, 'error': str(exc),
                 'statement': f"This model's parameterization cannot be read: {exc}"}
-    revision = parameterizations.current(mapping)
+    revision = chosen if chosen is not None else parameterizations.current(mapping)
     state['statement'] = (f'this model is parameterized -- {parameterizations.describe(revision)}; the run '
                           'uses it and does not re-fit' if revision is not None else
                           'this model carries no parameterization -- the run will fit it in stage 3 and record '
@@ -891,6 +1078,11 @@ def _protocol_prepare(run_dir, metadata):
     keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
             'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root')
     values = {key: metadata[key] for key in keys if key in metadata}
+    # The chosen model: which revision, and whether stage 2 starts from the frame stored with it or re-maps the AA
+    # reference. A payload that names neither keeps the historical shape (current revision, re-map).
+    payload = metadata.get('parameterization') if isinstance(metadata.get('parameterization'), dict) else {}
+    values['revision'] = payload.get('revision')
+    values['starting_coordinates'] = payload.get('starting_coordinates') or 'remap'
     # The coordinator applied this filter before calling the old entry point; it belongs with the run type that
     # declares the dialect.
     if values.get('settings'):
@@ -903,12 +1095,17 @@ def _protocol_prepare(run_dir, metadata):
     # this call: `finish_prepared_run` writes them as the manifest's `inputs` record and mirrors the generated data into
     # `inputs/`, which is what makes the run layout-3.
     record = json.loads((stages / 'manifest.json').read_text())
+    # The record names the run type its own reader resolves it by. A caller that names none is preparing a CG run, the
+    # only type this adapter serves; without it `plan_pairs` would read the historical combined-job default.
+    record.setdefault('run_type', metadata.get('run_type') or 'cg')
     references = record.pop('input_references', None)
     # The code this run executes, in one record: the repository script of every stage, and every project module those
     # scripts import. The executor re-hashes each file before its stage starts, so a helper changed under a prepared
     # run refuses the stage instead of silently running code the run did not record.
     scripts = {stage.name: stage.script
-               for stage in stage_definitions(consumes_parameterization(record)) if stage.script}
+               for stage in stage_definitions(consumes_parameterization(record),
+                                              starting_coordinates=record.get('starting_coordinates') or 'remap')
+               if stage.script}
     return protocol.finish_prepared_run(run_dir, stages, metadata=record, tools=record.get('tools', {}),
                                         plan=protocol.plan_pairs(record),
                                         environment=record.get('environment'), references=references,

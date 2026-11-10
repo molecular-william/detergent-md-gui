@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 from dashboard import files
 from dashboard.execution import workflow
-from dashboard.execution.adapters import aa, cg
+from dashboard.execution.adapters import cg
 from dashboard.execution.coordination import resources
 
 
@@ -159,7 +159,13 @@ class OperationsTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/jobs?page=1').status_code,409)
 
     def test_clone_keeps_settings_and_production_gate(self):
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(threading.Thread,'start'):
+        from detergent_validation.execution.adapters import sugar_cg
+
+        self.dashboard.coordinator.database().update(
+            self.job['id'], run_type='cg',
+            parameterization={'kind': 'reference', 'sugar_entry': 'SUCR'})
+        with patch.object(sugar_cg,'assess',return_value={'ready':True,'checks':[],'blockers':[]}), \
+                patch.object(threading.Thread,'start'):
             response=self.client.post('/api/jobs/'+self.job['id']+'/clone',json={'settings':{'temperature_k':310},'label':'new settings'})
             self.assertEqual(response.status_code,201)
             self.assertEqual(response.get_json()['settings']['temperature_k'],310)
@@ -190,19 +196,20 @@ class OperationsTests(unittest.TestCase):
 
     @pytest.mark.slow
     def test_new_layout_worker_records_stage_outputs_and_logs(self):
-        job=dict(self.job,id='abcdef123456',status='queued',layout_version=2)
+
+        job=dict(self.job,id='abcdef123456',status='queued',layout_version=2,run_type='cg',
+                 parameterization={'kind':'revision','starting_coordinates':'remap'})
         self.dashboard.coordinator.database().insert(job)
         def prepare(root, metadata):
             stage=root/'stages/mini'; stage.mkdir(parents=True)
             (stage/'run.sh').write_text('echo stage-output; echo result > result.txt')
             files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini']})
         # The protocol object is what the coordinator resolves; its `prepare` is bound when the adapter builds it.
-        # Both halves of the readiness are stubbed: an `aa_cg` run's readiness is composed from the CG half *and* the
-        # AA half (`cg._protocol_readiness` asks `aa.readiness`), and stubbing only the CG half left the AA half
-        # looking for a molecule under this test's temporary root -- so the run was refused with "Molecule directory
-        # is unavailable or is a symlink" before it ever prepared a stage. This test is about the worker's stage
-        # bookkeeping, not about where a molecule lives.
-        with patch.object(cg,'readiness',return_value={'ready':True}), patch.object(aa,'readiness',return_value={'ready':True,'blockers':[]}), patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)), patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
+        # The run type's readiness and its prepare are stubbed: this test is about the worker's stage bookkeeping,
+        # not about where a molecule or a model lives, and the CG run type refuses a payload with neither.
+        with patch.object(cg,'parameterization_readiness',return_value={'ready':True,'checks':[],'blockers':[]}), \
+                patch.object(cg,'PROTOCOL',dataclasses.replace(cg.PROTOCOL,prepare=prepare)), \
+                patch.object(workflow,'stage_definitions',lambda metadata: ([('mini','mini/run.sh')], {}, {'mini':('result.txt',)})):
             self.dashboard.coordinator.run_job(job['id'])
         job=self.dashboard.coordinator.lookup(job['id']); self.assertEqual(job['status'],'completed',job.get('error'))
         manifest=json.loads((self.dashboard.coordinator.run_path(job)/'manifest.json').read_text())

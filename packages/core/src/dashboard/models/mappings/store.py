@@ -80,7 +80,7 @@ def list_candidates(summary=False, *, context=None):
             if context and (data.get('molecule_id') != context.get('molecule_id') or data.get('molecule_snapshot') != context.get('snapshot')):
                 continue
             if summary:
-                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','mapping_content_hash','validation') if k in data}
+                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','mapping_content_hash','validation','molecule_id') if k in data}
             result.append(data)
         except (ValueError, OSError) as exc:
             result.append({'file': name, 'name': name, 'error': str(exc)})

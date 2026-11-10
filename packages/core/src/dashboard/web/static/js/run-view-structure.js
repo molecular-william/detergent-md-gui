@@ -27,7 +27,7 @@ import { runViewStructureRule } from './run-view-extension.js';
 
 //: The engine's own run types whose structures are coarse-grained. A feature's run type is added by its extension's
 //: `structure.isCoarseGrained` rule rather than listed here, so this table is the engine's vocabulary alone.
-export const CG_RUN_TYPES = ('aa_cg cg_composition').split(' ');
+export const CG_RUN_TYPES = ('cg').split(' ');
 
 //: The stage directories whose contents are beads rather than atoms.
 const CG_PATH_HINTS = ('2_mapping 4_CG_sim 3_initial_CG').split(' ');

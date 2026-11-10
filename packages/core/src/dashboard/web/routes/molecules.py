@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import references as aa_references
+from ...execution import protocol
 from ...execution.adapters import aa, cg
 from ...execution.protocol import adapter_for, profile_for_run_type
 from ...models import mappings
@@ -196,6 +197,36 @@ def _profile_argument():
     return profile
 
 
+def _parameterization_argument():
+    """The CG run's parameterization, from one JSON query parameter or from its individual fields.
+
+    The panel names a saved mapping, a revision number, a starting-coordinate choice, a sugar entry or a
+    composition. The queue route takes the same object in the request body; this spelling exists because readiness
+    is a GET.
+    """
+    raw = request.args.get('parameterization')
+    if raw:
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            abort(400, 'parameterization must be a JSON object')
+        if not isinstance(value, dict):
+            abort(400, 'parameterization must be a JSON object')
+        return value
+    kind = request.args.get('parameterization_kind') or request.args.get('kind') or 'revision'
+    value = {'kind': kind}
+    if kind == 'revision':
+        value['mapping_candidate'] = request.args.get('mapping_candidate')
+        revision = request.args.get('revision')
+        value['revision'] = int(revision) if revision not in (None, '') else None
+        value['starting_coordinates'] = request.args.get('starting_coordinates') or 'stored'
+    elif kind == 'reference':
+        value['sugar_entry'] = request.args.get('sugar_entry') or 'SUCR'
+    elif kind == 'composition':
+        value['composition_id'] = request.args.get('composition_id')
+    return value
+
+
 def _requested_profile(default='standard'):
     """The profile a defaults request asks for, with this route's own fallback when it names none."""
     return _profile_argument() or default
@@ -208,26 +239,19 @@ def defaults_api():
     # panel fills every field from this answer and posts it back as explicit settings, so a default that differed from
     # the profile the run is stamped with would queue a different simulation than the one the form showed.
     if run_type=='aa_only':return jsonify(_with_force_fields(aa.stage_defaults(_requested_profile(profile_for_run_type(run_type)))))
-    if run_type == 'cg_composition':
-        result = cg.stage_defaults(_requested_profile(profile_for_run_type(run_type)))
-        result['values'].update({'cg_equil_ps': 10.0, 'cg_production_ps': 50.0})
-        # A composition run writes no MDP from the engine profiles -- its prepared scripts fix their own numbers --
-        # so it does not advertise the CG production overrides: a form field whose key the run drops would show a
-        # value the run never receives.
-        for key in cg.PRODUCTION_OVERRIDES:
-            result['values'].pop(key, None)
-        result['values'].pop('nstxtcout', None)
-        return jsonify(_with_force_fields(result))
-    if run_type == 'sugar_cg':
-        # A feature run type's own defaults, asked of the adapter it registered: the sugar form fills every field
-        # from this answer, so the preset it shows is the preset the run is stamped with.
-        return jsonify(_with_force_fields(adapter_for(run_type).stage_defaults()))
-    if run_type not in (None,'aa_cg'):abort(400,'Unknown run type')
-    profile = _requested_profile(profile_for_run_type(run_type or 'aa_cg'))
+    if run_type not in (None,'cg'):abort(400,'Unknown run type')
+    kind = request.args.get('parameterization_kind') or request.args.get('kind')
+    if run_type == 'cg' and kind in ('reference', 'composition'):
+        from ...execution.adapters import cg_run
+        try:
+            return jsonify(_with_force_fields(cg_run.defaults_for(kind)))
+        except ValueError as exc:
+            abort(400, str(exc))
+    profile = _requested_profile(profile_for_run_type(run_type or 'cg'))
     result=cg.stage_defaults(profile)
-    if run_type=='aa_cg':
-        # The AA half at this profile, which is what the run will use: aa_equil_ps is
-        # derived from the two AA equilibration durations, so the form shows those.
+    if run_type=='cg':
+        # The CG run's revision kind reuses an AA reference, so the AA half's durations are shown as the reference's
+        # own and `aa_equil_ps` (whose halves are the AA equilibration stages) is dropped.
         result['values'].update(aa.stage_defaults(profile)['values']);result['values'].pop('aa_equil_ps',None)
         result['sources']['AA']=aa.VERSION
     return jsonify(_with_force_fields(result))
@@ -266,12 +290,17 @@ def readiness_api():
     lookup in the mapping store rather than a rule about runs.
     """
     c = coordinator()
-    run_type = request.args.get('run_type') or 'aa_cg'
-    if run_type not in ('aa_only', 'aa_cg', 'cg_composition', 'pdc', 'sugar_cg'):
+    run_type = request.args.get('run_type') or 'cg'
+    if run_type not in ('aa_only', 'cg') and run_type not in protocol.RUN_TYPES:
         abort(400, 'Unknown run type')
 
     molecule = None
-    if run_type in ('aa_only', 'aa_cg', 'sugar_cg') and 'molecule_id' in request.args:
+    # What a `cg` run will consume, read before the molecule is inspected: a composition's molecule is the saved CG
+    # model, not an `molecules/` folder, so asking the atomistic catalogue about it would refuse a well-formed
+    # selection as a missing molecule.
+    parameterization = _parameterization_argument() if run_type == 'cg' else {}
+    composition_model = run_type == 'cg' and (parameterization or {}).get('kind') == 'composition'
+    if run_type in ('aa_only', 'cg') and 'molecule_id' in request.args and not composition_model:
         try: molecule = aa_molecules.inspect(c.ROOT / 'molecules', request.args['molecule_id'])
         except (OSError, ValueError) as exc: abort(400, str(exc))
         if not molecule['executable']:
@@ -281,17 +310,21 @@ def readiness_api():
     name = request.args.get('mapping_candidate')
     if name:
         try:
-            context = (mapping_context.build_context(c.ROOT / 'molecules', request.args['molecule_id'])
+            context = (mapping_context.build_context(c.ROOT / 'molecules', request.args.get('molecule_id'))
                        if request.args.get('molecule_id') else None)
             candidate = mappings.get(name, context=context)
         except FileNotFoundError: abort(400, 'Selected mapping is unavailable')
         except (OSError, ValueError) as exc: abort(400, str(exc))
 
+    # A composition names its own molecule; a caller that sends none is asking about the model it selected.
+    selected_molecule = (request.args.get('molecule_id')
+                         or (parameterization.get('composition_id') if composition_model else None)
+                         or request.args.get('detergent') or 'DDM')
     metadata = {
         # The molecule the coarse-grained half checks, with the same DDM fallback the route has always had: a caller
         # that asks about a profile rather than a specific molecule is asking about the reference example, and the
         # protocol requires *some* molecule because a run cannot be checked without one.
-        'molecule_id': request.args.get('molecule_id') or request.args.get('detergent') or 'DDM',
+        'molecule_id': selected_molecule,
         'method': request.args.get('method', 'fast_forward'),
         # No route-level default: the run type's own adapter names the profile it runs under, and a `standard`
         # here is what put the standard-parameterization blocker in front of every AA-to-CG run.
@@ -305,11 +338,26 @@ def readiness_api():
         'template': request.args.get('template') or None,
         'project_root': c.ROOT,
     }
-    if run_type == 'sugar_cg':
-        # The sugar run's one identity choice beside the molecule. It rides in `settings` because that is where the
-        # adapter's readiness reads it, and it is echoed top-level for the panel's summary.
-        metadata['sugar_entry'] = request.args.get('sugar_entry') or 'SUCR'
-        metadata['settings'] = {'sugar_entry': metadata['sugar_entry']}
+    if run_type == 'cg':
+        # The one user-facing CG run type carries the parameterization it will consume. The panel may send it as one
+        # JSON query parameter or as its individual fields; both name the same payload the queue route accepts.
+        parameterization = _parameterization_argument()
+        metadata['parameterization'] = parameterization
+        if parameterization.get('kind') == 'revision':
+            name = parameterization.get('mapping_candidate') or parameterization.get('mapping')
+            if name and not candidate:
+                try:
+                    context = (mapping_context.build_context(c.ROOT / 'molecules', request.args['molecule_id'])
+                               if request.args.get('molecule_id') else None)
+                    candidate = mappings.get(name, context=context)
+                except FileNotFoundError: abort(400, 'Selected mapping is unavailable')
+                except (OSError, ValueError) as exc: abort(400, str(exc))
+                metadata['mapping_candidate'] = candidate
+        if parameterization.get('kind') == 'reference':
+            metadata['sugar_entry'] = parameterization.get('sugar_entry') or request.args.get('sugar_entry') or 'SUCR'
+            metadata['settings'] = {'sugar_entry': metadata['sugar_entry']}
+        if parameterization.get('kind') == 'composition':
+            metadata['composition_id'] = parameterization.get('composition_id')
     # A copy, so decorating the answer for this page cannot reach back into whatever the adapter returned -- an
     # adapter that hands out a module-level dict would otherwise accumulate a molecule from every request.
     answer = dict(adapter_for(run_type).readiness(metadata))

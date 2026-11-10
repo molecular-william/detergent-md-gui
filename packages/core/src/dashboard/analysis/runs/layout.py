@@ -424,6 +424,35 @@ def review_sources():
     return _CG_REVIEW + tuple(_FEATURE_REVIEW_PAIRS) + _AA_REVIEW
 
 
+def revision_parameterization(work):
+    """How a run recorded the parameterization it consumed: `revision`, `reference` or `composition`.
+
+    A run written before the `cg` type states its kind in `cg_model_kind`; a run written after it states the same
+    fact in `parameterization.kind`. An old `aa_cg` record names neither and was a revision run by definition.
+    """
+    manifest = Path(work) / 'manifest.json'
+    if not manifest.is_file():
+        return 'revision'
+    try:
+        data = json.loads(manifest.read_text())
+    except ValueError:
+        return 'revision'
+    return ((data.get('parameterization') or {}).get('kind') or data.get('cg_model_kind') or 'revision')
+
+
+def require_revision_parameterization(work, analysis):
+    """Refuse an analysis that reads the mapped trajectory a parameterization revision produced.
+
+    A `reference`- or `composition`-kind CG run simulated a model whose coordinates came elsewhere. It owes every
+    run's analyses, but it has no `2_mapping/` frames, so the honest answer is a skip with the reason rather than a
+    failed read of a missing file or, worse, a number read from another run's mapping.
+    """
+    kind = revision_parameterization(work)
+    if kind != 'revision':
+        raise NoTrajectory(f'{analysis} reads the mapped trajectory a parameterization revision produced; this run '
+                           f'consumed a {kind} parameterization and has none')
+
+
 class NoTrajectory(ValueError):
     """A run offers no trajectory for a caller to review.
 

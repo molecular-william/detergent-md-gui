@@ -32,7 +32,7 @@ def plant(dashboard, jid, *, status='completed', files=(), analyses=None):
     runs = dashboard.coordinator.RUNS
     runs.mkdir(parents=True, exist_ok=True)
     record = {'id': jid, 'label': 'E3 maltose CG', 'detergent': 'Maltose', 'method': 'fast_forward',
-              'run_type': 'aa_cg', 'profile': 'draft-smoke-reference', 'reference_run_id': 'dbc366ae772b',
+              'run_type': 'cg', 'parameterization': {'kind': 'revision', 'revision': 2}, 'reference_run_id': 'dbc366ae772b',
               'molecule_id': 'Maltose', 'status': status, 'stage': 'complete',
               'created': dashboard.coordinator.now()}
     if analyses is not None:

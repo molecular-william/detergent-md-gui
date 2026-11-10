@@ -241,13 +241,16 @@ def ring_layer(structure, name):
     if not sugars and not unclaimed: return None
     # Each exocyclic O belongs to the higher chemical carbon index; e.g. C4
     # rather than donor C1. A sugar-alkyl ether remains in the sugar A fragment.
+    # A 1,1 linkage ties at C1, and the published TREH entry puts the bridging oxygen on the *first* residue (its
+    # glycosidic bead is SP1r, its connecting linker SN6): the tie goes to the lower ring, so a symmetric trehalose
+    # reproduces the reference's bead types instead of swapping them.
     position = {c: (ri, k+1) for ri, r in enumerate(sugars) for k, c in enumerate(r['carbons'])}
     oxygen_owner = {}
     for o in atoms:
         if atoms[o]['element'] != 'O' or any(o == r['oxygen'] for r in sugars): continue
         neighbors = [c for c in adj[o] if c in position]
         if neighbors:
-            oxygen_owner[o] = max(neighbors, key=lambda c: (position[c][1], position[c][0]))
+            oxygen_owner[o] = max(neighbors, key=lambda c: (position[c][1], -position[c][0]))
     beads, ring_records, assigned = [], [], set()
     for ri, r in enumerate(sugars, 1):
         c1,c2,c3,c4,c5,c6 = r['carbons']

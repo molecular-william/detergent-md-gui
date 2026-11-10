@@ -52,6 +52,9 @@ class Kind:
     #: ends and belong to every AA-CG run: both declare inputs in stages 2 and 3 only (the mapped trajectory and
     #: the topology the fit wrote), so there is no coarse-grained trajectory to wait for.
     #:
+    #: A `reference` or `composition` CG run owes the same kinds but has no mapped trajectory; their producers
+    #: record `skipped` with that reason rather than failing.
+    #:
     #: `carbohydrate-validation` is the counter-example, named so that it stays one: it declares
     #: `4_CG_sim/prod/lig_CG.{gro,xtc}` and cannot run until the coarse-grained simulation has produced a
     #: trajectory, which is why no run type defaults to it. A type that consumes a pre-parameterized molecule
@@ -109,7 +112,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Bonded terms \u00b7 our fit against the estimate",
         "The fitted force constants beside the ones an independent equipartition estimate reads from the same frames. The two are not expected to be equal -- one is a coupled distribution-matching fit, the other is per term -- but a term we write as a rigid constraint and the estimate reads as a spring is a different molecule.",
         "nm, kJ/mol/nm^2, and which side calls each term a constraint",
-        default_for_run_types=('aa_cg',)),
+        default_for_run_types=('cg',)),
     # The same inputs as the cross-check, because it asks the same kind of question of the same frames:
     # what would a criterion-driven fit say, beside what the run's own tool-chosen terms say.
     Kind(
@@ -125,7 +128,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "Dihedral terms \u00b7 a criterion against the tool default",
         "For every proper dihedral the topology declares, the multiplicity and force constant an AIC/BIC-chosen cosine fit reads from the same frames, beside the ones the tool wrote. Where they disagree, the tool default is what is being questioned -- agreement is not evidence the tool chose well.",
         "degrees, kJ/mol, and a multiplicity",
-        default_for_run_types=('aa_cg',)),
+        default_for_run_types=('cg',)),
     # All three ensembles of one consumer run: its atomistic reference, the trajectory mapped onto
     # the beads, and the simulated coarse-grained trajectory, plus the topology that names the
     # beads.

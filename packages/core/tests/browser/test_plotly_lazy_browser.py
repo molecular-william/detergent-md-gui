@@ -25,6 +25,7 @@ Every assertion about the bundle's URL derives it from `meta[name="plotly-src"]`
 from the route: the URL is defined in one place and the tests read that place rather than repeating it.
 """
 from dashboard.models import mappings
+from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
 from tests.harness.validation_fixtures import publish
@@ -57,7 +58,12 @@ def test_a_page_that_plots_nothing_fetches_no_plotly(dashboard, live_page):
 
 def test_the_bonded_panel_fetches_plotly_once_and_draws(dashboard, live_page):
     """Load B: the same load fetches nothing; opening the plotting panel fetches the bundle exactly once."""
-    saved = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    # Built through the editor's own construction: the molecule and its snapshot are what the catalogue route
+    # filters on, and a candidate missing either is one no molecule-scoped list can find.
+    context = mapping_context.build_context(dashboard.paths.project_root / 'molecules', 'DDM')
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'DDM')
+    candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
+    saved = mappings.save_draft(candidate)
     page, errors = live_page
     requests = []
     page.on('request', lambda request: requests.append(request.url))
@@ -166,7 +172,12 @@ def test_the_mapping_section_text_does_not_wait_for_the_bundle(dashboard, live_p
     comparison's own sentences waited on 4.8 MB for a picture that states no number the rows do not. The bundle is
     held open here, and the rows must still fill.
     """
-    publish(dashboard, 'aa11bb22cc33')
+    # The run's analysis record is what gates the mapping sections now that a comparison is a `cg` run rather than
+    # the retired `aa_cg` type; `publish` writes the attempt on disk, and this names it on the record.
+    publish(dashboard, 'aa11bb22cc33', analyses=[{
+        'id': 'aa11bb22cc33-mapping-consistency', 'kind': 'mapping-consistency', 'status': 'completed',
+        'created_at': dashboard.coordinator.now(),
+        'directory': 'analyses/mapping-consistency/hash/attempt1'}])
     page, errors = live_page
     held = []
 

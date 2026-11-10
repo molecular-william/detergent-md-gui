@@ -1,57 +1,76 @@
-"""New AA form state and payload, with simulation requests intercepted."""
+"""The AA run: its own vocabulary, its own review rows, and no CG model to carry.
+
+An AA run publishes the reference a later parameterization is fitted against. It has no model selector, no AA-source
+picker and no CG settings in its payload; its stage settings are the atomistic leg's. The simulation requests are
+intercepted: what this file reads is the payload the panel builds, not a run.
+"""
 import json
+import re
 
 from playwright.sync_api import expect
 
 from tests.harness import browser
 
+DEFAULTS = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000, 'temperature_k': 300,
+            'pressure_bar': 1, 'output_interval_ps': 10, 'box_nm': 2.4, 'aa_seed': 12345,
+            'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_gpu': 0, 'mdrun_cpt': 10,
+            'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'constraints': 'all-bonds',
+            'force_field': 'charmm36-jul2022', 'cg_equil_ps': 10, 'cg_production_ps': 50,
+            'sasa_probe_nm': 0.191, 'cg_seed': 12345}
 
-def test_aa_form_preserves_cg_choices_and_reference_settings(dashboard, live_page):
-    aa = dict(aa_nvt_ps=100, aa_npt_ps=1000, aa_production_ps=10000,
-              temperature_k=300, pressure_bar=1, output_interval_ps=10,
-              box_nm=2.4, aa_seed=12345)
-    defaults = aa | dict(cg_equil_ps=10, cg_production_ps=50, sasa_probe_nm=.191, cg_seed=12345)
-    inherited = aa | dict(temperature_k=310, aa_production_ps=500, output_interval_ps=5)
+
+def stub(page):
+    page.route('**/api/defaults?*', lambda route: route.fulfill(
+        json={'values': DEFAULTS, 'sources': {'AA': 'CHARMM AA protocol v1'}, 'profile': 'draft-smoke',
+              'force_fields': []}))
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.route('**/api/setting-presets?*', lambda route: route.fulfill(json={'presets': [], 'default': None}))
+
+
+def test_an_aa_run_posts_only_its_own_vocabulary_and_says_this_run(dashboard, live_page):
     dashboard.coordinator.database().replace([])
     page, errors = live_page
+    stub(page)
     submissions = []
-    page.route('**/api/defaults?*', lambda r: r.fulfill(json={'values':defaults,'sources':{'AA':'CHARMM AA protocol v1'},'profile':'draft-smoke'}))
-    page.route('**/api/readiness?*', lambda r: r.fulfill(json={'ready':True,'checks':[],'blockers':[]}))
-    page.route('**/api/references*', lambda r: r.fulfill(json={'references':[{'id':'111111111111','label':'Shared AA source','run_type':'aa_only','settings':inherited}]}))
-    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_cg',molecule_id:'DDM',cg_production_ps:'250',temperature_k:'305'}))")
-    url = f'{live_page.base_url}/'
-    # Initial molecule loading refreshes the reference selector after defaults.
-    # Wait for that request before selecting a reference to test inheritance.
-    with page.expect_response(lambda response: '/api/references?molecule_id=DDM' in response.url):
-        page.goto(url + '/detergent-validation/new-run')
-    expect(page.locator('[name=aa_nvt_ps]')).to_have_value('100')
-    page.locator('[name=reference_run_id]').select_option('111111111111')
-    expect(page.locator('[name=temperature_k]')).to_have_value('310')
-    expect(page.locator('[name=temperature_k]')).to_be_disabled()
-    expect(page.locator('[name=output_interval_ps]')).to_be_disabled()
-    page.locator('[name=reference_run_id]').select_option('')
-    expect(page.locator('[name=temperature_k]')).to_have_value('305')
-    expect(page.locator('[name=temperature_k]')).to_be_enabled()
-    page.locator('#run-type').select_option('aa_only')
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM',"
+                         "cg_production_ps:'250',temperature_k:'305'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+
+    expect(page.locator('[name=aa_nvt_ps]')).to_have_value('100', timeout=30000)
+    expect(page.locator('#run-type')).to_have_value('aa_only')
     expect(page.locator('#cg-inputs')).to_be_hidden()
-    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#run-parameterization-summary')).to_have_text('not needed')
+    expect(page.locator('#run-aa-summary')).to_have_text('this run')
+    expect(page.locator('#run-coordinates-summary')).to_have_text('this run')
+    expect(page.locator('[name=label]')).to_have_value(re.compile(r'^DDM-AA-11\.1ns-\d{8}$'), timeout=30000)
+    # There is no AA-source picker any more: the AA run is its own source.
+    assert page.locator('[name=reference_run_id]').count() == 0
+    # The saved CG durations are kept for the CG form, not posted by this run.
     saved = json.loads(page.evaluate("localStorage.getItem('ddm.form')"))
     assert saved['cg_production_ps'] == '250'
-    assert 'profile' not in saved, 'the panel still persists a profile it no longer offers'
+
+    url = f'{live_page.base_url}/'
+
     def submit(route):
         submissions.append(route.request.post_data_json)
-        route.fulfill(status=201, json={'id':'222222222222'})
+        route.fulfill(status=201, json={'id': '222222222222'})
+
     page.route(url, submit)
     page.locator('#start-run').click()
     expect(page.locator('#notice')).to_have_text('Run queued.')
-    assert submissions[0]['run_type'] == 'aa_only'
-    assert submissions[0]['aa_nvt_ps'] == '100'
-    assert 'mapping_candidate' not in submissions[0]
-    assert 'cg_production_ps' not in submissions[0]
+    body = submissions[0]
+    assert body['run_type'] == 'aa_only' and body['molecule_id'] == 'DDM'
+    assert body['aa_nvt_ps'] == '100' and body['temperature_k'] == '305'
+    for retired in ('mapping_candidate', 'reference_run_id', 'parameterization', 'method', 'profile'):
+        assert retired not in body, f'{retired} is still sent: {body}'
+    assert 'cg_production_ps' not in body and 'cg_seed' not in body
+    # The AA controls are the ones the run type executes; a CG run's are hidden again.
     page.locator('#tab-new').click()
-    page.locator('#run-type').select_option('aa_cg')
+    page.locator('#run-type').select_option('cg')
+    expect(page.locator('#cg-inputs')).to_be_visible()
     expect(page.locator('[name=cg_production_ps]')).to_have_value('250')
-    page.set_viewport_size({'width':390,'height':844})
+    expect(page.locator('#run-aa-summary')).to_have_text('no parameterization selected')
+    page.set_viewport_size({'width': 390, 'height': 844})
     browser.assert_no_horizontal_scroll(page)
     assert not errors, errors
 
@@ -73,11 +92,12 @@ def test_the_help_map_renders_accessible_info_buttons(dashboard, live_page):
     url = f'{live_page.base_url}/detergent-validation/new-run'
     with page.expect_response(lambda response: '/api/defaults?' in response.url):
         page.goto(url)
+    # The panel opens on a CG run, whose fields are the CG leg's; the AA run is the one that builds a box.
+    page.locator('#run-type').select_option('aa_only')
     label = page.locator('label:has([name=box_shape])')
     button = label.locator('button.info-btn')
     expect(button).to_have_count(1)
-    # The button sits on the caption's line at its right, above the control row; the cell carries no inherited label
-    # margin, so the rows stay tight. Read the geometry rather than a class name: this is the layout the panel promises.
+    # The button sits on the caption's line at its right, above the control row.
     geometry = label.evaluate("""el => {
       const help = el.querySelector('.field-help').getBoundingClientRect();
       const control = el.querySelector('.setting-control').getBoundingClientRect();
@@ -96,14 +116,12 @@ def test_the_help_map_renders_accessible_info_buttons(dashboard, live_page):
     expect(tip).to_have_attribute('role', 'tooltip')
     expect(tip).to_have_text('The unit cell the protocol builds (stub text).')
     expect(tip).to_be_hidden()
-    # Keyboard focus displays it (CSS :focus-within), and Escape closes a click-opened tip.
     button.focus()
     expect(tip).to_be_visible()
     button.click()
     expect(tip).to_be_visible()
     page.keyboard.press('Escape')
     assert 'is-open' not in (tip.get_attribute('class') or '')
-    # Hovering the button keeps its tip up by design; once the pointer leaves and Escape released the focus, it closes.
     page.mouse.move(0, 0)
     expect(tip).to_be_hidden()
     # The fold starts collapsed and opens to the CG production group and the execution controls.

@@ -46,7 +46,8 @@ const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one :
 //: answer to the same question.
 function isComparisonRun(job) {
   if (!job) return false;
-  if (String(job.run_type || '') === 'aa_cg') return true;
+  const kind = (job.parameterization || {}).kind || job.cg_model_kind || 'revision';
+  if (String(job.run_type || '') === 'cg' && kind === 'revision') return true;
   return (job.analyses || []).some(task => task.kind === 'mapping-consistency');
 }
 

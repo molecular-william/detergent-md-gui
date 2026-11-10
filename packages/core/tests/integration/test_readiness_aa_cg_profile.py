@@ -82,7 +82,7 @@ def test_the_three_tool_checks_keep_their_order_and_a_missing_tool_is_named(monk
 def test_the_readiness_fallback_is_the_builders_own_default():
     """One string, two places: a caller naming no profile gets the same one from both."""
     assert inspect.signature(cg.prepare).parameters['profile'].default == cg.AA_CG_PROFILE
-    source = inspect.getsource(cg._protocol_readiness)
+    source = inspect.getsource(cg.parameterization_readiness)
     assert "metadata.get('profile') or AA_CG_PROFILE" in source
 
 
@@ -99,11 +99,11 @@ def test_the_readiness_route_asks_about_the_profile_the_run_type_runs_under(dash
     whatever tools this machine has. It is the test that would notice if the seam stopped being wired.
     """
     with dashboard.client as client:
-        answer = client.get('/api/readiness?run_type=aa_cg').get_json()
+        answer = client.get('/api/readiness?run_type=cg&molecule_id=DDM').get_json()
 
     assert answer['profile'] == cg.AA_CG_PROFILE
     assert not [blocker for blocker in answer['blockers'] if 'standard parameterization' in blocker]
-    assert any(check['label'] == 'CG mapping' for check in answer['checks'])
+    assert any(check['label'] == 'CG parameterization' for check in answer['checks'])
     probed = [check for check in answer['checks'] if check['label'] in cg.READINESS_TOOLS]
     assert [check['label'] for check in probed] == list(cg.READINESS_TOOLS)
     assert all(check['detail'] for check in probed), 'a real probe says something about the tool it measured'
@@ -112,9 +112,9 @@ def test_the_readiness_route_asks_about_the_profile_the_run_type_runs_under(dash
 def test_a_typo_in_the_profile_is_still_reported_rather_than_silently_standard(dashboard, injected_probe):
     """The route's own default went away; its refusal of a name no run type has did not."""
     with dashboard.client as client:
-        assert client.get('/api/readiness?run_type=aa_cg&profile=standrd').status_code == 400
-        named = client.get('/api/readiness?run_type=aa_cg&profile=standard').get_json()
+        assert client.get('/api/readiness?run_type=cg&molecule_id=DDM&profile=standrd').status_code == 400
+        named = client.get('/api/readiness?run_type=cg&molecule_id=DDM&profile=standard').get_json()
 
     assert named['profile'] == 'standard'
-    assert any('standard parameterization' in blocker for blocker in named['blockers']), \
-        'a caller that names standard still gets the standard answer'
+    assert named['ready'] is False and named['blockers'], \
+        'a caller that names standard still gets a truthful refusal, not the run type default in silence'

@@ -320,7 +320,10 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
                          'workflow_stages': plan_names(job),
                          'elapsed_seconds': None, 'analyses': [], 'consistency': None}
     run_dir = Path(run_dir)
-    manifest = manifest or {}
+    supplied_manifest = manifest or {}
+    # The job record is the authority for a run whose manifest is partial or predates `run_type`; the stage helpers
+    # resolve an adapter by this field, and a view must not report a readable run as one with no run type.
+    manifest = {**supplied_manifest, 'run_type': supplied_manifest.get('run_type') or job.get('run_type')}
     result.update(ownership or {})
     result['gpu_name'] = gpu_name(manifest, job)
     result['trajectory_bytes'] = layout.trajectory_bytes(run_dir)
@@ -347,7 +350,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
         result['resume_stages'] = []
         result['can_continue'] = False
         result['metadata_warnings'].append('An external worker still holds this run; reuse and deletion are blocked until it exits')
-    if (run_dir / 'manifest.json').is_file() and not manifest:
+    if (run_dir / 'manifest.json').is_file() and not supplied_manifest:
         result['metadata_warnings'].append('Manifest is unreadable; inspect the original artifact')
     seconds, warnings = elapsed(job)
     result['elapsed_seconds'] = seconds

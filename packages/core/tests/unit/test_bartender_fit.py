@@ -60,6 +60,52 @@ def test_the_topology_is_renumbered_to_its_physical_beads_and_the_virtual_site_g
     assert '1 4 1 0.528' in text, 'the junction bond moves from bead 1-5 to bead 1-4'
 
 
+#: An `ff_inter` model: the linkage is a bond under `FLEXIBLE` and the same pair a constraint without it.
+BRANCHED_TOPOLOGY = """; an `ff_inter` model
+[ moleculetype ]
+MOL 1
+
+[ atoms ]
+1 SP1r 1 MOL R1 1 0 54
+2 SP1r 1 MOL R2 2 0 54
+3 SN6 1 MOL R3 3 0 54
+4 TC4 1 MOL VS 4 0 0
+5 C1 1 MOL TAIL 5 0 72
+
+[ bonds ]
+#ifdef FLEXIBLE
+1 5 1 0.528 394.25
+#endif
+
+[ constraints ]
+1 2 1 0.310
+1 3 1 0.359
+2 3 1 0.299
+#ifndef FLEXIBLE
+1 5 1 0.528
+#endif
+
+[ virtual_sitesn ]
+4 1 1 2 3
+
+[ exclusions ]
+4 1 2 3
+"""
+
+
+def test_only_the_preprocessor_branch_grompp_reads_is_handed_to_the_fit():
+    """Measured on the Maltose mapping: `ff_inter` writes the linkage bond under `#ifdef FLEXIBLE` and the same
+    pair as a constraint under `#ifndef`, and reading both as content crashed on `int('#ifdef')`. Neither is
+    defined, so the constraint is the live term -- and handing BARTENDER both would give one pair two terms."""
+    text, _names = bartender_fit.physical_topology(BRANCHED_TOPOLOGY, BEADS)
+
+    assert '#ifdef' not in text and '#ifndef' not in text, 'the directives are not terms'
+    assert not text.split('[ bonds ]')[1].split('[')[0].split(), 'the FLEXIBLE branch is not the one grompp reads'
+    constraints = text.split('[ constraints ]')[1].split('[')[0]
+    assert '1 4 1 0.528' in constraints, 'the live constraint is renumbered to the physical beads'
+    assert constraints.count('1 4 ') == 1, 'one term for the pair, not one per branch'
+
+
 def test_the_fitted_terms_accumulate_because_bartender_writes_angles_twice():
     """Measured: a parser that reset on the repeated header dropped all fourteen fitted angles, and the fit ran on
     without them."""

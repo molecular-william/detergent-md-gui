@@ -98,7 +98,11 @@ def test_the_topology_stage_lets_fast_forward_constrain_its_stiffest_bonds():
     script = (PACKAGE / 'execution/scripts/fit_topology.sh').read_text()
     executable = '\n'.join(line for line in script.splitlines() if not line.lstrip().startswith('#'))
 
-    assert '-constraints 10000' in executable, "FF's own default: a bond above k=10000 becomes a constraint"
+    assert 'CONSTRAINTS_THRESHOLD="${RUN_SETTING_CONSTRAINTS_THRESHOLD:-10000}"' in executable, \
+        "FF's own default: a bond above k=10000 becomes a constraint unless the panel sends another"
+    assert '-constraints "$CONSTRAINTS_THRESHOLD"' in executable, \
+        'the threshold the fit job forwards is the one ff_inter is given'
+    assert '-constraints 10000' not in executable, 'a literal here would ignore the run setting'
     assert '1000000000' not in executable, 'that value disables the conversion for every bond'
 
 

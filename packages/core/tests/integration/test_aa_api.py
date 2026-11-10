@@ -46,6 +46,27 @@ def reference_fixture(dashboard, profile='standard'):
     return job
 
 
+def cg_job(dashboard, monkeypatch, source=None, **overrides):
+    """A revision-kind CG job whose model is the one this fixture's AA reference was fitted against.
+
+    The store boundary is stubbed: `cg.chosen_revision` answers the revision the mapping would carry, so the test
+    exercises the coordinator's derivation of `shared_reference` from that revision rather than a fit.
+    """
+    source = source or reference_fixture(dashboard, 'draft-smoke')
+    mapping_snapshot = {**mappings.automatic_candidate(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
+    revision = {'revision': 1, 'engine': 'fast-forward', 'options': {},
+                'aa_reference': {'run_id': source['id'], 'reference_sha256': None}}
+    monkeypatch.setattr(cg, 'chosen_revision', lambda *args, **kwargs: revision)
+    monkeypatch.setattr(cg, 'parameterization_readiness',
+                        lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
+    with dashboard.app.test_request_context():
+        return dashboard.coordinator.create_job(
+            'DDM', 'fast_forward', profile='draft-smoke', run_type='cg', molecule_id='DDM',
+            mapping_snapshot=mapping_snapshot,
+            parameterization={'kind': 'revision', 'mapping_candidate': 'ddm.map',
+                              'starting_coordinates': 'remap'}, **overrides)
+
+
 def test_aa_launch_and_clone_do_not_require_cg_tools(dashboard, service,monkeypatch):
     def forbidden(*a,**k):raise AssertionError('AA touched the CG workflow')
     monkeypatch.setattr(cg,'readiness',forbidden)
@@ -79,24 +100,21 @@ def test_reference_filter_and_hash_tampering(dashboard, service):
     assert service.get('/api/references').get_json()['references']==[]
 
 
-def test_new_aa_cg_pair_waits_without_taking_second_slot(dashboard, service,monkeypatch):
-    monkeypatch.setattr(cg,'readiness',lambda *a,**k:{'ready':True})
-    with dashboard.app.test_request_context():
-        child=dashboard.coordinator.create_job('DDM','fast_forward',profile='draft-smoke',run_type='aa_cg',molecule_id='DDM',mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
-    parent=dashboard.coordinator.lookup(child['reference_run_id'])
-    assert child['status']=='waiting' and parent['run_type']=='aa_only'
-    assert list(dashboard.coordinator.WORKERS)==[parent['id']]
-    dashboard.coordinator.database().update(parent['id'],status='failed');dashboard.coordinator.WORKERS.clear();dashboard.coordinator.schedule_waiting()
-    assert dashboard.coordinator.lookup(child['id'])['status']=='blocked'
+def test_a_cg_revision_run_carries_its_shared_reference_and_creates_no_aa_parent(dashboard, service, monkeypatch):
+    """The CG run type reuses the reference its revision was fitted against; it never builds an AA parent."""
+    source = reference_fixture(dashboard, 'draft-smoke')
+    child = cg_job(dashboard, monkeypatch, source)
+    assert child['status'] == 'queued', 'a revision run starts directly; nothing is waiting for an AA parent'
+    assert child['run_type'] == 'cg' and child['reference_run_id'] == source['id']
+    assert child['shared_reference']['source_run_id'] == source['id']
+    assert list(dashboard.coordinator.WORKERS) == [child['id']]
 
 
 def test_two_completed_consumers_share_source_and_prevent_deletion(dashboard, service,monkeypatch):
     source=reference_fixture(dashboard, 'draft-smoke')
-    monkeypatch.setattr(cg,'readiness',lambda *a,**k:{'ready':True})
     consumers=[]
     for _ in range(2):
-        with dashboard.app.test_request_context():
-            job=dashboard.coordinator.create_job('DDM','fast_forward',profile='draft-smoke',run_type='aa_cg',molecule_id='DDM',reference_run_id=source['id'],mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+        job=cg_job(dashboard, monkeypatch, source)
         assert job['shared_reference']['source_run_id']==source['id']
         consumers.append(job);dashboard.coordinator.database().update(job['id'],status='completed');dashboard.coordinator.WORKERS.clear()
     assert consumers[0]['shared_reference']==consumers[1]['shared_reference']
@@ -105,35 +123,32 @@ def test_two_completed_consumers_share_source_and_prevent_deletion(dashboard, se
 
 def test_cg_worker_does_not_pass_reference_run_id_to_preparation(dashboard, service, monkeypatch):
     source = reference_fixture(dashboard, 'draft-smoke')
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     captured = {}
 
     def prepare(root, metadata):
         captured.update(shared_reference=metadata.get('shared_reference'),
-                        reference_root=metadata.get('reference_root'))
+                        reference_root=metadata.get('reference_root'),
+                        parameterization=metadata.get('parameterization'))
         root.mkdir(parents=True, exist_ok=True)
         files.atomic_json(root / 'manifest.json', {'stages': []})
 
     # The protocol object is what the coordinator resolves, and its `prepare` is bound when the adapter builds it,
     # so patching the adapter's private function would have no effect. Replacing the protocol replaces the door.
+    job = cg_job(dashboard, monkeypatch, source)
     monkeypatch.setattr(cg, 'PROTOCOL', dataclasses.replace(cg.PROTOCOL, prepare=prepare))
     monkeypatch.setattr(backend.workflow, 'run', lambda *args, **kwargs: None)
-    with dashboard.app.test_request_context():
-        job = dashboard.coordinator.create_job(
-            'DDM', 'fast_forward', profile='draft-smoke', run_type='aa_cg',
-            molecule_id='DDM', reference_run_id=source['id'],
-            mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
     dashboard.coordinator.WORKERS.clear()
 
     dashboard.coordinator.run_job(job['id'])
 
     assert dashboard.coordinator.lookup(job['id'])['status'] == 'completed', dashboard.coordinator.lookup(job['id']).get('error')
     assert captured['shared_reference']['source_run_id'] == source['id']
+    assert captured['parameterization']['kind'] == 'revision'
 
 
 def test_waiting_consumer_starts_only_after_source_slot_is_released(dashboard, service):
     source=reference_fixture(dashboard)
-    child={'id':'222222222222','status':'waiting','run_type':'aa_cg','reference_run_id':source['id'],
+    child={'id':'222222222222','status':'waiting','run_type':'cg','reference_run_id':source['id'],
            'molecule_snapshot':source['molecule_snapshot'],'settings':source['settings']}
     dashboard.coordinator.database().insert(child)
     dashboard.coordinator.WORKERS[source['id']]=dashboard.coordinator.Worker()
@@ -154,19 +169,14 @@ def test_aa_retry_rejects_changed_canonical_inputs(dashboard, service):
     assert 'changed' in response.get_json()['error']
 
 
-@pytest.mark.parametrize('run_type', ['aa_only', 'aa_cg'])
+@pytest.mark.parametrize('run_type', ['aa_only', 'cg'])
 @pytest.mark.parametrize('action', ['clone', 'retry', 'resume'])
 def test_new_attempt_preserves_run_type_and_shared_source(dashboard, service, monkeypatch, run_type, action):
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
     if run_type == 'aa_only':
         job = service.post('/', json={'run_type': run_type, 'molecule_id': 'DDM'}).get_json()
     else:
         source = reference_fixture(dashboard, 'draft-smoke')
-        with dashboard.app.test_request_context():
-            job = dashboard.coordinator.create_job('DDM', 'fast_forward', profile='draft-smoke',
-                                 run_type=run_type, molecule_id='DDM',
-                                 reference_run_id=source['id'],
-                                 mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+        job = cg_job(dashboard, monkeypatch, source)
     dashboard.coordinator.database().update(job['id'], status='failed')
     dashboard.coordinator.WORKERS.clear()
     stage = job['stage_plan'][0]
@@ -196,40 +206,38 @@ def test_new_attempt_preserves_run_type_and_shared_source(dashboard, service, mo
     assert new['settings'] == job['settings']
     assert dashboard.coordinator.lookup(job['id'])['status'] == 'failed'
     assert new['scientifically_validated'] is False
-    if run_type == 'aa_cg':
+    if run_type == 'cg':
         assert new['shared_reference'] == job['shared_reference']
         assert new['reference_run_id'] == source['id']
-        assert len([j for j in dashboard.coordinator.database().all() if j['run_type'] == 'aa_only']) == 1
+        assert new['parameterization'] == job['parameterization']
+        assert len([j for j in dashboard.coordinator.database().all() if j['run_type'] == 'aa_only']) == 1, \
+            'the reference fixture is the only AA run; the CG run creates no parent'
     else:
         assert new['reference_eligible'] is False
         assert not new.get('mapping_snapshot')
 
 
-def test_shared_source_rejects_changed_inherited_temperature(dashboard, service, monkeypatch):
-    source = reference_fixture(dashboard, 'draft-smoke')
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
-    response = service.post('/', json={
-        'run_type': 'aa_cg', 'molecule_id': 'DDM', 'profile': 'draft-smoke',
-        'method': 'fast_forward', 'reference_run_id': source['id'], 'temperature_k': 310})
-    assert response.status_code == 409
-    assert 'temperature_k' in response.get_json()['error']
-    assert len(dashboard.coordinator.database().all()) == 1
+def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch):
+    """The revision records the reference's digest, and the reference is verified against it.
 
-
-def test_a_full_length_reference_cannot_serve_a_smoke_consumer(dashboard, service, monkeypatch):
-    """The consumer's inherited AA half has to be the reference's own.
-
-    A draft profile shortens the AA half, so attaching a full-length reference would
-    record AA settings the reference was never produced with. The profile is what
-    makes the two disagree; the reference is the authority.
+    A reference whose files changed under the revision that consumed it is refused before a job exists, exactly as
+    the AA-CG pair used to refuse a consumer whose inherited settings disagreed with its source.
     """
-    source = reference_fixture(dashboard)
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
-    response = service.post('/', json={
-        'run_type': 'aa_cg', 'molecule_id': 'DDM', 'profile': 'draft-smoke',
-        'method': 'fast_forward', 'reference_run_id': source['id']})
-    assert response.status_code == 409
-    assert 'aa_nvt_ps' in response.get_json()['error']
+    source = reference_fixture(dashboard, 'draft-smoke')
+    mapping_snapshot = {**mappings.automatic_candidate(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
+    revision = {'revision': 1, 'engine': 'fast-forward',
+                'aa_reference': {'run_id': source['id'],
+                                 'reference_sha256': {'stages/07_reference/lig.xtc': '0' * 64}}}
+    monkeypatch.setattr(cg, 'chosen_revision', lambda *args, **kwargs: revision)
+    monkeypatch.setattr(cg, 'parameterization_readiness',
+                        lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
+    with dashboard.app.test_request_context():
+        with pytest.raises(backend.SourceUnavailable):
+            dashboard.coordinator.create_job(
+                'DDM', 'fast_forward', profile='draft-smoke', run_type='cg', molecule_id='DDM',
+                mapping_snapshot=mapping_snapshot,
+                parameterization={'kind': 'revision', 'mapping_candidate': 'ddm.map'})
+    assert len(dashboard.coordinator.database().all()) == 1
 
 
 def test_cancelled_source_cancels_waiting_consumer(dashboard, service):
@@ -269,21 +277,12 @@ def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, servic
         analysis.source_entries(consumer/'stages', 'bartender-fit')
 
 
-def test_a_new_aa_source_keeps_the_choice_settings_the_parent_run_named(dashboard, monkeypatch):
-    """A choice dropped before the AA source is prepared is a source that disagrees with the run that names it.
+def test_a_cg_run_records_the_choice_settings_it_was_given(dashboard, monkeypatch):
+    """The AA choices stay on the CG run's record: they are the reference's provenance, not a parent's job."""
+    job = cg_job(dashboard, monkeypatch, settings={'force_field': 'charmm36-jul2022', 'constraints': 'h-bonds'})
 
-    The parent's AA half runs as an `aa_only` child; the child's vocabulary is the AA adapter's numeric *and*
-    choice settings. `force_field` and `constraints` used to be filtered out here, so the child prepared at the
-    defaults while the parent recorded the values it was asked for, and `aa_references.verify` then refused that
-    very reference as a mismatch.
-    """
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': True})
-    with dashboard.app.test_request_context():
-        child = dashboard.coordinator.create_job(
-            'DDM', 'fast_forward', profile='draft-smoke', run_type='aa_cg', molecule_id='DDM',
-            mapping_snapshot=mappings.automatic_candidate(mappings.molecule(), 'DDM'),
-            settings={'force_field': 'charmm36-jul2022', 'constraints': 'h-bonds'})
-    parent = dashboard.coordinator.lookup(child['reference_run_id'])
-    assert parent['run_type'] == 'aa_only'
-    assert parent['settings']['force_field'] == 'charmm36-jul2022'
-    assert parent['settings']['constraints'] == 'h-bonds'
+    assert job['run_type'] == 'cg'
+    assert job['settings']['force_field'] == 'charmm36-jul2022'
+    assert job['settings']['constraints'] == 'h-bonds'
+    assert len([j for j in dashboard.coordinator.database().all() if j['run_type'] == 'aa_only']) == 1, \
+        'the reference fixture is the only AA run; the CG run creates no parent'

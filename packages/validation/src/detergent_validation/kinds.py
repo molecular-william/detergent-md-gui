@@ -103,7 +103,7 @@ KINDS = (
         "The reference distributions Fast-Forward fitted (or a consumed revision recorded) beside the coarse-grained "
         "assessment's own. Hellinger is Fast-Forward's distance, not the mapping comparison's overlap coefficient.",
         "probability density; Hellinger 0-1, lower is closer",
-        source_hook=ff_interactions.sources),
+        source_hook=ff_interactions.sources, default_for_run_types=('cg',)),
 
     Kind(
         'targets',

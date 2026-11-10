@@ -16,6 +16,14 @@ from pathlib import Path
 REFERENCE_NAME = 'martini_v3.0.0_sugars_v2.itp'
 PROVENANCE_NAME = 'martini_v3.0.0_sugars_v2.source.json'
 
+#: The molecules the published set names, and the entry that is *their own* model. Connectivity identification is not
+#: enough to decide this: it is stereochemistry-blind, so an epimer with the same ring sizes and linkage letters
+#: identifies the same entry while being a different molecule -- maltose and `LAC` are both 6+6 with an AB link, and
+#: `LAC` is lactose. The panel may show an entry only for the molecule the entry is published for. `accepts_identity`
+#: is the one exception: an entry whose mapping is identical to the one the identifier named may stand for the
+#: molecule when the molecule's own identity says so -- which is how glucose uses `GLC` although its layout says `GAL`.
+PUBLISHED_FOR = {'Sucrose': 'SUCR', 'Trehalose': 'TREH', 'Lactose': 'LAC', 'Glucose': 'GLC'}
+
 # The data root, asked of `dashboard.paths` when the package is importable -- it honours `DASHBOARD_ROOT`, and an
 # installed distribution does not sit inside a checkout. The sugar package is also shipped whole into the mapping
 # export bundle, where no dashboard package exists above it: that import can fail there, and the fallback only has
@@ -104,6 +112,56 @@ def conform(data, entry_name):
     return issues
 
 
+def mapping_signature(entry_name):
+    """An entry's mapping facts alone: residues, bead names and types, virtual sites and inter-residue link ends.
+
+    The equilibrium numbers are deliberately left out. The published `GLC` and `GAL` are one mapping with different
+    constraint lengths -- which is why a glucose structure's connectivity identifies `GAL` -- so a comparison that
+    kept the lengths would report a difference the mapping cannot see.
+    """
+    record = signature(entry(entry_name))
+    return {
+        'residues': {number: [(bead['name'], bead['type'], bead['virtual_site']) for bead in beads]
+                     for number, beads in sorted(record['residues'].items())},
+        'links': sorted(sorted((tuple(link['a']), tuple(link['b']))) for link in record['links']),
+    }
+
+
+def same_layout(first, second):
+    """Whether two published entries describe one bead layout (residues, bead names/types, sites, link ends)."""
+    return mapping_signature(first) == mapping_signature(second)
+
+
+def accepts_identity(candidate, molecule_id, entry):
+    """Whether this molecule may use `entry` although its layout identified another published entry.
+
+    Identification is stereochemistry-blind: every aldohexose has the same four-bead pattern, so a glucose structure's
+    candidate list holds every aldohexose and its first candidate is `GAL`. The molecule's own identity decides only
+    when it has a published entry, that entry is the one selected, the candidate conforms to it, and the identified
+    entry shares its mapping layout. Then choosing the entry changes the published numbers, never the bead mapping. A
+    molecule with no published entry stays refused -- maltose's layout matches `LAC`, but `LAC` is lactose's model --
+    and so does an entry this candidate does not reproduce.
+    """
+    if PUBLISHED_FOR.get(molecule_id) != entry:
+        return False
+    identified = (candidate.get('reference') or {}).get('entry')
+    if not identified:
+        return False
+    if identified == entry:
+        return True
+    return not conform(candidate, entry) and same_layout(identified, entry)
+
+
+def layout_note(candidate, entry):
+    """The sentence for a layout that cannot tell two entries apart, or None when identification named `entry`."""
+    identified = (candidate.get('reference') or {}).get('entry')
+    if not identified or identified == entry or not same_layout(identified, entry):
+        return None
+    return (f'The bead layout alone cannot distinguish {entry} from {identified}: the entries share one mapping '
+            f'layout (residues, bead names and types, links and virtual sites) and differ in their published bond '
+            f'lengths, so the molecule\'s identity selects {entry}.')
+
+
 def run_topology(entry_name, *, residue_name=None, provenance=None):
     """The published entry's own terms, written in the layout a run consumes.
 
@@ -114,8 +172,8 @@ def run_topology(entry_name, *, residue_name=None, provenance=None):
 
     Run layout means one residue per molecule and ``B01..`` atom names, the convention ``mapped.gro``, the ``.map``
     and every analysis already use. The published entry's residue/letter column is a mapping fact (``conform``
-    checks it) and is not reproduced here; for ``TREH`` that column also carries the published inconsistency the
-    Trehalose blocker names (atom 8's parents are residue 2 but its residue column is 1).
+    checks it) and is not reproduced here; for ``TREH`` that column also carries the published inconsistency
+    ``signature`` reads around (atom 8's parents are residue 2 but its residue column is 1).
     """
     record = entry(entry_name)
     name = residue_name or entry_name
@@ -238,18 +296,33 @@ def signature(entry_record):
 
     Equilibrium numbers are carried along for comparison but are not part of conformance; see the
     plan's decision D1.
+
+    A virtual site's residue is the residue of the parents that build it, not the file's residue column: the
+    published `TREH` atom 8 (the second `TC4`, parents 5-7) carries residue 1 while its parents are residue 2, and
+    its `[ virtual_sitesn ]` and `[ exclusions ]` rows agree with the parents. The site belongs to the ring it is
+    built from, so the parents' residue is the mapping fact; the column is the anomaly. Reading it the other way
+    put two sites in residue 1 and none in residue 2, which made the chemically correct Trehalose candidate fail
+    `conform` and kept a correct reference model out of the panel. A site with no parent row (an entry using
+    `virtual_sites3`, which this file does not) keeps the column it was read from.
     """
+    by_index = {atom['index']: atom for atom in entry_record['atoms']}
+    sites = {site['site']: site['parents'] for site in entry_record.get('virtual_sitesn') or []}
+
+    def residue_of(atom):
+        parents = sites.get(atom['index']) if not atom['mass'] else None
+        numbers = {by_index[parent]['residue'] for parent in parents or [] if parent in by_index}
+        return next(iter(numbers)) if len(numbers) == 1 else atom['residue']
+
     residues = {}
     for atom in entry_record['atoms']:
-        residues.setdefault(atom['residue'], []).append(
+        residues.setdefault(residue_of(atom), []).append(
             {'name': atom['name'], 'type': atom['type'], 'mass': atom['mass'],
              'virtual_site': not atom['mass']})
-    by_index = {atom['index']: atom for atom in entry_record['atoms']}
     links = []
     for bond in entry_record['bonds']:
         first, second = by_index[bond['i']], by_index[bond['j']]
-        if first['residue'] != second['residue']:
-            links.append({'a': [first['residue'], first['name']], 'b': [second['residue'], second['name']],
+        if residue_of(first) != residue_of(second):
+            links.append({'a': [residue_of(first), first['name']], 'b': [residue_of(second), second['name']],
                           'length': bond['length'], 'force': bond.get('force')})
     return {'name': entry_record['name'], 'residues': residues, 'links': links,
             'virtual_sites': {number: [bead['name'] for bead in beads if bead['virtual_site']]

@@ -30,7 +30,7 @@ def seed(dashboard, *run_ids, figures=True):
     mappings.save_draft(candidate)
     dashboard.coordinator.database().replace([
         {'id': run_id, 'label': f'Figure run {run_id[-1]}', 'detergent': 'DDM', 'method': 'fast_forward',
-         'status': 'completed', 'stage': 'complete', 'run_type': 'aa_cg',
+         'status': 'completed', 'stage': 'complete', 'run_type': 'cg',
          'created': dashboard.coordinator.now()} for run_id in run_ids])
     for run_id in run_ids:
         directory = runs / run_id

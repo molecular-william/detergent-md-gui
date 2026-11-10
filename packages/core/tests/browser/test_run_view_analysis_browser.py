@@ -30,7 +30,7 @@ def seed(dashboard, *, overview=False):
     owner = dashboard.coordinator
     rows = {A_RUN: ('alpha', 'beta'), B_RUN: ('gamma',)}
     for run_id, names in rows.items():
-        owner.database().insert({'id': run_id, 'run_type': 'aa_cg', 'label': f'Figure run {run_id[-1]}',
+        owner.database().insert({'id': run_id, 'run_type': 'cg', 'label': f'Figure run {run_id[-1]}',
                                  'detergent': 'DDM', 'method': 'fast_forward', 'status': 'completed',
                                  'stage': 'complete', 'created': owner.now(), 'analyses': []})
         directory = owner.RUNS / run_id
@@ -108,7 +108,7 @@ def test_the_two_monitors_hold_their_own_runs_figures_and_state(dashboard, live_
 
 def test_a_run_with_no_figures_says_so_instead_of_drawing_an_empty_box(dashboard, live_page):
     dashboard.coordinator.database().insert(
-        {'id': A_RUN, 'run_type': 'aa_cg', 'label': 'Bare run', 'detergent': 'DDM', 'method': 'fast_forward',
+        {'id': A_RUN, 'run_type': 'cg', 'label': 'Bare run', 'detergent': 'DDM', 'method': 'fast_forward',
          'status': 'completed', 'stage': 'complete', 'created': dashboard.coordinator.now(), 'analyses': []})
     (dashboard.coordinator.RUNS / A_RUN).mkdir(parents=True, exist_ok=True)
     page, errors = live_page

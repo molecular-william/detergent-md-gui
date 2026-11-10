@@ -319,6 +319,7 @@ def publish(work, payload=None):
     reason this analysis exists rather than being a nicety on top of the BARTENDER route.
     """
     work = Path(work)
+    layout.require_revision_parameterization(work, 'The dihedral fit')
     payload = dict(payload or {})
     temperature = float(payload.get('temperature', DEFAULT_TEMPERATURE))
     criterion = str(payload.get('criterion', 'bic'))

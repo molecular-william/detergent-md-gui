@@ -40,6 +40,13 @@ export function createMappings() {
 
   async function loadMapping(file) {
     if (!file) return null;
+    if (file.startsWith('reference:')) {
+      // A published reference is not a saved candidate: the route transcribes an upstream ITP, and the panel reads
+      // it through the same shape a mapping has so the table and the scene need no second code path.
+      const moleculeId = file.slice('reference:'.length);
+      const answer = await api('/api/mappings/reference/' + encodeURIComponent(moleculeId));
+      return {...(answer.model || {}), file};
+    }
     if (file.startsWith('composition:')) {
       const detail = await cachedApi('/api/cg-models/composition/' + encodeURIComponent(file.slice('composition:'.length)), {maxAge: CATALOGUE_MAX_AGE});
       const mapping = detail.mapping || {};

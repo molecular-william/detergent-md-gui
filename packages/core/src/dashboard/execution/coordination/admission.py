@@ -21,6 +21,48 @@ AA_ONLY_FORBIDDEN = (
 CG_METHODS = ('fast_forward', 'bartender')
 
 
+def _cg_payload(data):
+    """The payload contract of a CG run: one parameterization of the selected molecule, and nothing from the kinds it
+    is not.
+
+    The model is one of three shapes, and each needs exactly one name: a saved mapping and its revision, a published
+    sugar entry, or a composition. The server checks the shape here, before a job record exists; whether the named
+    thing exists and belongs to the molecule is the run type's readiness, which reads the stores.
+    """
+    parameterization = data.get('parameterization')
+    if not isinstance(parameterization, dict):
+        raise ValueError('CG runs require parameterization: the model the run consumes')
+    model_kind = parameterization.get('kind') or 'revision'
+    if model_kind not in ('revision', 'reference', 'composition'):
+        raise ValueError('CG parameterization.kind must be revision, reference or composition')
+    if model_kind == 'revision':
+        mapping = parameterization.get('mapping_candidate') or parameterization.get('mapping') \
+            or data.get('mapping_candidate')
+        if not mapping:
+            raise ValueError('A revision CG run requires parameterization.mapping_candidate')
+        starting = parameterization.get('starting_coordinates')
+        if starting not in (None, 'stored', 'remap'):
+            raise ValueError('starting_coordinates must be stored or remap')
+        revision = parameterization.get('revision')
+        if revision is not None and (not isinstance(revision, int) or isinstance(revision, bool) or revision < 1):
+            raise ValueError('parameterization.revision must be a positive integer')
+        return
+    if model_kind == 'reference':
+        entry = parameterization.get('sugar_entry') or data.get('sugar_entry')
+        if not entry:
+            raise ValueError('A reference CG run requires parameterization.sugar_entry')
+        for key in ('mapping_candidate', 'mapping_snapshot', 'reference_run_id'):
+            if data.get(key) not in (None, ''):
+                raise ValueError(f'A reference CG run cannot include {key}')
+        return
+    composition_id = parameterization.get('composition_id') or data.get('composition_id')
+    if not composition_id:
+        raise ValueError('A composition CG run requires parameterization.composition_id')
+    for key in ('mapping_candidate', 'mapping_snapshot', 'reference_run_id'):
+        if data.get(key) not in (None, ''):
+            raise ValueError(f'A composition CG run cannot include {key}')
+
+
 def validate_run_type(data):
     """Reject payloads whose run_type and fields are inconsistent."""
     if not hasattr(data, 'get'):
@@ -30,23 +72,23 @@ def validate_run_type(data):
     features.ensure()
     kind = data.get('run_type')
     # The published run types, not a second list: a feature's type is admitted when its distribution is installed, and
-    # a name no adapter answers is refused here before it reaches the coordinator.
+    # a name no adapter answers is refused here before it reaches the coordinator. A retired name is refused with its
+    # own sentence rather than as a typo, because the record is real and only the migration can move it.
     if kind is not None and kind not in protocol.RUN_TYPES:
+        if kind in protocol.RETIRED_RUN_TYPES:
+            raise ValueError(protocol.RETIRED_RUN_TYPE_MESSAGE.format(name=kind))
         raise ValueError('Unknown run type')
+    if kind is None:
+        # There is no default run type any more: the historical combined job is retired, and guessing which of the
+        # four a payload meant is how a CG run would be queued with no parameterization.
+        raise ValueError('run_type is required')
     rule = features.admission_for(kind)
     if rule is not None:
         rule(data)
         return
-    if kind == 'cg_composition':
-        if not data.get('composition_id'):
-            raise ValueError('CG composition runs require composition_id')
-        for key in ('molecule_id', 'molecule_snapshot', 'reference_run_id', 'mapping_candidate',
-                    'mapping_snapshot'):
-            if data.get(key) not in (None, ''):
-                raise ValueError('CG composition runs cannot include AA or ordinary mapping inputs')
+    if kind == 'cg':
+        _cg_payload(data)
         return
-    if kind in (None, 'aa_cg') and data.get('method') not in CG_METHODS:
-        raise ValueError('Unsupported method')
     if kind != 'aa_only':
         return
     if any(data.get(key) not in (None, '') for key in AA_ONLY_FORBIDDEN):

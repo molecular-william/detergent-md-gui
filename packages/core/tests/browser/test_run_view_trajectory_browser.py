@@ -26,7 +26,7 @@ from tests.harness import browser
 #: the block is shared code, and both are driven through it.
 ENGINE_RUN = 'ef0000ef0001'
 COMPLEX_RUN = 'fc0000fc0002'
-RUN_TYPES = {ENGINE_RUN: 'aa_cg', COMPLEX_RUN: 'pdc'}
+RUN_TYPES = {ENGINE_RUN: 'cg', COMPLEX_RUN: 'pdc'}
 #: The structure each run holds under its own stage tree, so the canvas has a picture for the block to hide.
 STRUCTURES = {ENGINE_RUN: 'stages/2_mapping/mapped.gro', COMPLEX_RUN: 'stages/1_system/system.gro'}
 WORKSPACES = {ENGINE_RUN: 'detergent-validation', COMPLEX_RUN: 'protein-detergent'}

@@ -6,7 +6,12 @@
  * produced by a job of this panel's own. It makes no MD, so nothing here becomes a run: a run consumes the
  * revision this panel makes current and records which. The design is
  * `docs/design/2026-10-16-parameterization-and-new-run.md`, and the layout is the draft the owner approved,
- * `docs/design/prototypes/parameterization-and-new-run.html`.
+ * `docs/design/drafts/2026-11-10-bond-interactions-parameterization.html`.
+ *
+ * **Shown is not current.** `shownRevision()` is the display-only choice the model card's selector makes: it drives
+ * `termsOf`, the result card and the scene, and reading it reads no route and writes nothing. `currentRevision()` is
+ * what a run consumes, and only the **Make current** action moves it. The revision strip is history -- it states each
+ * revision's engine, date and term counts and holds no control.
  *
  * Every reading is taken from the routes and none is reconstructed here:
  *
@@ -115,7 +120,7 @@ function termsOf(revision, mapping) {
   }));
 }
 
-export function setupParameterization({host, onTerms}) {
+export function setupParameterization({host, onTerms, onRecord}) {
   const aaSelect = $('#bonded-aa-reference', host);
   const aaFacts = $('#bonded-aa-facts', host);
   const engineSelect = $('#bonded-engine', host);
@@ -123,6 +128,8 @@ export function setupParameterization({host, onTerms}) {
   const mappingFacts = $('#bonded-mapping-facts', host);
   const modelSummary = $('#bonded-model-summary', host);
   const modelBadge = $('#bonded-model-badge', host);
+  const shownStatus = $('#bonded-shown-status', host);
+  const makeCurrentButton = $('#bonded-make-current', host);
   const threshold = $('#bonded-constraints-threshold', host);
   const thresholdNote = $('#bonded-constraints-note', host);
   const temperature = $('#bonded-temperature', host);
@@ -158,6 +165,10 @@ export function setupParameterization({host, onTerms}) {
   let referencesError = '';
   let job = null;
   let busy = false;
+  //: A published reference is shown, never parameterized: it states its own ITP and carries no revision.
+  let readOnly = false;
+  //: The revision the panel *shows*, which need not be the one a run consumes. `null` means "follow current".
+  let shownRevisionNumber = null;
   let generation = 0;
   let jobToken = 0;
   let timer = null;
@@ -167,6 +178,8 @@ export function setupParameterization({host, onTerms}) {
   const hash = () => (mapping && mapping.mapping_content_hash) || '';
   const currentNumber = () => (summary && summary.revision) ?? null;
   const currentRevision = () => revisions.find(item => item && item.revision === currentNumber()) || null;
+  const shownRevision = () => revisions.find(item => item && item.revision === shownRevisionNumber)
+    || (shownRevisionNumber === null ? currentRevision() : null);
   const engineLabel = value => (engines.find(item => item.value === value) || {}).label || value || 'fit';
   const pollMilliseconds = () => Number(window.__bondedPollMs) || POLL_MS;
   const visible = () => {
@@ -206,16 +219,18 @@ export function setupParameterization({host, onTerms}) {
   function updateTorsion() {
     const stored = storedTorsion();
     const chosen = chosenTorsion();
-    torsionModel.disabled = !mapping;
-    torsionScale.disabled = !mapping || chosen.torsion_model !== 'circular-harmonic';
+    torsionModel.disabled = !mapping || readOnly;
+    torsionScale.disabled = !mapping || readOnly || chosen.torsion_model !== 'circular-harmonic';
     const changed = chosen.torsion_model !== stored.torsion_model
       || (chosen.torsion_scale ?? null) !== (stored.torsion_scale ?? null);
-    torsionSave.disabled = !mapping || !changed;
-    setText(torsionStatus, !mapping
-      ? 'Choose a mapping to read its torsion model.'
-      : changed
-        ? `Unsaved: ${torsionSentence(chosen)}. Save it to the mapping to use it there.`
-        : `This mapping: ${torsionSentence(stored)}.`);
+    torsionSave.disabled = !mapping || readOnly || !changed;
+    setText(torsionStatus, readOnly
+      ? 'The published reference has no torsion model to refine: it is a transcription, not a fit.'
+      : !mapping
+        ? 'Choose a mapping to read its torsion model.'
+        : changed
+          ? `Unsaved: ${torsionSentence(chosen)}. Save it to the mapping to use it there.`
+          : `This mapping: ${torsionSentence(stored)}.`);
   }
   function fillTorsion() {
     const stored = storedTorsion();
@@ -242,13 +257,30 @@ export function setupParameterization({host, onTerms}) {
       ? `${beads.length} beads · ${physical} physical · ${beads.length - physical} virtual sites`
         + `${(mapping.rings || []).length ? ` · ${(mapping.rings || []).length} rings` : ''}`
       : '');
+    if (readOnly) {
+      // The panel's own sentence, not a badge alone: a reader must learn both what this is and what cannot be done
+      // with it before the disabled controls read as a fault.
+      const entry = mapping?.reference_entry;
+      setText(modelSummary, `The published Martini 3 sugar reference${entry ? ` (${entry})` : ''} is a transcription`
+        + ' of an upstream ITP; it cannot be re-parameterized here.');
+      setText(modelBadge, 'published reference');
+      modelBadge.dataset.status = 'completed';
+      return;
+    }
+    const shown = shownRevision();
+    const isCurrent = !!(shown && shown.revision === currentNumber());
     setText(modelSummary, !mapping
       ? 'Choose a mapping to read its revisions.'
       : !revisions.length
         ? 'No parameterization yet: a fit made here is stored as this mapping’s revision 1.'
-        : `Revision ${currentNumber()} of ${revisions.length} is current; ${revisions.length - 1} earlier`
-          + ` ${revisions.length === 2 ? 'revision is' : 'revisions are'} kept.`);
-    setText(modelBadge, !mapping ? 'no mapping' : revisions.length ? `revision ${currentNumber()} · current` : 'no parameterization');
+        : isCurrent
+          ? `Showing revision ${shown.revision}, the revision a run consumes.`
+            + (revisions.length > 1 ? ' An earlier revision can be viewed without changing what a run uses.' : '')
+          : `Showing revision ${shown.revision} (earlier). Runs still consume revision ${currentNumber()};`
+            + ' this one is not what a new run would use until it is made current.');
+    setText(modelBadge, !mapping ? 'no mapping'
+      : !revisions.length ? 'no parameterization'
+      : shown ? `revision ${shown.revision} · ${isCurrent ? 'current' : 'earlier'}` : 'no parameterization');
     if (revisions.length) modelBadge.dataset.status = 'completed';
     else delete modelBadge.dataset.status;
   }
@@ -265,6 +297,7 @@ export function setupParameterization({host, onTerms}) {
     if (engines.some(engine => engine.value === chosen)) engineSelect.value = chosen;
     else if (engines.length) engineSelect.value = engines[0].value;
     renderEngineNote();
+    syncThreshold();
   }
 
   function renderEngineNote() {
@@ -277,6 +310,17 @@ export function setupParameterization({host, onTerms}) {
       : chosen.needs_reference
         ? 'This engine fits to an ensemble: it builds the mapped AA trajectory first — minutes of CPU, no MD — so it needs an AA reference.'
         : 'This engine reads the mapping alone: no AA reference and no frames.');
+  }
+
+  /** The threshold is Fast-Forward's own knob: Bartender fits its bond terms itself and never reads it. */
+  function syncThreshold() {
+    const chosen = engines.find(engine => engine.value === engineSelect.value);
+    const bartender = !!(chosen && chosen.value === 'bartender');
+    threshold.disabled = readOnly || bartender;
+    setText(thresholdNote, bartender
+      ? 'not used by Bartender: it fits its own bond terms, and the threshold applies to Fast-Forward.'
+      : `default ${DEFAULT_CONSTRAINTS} kJ mol⁻¹ nm⁻² — above it a fitted pair is written as a`
+        + ' constraint, below it as a spring.');
   }
 
   function renderReferences() {
@@ -312,7 +356,11 @@ export function setupParameterization({host, onTerms}) {
   function updateFit() {
     const chosen = engines.find(engine => engine.value === engineSelect.value);
     const needsReference = !!(chosen && chosen.needs_reference);
-    fitButton.disabled = busy || !mapping || !chosen || (needsReference && !aaSelect.value);
+    fitButton.disabled = readOnly || busy || !mapping || !chosen || (needsReference && !aaSelect.value);
+    if (readOnly) {
+      setText(fitStatus, 'The published Martini 3 sugar reference is read-only: it cannot be fitted here.');
+      return;
+    }
     if (busy) return;
     setText(fitStatus, !mapping ? 'Choose a mapping first — a fit belongs to one saved candidate.'
       : !engines.length ? (enginesError ? `The fitting engines could not be read: ${enginesError}` : 'Reading the fitting engines…')
@@ -437,7 +485,18 @@ export function setupParameterization({host, onTerms}) {
     const fresh = (answer.jobs || []).find(item => item && item.id === job.id);
     if (fresh) job = fresh;
     renderJob();
-    if (!fresh || TERMINAL.has(job.status)) { stopPolling(); await readRecord(generation); return; }
+    if (!fresh || TERMINAL.has(job.status)) {
+      stopPolling();
+      // A fit the reader queued is shown when it lands: the new revision is what the fit produced, and leaving the
+      // selector on the previous revision would show the outcome beside an older result. Nothing else changes the
+      // shown revision on its own -- an answer to a poll is not a selection.
+      const completed = Number(job.revision);
+      if (job.status === 'completed' && job.revision != null && Number.isInteger(completed)) {
+        shownRevisionNumber = completed;
+      }
+      await readRecord(generation);
+      return;
+    }
     schedule(token);
   }
 
@@ -506,8 +565,35 @@ export function setupParameterization({host, onTerms}) {
       + ` equipartition estimate; ${disagreements.length} disagree on whether it is a constraint`;
   }
 
+  /** The interaction count a revision's own `terms` states: what the result card prints as "34 terms". */
+  function totalTerms(revision) {
+    return Object.entries((revision && revision.terms) || {})
+      .filter(([kind]) => kind !== 'virtual_sitesn')
+      .reduce((total, [, count]) => total + (Number(count) || 0), 0);
+  }
+
+  /** One card per revision: history, never a selector. Engine, date and counts, and no control. */
+  function revisionCounts(revision) {
+    const entries = Object.entries((revision && revision.terms) || {}).filter(([kind]) => kind !== 'virtual_sitesn');
+    return entries.length ? entries.map(([kind, count]) => `${count} ${kind}`).join(' · ') : 'no terms recorded';
+  }
+
+  /** The one mutating control, and it names the revision the panel shows rather than the one it happens to hold. */
+  function syncMakeCurrent() {
+    if (!makeCurrentButton) return;
+    const shown = shownRevision();
+    const isCurrent = !!(shown && shown.revision === currentNumber());
+    makeCurrentButton.disabled = readOnly || busy || !mapping || !shown || isCurrent;
+    makeCurrentButton.title = readOnly
+      ? 'The published reference is read-only: it cannot be made current.'
+      : !shown ? 'Choose a parameterization revision first.'
+      : isCurrent ? 'The shown revision is already the one a run consumes.'
+      : 'Make the shown revision the one a run consumes. Nothing is rewritten: every revision stays.';
+  }
+
   function renderResult() {
-    const revision = currentRevision();
+    const revision = shownRevision();
+    syncMakeCurrent();
     resultBox.hidden = !revision;
     provenance.replaceChildren();
     checksBox.replaceChildren();
@@ -516,10 +602,11 @@ export function setupParameterization({host, onTerms}) {
       setText(resultSummary, '');
       return;
     }
-    setText(resultTitle, `Revision ${revision.revision} · current`);
+    const isCurrent = revision.revision === currentNumber();
+    setText(resultTitle, `Revision ${revision.revision} · ${isCurrent ? 'current' : 'earlier, shown'}`);
     const options = revision.options || {};
     const reference = revision.aa_reference || null;
-    setText(resultSummary, `${number((summary && summary.terms) ?? 0)} terms · ${engineLabel(revision.engine)}`
+    setText(resultSummary, `${number(totalTerms(revision))} terms · ${engineLabel(revision.engine)}`
       + `${reference ? ` · fitted against ${reference.run_id}` : ' · fitted from the mapping alone'}`);
     setText(resultBadge, 'saved');
     resultBadge.dataset.status = 'completed';
@@ -541,7 +628,11 @@ export function setupParameterization({host, onTerms}) {
         ? Object.entries(counts).filter(([kind]) => kind !== 'virtual_sitesn')
             .map(([kind, count]) => `${count} ${kind}`).join(' · ')
         : 'none recorded'),
-      ...definition('Revision hash', (summary && summary.revision_sha256 || '').slice(0, 12) || 'not recorded'),
+      // The summary carries the current revision's hash only: printing it beside an earlier revision would name a
+      // different record, so the row is a statement about what the answer holds rather than a claim about this one.
+      ...definition('Revision hash', isCurrent
+        ? ((summary && summary.revision_sha256 || '').slice(0, 12) || 'not recorded')
+        : 'not carried for an earlier revision'),
       ...definition('Fitted', date(revision.created_at) || 'not recorded'));
     const heading = document.createElement('strong');
     heading.textContent = 'Checks on this fit';
@@ -562,6 +653,13 @@ export function setupParameterization({host, onTerms}) {
 
   function renderStrip() {
     strip.replaceChildren();
+    if (readOnly) {
+      const empty = document.createElement('li');
+      empty.className = 'hint';
+      empty.textContent = 'The published reference has no revisions: it is a transcription of an upstream ITP, not a fit.';
+      strip.append(empty);
+      return;
+    }
     if (!revisions.length) {
       const empty = document.createElement('li');
       empty.className = 'hint';
@@ -587,34 +685,32 @@ export function setupParameterization({host, onTerms}) {
       const when = document.createElement('span');
       when.className = 'bonded-revision-date';
       when.textContent = date(revision.created_at) || 'no date recorded';
-      const action = document.createElement('button');
-      action.type = 'button';
-      action.className = 'secondary bonded-make-current';
-      action.dataset.revision = String(revision.revision);
-      action.textContent = isCurrent ? 'current' : 'Make current';
-      action.disabled = isCurrent;
-      if (isCurrent) action.title = 'This revision is already current.';
-      else action.onclick = () => makeCurrent(revision.revision);
-      item.append(number_, engine, when, action);
+      const counts = document.createElement('span');
+      counts.className = 'bonded-revision-counts';
+      counts.textContent = revisionCounts(revision);
+      item.append(number_, engine, when, counts);
       strip.append(item);
     }
   }
 
-  async function makeCurrent(revision) {
-    if (!mapping || revision === currentNumber()) return;
-    if (!confirm(`Make revision ${revision} current for this mapping? A run queued after this consumes it;`
+  async function makeCurrent() {
+    const revision = shownRevision();
+    if (!mapping || !revision || revision.revision === currentNumber()) return;
+    if (!confirm(`Make revision ${revision.revision} current for this mapping? A run queued after this consumes it;`
                  + ' runs already queued keep the revision they recorded.')) return;
     const token = generation;
     try {
       await api('/api/bonded-parameterizations/' + encodeURIComponent(hash()), {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({current: revision, confirm: true}),
+        body: JSON.stringify({current: revision.revision, confirm: true}),
       });
       // `readRecord` drops a superseded answer; the sentence after it must be dropped with it.
       await readRecord(token);
-      if (token === generation) setText(fitStatus, `Revision ${revision} is current.`);
+      if (token === generation) setText(shownStatus, `Revision ${revision.revision} is current.`);
     } catch (error) {
-      if (token === generation) setText(fitStatus, `Revision ${revision} was not made current: ${error.message}`);
+      if (token === generation) {
+        setText(shownStatus, `Revision ${revision.revision} was not made current: ${error.message}`);
+      }
     }
   }
 
@@ -634,6 +730,7 @@ export function setupParameterization({host, onTerms}) {
   }
 
   async function readReferences(token) {
+    if (readOnly) return;
     const query = mapping && mapping.molecule_id
       ? '?molecule_id=' + encodeURIComponent(mapping.molecule_id) : '';
     try {
@@ -651,7 +748,7 @@ export function setupParameterization({host, onTerms}) {
   }
 
   async function readRecord(token) {
-    if (!mapping) return;
+    if (!mapping || readOnly) return;
     const params = new URLSearchParams();
     if (mapping.mapping_content_hash) params.set('content_hash', mapping.mapping_content_hash);
     if (mapping.mapping_hash) params.set('mapping_hash', mapping.mapping_hash);
@@ -660,34 +757,69 @@ export function setupParameterization({host, onTerms}) {
       answer = await api('/api/bonded-parameterizations?' + params);
     } catch (error) {
       if (token !== generation) return;
-      setText(fitStatus, `This model’s parameterization could not be read: ${error.message}`);
+      setText(shownStatus, `This model’s parameterization could not be read: ${error.message}`);
       return;
     }
     if (token !== generation) return;
     summary = (answer && answer.summary) || null;
     revisions = (answer && answer.revisions) || [];
+    // The shown revision is this panel's own display state: an answer that does not carry it (a fresh read after a
+    // model switch, a revision deleted elsewhere) falls back to the one a run consumes.
+    if (shownRevisionNumber === null || !revisions.some(item => item.revision === shownRevisionNumber)) {
+      shownRevisionNumber = currentNumber();
+    }
     renderModel();
     renderResult();
     renderStrip();
     updateFit();
     // `null` when the record carries no revision: the table then shows the mapping's own draft and says so,
-    // where an empty list would read as a revision whose terms had all been removed.
-    onTerms(currentRevision() ? termsOf(currentRevision(), mapping) : null);
+    // where an empty list would read as a revision whose terms had all been removed. Only the shown revision is
+    // handed over: the table and the scene are never a second opinion about what is current.
+    onTerms(shownRevision() ? termsOf(shownRevision(), mapping) : null);
+    // The selector labels state which revision is current and which earlier, so the record's own answer is what
+    // relabels them -- after a fit, a make-current or a delete.
+    if (onRecord) onRecord({mapping, summary, revisions});
     // A job the previous page left live is adopted rather than forgotten; a finished one stays on screen because
     // it is the record of how the revision above was made.
     const newest = ((answer && answer.jobs) || [])[0];
     if (newest && (!job || job.id !== newest.id)) watch(newest);
   }
 
-  async function load(next) {
+  /** The publication is shown, not parameterized: the card says what it is and the controls say they cannot act. */
+  function renderReferenceModel() {
+    aaSelect.replaceChildren(new Option('not used for a published reference', ''));
+    setText(aaFacts, 'A published reference is read-only: no AA run is read and no fit is queued.');
+    // Rebuilt from the engines the panel already holds, then disabled: leaving the reference for a saved mapping must
+    // restore the normal card without a second engine read.
+    renderEngines();
+    setText(engineNote, 'A published reference cannot be re-parameterized: there is no fitting engine to choose.');
+    setText(fitStatus, 'The published Martini 3 sugar reference is read-only: it cannot be fitted here.');
+  }
+
+  /** Disable every control a fit would use (not hide it), and hand them back when the reader leaves the reference. */
+  function syncControls() {
+    aaSelect.disabled = readOnly;
+    engineSelect.disabled = readOnly;
+    syncThreshold();
+    temperature.disabled = readOnly;
+    updateTorsion();
+    updateFit();
+  }
+
+  async function load(next, {shown} = {}) {
     const token = ++generation;
     stopPolling();
     jobToken += 1;
     const fresh = !mapping || !next
       || mapping.mapping_content_hash !== next.mapping_content_hash;
     mapping = next || null;
+    readOnly = !!(mapping && mapping.read_only);
     summary = null;
     revisions = [];
+    // The revision the caller asked to see. `null`/omitted means "this model's current one"; a read that cannot find
+    // the requested number falls back to current rather than showing nothing.
+    shownRevisionNumber = shown === undefined || shown === null ? null : Number(shown);
+    setText(shownStatus, '');
     // A reference belongs to one molecule's AA runs, so another mapping's list must not survive the switch: the
     // request below is scoped to this mapping's molecule, and an old option could name a run of a different one.
     if (fresh) { references = []; referencesError = ''; }
@@ -703,11 +835,33 @@ export function setupParameterization({host, onTerms}) {
     if (!mapping) {
       aaSelect.replaceChildren(new Option('Choose a mapping first', ''));
       setText(aaFacts, '');
-      updateFit();
+      syncControls();
+      if (onRecord) onRecord({mapping: null, summary: null, revisions: []});
       return;
     }
+    if (readOnly) {
+      // No route is read for a reference: the model states its own ITP, its beads and its provenance, and a
+      // parameterization record it does not have is not asked for.
+      renderReferenceModel();
+      syncControls();
+      return;
+    }
+    syncControls();
     renderReferences();
     await Promise.all([readReferences(token), readRecord(token)]);
+  }
+
+  /** Show one revision of the mapping already loaded, without reading a route and without changing current. */
+  function show(revision) {
+    if (!mapping || readOnly) return false;
+    const wanted = revisions.find(item => item.revision === Number(revision));
+    shownRevisionNumber = wanted ? wanted.revision : currentNumber();
+    setText(shownStatus, '');
+    renderModel();
+    renderResult();
+    // The table and the scene follow the shown revision, never `summary.revision`.
+    onTerms(shownRevision() ? termsOf(shownRevision(), mapping) : null);
+    return true;
   }
 
   function readOptions() {
@@ -738,6 +892,7 @@ export function setupParameterization({host, onTerms}) {
   }
 
   async function fit(engine) {
+    if (readOnly) return setText(fitStatus, 'The published Martini 3 sugar reference cannot be re-parameterized.');
     if (!mapping) return setText(fitStatus, 'Choose a mapping first — a fit belongs to one saved candidate.');
     const options = readOptions();
     if (!options) return;
@@ -773,11 +928,12 @@ export function setupParameterization({host, onTerms}) {
 
   // --- wiring -----------------------------------------------------------------------------------------------------
 
-  engineSelect.onchange = () => { renderEngineNote(); updateFit(); };
+  engineSelect.onchange = () => { renderEngineNote(); syncThreshold(); updateFit(); };
   aaSelect.onchange = () => { renderReferenceFacts(); updateFit(); };
   torsionModel.onchange = () => updateTorsion();
   torsionScale.oninput = () => updateTorsion();
   fitButton.onclick = () => fit(engineSelect.value);
+  makeCurrentButton.onclick = () => makeCurrent();
   cancelButton.onclick = () => cancel();
   torsionSave.onclick = () => saveTorsion();
 
@@ -787,7 +943,7 @@ export function setupParameterization({host, onTerms}) {
    * content changes, which is what makes the switch reach the runs that follow it.
    */
   async function saveTorsion() {
-    if (!mapping) return;
+    if (!mapping || readOnly) return;
     const chosen = chosenTorsion();
     // The scale key is left out rather than sent as null: the model's validator reads a present `torsion_scale`
     // under either model, and refuses one it cannot use.
@@ -820,5 +976,5 @@ export function setupParameterization({host, onTerms}) {
   /** The model's content identity: what a parameterization is addressed by, and a rename does not change. */
   function contentHash() { return hash() || (summary && summary.mapping_content_hash) || ''; }
 
-  return {mount, load, revisionCount, isBusy, contentHash, currentRevisionNumber: currentNumber};
+  return {mount, load, show, revisionCount, isBusy, contentHash, currentRevisionNumber: currentNumber, shownRevision};
 }

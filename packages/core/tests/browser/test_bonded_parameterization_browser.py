@@ -143,14 +143,13 @@ def save(dashboard, name='E3 maltose mapping', molecule='DDM'):
     """One saved candidate in the test's own workspace, and the two hashes the panel will address it by.
 
     Two models that differ only in `name` are the same *content*, and a record is selected by content identity --
-    so a test that needs two distinct models asks for two distinct molecules rather than two names.
+    so a test that needs two distinct models asks for two distinct molecules rather than two names. The candidate is
+    built the way the editor builds it -- scoped to the molecule and its snapshot -- because the catalogue route the
+    panel now reads filters on both.
     """
-    if molecule == 'DDM':
-        candidate = mappings.automatic_candidate(mappings.molecule(), molecule)
-    else:
-        context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
-        candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
-        candidate['molecule_snapshot'] = context['snapshot']
+    context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
+    candidate['molecule_snapshot'] = context['snapshot']
     candidate.update(name=name, molecule_id=molecule)
     saved = mappings.save_draft(candidate)
     detail = dashboard.client.get(f'/api/mappings/{saved["file"]}').get_json()
@@ -196,20 +195,54 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
     return posts, patches, cancels
 
 
+def mapping_option(page, file):
+    """The display option a saved mapping's current revision carries, or its draft option when it has none."""
+    return page.evaluate("""(file) => {
+      const options = Array.from(document.querySelectorAll('#bonded-parameterization-display option'));
+      const current = options.find(option => option.value.startsWith(`revision:${file}:`)
+        && option.textContent.includes('current'));
+      const draft = options.find(option => option.value === `draft:${file}`);
+      return (current || draft || {}).value || '';
+    }""", file)
+
+
+def choose_mapping(page, file, molecule=None):
+    """Select a mapping the way a reader does: its molecule first when the file is not already listed."""
+    value = mapping_option(page, file)
+    if molecule and not value:
+        page.locator('#bonded-molecule-select').select_option(molecule)
+        page.wait_for_function(
+            """(file) => Array.from(document.querySelectorAll('#bonded-parameterization-display option'))
+              .some(option => option.value.startsWith(`revision:${file}:`) || option.value === `draft:${file}`)""",
+            arg=file, timeout=30000)
+        value = mapping_option(page, file)
+    assert value, f'no option in the parameterization selector for {file}'
+    if page.locator('#bonded-parameterization-display').input_value() != value:
+        page.locator('#bonded-parameterization-display').select_option(value)
+    return value
+
+
+def choose_revision(page, file, revision):
+    """Show one revision of a saved mapping, the way the display selector does."""
+    page.locator('#bonded-parameterization-display').select_option(f'revision:{file}:{revision}')
+
+
 def open_panel(page, live_page, file):
     """The CG Bond Interactions panel, on the mapping the test means.
 
     The catalogue offers several candidates and which one comes first is the catalogue's order rather than this file's
-    subject, so the mapping is chosen the way a reader would choose it.
+    subject, so the mapping is chosen the way a reader would choose it -- its own molecule first, because the molecule
+    select groups the list and the default need not be the one this test saved.
     """
     def ready(page):
-        page.wait_for_function("() => document.querySelectorAll('#bonded-mapping-select option').length > 0",
-                               timeout=30000)
-        if page.locator('#bonded-mapping-select').input_value() != file:
-            page.locator('#bonded-mapping-select').select_option(file)
-        expect(page.locator('#bonded-mapping-select')).to_have_value(file)
-        # The selector shows the new mapping while its catalogue answer is still in flight, so the value alone does not
-        # say the panel has loaded it: the panel's own busy state does, and it covers the whole switch.
+        page.wait_for_function(
+            "() => document.querySelectorAll('#bonded-molecule-select option').length > 0", timeout=30000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#bonded-parameterization-display option').length > 0", timeout=30000)
+        detail = page.request.get(f'{live_page.base_url}/api/mappings/{file}').json()
+        choose_mapping(page, file, detail['molecule_id'])
+        # The selector shows the new model while its record is still in flight, so the value alone does not say the
+        # panel has loaded it: the panel's own busy state does, and it covers the whole switch.
         expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false')
 
     return browser.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
@@ -275,13 +308,32 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     # And the table is the mapping's own draft, saying so in the source column.
     expect(cells(page, 0).last).to_have_text('mapping')
 
-    # The card is laid out in two columns, the torsion fieldset beside the fields rather than under them, and the
-    # fields three to a row: seven fields in two columns is four rows of a card read before the first button, which
-    # is the height this shape removes. Positions, because the markup alone would pass a card stacked the old way.
+    # The display selector carries the mapping's draft, because it has no parameterization yet, and the fit controls
+    # live in a card of their own below the model.
+    display = page.locator('#bonded-parameterization-display')
+    expect(display.locator('option')).to_have_count(1)
+    expect(display.locator('option').nth(0)).to_have_text('Draft mapping connectivity (no parameterization)')
+    expect(page.locator('#bonded-molecule-select')).to_be_visible()
+    expect(page.locator('#bonded-mapping-select')).to_be_hidden()
+
+    # The model card holds the two display fields; the six fit inputs are in the "Fit a new revision" card below it,
+    # with the torsion fieldset beside them rather than under them. Positions, because the markup alone would pass a
+    # card stacked the old way.
+    expect(page.locator('#bonded-fit-title')).to_have_text('Fit a new revision')
+    expect(page.locator('#bonded-fit-title').locator('xpath=..')).to_contain_text('configure the next fit')
+    labels = page.locator('.bonded-model-fields > label')
+    expect(labels).to_have_count(6)
+    expected_labels = ['AA reference', 'Fit with', 'Constraint threshold', 'Fit temperature', 'Torsion model',
+                       'Torsion stiffness scale']
+    for index, label in enumerate(expected_labels):
+        expect(labels.nth(index)).to_contain_text(label)
+    model_card = page.locator('.bonded-model').bounding_box()
+    fit_card = page.locator('.bonded-fit').bounding_box()
+    assert fit_card['y'] > model_card['y'] + model_card['height'] - 1, (model_card, fit_card)
     fields = page.locator('.bonded-model-fields').bounding_box()
     torsion = page.locator('fieldset.bonded-torsion').bounding_box()
     assert torsion['x'] > fields['x'] + fields['width'] - 1, (fields, torsion)
-    boxes = [page.locator('.bonded-model-fields > label').nth(index).bounding_box() for index in range(4)]
+    boxes = [labels.nth(index).bounding_box() for index in range(4)]
     assert abs(boxes[0]['y'] - boxes[2]['y']) < 2, f'the first three fields are not one row: {boxes}'
     assert boxes[3]['y'] > boxes[0]['y'] + 10, f'the fourth field did not start a row: {boxes}'
     # The assertion that caught the `.hint` overflow on 2026-10-21: a card wider than the page scrolls it sideways.
@@ -443,7 +495,7 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     open_panel(page, live_page, first['file'])
     expect(page.locator('#bonded-job-status')).to_have_text('running')
 
-    page.locator('#bonded-mapping-select').select_option(second['file'])
+    choose_mapping(page, second['file'], second['molecule_id'])
     # The second mapping has a revision and no job, so its own card is the thing that says the switch landed.
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     expect(page.locator('#bonded-job')).to_be_hidden()
@@ -452,7 +504,7 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     page.wait_for_timeout(1400)
     expect(page.locator('#bonded-job')).to_be_hidden()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
-    expect(page.locator('#bonded-mapping-select')).to_have_value(second['file'])
+    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'revision:{second["file"]}:1')
     assert errors == [], errors
 
 
@@ -565,7 +617,7 @@ def test_the_result_card_names_the_revisions_provenance_and_the_two_checks_numbe
     expect(page.locator('#bonded-result')).to_be_visible()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 3 · current')
     provenance = page.locator('#bonded-result-provenance').inner_text()
-    expect(page.locator('#bonded-result-summary')).to_contain_text('12 terms')
+    expect(page.locator('#bonded-result-summary')).to_contain_text('4 terms')
     for expected in ('Fast-Forward fit (ff_inter)', '20,001 mapped AA frames', '1_AA-reference/prod/lig.xtc',
                      '10000 kJ mol', '300 K', 'circular-harmonic · stiffness scale 1',
                      AA_RUN, '10 ns', '1 bonds · 1 angles · 1 dihedrals · 1 constraints'):
@@ -630,7 +682,7 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
     expect(page.locator('#bonded-fit')).to_be_disabled()
 
     # The reader moves on while the queue answer is still outstanding.
-    page.locator('#bonded-mapping-select').select_option(second['file'])
+    choose_mapping(page, second['file'], second['molecule_id'])
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     page.wait_for_timeout(1500)
 
@@ -701,14 +753,88 @@ def test_a_term_with_no_recorded_source_says_so_rather_than_borrowing_the_engine
     assert errors == [], errors
 
 
-# ------------------------------------------------------------------------------------------ the revision strip
+# ------------------------------------------------------------------------------------------ showing, and current
+
+#: An earlier revision with its own terms: one bond, at a distance the later revision does not state. The table and the
+#: scene must draw this one when it is shown, which is what separates "shown" from "current".
+EARLIER_TOPOLOGY = """[ moleculetype ]
+LIG1 1
+
+[ atoms ]
+1 SP1r 1 LIG1 B01 1 0 54
+2 SP1r 1 LIG1 B02 2 0 54
+
+[ bonds ]
+1 2 1 0.4 2500
+"""
 
 
-def test_the_revision_strip_shows_each_revision_and_makes_one_current_after_a_confirmation(dashboard, live_page):
-    """D1's replacement for the flat state select: the mapping's own history, with one of it current.
+def earlier_revision():
+    return revision(1, engine='bartender', topology=EARLIER_TOPOLOGY,
+                    options={'constraints_threshold': 12500.0, 'temperature_k': 310.0,
+                             'torsion_model': 'legacy'},
+                    terms={'bonds': 1},
+                    sources=[{'id': 'bonds:1', 'kind': 'bonds', 'beads': ['B01', 'B02'], 'source': 'bartender'}],
+                    created_at='2026-10-16T10:00:00+00:00')
 
-    Making an earlier revision current is a PATCH carrying the revision and `confirm: true`, and it is asked for
-    first -- `{}` and `null` are not enough, and a dismissed confirmation sends nothing at all.
+
+def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(dashboard, live_page):
+    """One display choice, read-only in its effect on runs: the table, the scene and the result read the shown revision.
+
+    The earlier revision is deliberately a different model -- a bartender fit with one bond and its own options -- so a
+    panel that still read `summary.revision` would draw the later revision's four terms while the selector says
+    revision 1. No route may be written on a view: the PATCH list stays empty and the current marker stays on r2.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    history = [earlier_revision(), revision(2, created_at='2026-10-16T14:30:00+00:00')]
+    _, patches, _ = stub(page, answer(history, current=2))
+    open_panel(page, live_page, saved['file'])
+
+    # The default display choice is the revision a run consumes, and the table and the scene are that revision's.
+    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'revision:{saved["file"]}:2')
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 2 · current')
+    expect(page.locator('#bonded-revisions .bonded-revision').nth(1)).to_have_attribute('aria-current', 'true')
+    plot = page.locator('.bonded-plot')
+    expect(plot.locator('.plotly')).to_be_visible(timeout=20000)
+    page.wait_for_function(
+        "() => (document.querySelector('.bonded-plot').data || [])"
+        ".some(trace => trace.meta === 'term' && trace.name.startsWith('dihedrals'))", timeout=20000)
+
+    # An earlier revision is viewable without making it current, and nothing is written.
+    choose_revision(page, saved['file'], 1)
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · earlier, shown')
+    expect(page.locator('#bonded-revisions .bonded-revision').nth(1)).to_have_attribute('aria-current', 'true')
+    assert patches == [], patches
+    assert page.locator('#bonded-parameterization-display').input_value() == f'revision:{saved["file"]}:1'
+    # The result card is the shown revision's own record, not the current one's.
+    provenance = page.locator('#bonded-result-provenance').inner_text()
+    for expected in ('BARTENDER', '12500 kJ mol', '310 K', 'legacy — the periodic fit as recorded'):
+        assert expected in provenance, f'{expected} is not in the shown revision card:\n{provenance}'
+    assert 'not carried for an earlier revision' in provenance, provenance
+
+    # The table is the shown revision's: one bond at its own distance, and none of the later revision's kinds.
+    rows = page.locator('.bonded-interaction-table tbody tr')
+    expect(rows).to_have_count(1)
+    expect(cells(page, 0).nth(0)).to_have_text('bonds')
+    expect(cells(page, 0).nth(3)).to_have_text('0.4 · 2500')
+    expect(cells(page, 0).last).to_have_text('bartender')
+    # And so is the scene: the later revision's torsion is gone, because it is not part of this one.
+    page.wait_for_function(
+        "() => (document.querySelector('.bonded-plot').data || [])"
+        ".filter(trace => trace.meta === 'term').length === 1", timeout=20000)
+    kinds = page.locator('.bonded-plot').evaluate(
+        "(el) => el.data.filter(trace => trace.meta === 'term').map(trace => trace.name.split(' · ')[0])")
+    assert kinds == ['bonds'], kinds
+    assert errors == [], errors
+
+
+def test_the_revision_strip_is_history_and_make_current_is_the_only_mutation(dashboard, live_page):
+    """The strip states engine, date and counts and offers no control; Make current acts on the shown revision.
+
+    Making an earlier revision current is a PATCH carrying the revision and `confirm: true`, and it is asked for first
+    -- `{}` and `null` are not enough, and a dismissed confirmation sends nothing at all. The strip is history: a card
+    cannot show itself.
     """
     saved, content, _ = save(dashboard)
     page, errors = live_page
@@ -730,28 +856,47 @@ def test_the_revision_strip_shows_each_revision_and_makes_one_current_after_a_co
         expect(items.nth(index).locator('.bonded-revision-date')).to_have_text('2026-10-16')
     expect(items.nth(1).locator('.bonded-revision-engine')).to_contain_text('BARTENDER')
     expect(items.nth(2)).to_have_attribute('aria-current', 'true')
-    expect(items.nth(2).locator('.bonded-make-current')).to_be_disabled()
-    expect(items.nth(2).locator('.bonded-make-current')).to_have_text('current')
+    # Each card states what its revision contains, so the strip is a history rather than a row of numbers.
+    expect(items.nth(0).locator('.bonded-revision-counts')).to_have_text(
+        '1 bonds · 1 angles · 1 dihedrals · 1 constraints')
+    # And it holds no control: the only mutating control is Make current, on the model card.
+    expect(page.locator('#bonded-revisions button')).to_have_count(0)
+
+    make = page.locator('#bonded-make-current')
+    expect(make).to_be_disabled()
+    expect(make).to_have_attribute('title', 'The shown revision is already the one a run consumes.')
+
+    # Showing an earlier revision is a read: no PATCH, and the strip's current marker does not move.
+    choose_revision(page, saved['file'], 1)
+    expect(make).to_be_enabled()
+    page.wait_for_timeout(300)
+    assert patches == [], patches
+    expect(items.nth(2)).to_have_attribute('aria-current', 'true')
 
     # A dismissed confirmation is a refusal.
-    items.nth(1).locator('.bonded-make-current').click()
+    make.click()
     page.wait_for_timeout(300)
     assert patches == [], patches
 
     page.on('dialog', lambda dialog: dialog.accept())
-    items.nth(1).locator('.bonded-make-current').click()
-    page.wait_for_function("() => document.querySelector('#bonded-result-title')?.textContent?.includes('Revision 2')",
-                           timeout=10000)
+    make.click()
+    page.wait_for_function(
+        "() => document.querySelector('#bonded-shown-status')?.textContent?.includes('Revision 1 is current')",
+        timeout=10000)
     assert len(patches) == 1, patches
     method, path, body = patches[0]
     assert method == 'PATCH', method
     assert path == f'/bonded-parameterizations/{content}', path
-    assert json.loads(body) == {'current': 2, 'confirm': True}, body
+    assert json.loads(body) == {'current': 1, 'confirm': True}, body
 
-    # The strip and the result follow the record, not the click.
-    expect(page.locator('#bonded-revisions .bonded-revision').nth(1)).to_have_attribute('aria-current', 'true')
-    expect(page.locator('#bonded-result-title')).to_have_text('Revision 2 · current')
-    expect(page.locator('#bonded-revisions .bonded-revision').nth(2).locator('.bonded-make-current')).to_be_enabled()
+    # The strip follows the record, and the shown revision is now the one a run consumes.
+    expect(page.locator('#bonded-revisions .bonded-revision').nth(0)).to_have_attribute('aria-current', 'true')
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
+    expect(make).to_be_disabled()
+    # The selector's labels are relabelled from the record: r3 is now the earlier one.
+    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    assert any('Revision 1 · current' in label for label in labels), labels
+    assert any('Revision 3 · earlier' in label for label in labels), labels
     assert errors == [], errors
 
 
@@ -883,8 +1028,9 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
     assert 'fit jobs and staged frames' in warning, warning
     assert 'reference histograms' in warning, warning
     assert 'The saved mapping itself is not touched' in warning, warning
-    # The mapping is still the one on screen: the catalogue was never re-read, so nothing was removed from it.
-    expect(page.locator('#bonded-mapping-select')).to_have_value(first['file'])
+    # The mapping is still the one on screen: the catalogue was never re-read, so nothing was removed from it. Its
+    # selector now offers the draft connectivity again, because that is what the record says it has.
+    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'draft:{first["file"]}')
     expect(page.locator('#bonded-model-badge')).to_have_text('no parameterization')
     expect(page.locator('.bonded-panel-message')).to_contain_text(
         f'Parameterization deleted: its single bond interaction revision went and the fit that built it. '

@@ -373,9 +373,9 @@ def test_the_panel_renders_the_route_it_is_wired_to(dashboard, live_page):
     serve_conditions(page)
     open_panel(page, live_page.base_url)
 
-    # The registry names four carbohydrates; the fixture workspace has a folder for three and a mapping for none.
+    # The registry names four carbohydrates and the workspace has a folder for each; the order is the catalogue's.
     options = page.evaluate("() => Array.from(document.querySelectorAll('.osmotic-sugar option')).map(o => o.value)")
-    assert options == ['Maltose', 'Sucrose', 'Trehalose', 'Glucose'], options
+    assert options == ['Glucose', 'Maltose', 'Sucrose', 'Trehalose'], options
     expect(page.locator('.osmotic-sugar-status')).to_contain_text('Solute files not prepared')
     expect(page.locator('.osmotic-start')).to_be_disabled()
     assert errors == []

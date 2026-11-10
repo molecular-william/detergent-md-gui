@@ -1,10 +1,14 @@
 """Mapping workspace endpoints: candidates, drafts, review, exports, diagrams."""
 import io
+import json
 import zipfile
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
 
 from ...models import mappings
+from ...models.mappings import (
+    context as molecule_context,
+)
 from ...models.mappings import (
     depiction,
     overlay3d,
@@ -14,6 +18,12 @@ from ...models.mappings import (
 )
 from ...models.mappings import (
     suggestions as mapping_suggestions,
+)
+from ...models.sugars import (
+    coords as sugar_coords,
+)
+from ...models.sugars import (
+    reference as sugar_reference,
 )
 from .common import coordinator, json_object, payload_context, query_context
 
@@ -38,6 +48,64 @@ def mapping_context():
         scene = depiction.build_scene(context)
         return jsonify(context=context, scene=scene, molecule=context, bead_types=mappings.bead_types())
     return jsonify(molecule=mappings.molecule(), bead_types=mappings.bead_types())
+
+
+@blueprint.get('/api/mappings/reference/<molecule_id>')
+def mapping_reference(molecule_id):
+    """The published Martini 3 sugar entry that is this molecule's own model, as a read-only transcription.
+
+    The model is the reference file's own terms (`reference.run_topology`), never a fit, so the panel shows published
+    parameters and offers no revision. Two gates decide whether an entry is offered, and neither is enough alone:
+
+    * the molecule must be one the entry is published *for* (`reference.PUBLISHED_FOR`). Identification is
+      stereochemistry-blind -- an epimer with the same ring sizes and linkage letters identifies the same entry
+      (maltose and `LAC` both match), so "its layout reproduces LAC" is not "it is lactose" and the route refuses;
+    * the candidate's bead layout must still conform to that entry's mapping facts.
+
+    The second gate has one exception, `reference.accepts_identity`: when the layout identifies a *different* entry
+    whose mapping is the same, the molecule's own entry is used. Glucose is the case -- every aldohexose has the same
+    four-bead pattern, so its layout says `GAL`, while the published `GLC` terms are glucose's. ``layout_note`` states
+    that the layout alone could not choose; it is ``None`` when the layout named the molecule's own entry.
+
+    A molecule with no published entry, or a layout that departs from the entry, answers 404 with the reason.
+    """
+    context = query_context(molecule_id)
+    expected = sugar_reference.PUBLISHED_FOR.get(molecule_id)
+    if expected is None:
+        abort(404, f'{molecule_id} has no published Martini 3 sugar entry; a matching bead layout is not the same '
+                   'as being the molecule the entry describes')
+    try:
+        candidate = sugar_coords.candidate(molecule_context.as_structure(context), molecule_id)
+        if candidate is None:
+            abort(404, 'No recognised sugar ring in this molecule')
+        identified = candidate.get('reference') or {}
+        entry_name = identified.get('entry')
+        if not entry_name:
+            abort(404, 'The bead layout does not identify a published sugar entry')
+        if not sugar_reference.accepts_identity(candidate, context['molecule_id'], expected):
+            abort(404, f'The bead layout identifies {entry_name}, not this molecule\'s published entry {expected}')
+        issues = sugar_reference.conform(candidate, expected)
+    except (OSError, ValueError, KeyError) as exc:
+        abort(400, str(exc))
+    if issues:
+        abort(404, '; '.join(issues))
+    provenance = json.loads(sugar_reference.provenance_path().read_text())
+    provenance['path'] = sugar_reference.reference_path().relative_to(sugar_reference.ROOT).as_posix()
+    return jsonify(model={
+        'file': f'reference:{molecule_id}',
+        'name': f'Martini 3 sugar reference · {expected}',
+        'molecule_id': context['molecule_id'],
+        'read_only': True,
+        'reference_entry': expected,
+        'beads': candidate['beads'],
+        'rings': candidate['rings'],
+        'connections': candidate['connections'],
+        'topology': sugar_reference.run_topology(expected),
+        'reference': provenance,
+        'limitations': candidate['limitations'],
+        'layout_note': sugar_reference.layout_note(candidate, expected),
+        'status': 'published-reference',
+    })
 
 
 @blueprint.post('/api/mappings/overlay3d')

@@ -24,6 +24,8 @@ FIT_TEMPERATURE=$(printf '%.0f' "${RUN_SETTING_TEMPERATURE_K:-300}")
 # `-constraints` is the fitted force constant above which ff_inter writes a bond as a constraint instead of a
 # bond. FF's own default is 10000; this file used to pass 1000000000, which disables the conversion for every
 # bond -- so the DDM link FF fitted at k=12964.8 stayed harmonic at a 20 fs timestep and the run died at ~200 ps
-# (ring arms 860eb013a82c and e08dc53410f9). Keep FF's own default.
-ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i "$INITIAL_ITP" -temperature "$FIT_TEMPERATURE" -constraints 10000 -dists -plots -dist-matrix
+# (ring arms 860eb013a82c and e08dc53410f9). The panel's constraint threshold arrives as environment, exactly as
+# the temperature does; a caller that names none keeps FF's own default.
+CONSTRAINTS_THRESHOLD="${RUN_SETTING_CONSTRAINTS_THRESHOLD:-10000}"
+ff_inter -f ../2_mapping/mapped.xtc -s ../2_mapping/mapped.gro -i "$INITIAL_ITP" -temperature "$FIT_TEMPERATURE" -constraints "$CONSTRAINTS_THRESHOLD" -dists -plots -dist-matrix
 "$PYTHON" -m dashboard.execution.scripts.refine_bonded

@@ -2,9 +2,8 @@
 
 The preview is the run type's own answer (`sugar_cg.preview`), not a second reading of the sugar package in the web
 layer. It returns the candidate's bead layout, the conformance result, the published signature and the reference
-provenance; the panel says "conforms" only when `reference.conform` returned no issues, and a blocking entry (for
-example `TREH`, whose published atoms give the second virtual site residue 1) returns the words a reader needs rather
-than a 500.
+provenance; the panel says "conforms" only when `reference.conform` returned no issues, and a blocking entry returns
+the words a reader needs rather than a 500.
 """
 from dashboard.web.routes.common import coordinator
 from detergent_validation.execution.adapters import sugar_cg

@@ -21,7 +21,7 @@ PDB = ('REMARK 950 TEST\n'
 # One complex and one molecule-only run, because the filter is half of what the control has to get right.
 JOBS = {'jobs': [
     {'id': 'pdcfixture', 'run_type': 'pdc', 'molecule_id': 'DDM', 'status': 'completed'},
-    {'id': 'sugarfixture', 'run_type': 'aa_cg', 'molecule_id': 'sucrose', 'status': 'completed'},
+    {'id': 'sugarfixture', 'run_type': 'cg', 'molecule_id': 'sucrose', 'status': 'completed'},
 ], 'total': 2, 'page': 1, 'limit': 100}
 
 

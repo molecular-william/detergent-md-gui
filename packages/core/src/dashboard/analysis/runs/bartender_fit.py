@@ -71,12 +71,17 @@ def physical_topology(topology_text: str, beads: list[dict]) -> tuple[str, list[
 
     A virtual site has no atoms, so it is not a bead BARTENDER can fit. Dropping it renumbers the molecule, and every
     row that named it goes with it; the ring pairs themselves are physical, so nothing that is fitted is lost.
+
+    The topology is read where `grompp` reads it: an `ff_inter` model writes one bond family under `#ifdef FLEXIBLE`
+    and the same pair as a constraint under `#ifndef`, and neither is defined here, so the constraint is the live
+    term. Reading both branches crashed on `#ifdef` (a Maltose fit) and, before that, would have handed BARTENDER a
+    bond and a constraint for one pair.
     """
     virtual = {index for index, bead in enumerate(beads, 1) if bead.get('virtual_site')}
     kept = [index for index in range(1, len(beads) + 1) if index not in virtual]
     renumber = {old: new for new, old in enumerate(kept, 1)}
     out = []
-    for section, rows in itp.sections(topology_text):
+    for section, rows in itp.sections(topology_text, defines=()):
         if section == 'virtual_sitesn':
             continue
         if section:

@@ -163,7 +163,7 @@ def test_a_running_stage_reports_the_leg_it_is_in_and_how_far_through(dashboard,
     dashboard.coordinator.database().replace([{
         'id': job_id, 'label': 'Running the CG simulation', 'detergent': 'DDM', 'method': 'fast_forward',
         'status': 'running', 'stage': 'CG simulation', 'created': '2026-10-20T12:00:00+00:00',
-        'started_at': '2026-10-20T12:00:00+00:00', 'layout_version': 2, 'run_type': 'aa_cg'}])
+        'started_at': '2026-10-20T12:00:00+00:00', 'layout_version': 2, 'run_type': 'cg'}])
     directory = runs / job_id
     stage = directory / 'stages' / '4_CG_sim'
     (stage / 'inputs').mkdir(parents=True)
@@ -218,7 +218,7 @@ def test_a_skipped_stage_shows_why_it_had_nothing_to_do(dashboard, live_page):
     dashboard.coordinator.database().replace([{
         'id': job_id, 'label': 'A bartender model, simulated', 'detergent': 'DDM', 'method': 'bartender',
         'status': 'completed', 'stage': 'complete', 'created': '2026-10-21T02:00:00+00:00',
-        'started_at': '2026-10-21T02:00:00+00:00', 'layout_version': 2, 'run_type': 'aa_cg'}])
+        'started_at': '2026-10-21T02:00:00+00:00', 'layout_version': 2, 'run_type': 'cg'}])
     directory = runs / job_id
     (directory / 'logs').mkdir(parents=True)
     plan = ['AA reference', 'trajectory mapping', 'CG parameterization', 'CG simulation',
@@ -349,9 +349,9 @@ def _filter_jobs():
         {'id': 'f00000000001', 'label': 'aa only reference', 'detergent': 'DDM', 'method': 'gromacs',
          'status': 'completed', 'run_type': 'aa_only', 'stage': 'complete', 'created': '2026-10-01T10:00:00+00:00'},
         {'id': 'f00000000002', 'label': 'fitted CG run', 'detergent': 'DDM', 'method': 'fast_forward',
-         'status': 'completed', 'run_type': 'aa_cg', 'stage': 'complete', 'created': '2026-10-02T10:00:00+00:00'},
+         'status': 'completed', 'run_type': 'cg', 'stage': 'complete', 'created': '2026-10-02T10:00:00+00:00'},
         {'id': 'f00000000003', 'label': 'second fitted run', 'detergent': 'LMNG', 'method': 'bartender',
-         'status': 'failed', 'run_type': 'aa_cg', 'stage': 'complete', 'created': '2026-10-03T10:00:00+00:00'},
+         'status': 'failed', 'run_type': 'cg', 'stage': 'complete', 'created': '2026-10-03T10:00:00+00:00'},
         {'id': 'f00000000004', 'label': 'protein-detergent run', 'detergent': 'LMNG', 'method': 'gromacs',
          'status': 'completed', 'run_type': 'pdc', 'stage': 'complete', 'created': '2026-10-04T10:00:00+00:00'}]
 
@@ -378,20 +378,20 @@ def test_the_filter_boxes_narrow_the_request_and_the_poll_keeps_the_narrowing(da
     expect(page.locator('.job')).to_have_count(4)
     # The boxes come from the server's own vocabulary: a type a feature registers is offered without an engine edit.
     page.locator('#runs-filters > summary').click()
-    expect(page.locator('#run-type-filters label')).to_have_count(6)
+    expect(page.locator('#run-type-filters label')).to_have_count(4)
     expect(page.locator('#run-type-filters')).to_contain_text('Protein-detergent')
     expect(page.locator('#run-method-filters label')).to_have_count(3)
 
-    page.locator('#run-type-filters input[value=aa_cg]').check()
+    page.locator('#run-type-filters input[value=cg]').check()
     expect(page.locator('.job')).to_have_count(2)
-    assert 'run_type=aa_cg' in jobs_requests()[-1], jobs_requests()[-1]
+    assert 'run_type=cg' in jobs_requests()[-1], jobs_requests()[-1]
     expect(page.locator('#runs-filter-count')).to_have_text('1 active')
 
     # A second box in the same group is "either"; a box in another group narrows further.
     page.locator('#run-type-filters input[value=pdc]').check()
     expect(page.locator('.job')).to_have_count(3)
     latest = jobs_requests()[-1]
-    assert 'run_type=aa_cg' in latest and 'run_type=pdc' in latest, latest
+    assert 'run_type=cg' in latest and 'run_type=pdc' in latest, latest
     page.locator('#runs-filters input[name=status][value=failed]').check()
     expect(page.locator('.job')).to_have_count(1)
     assert 'status=failed' in jobs_requests()[-1], jobs_requests()[-1]
@@ -403,7 +403,7 @@ def test_the_filter_boxes_narrow_the_request_and_the_poll_keeps_the_narrowing(da
     page.wait_for_timeout(1200)
     later = jobs_requests()[ticked:]
     assert later, 'the run list never polled after the tick'
-    assert all('run_type=aa_cg' in url and 'status=failed' in url for url in later), later
+    assert all('run_type=cg' in url and 'status=failed' in url for url in later), later
 
     # A narrowing survives a reload -- and opens the panel, so the table is never narrowed without saying why.
     page.reload()

@@ -25,7 +25,7 @@ def gpu_host(monkeypatch):
     devices.clear_cache()
 
 
-RUN_TYPES = ('aa_only', 'aa_cg', 'cg_composition')
+RUN_TYPES = ('aa_only', 'cg')
 """The run types whose contract is molecule-scoped, which is what the shape assertions below can be stated over.
 
 Deliberately narrower than `protocol.RUN_TYPES`: a pdc build is prepared from a protein and a template and is
@@ -84,7 +84,7 @@ def test_the_queue_routes_vocabulary_is_the_run_types_own():
     assert 'osmotic_molality' not in osmotic, "the old shape's single molality is not a setting any more"
 
 
-def test_an_aa_cg_run_publishes_both_halves_it_accepts():
+def test_a_cg_run_publishes_every_half_it_accepts():
     """The regression the queue route was working around.
 
     An AA-to-CG run's `normalize_settings` takes a key from the AA half and from the CG half, so it has to publish
@@ -92,10 +92,10 @@ def test_an_aa_cg_run_publishes_both_halves_it_accepts():
     published vocabulary and posted it back would have had their AA settings dropped on the floor.
     """
     from dashboard.execution.adapters import aa, cg
-    published = published_vocabulary(protocol.adapter_for('aa_cg'))
+    published = published_vocabulary(protocol.adapter_for('cg'))
     for half, specs in (('AA', aa.SETTING_SPECS), ('CG', cg.SETTING_SPECS), ('AA choices', aa.CHOICE_SPECS)):
         missing = set(specs) - published
-        assert not missing, f'{half} settings an aa_cg run accepts but does not publish: {sorted(missing)}'
+        assert not missing, f'{half} settings a cg run accepts but does not publish: {sorted(missing)}'
 
 
 def test_the_published_run_types_are_the_registrys_own():
@@ -104,7 +104,7 @@ def test_the_published_run_types_are_the_registrys_own():
     It once omitted `osmotic` while `_BUILDERS` carried it: every run type was reachable by name and invisible to
     anything that walked the published tuple, which is the same shape of bug as a registry nobody can enumerate.
     """
-    assert set(protocol.RUN_TYPES) == {'aa_only', 'aa_cg', 'cg_composition', 'pdc', 'osmotic', 'sugar_cg'}
+    assert set(protocol.RUN_TYPES) == {'aa_only', 'cg', 'pdc', 'osmotic'}
     for run_type in protocol.RUN_TYPES:
         assert protocol.adapter_for(run_type).name == run_type
 
@@ -153,7 +153,7 @@ def test_tool_report_returns_a_mapping_or_fails_loudly(run_type):
         assert str(exc), 'the failure must name what could not be reported'
     else:
         assert isinstance(report, Mapping)
-        if run_type == 'aa_cg' and tools.declared('fast_forward_source'):
+        if run_type == 'cg' and tools.declared('fast_forward_source'):
             # A version output says nothing about which source produced the tool.
             provenance = report['fast_forward_source']
             assert provenance['path'] and provenance['declared_commit'], provenance
@@ -167,7 +167,7 @@ def test_readiness_without_metadata_reports_a_blocker_instead_of_raising(run_typ
     assert report['blockers'], 'a missing input must appear as a blocker'
 
 
-@pytest.mark.parametrize('run_type, adapter_name', [('aa_only', 'aa'), ('aa_cg', 'cg'), ('cg_composition', 'composition')])
+@pytest.mark.parametrize('run_type, adapter_name', [('aa_only', 'aa'), ('cg', 'cg_run')])
 def test_adapter_for_returns_the_adapters_own_protocol(run_type, adapter_name):
     """The interface lives with the adapter that implements it."""
     adapter = importlib.import_module(f'dashboard.execution.adapters.{adapter_name}')
@@ -181,9 +181,9 @@ def test_settings_specs_share_one_shape():
         assert all(len(bounds) == 3 and isinstance(bounds[0], str) for bounds in specs.values()), run_type
 
 
-def test_aa_cg_settings_have_one_owner():
-    """An AA-to-CG run's settings are composed once, by the adapter that runs it."""
-    adapter = protocol.adapter_for('aa_cg')
+def test_cg_settings_have_one_owner():
+    """A CG run's settings are composed once, by the adapter that runs it."""
+    adapter = protocol.adapter_for('cg')
     settings = adapter.normalize_settings({'aa_nvt_ps': 20, 'aa_npt_ps': 30, 'cg_production_ps': 200}, 'standard')
     assert settings['aa_equil_ps'] == 50, 'the equilibrium duration is the AA halves added, not an input of its own'
     assert settings['aa_nvt_ps'] == 20 and settings['aa_production_ps'] > 0, 'the AA half survives the composition'
@@ -194,7 +194,7 @@ def test_aa_cg_settings_have_one_owner():
 
 def test_shared_settings_take_the_tighter_bound():
     """A key both halves bound is bounded once: AA's output_interval_ps floor, not CG's."""
-    adapter = protocol.adapter_for('aa_cg')
+    adapter = protocol.adapter_for('cg')
     with pytest.raises(ValueError):
         adapter.normalize_settings({'output_interval_ps': 0.0015}, 'standard')
     assert adapter.normalize_settings({'output_interval_ps': 5}, 'standard')['output_interval_ps'] == 5
@@ -203,10 +203,26 @@ def test_shared_settings_take_the_tighter_bound():
 def test_a_host_without_a_gpu_publishes_no_device_choice(monkeypatch):
     """No GPU means no `mdrun_gpu` key and no `gpu` option, so a form cannot offer one and the route cannot keep it."""
     monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [])
-    for run_type in ('aa_only', 'aa_cg', 'pdc', 'osmotic'):
+    for run_type in ('aa_only', 'cg', 'pdc', 'osmotic'):
         adapter = protocol.adapter_for(run_type)
         assert 'mdrun_gpu' not in adapter.settings_specs(), run_type
         for key in ('mdrun_nb', 'mdrun_pme'):
             published = adapter.choice_specs().get(key)
             if published is not None:
                 assert 'gpu' not in published[1], (run_type, key)
+
+
+@pytest.mark.parametrize('retired', protocol.RETIRED_RUN_TYPES)
+def test_a_retired_run_type_is_refused_with_the_migration_command(retired):
+    """A record that still names one is real, so its refusal says how to move it rather than "unknown"."""
+    with pytest.raises(ValueError) as refused:
+        protocol.adapter_for(retired)
+    message = str(refused.value)
+    assert 'migrate the run records' in message
+    assert 'python -m dashboard.cli.migrate_run_types --apply' in message
+    assert 'Unknown run type' not in message
+
+
+def test_a_retired_run_type_cannot_be_registered_again():
+    with pytest.raises(ValueError, match='retired run type cannot be registered'):
+        protocol.register({'aa_cg': lambda: protocol.adapter_for('aa_only')})

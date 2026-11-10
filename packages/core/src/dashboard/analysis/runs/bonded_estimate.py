@@ -179,6 +179,7 @@ def cross_check(work, payload=None):
     read so a run that chose the other branch is not silently compared against the wrong term set.
     """
     work = Path(work)
+    layout.require_revision_parameterization(work, 'The bonded cross-check')
     payload = dict(payload or {})
     requested = payload.get('temperature')
     if requested is None:

@@ -53,7 +53,7 @@ def coarse_run(dashboard, *, topology=TOPOLOGY, beads=DDM_BEADS, manifest=None):
         path.write_text(ddm_moleculetype())
     if manifest is not None:
         (root / 'manifest.json').write_text(manifest)
-    dashboard.coordinator.database().insert({'id': JOB_ID, 'run_type': 'aa_cg', 'status': 'running',
+    dashboard.coordinator.database().insert({'id': JOB_ID, 'run_type': 'cg', 'status': 'running',
                                              'stage': '2_mapping', 'molecule_id': 'DDM',
                                              'created': '2026-10-14T00:00:00+00:00'})
     return root

@@ -45,8 +45,11 @@ def publish(dashboard, jid, comparison=None, analyses=None):
     """Leave behind what `analysis.worker` leaves behind for a completed comparison."""
     runs = dashboard.coordinator.RUNS; runs.mkdir(parents=True, exist_ok=True)
     record = {'id': jid, 'label': 'Sucrose CG consumer', 'detergent': 'Sucrose', 'method': 'fast_forward',
-              'run_type': 'aa_cg', 'profile': 'draft-smoke-reference', 'reference_run_id': '03875cf39790',
+              'run_type': 'cg', 'profile': 'draft-smoke-reference', 'reference_run_id': '03875cf39790',
               'molecule_id': 'Sucrose', 'status': 'completed', 'stage': 'complete',
+              'parameterization': {'kind': 'revision', 'mapping_candidate': 'mapping_candidate_sucrose.json',
+                                   'revision': 2, 'engine': 'fast-forward',
+                                   'starting_coordinates': 'stored'},
               'created': dashboard.coordinator.now()}
     # Only when a test wants one: a record with no `analyses` is what most of these fixtures have always been, and
     # the panel reads absence and an empty list the same way.

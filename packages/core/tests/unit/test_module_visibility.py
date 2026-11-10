@@ -45,7 +45,7 @@ def test_hiding_every_module_leaves_the_engine_workspace(tmp_path):
     shown = sections.shown([])
     assert list(shown) == ['core']
     assert shown['core']['slug'] == 'dashboard'
-    assert shown['core']['run_types'] == ('aa_only', 'aa_cg')
+    assert shown['core']['run_types'] == ('aa_only', 'cg')
 
 
 def test_the_engine_workspace_is_never_hidden():

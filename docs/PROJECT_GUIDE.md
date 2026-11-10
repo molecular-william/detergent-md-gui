@@ -1,6 +1,6 @@
 # Detergent MD project guide
 
-The local dashboard runs AA-only simulations from compatible molecule directories, AA→CG parameterization for any molecule with a compatible AA topology, a protein-detergent complex pipeline (`pdc`), and a sugar osmotic-pressure series. The packaged DDM example (`molecules/DDM`) is a worked reference. The micelle builder remains paused; see [the roadmap](../README.md#roadmap).
+The local dashboard runs AA simulations from compatible molecule directories, CG simulations from a chosen parameterization (a saved mapping revision, a published Martini 3 reference, or a derived composition), a protein-detergent complex pipeline (`pdc`), and a sugar osmotic-pressure series. The packaged DDM example (`molecules/DDM`) is a worked reference. The micelle builder remains paused; see [the roadmap](../README.md#roadmap).
 
 Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-workspace limitations before changing DDM scoring, fitting, or carbohydrate mapping. For the carbohydrate validation panel, target registry, Sucrose diagnostic procedure, and paper-scale evidence boundary, read [Carbohydrate Validation Operations](research/2026-09-24-carbohydrate-validation-operations.md) and [Martini 3 carbohydrate validation](research/2026-09-24-martini3-carbohydrate-validation.md).
 
@@ -18,7 +18,7 @@ Open http://127.0.0.1:5000. Run one coordinator per workspace. The historical .v
 the default is every installed one, and a feature outside the list is never imported. A selected feature that fails to
 load is skipped and its reason logged (`features.failures()`), while a name that matches no installed feature is a
 start-up error, so a typo cannot pass as an installation that simply lacks it. An install with no feature still
-starts: the engine registers its own `dashboard` workspace with Runs, Run view and New run for the AA-only and AA-CG
+starts: the engine registers its own `dashboard` workspace with Runs, Run view and New run for the `aa_only` and `cg`
 run types it owns alone.
 
 Check active simulation and analysis jobs and worker leases before restarting. Stored process IDs must never be signalled as if owned by a new coordinator.
@@ -130,7 +130,7 @@ separators), with `json_sha256` and `mappings.identity` both built on it. Stored
 migrated by `dashboard/cli/migrate_digests.py`, which rewrites a record only when re-serializing its own body
 reproduces the stored digest and leaves the rest as it found them.
 
-molecules/, references/, and resources/ remain canonical input sources. A molecule folder is registered by its presence; `POST /api/molecules/import` (`web/routes/molecules.py`) validates submitted `.itp`/coordinates text through the catalogue's own `inspect()` in a hidden sibling directory and renames it into `molecules/<ID>/` only when accepted, never replacing an existing folder. A folder whose `metadata.json` states `"kind": "cg"` is a Martini CG molecule: `models/molecules/aa.py` records `capabilities.cg`, refuses it to `aa_only`/`aa_cg`, and pdc may use it as a detergent without a mapping (`pdc.prepare` builds the draft from its own `[ atoms ]` and `.gro`). Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run records the inputs and
+molecules/, references/, and resources/ remain canonical input sources. A molecule folder is registered by its presence; `POST /api/molecules/import` (`web/routes/molecules.py`) validates submitted `.itp`/coordinates text through the catalogue's own `inspect()` in a hidden sibling directory and renames it into `molecules/<ID>/` only when accepted, never replacing an existing folder. A folder whose `metadata.json` states `"kind": "cg"` is a Martini CG molecule: `models/molecules/aa.py` records `capabilities.cg`, refuses it to `aa_only`/`cg`, and pdc may use it as a detergent without a mapping (`pdc.prepare` builds the draft from its own `[ atoms ]` and `.gro`). Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run records the inputs and
 code it actually used: shared inputs by path and sha256 in `inputs/inputs.json`, generated data by value in
 `inputs/`, and the repository scripts and helpers by digest in `stage_scripts`/`python_modules`.
 
@@ -144,7 +144,7 @@ runs/<id>/
   manifest.json
   inputs/
     inputs.json           # the input record: shared inputs by path and sha256, plus each generated file
-    …                     # generated data only; aa_only/aa_cg also mirror their stages/ tree here
+    …                     # generated data only; aa_only/cg also mirror their stages/ tree here
   stages/                 # one directory per stage that will run, empty until its script executes
   logs/                   # console.log plus separate stage logs
   analyses/<kind>/<request-key>/<attempt-id>/
@@ -173,9 +173,11 @@ same thermostat/barostat/volume statistics) and no `rlist` -- GROMACS sizes it a
 was the 20-step value and is wrong for a 40-step list). Minimisation profiles keep their pinned list because
 nothing is integrated. The osmotic series builds its MDPs in `osmotic_mdp` and takes neither rule.
 
-`stages/` belongs to every type: `aa_only` has `common/` plus `01_solvation` … `07_reference`; `aa_cg`
-`1_AA-reference`, `2_mapping`, `3_initial_CG`, `4_CG_sim`, `5_assessment`, `6_SASA`; `pdc` the ten numbered
-directories `01_prepare` … `10_backmap`; `osmotic` `01_simulate`; `cg_composition` its three screening stages. A
+`stages/` belongs to every type: `aa_only` has `common/` plus `01_solvation` … `07_reference`; a `cg` run's
+revision kind has `1_AA-reference`, `2_mapping`, `3_initial_CG`, `4_CG_sim`, `5_assessment`, `6_SASA` (stage 1 is
+`reused` and stage 2 is either the mapper or `stage_coordinates.sh`), its reference kind the sugar simulation, and
+its composition kind `4_CG_sim` plus a skip-only `5_assessment`; `pdc` the ten numbered directories `01_prepare` …
+`10_backmap`; `osmotic` `01_simulate`. A
 stage the settings say will not run has no directory at all: `pdc` records it in the manifest's
 `skipped_stages` with its reason, and `workflow.run` records it `skipped` and carries on. A stage that exists and
 finds nothing to do exits 4 with `skip.json`.
@@ -232,14 +234,14 @@ the SwissParam topologies — carries that caveat into its readiness report and 
 from it, without blocking the run. Simulation scripts use eight CPU threads. These defaults do not establish
 equilibration or convergence.
 
-AA-only requires no CG mapping or Fast_Forward. New AA–CG launches create a separate AA source and waiting CG consumer, or attach an eligible completed source. /api/references lists completed technically eligible AA-only jobs; combined legacy runs are not relabelled or offered as new AA-only sources. Inherited AA settings are checked server-side and locked in the form.
+An AA run requires no CG mapping or Fast_Forward and publishes the reference a CG parameterization is fitted against. A CG run names a parameterization of the selected molecule: a saved mapping revision, a published Martini 3 reference, or a derived composition. It does not create a second AA run: a revision run reads the AA reference that revision recorded, and readiness refuses a model whose source is missing. `/api/references` lists completed AA-only runs for the Bond Interactions fit. Inherited AA settings are checked server-side and locked in the form.
 
 Publication retains full-system GRO/TPR/XTC/CPT/EDR/log outputs and solute GRO/TPR/XTC. 07_reference/reference.json records atom order, finite frames, time coverage, composition, diagnostics with units, protocol, and artifact hashes. CG consumers read the shared source trajectory and write only their own mapped and CG products. Analysis scratch copies are temporary and counted in resource admission.
 
 Completion, technical reference eligibility, and scientific validation are separate. The short AA adapter acceptance report demonstrates execution and sharing; it does not validate a molecular model.
 
 ## DDM draft execution test
-An AA–CG run is queued under the profile its run type owns — `protocol.profile_for_run_type` answers `cg.AA_CG_PROFILE` (`draft-smoke-reference`) and `standard` for every other type, and the queue route and `/api/defaults` both read it. The panel offers no profile control and sends no `profile` key, so the durations a form shows are the durations the run uses; before that, `/api/defaults` fell back to `standard` while the run was stamped `draft-smoke-reference`, which would have queued a 100 ns CG production where the form showed 10 ns.
+A CG run is queued under the profile its kind owns — `protocol.profile_for_run_type` answers `cg.AA_CG_PROFILE` (`draft-smoke-reference`) for a revision run and `/api/defaults?run_type=cg&parameterization_kind=…` resolves the reference and composition presets. The panel offers no profile control and sends no `profile` key, so the durations a form shows are the durations the run uses.
 
 A caller that names no mapping still falls back to the run-local `mapping_candidate_smoke.json`: a connected 11-bead draft covering all 35 heavy atoms with one documented S-bead size exception. C1 tail beads follow the local dodecane reference; polar bead assignments are uncalibrated chemical guesses. These are software test inputs, not a validated DDM model, and the panel requires a saved mapping before it can queue anything.
 
@@ -277,12 +279,17 @@ server reparses `references/martini_v3.0.0_sugars_v2.itp`, checks the source
 hash, applies the selected linkage profile, and writes a new composition
 snapshot. The two initial recipes are `Linear C1` and `Linear C1/C2 terminal`.
 Saved records are reported as `candidate-unvalidated` and are never promoted to
-scientific validation by a successful preview, save, or screening run.
+scientific validation by a successful preview, save, or screening run. A saved record also carries a
+**molecule name** and an optional **head-molecule link**; `/api/cg-models` exposes it as a named CG model
+with a *derived* parameterization (`engine: composition-derivation`, revision 0) built from the recipe
+and, when linked, the head's published reference. It is never called fitted. New run offers it as a CG
+run's composition parameterization, and Bond Interactions can open `composition:<id>`.
 
 Saved compositions are available in CG Bond Interactions through the unified CG
-model catalog. `cg_composition` runs are independent of the AA-to-CG workflow
-and contain only CG simulation, CG assessment, and CG SASA stages; they do not
-fabricate or require an AA reference. Composition artifacts and their hashes
+model catalog. A composition is a `cg` run's `composition` kind: one real
+CG simulation stage over the composition's own topology and coordinates, plus a
+`CG assessment` stage that records `skipped` because there is no AA reference to
+score against. It never fabricates a score and never claims to be fitted. Composition artifacts and their hashes
 are immutable, so changing a choice creates another record.
 The web UI is the workspaces the installed features register -- `detergent-validation` and `protein-detergent` in a full install, and the engine's own `dashboard` workspace when no feature is installed (`dashboard/web/sections.py`) -- each a set of panels reachable at its own URL segment (`/<workspace-slug>/<panel>`). `DASHBOARD_TABS` narrows an instance's panels by comma-separated slug; each named slug must exist in every installed workspace, and a name that does not fails when the app is constructed rather than as a 400 on the first page. Validation carries Runs, Run view, Single Molecule Simulations, Bead Assignment, Bond Interactions, Combinations and Osmotic Series; protein-detergent carries Runs, Run view, Protein-Detergent Simulations and Complexes. A header **Modules** switch (`GET`/`PUT /api/modules`) saves `modules.json` in the workspace and filters the
 registry on the next page load: a hidden module's workspaces and New run types are not offered, while its APIs,
@@ -310,7 +317,7 @@ labelled by `protocol.RUN_TYPE_LABELS` overlaid by each feature's `Feature(run_t
 reads as its slug), and `methods` is the distinct set runs actually record, labelled by `routes/runs.py`'s
 `METHOD_LABELS` — the same map the run card's Method column uses, so a card and the box that narrows to it cannot
 disagree. `/api/jobs` takes each of `run_type`, `status` and `method` repeated
-(`?run_type=aa_cg&run_type=pdc`); one value answers exactly as it did before, which is why the Run view's one-type
+(`?run_type=cg&run_type=pdc`); one value answers exactly as it did before, which is why the Run view's one-type
 read and Complexes' `?limit=100` are unchanged, and an unknown run type in a list is still a 400 naming the
 vocabulary. A tick applies at once, returns to page 1, clears the remembered `ETag`, and is sent by the five-second
 poll too; the choice is saved in browser storage under `runsFilters`, and the panel opens itself when one is
@@ -325,7 +332,7 @@ shows the workflow stages from its manifest and indexes files created inside the
 
 ### Run view
 One run, its structures and its CG chain segments, registered in **both** workspaces and scoped per
-workspace by `web/sections.py`'s `run_types` (validation: `aa_only`, `aa_cg`, `cg_composition`, `osmotic`;
+workspace by `web/sections.py`'s `run_types` (validation: `aa_only`, `cg`, `osmotic`;
 protein-detergent: `pdc`). The panel asks `/api/jobs` for each in-scope type by name (`?run_type=`), so it
 renders this workspace's runs rather than narrowing a page. AA and CG structures come from the artifact route;
 a CG structure is sized from the model's own size classes and coloured by type family through
@@ -398,7 +405,7 @@ recorded under `smoothing` in the JSON). Its Run view Analysis card's button pos
 
 Analysis graphs expand inline in the Run view's Analysis card: the run's current figures, ff_assess PNG plots and a Plot SASA action that generates an image from measured AA/CG XVG data. The Runs card no longer draws them. Original XVG data are preserved; SVG artifacts remain previewable. Reads use byte offsets and bounded chunks; the display keeps up to 256 KB.
 
-Each monitor's Analysis card also carries the sections a feature registers (the validation feature adds **Geometry**, **Bonded terms** and **Shape and volume**), read from `GET /api/jobs/<id>/mapping-consistency`. The old Mapping Validation tab is retired; those three per-run cards moved here, and the across-molecule table remains only as the transferability API. Every completed run gets the card: an `aa_cg` run offers the three sections, a stopped one with no published comparison names the missing record and offers **Calculate the comparison**, and an `aa_only`/`pdc` run states in one line why the comparison is not defined. The button posts `/api/jobs/<id>/mapping-consistency` with `{}`; the validation feature's `_mapping_payload` fills the mapping snapshot, molecule and `cg_names.final_itp` from the run's own record, so the request cannot name another run's mapping. The engine's section registry is `web/static/js/run-view-analysis-extension.js`; features register through `registerRunViewAnalysisSection`/`registerRunViewAnalysisNotice`, and the engine imports no feature.
+Each monitor's Analysis card also carries the sections a feature registers (the validation feature adds **Geometry**, **Bonded terms** and **Shape and volume**), read from `GET /api/jobs/<id>/mapping-consistency`. The old Mapping Validation tab is retired; those three per-run cards moved here, and the across-molecule table remains only as the transferability API. Every completed run gets the card: a `cg` revision run offers the three sections, a stopped one with no published comparison names the missing record and offers **Calculate the comparison**, and an `aa_only`/`pdc` run states in one line why the comparison is not defined. The button posts `/api/jobs/<id>/mapping-consistency` with `{}`; the validation feature's `_mapping_payload` fills the mapping snapshot, molecule and `cg_names.final_itp` from the run's own record, so the request cannot name another run's mapping. The engine's section registry is `web/static/js/run-view-analysis-extension.js`; features register through `registerRunViewAnalysisSection`/`registerRunViewAnalysisNotice`, and the engine imports no feature.
 
 The sections are also perspectives on one **comparison map** above them. The engine hosts it (`registerRunViewAnalysisMap` in the same extension module) and hides it on Figures; the validation map fetches the published record plus `stages/2_mapping/model.json`/`mapped.gro`, resolves `(1,A)`, `B01` and the mapping name onto one bead key, and draws the Bonded Interactions Plotly scene — displacement and pair lines for Geometry, terms coloured by overlap for Bonded terms. The section tabs call `setMode`; the bead selection survives the switch. A headline and top-three ranked attention list, computed per perspective with no composite score, sit under the map; in the full-width card (`#run-view-monitors.one-column`, the second monitor minimized) the scene and that reading box sit side by side with the map head across both, while a half-width card keeps them stacked. Bonded terms groups the bonds and the angles in separate `<details>` closed by default (dihedral rows stay flat), and "Our fit against the independent estimate" is a closed `<details>` too; a map attention item opens the group that holds the row it focuses. Selecting a term also shows the Fast-Forward panel: the reference and simulated distributions from the on-demand `ff-interactions` record (`GET /api/jobs/<id>/ff-interactions`), with **FF Hellinger distance**, **FF score** and the dashboard **overlap coefficient** labelled as three different numbers. The analysis reads text `.dat`/`.out`; a reference-seeded run resolves the side from the parameterization store and records that source, and a missing side is stated rather than drawn as a one-sided comparison.
 
@@ -412,13 +419,16 @@ Select a run, pause display updates, copy the visible excerpt, or download its f
 ### New run
 Shows the exact packaged input paths, executable availability, and missing workflow requirements. The same readiness check runs server-side on submission and retry. Unsupported methods and incomplete workflows cannot be queued. The dashboard accepts registered molecule directories; arbitrary uploads and SMILES are not offered.
 
-Exposes AA/CG equilibration and production durations, temperature, trajectory output interval, and SASA probe radius. Each value has a Default button. Defaults come from the packaged Fast_Forward/CHARMM/Martini MDPs at the profile the run type owns: an AA–CG run's CG half starts at 10 ps equilibration and 10000 ps production, an AA-only run at the standard durations. Submitted settings are range-checked, converted to stage-specific nsteps, recorded in the manifest, and applied only inside that run directory.
+The form offers two run types: **AA run** (`aa_only`) and **CG run** (`cg`; `osmotic` has its own panel). A CG run chooses a **Parameterization** of the selected molecule — a saved mapping revision, a published reference, or a composition — and no mapping/AA pickers of its own. **Starting coordinates** is `stored` (default: the frame the fit saved with the revision) or `remap` (re-read the AA reference for analyses that need `mapped.xtc`); a revision with no stored frame refuses `stored` and says so. The "Input files consistent" block is a closed `<details>` whose summary keeps the verdict and molecule facts. Stage settings are saved as named per-workspace presets (`/api/setting-presets`), with one default per run type; a run records the preset it used as `settings_preset`. A blank label is generated as `[molecule]-[AA|CG]-[length]ns-[YYYYMMDD]` (e.g. `Lactose-CG-15ns-20261110`), with the length summing equilibration and production; the field stays editable and a **Suggest** button restores the suggestion. The retired `aa_cg`/`sugar_cg`/`cg_composition` records are migrated to `cg` by `cli/migrate_run_types.py` (manifest + job row; stages untouched); a record still naming one is refused with the CLI's name.
 
-Visible **Constraints** is the AA half's only distance-constraint control: `constraints` is a `CHOICE_SPECS` entry (`none`, `h-bonds`, `all-bonds`) whose value goes into every AA MDP, defaulting to the force-field entry's own (`all-bonds`). A run type with no AA half (`sugar_cg`, `cg_composition`) shows it disabled at `none`; the CG profiles state `none` themselves, so the control carries no CG value. It selects bond-to-constraint conversion only -- a topology's own `[ constraints ]` block is enforced by LINCS whatever it says.
+
+Exposes AA/CG equilibration and production durations, temperature, trajectory output interval, and SASA probe radius. Each value has a Default button. Defaults come from the packaged Fast_Forward/CHARMM/Martini MDPs at the profile the run type owns: a CG revision run starts at 10 ps equilibration and 10000 ps production, a composition run at the same preset, and an AA-only run at the standard durations. Submitted settings are range-checked, converted to stage-specific nsteps, recorded in the manifest, and applied only inside that run directory.
+
+Visible **Constraints** is the AA half's only distance-constraint control: `constraints` is a `CHOICE_SPECS` entry (`none`, `h-bonds`, `all-bonds`) whose value goes into every AA MDP, defaulting to the force-field entry's own (`all-bonds`). A CG reference or composition run shows it disabled at `none`; the CG profiles state `none` themselves, so the control carries no CG value. It selects bond-to-constraint conversion only -- a topology's own `[ constraints ]` block is enforced by LINCS whatever it says.
 
 The form also carries a collapsed **Other run options** group: output cadence (`nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm`), neighbour/cutoffs (`nstlist`, `verlet_buffer_tolerance`, `rlist`, `rcoulomb`, `rvdw`), thermostat/barostat couplings (`tau_t`, `tau_p`, `compressibility`), and execution (`mdrun_pmefft`, `mdrun_update`, `mdrun_tunepme`); `cg_seed` and `box_shape` are visible controls. MDP overrides are scoped to the CG production leg and are accepted only because they are in `SETTING_SPECS`/`CHOICE_SPECS`; an untouched run writes the reviewed MDP byte-for-byte. Help text is one server-side map (`execution/settings_help.py`) returned with `/api/defaults`: MDP fields quote the GROMACS 2026-rc manual, execution fields quote `gmx mdrun -h`; the template carries no prose. Info buttons are focusable and expose the tooltip through `aria-describedby`.
 
-The validation feature adds the **CG sugar run** type (`sugar_cg`): choose Sucrose or Trehalose and a published Martini 3 sugar entry (`SUCR`, `TREH`), see the installed reference's sha256/commit/DOI and a conformance table, then start a CG-only run with no AA reference, mapping or Fast-Forward fit. The start is the sugar's AA coordinates mapped onto the published bead layout; the topology is the reference's own terms; the run is one molecule in Martini water with the CG profile. Sucrose conforms; Trehalose is selectable-but-blocked because the published `TREH` second `TC4` names residue 1. `GET /api/sugar-cg/preview` is the preview; `GET /api/readiness?run_type=sugar_cg&sugar_entry=...` is the gate. A sugar run hides the AA/mapping controls and posts only its own vocabulary.
+A CG run's **reference** parameterization is a published Martini 3 sugar entry: Sucrose `SUCR`, Trehalose `TREH`, Lactose `LAC`, Glucose `GLC`. The start is the molecule's AA coordinates mapped onto the published bead layout; the topology is the entry's own terms; the run is one molecule in Martini water with the CG profile, no AA stage and no Fast-Forward fit. Glucose's layout identifies `GAL` because aldohexoses share one bead pattern; the molecule's identity selects `GLC` and the model says so. Maltose has no published entry and is refused. `GET /api/sugar-cg/preview` is the preview; `GET /api/readiness?run_type=cg&parameterization_kind=reference&sugar_entry=…` is the gate.
 
 Lists compatible completed AA runs for AA reference reuse. Selecting one records its ID and checksum as the run's
 `shared_reference` and points `AA_REFERENCE_DIR` at the already-published reference; nothing is copied, the source
@@ -483,7 +493,9 @@ the select only after the server's own validation accepted it.
 Mapping checks cover heavy-atom coverage, duplicate assignments, unknown atoms, hydrogens, empty groups, disconnected groups, nominal bead sizes (R=4, S=3, T=2), and the ±1 per 10 heavy-atom mismatch guideline. Branching/shape exceptions need scientific justification. These checks do not validate bead chemistry, symmetry, bonded parameters, or physical behaviour. The original DDM candidates have structural findings; the connected smoke draft fixes coverage and connectivity but is still not a production model.
 
 ### CG Bond Interactions
-Choose a saved mapping. The panel reads its parameterization — the revisions of bonded terms produced for it — and draws the mapping's own molecule as a Plotly 3D connectivity diagram with physical beads only. The interaction table lists the current revision's terms, or the mapping's own draft connectivity when it has no revision, with a **Source** column naming the engine that produced each term (`ff_inter`, `bartender`) or that the mapping did (a ring constraint, a virtual site).
+Choose a molecule, then one **Parameterization shown** select: it lists each saved mapping's revisions (current or earlier), the mapping's draft connectivity when it has no revision, and the published Martini 3 reference when one exists. The interaction table and the Plotly 3D connectivity diagram both read that one selection; current is a marker, and only **Make current** changes what a run consumes. The table's **Source** column names the engine that produced each term (`ff_inter`, `bartender`), the mapping (a ring constraint, a virtual site), or the published reference.
+
+The panel separates **what is shown** from **what a run consumes**: the shown revision drives the table, the result card and the scene, while the strip is read-only history and **Make current** is the one mutation. The fit inputs (AA reference, engine, constraint threshold, fit temperature, torsion model and scale) sit in a **Fit a new revision** group and describe the next fit, not the shown model. The constraint threshold is forwarded to `ff_inter` as `RUN_SETTING_CONSTRAINTS_THRESHOLD` and is disabled for Bartender, which fits its own bond terms. A published reference is read-only: it carries the entry's own topology, is never fitted, and cannot be made current.
 
 **Fit this model** produces a revision; it makes no MD, so nothing from this panel appears in Runs.
 Fast-Forward (`ff_inter`) and BARTENDER (`-refit -owntraj`, never its own sampling) build the mapped AA
@@ -705,7 +717,7 @@ different questions.
 
 `coordinator.automatic_analyses` is the one resolver the queueing path asks -- `kinds.for_every_run()` plus
 `kinds.default_for(run_type)`. `for_every_run()` is empty because the snapshot analysis is retired; `frame-series`
-is on demand only; an `aa_cg` run still owes `dihedral-fit` and `bonded-cross-check`.
+is on demand only; a `cg` revision run still owes `dihedral-fit` and `bonded-cross-check`, which a reference or composition run records `skipped`.
 
 The owed kinds are worked through **one at a time**, because `queue` takes one analysis per run and refuses a second
 with `RunBusy` while the first holds the worker. `analysis_coordinator.drain` queues what it can and names the rest in
@@ -758,7 +770,7 @@ newest attempt that published one.
 
 ### Panels: invariants and the 3D scene
 
-A mapping whose current revision names `aa_reference.run_id` pins New Run's AA source: the picker is disabled, the AA
+A mapping revision names its `aa_reference.run_id`, and New Run's CG revision model pins that source: the value is read-only, the AA
 half's stage settings are filled from that run's recorded settings and locked, and deleting the source is not offered.
 The panel clears its readiness answer whenever it re-asks, so a null answer is not an unlock; release happens on a
 mapping change.

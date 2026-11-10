@@ -14,7 +14,7 @@ from . import paths as path_config
 from .constants import HOST, PORT
 from .execution.coordination.coordinator import Coordinator
 from .web import sections
-from .web.routes import analyses, catalog, common, maintenance, mappings, modules, molecules, runs
+from .web.routes import analyses, catalog, common, maintenance, mappings, modules, molecules, presets, runs
 
 
 def create_app(paths=None, config=None):
@@ -25,7 +25,7 @@ def create_app(paths=None, config=None):
     coordinator = Coordinator(app, app.config['PATHS'])
     app.extensions['dashboard_coordinator'] = coordinator
     app.before_request(coordinator.ensure_service)
-    for module in (runs, molecules, catalog, mappings, analyses, maintenance, modules):
+    for module in (runs, molecules, catalog, mappings, analyses, maintenance, modules, presets):
         app.register_blueprint(module.blueprint)
     from . import features
     features.register(app)

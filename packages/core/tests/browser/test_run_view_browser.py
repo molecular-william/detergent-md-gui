@@ -143,7 +143,7 @@ def seed(dashboard):
         AA_RUN: (job(AA_RUN, 'aa_only', 'Sucrose AA reference', '2026-10-01T10:00:00+00:00'),
                  {'stages/07_reference/lig.gro': aa_gro(),
                   'stages/common/molecule/MMFF/lig1.pdb': aa_pdb()}),
-        CG_RUN: (job(CG_RUN, 'aa_cg', 'Maltose CG consistency', '2026-10-02T10:00:00+00:00'),
+        CG_RUN: (job(CG_RUN, 'cg', 'Maltose CG consistency', '2026-10-02T10:00:00+00:00'),
                  {'stages/2_mapping/mapped.gro': mapped_gro(),
                   'stages/2_mapping/model.json': json_text(MODEL_JSON),
                   'stages/3_initial_CG/LIG1.itp': moleculetype(),
@@ -362,7 +362,7 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     expect(page.locator('#run-view-list-A button')).to_have_count(3)
 
     jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
-    assert sorted(set(jobs)) == ['aa_cg', 'aa_only', 'cg_composition', 'osmotic', 'sugar_cg'], jobs
+    assert sorted(set(jobs)) == ['aa_only', 'cg', 'osmotic'], jobs
     assert not any('/api/jobs?' in url and 'run_type=' not in url for url in asked), \
         'the panel must ask the route for a run type, not page every run and narrow it here'
 
@@ -549,7 +549,7 @@ def test_a_cg_run_that_states_no_moleculetype_is_drawn_bondless_and_says_so(dash
     stage.mkdir(parents=True)
     (stage / 'mapped.gro').write_text(mapped_gro())
     dashboard.coordinator.database().insert(
-        job(NO_TOPOLOGY_RUN, 'aa_cg', 'Sorbitol CG, no topology', '2026-10-02T11:00:00+00:00'))
+        job(NO_TOPOLOGY_RUN, 'cg', 'Sorbitol CG, no topology', '2026-10-02T11:00:00+00:00'))
 
     page, errors = live_page
     open_panel(page, live_page, run=NO_TOPOLOGY_RUN)
@@ -884,7 +884,7 @@ def test_a_single_molecule_run_shows_no_stage_table(dashboard, live_page):
     with nothing to play still says so, which is the sentence kept for both run types.
     """
     seed(dashboard)
-    plant(dashboard, ONE_TRAJECTORY_RUN, job(ONE_TRAJECTORY_RUN, 'aa_cg', 'Maltose CG, one trajectory',
+    plant(dashboard, ONE_TRAJECTORY_RUN, job(ONE_TRAJECTORY_RUN, 'cg', 'Maltose CG, one trajectory',
                                              '2026-10-07T10:00:00+00:00'),
           {'stages/4_CG_sim/md.gro': mapped_gro(),
            'stages/4_CG_sim/md.xtc': 'the stage\'s own trajectory, never read by this endpoint\n'})

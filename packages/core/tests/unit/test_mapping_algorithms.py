@@ -3,8 +3,10 @@
 Two claims are pinned here. The first is a regression: the branch-aware splitter may only change a
 candidate that was already invalid, so the four molecule folders this repository tracks keep the bead
 lists they had (LMNG, the molecule the splitter changed, is untracked and is not read here -- its measured
-result is in the lane's report). The second is the gate: the automatic path answers `{available: false,
-reasons}` instead of handing back a document `mapping_graph.validate` rejects.
+result is in the lane's report). Trehalose's list moved once, deliberately, on 2026-11-09: its 1,1 linkage's
+bridging oxygen now belongs to the first ring so the candidate reproduces the published `TREH` entry, which
+`test_sucrose_reference_candidate.py` pins as conforming. The second is the gate: the automatic path answers
+`{available: false, reasons}` instead of handing back a document `mapping_graph.validate` rejects.
 """
 from dashboard.models.mappings import algorithms, identity, schema
 from dashboard.models.mappings.algorithms import spectral
@@ -28,8 +30,8 @@ PINNED = {
     'Sucrose': [['S1A', 'S', [5, 6, 7, 8]], ['S1B', 'S', [20, 21, 22, 23]], ['S1C', 'S', [1, 2, 3, 4]],
                 ['S1VS', 'T', []], ['S2A', 'S', [9, 18, 19]], ['S2B', 'S', [14, 15, 16, 17]],
                 ['S2C', 'S', [10, 11, 12, 13]], ['S2VS', 'T', []]],
-    'Trehalose': [['S1A', 'S', [5, 18, 19]], ['S1B', 'S', [20, 21, 22, 23]], ['S1C', 'S', [1, 2, 3, 4]],
-                  ['S1VS', 'T', []], ['S2A', 'S', [6, 7, 16, 17]], ['S2B', 'S', [12, 13, 14, 15]],
+    'Trehalose': [['S1A', 'S', [5, 6, 18, 19]], ['S1B', 'S', [20, 21, 22, 23]], ['S1C', 'S', [1, 2, 3, 4]],
+                  ['S1VS', 'T', []], ['S2A', 'S', [7, 16, 17]], ['S2B', 'S', [12, 13, 14, 15]],
                   ['S2C', 'S', [8, 9, 10, 11]], ['S2VS', 'T', []]],
 }
 

@@ -23,7 +23,7 @@ UNSTATED = '0000000000a3'
 def job(job_id, **overrides):
     record = {
         'id': job_id, 'label': f'Run {job_id}', 'detergent': 'DDM', 'method': 'fast_forward',
-        'status': 'failed', 'stage': 'CG simulation', 'run_type': 'aa_cg',
+        'status': 'failed', 'stage': 'CG simulation', 'run_type': 'cg',
         'created': '2026-11-02T09:00:00+00:00', 'started_at': '2026-11-02T09:00:00+00:00',
         'layout_version': 2, 'can_cancel': False, 'can_retry': True, 'can_delete': True,
         'resume_stages': ['02_system', '03_npt'], 'stages': [], 'workflow_stages': [],
