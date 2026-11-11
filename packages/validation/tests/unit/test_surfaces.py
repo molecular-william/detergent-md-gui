@@ -101,6 +101,29 @@ def test_variant_set_keeps_every_published_surface(tmp_path, monkeypatch, rings,
     assert [command['command'][0] for command in metadata['commands']] == expected
     found = sorted(path.name for path in (tmp_path / 'run/analysis/surfaces').iterdir() if path.is_dir())
     assert found == sorted(label.lower().replace(' ', '-') for label in expected)
+    # The pair JSON is the Shape pane's data; the interactive figure is no longer produced at all.
+    assert (tmp_path / 'run/analysis/surfaces/surface-comparison-aa-cg.json').is_file()
+    assert not (tmp_path / 'run/analysis/surfaces/surface-comparison.html').exists()
+    assert 'comparison_html' not in metadata
+
+
+def test_only_the_two_drawn_envelopes_are_built(tmp_path, monkeypatch):
+    """The AA-vs-each-variant envelopes fed the removed figure; the pair needs AA and Simulated CG only."""
+    _fake_generate(monkeypatch)
+    built = []
+
+    def counting_envelope(points, radii):
+        built.append(1)
+        return np.zeros((4, 3)), np.array([[0, 1, 2], [0, 1, 3]])
+
+    monkeypatch.setattr(surfaces, 'envelope', counting_envelope)
+    monkeypatch.setattr(surfaces, '_gmx_variant', lambda label, work, gmx: (
+        [{'cwd': 'x', 'command': [label], 'exit_code': 0}],
+        {'frames': 2, 'start_ps': 0.0, 'end_ps': 10.0, 'mean_nm2': 1.0, 'std_nm2': 0.0, 'xvg': 'sasa.xvg'}))
+
+    surfaces.generate(_run(tmp_path))
+
+    assert len(built) == 2
 
 
 def test_metadata_commands_stay_in_variant_order_when_completions_interleave(tmp_path, monkeypatch):
@@ -160,4 +183,4 @@ def test_phases_say_which_variant_is_running(tmp_path, monkeypatch):
         submitted = phases.index(f'Surfaces: {label} · gmx sasa')
         done = phases.index(f'Surfaces: {label} done')
         assert extracting < submitted < done, (label, phases)
-    assert phases[-1] == 'Surfaces: envelopes and figure'
+    assert phases[-1] == 'Surfaces: envelopes and pair'

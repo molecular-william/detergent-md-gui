@@ -16,6 +16,9 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
   const saveButton = $('#composition-save'), openBonded = $('#composition-open-bonded'), startRun = $('#composition-start-run');
   let catalog = null, molecules = [], savedModels = [];
   let lastPreview = null, saved = null, generation = 0, mounted = false;
+  //: The selected saved model's parameterization: the history the GET route answers with, the rows as read, and the
+  //: rows being edited. `termsView` null means the card is hidden (a preview has no persistence target).
+  let termsView = null, termsOriginal = [], termsDraft = [], termsOverrides = [], termsSaving = false;
   // "Suggested until edited": the molecule name follows the recipe while the reader has not typed one, and the head
   // link follows the sugar until they choose one. `lastDefault` is what a name still equal to the suggestion may move.
   let nameEdited = false, lastDefault = '', linkEdited = false;
@@ -211,7 +214,8 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       beads: topology?.beads == null ? '—' : `${topology.beads} beads`,
       terms: topology?.terms ? termSummary(topology.terms) : '—',
       parameterization: parameterization
-        ? `derived · revision ${parameterization.revision} · ${parameterization.source}` : 'no derived model',
+        ? `${parameterization.base || (parameterization.revision ? 'edited' : 'derived')} · `
+          + `revision ${parameterization.revision ?? 0} · ${parameterization.source}` : 'no parameterization',
       status: model?.status || 'candidate-unvalidated',
     };
   }
@@ -239,11 +243,17 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
         const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
       }
       const actions = document.createElement('td');
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'secondary'; button.textContent = 'Open the CG run';
-      button.disabled = !model.parameterization;
-      button.addEventListener('click', () => openCompositionRun(model));
-      actions.append(button); row.append(actions);
+      const open = document.createElement('button');
+      open.type = 'button'; open.textContent = 'Open the CG run';
+      open.disabled = !model.parameterization;
+      open.addEventListener('click', () => openCompositionRun(model));
+      // The second door: the same catalog row, opened in the terms card below. A composition is saved before its
+      // terms can be edited (a preview has nowhere to persist them), so this is the model's own row that selects it.
+      const edit = document.createElement('button');
+      edit.type = 'button'; edit.className = 'secondary'; edit.textContent = 'Edit terms';
+      edit.disabled = !model.parameterization;
+      edit.addEventListener('click', () => openTerms(model).catch(error => setText($('#composition-panel-status'), error.message)));
+      actions.append(open, document.createTextNode(' '), edit); row.append(actions);
       body.append(row);
     }
     setText($('#composition-models-status'),
@@ -257,6 +267,197 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       savedModels = [];
     }
     renderSavedModels();
+  }
+
+  // The bonded terms of the selected saved model -------------------------------------------------------------
+  //
+  // A saved composition's parameterization is revision 0 (the derived model) plus the revisions a reader saved. The
+  // table edits the flexible terms only: constraints and virtual sites are model terms and are shown read-only. Every
+  // save appends a revision through `POST /api/compositions/<id>/parameterizations`; the ranges and the function
+  // choices come from that route, so this file restates none of the numbers.
+  const cloneRow = row => ({...row, beads: [...row.beads],
+    parent_beads: row.parent_beads ? [...row.parent_beads] : undefined,
+    function_options: row.function_options || [], parameter_labels: row.parameter_labels || [],
+    parameters: (row.parameters || []).map(value => Number(value))});
+  const boundsFor = (kind, func) => termsView?.ranges?.[kind]?.[String(func)] || [];
+  const originalRow = row => termsOriginal.find(item => item.id === row.id);
+
+  function rowChanged(row) {
+    const original = originalRow(row);
+    if (!original) return true;
+    if (String(original.function) !== String(row.function)) return true;
+    if ((original.parameters || []).length !== row.parameters.length) return true;
+    return row.parameters.some((value, index) => Number(value) !== Number(original.parameters[index]));
+  }
+
+  function termRow(row) {
+    const tr = document.createElement('tr');
+    const kind = document.createElement('td');
+    kind.textContent = row.kind.startsWith('virtual') ? 'virtual site' : row.kind;
+    const beads = document.createElement('td');
+    beads.textContent = row.beads.join(' – ')
+      + (row.parent_beads?.length ? ` (of ${row.parent_beads.join(', ')})` : '');
+    const fn = document.createElement('td');
+    // The function form is a reading here, as in Bond Interactions: an edit changes values, never the potential.
+    const fnPill = document.createElement('span'); fnPill.className = 'pill';
+    fnPill.textContent = row.kind.startsWith('virtual') ? 'centre of geometry' : `function ${row.function}`;
+    fn.append(fnPill);
+    const parameters = document.createElement('td');
+    if (row.editable) {
+      const bounds = boundsFor(row.kind, row.function);
+      const labels = row.parameter_labels?.length ? row.parameter_labels : bounds.map(bound => bound.label);
+      const wrap = document.createElement('div'); wrap.className = 'composition-term-inputs';
+      labels.forEach((label, index) => {
+        const bound = bounds[index] || {min: undefined, max: undefined, integer: false, label: `parameter ${index + 1}`};
+        const input = document.createElement('input');
+        input.type = 'number'; input.step = bound.integer ? '1' : 'any';
+        if (Number.isFinite(bound.min)) input.min = String(bound.min);
+        if (Number.isFinite(bound.max)) input.max = String(bound.max);
+        input.value = row.parameters[index] === undefined || Number.isNaN(row.parameters[index])
+          ? '' : String(row.parameters[index]);
+        input.setAttribute('aria-label', `${row.beads.join('–')} ${bound.label}`);
+        input.title = `${bound.label} · ${bound.min}–${bound.max}${bound.integer ? ' · integer' : ''}`;
+        input.addEventListener('input', () => {
+          row.parameters[index] = input.value === '' ? NaN : Number(input.value);
+          const original = originalRow(row);
+          const changed = !original || Number(original.parameters[index]) !== Number(row.parameters[index]);
+          input.dataset.dirty = String(changed);
+          input.setCustomValidity(input.validity.badInput || input.validity.rangeUnderflow || input.validity.rangeOverflow
+            ? `${bound.label} must be between ${bound.min} and ${bound.max}${bound.integer ? ' (an integer)' : ''}`
+            : '');
+          updateTermActions();
+        });
+        wrap.append(input);
+      });
+      parameters.append(wrap);
+    } else {
+      const text = row.kind.startsWith('virtual') ? 'centre of geometry' : (row.parameters || []).join(' ');
+      parameters.textContent = text; parameters.className = 'hint';
+    }
+    const source = document.createElement('td');
+    const pill = document.createElement('span'); pill.className = 'pill'; pill.textContent = row.source;
+    source.append(pill);
+    tr.append(kind, beads, fn, parameters, source);
+    return tr;
+  }
+
+  function renderTermRows() {
+    const body = $('#composition-term-rows');
+    if (!body) return;
+    body.replaceChildren(...termsDraft.map(termRow));
+    updateTermActions();
+  }
+
+  function updateTermActions() {
+    const button = $('#composition-save-terms');
+    if (!button) return;
+    const inputs = [...document.querySelectorAll('#composition-term-rows input')];
+    const invalid = inputs.some(input => input.value === '' || !input.validity.valid);
+    const dirty = termsDraft.some(rowChanged);
+    button.disabled = !termsView || termsSaving || invalid || !dirty;
+    button.title = !termsView ? 'Select a saved CG molecule first.'
+      : termsSaving ? 'Saving…'
+      : invalid ? 'Fix the highlighted values first.'
+      : !dirty ? 'No unsaved edits.'
+      : 'Write these terms as the next revision and make it current.';
+  }
+
+  function renderTerms() {
+    const card = $('#composition-terms');
+    if (!card) return;
+    if (!termsView || !saved) { card.hidden = true; return; }
+    card.hidden = false;
+    const shown = termsView.current_parameterization || {};
+    const revision = shown.revision ?? 0;
+    const facts = modelFacts(saved);
+    setText($('#composition-terms-badge'), `${shown.base || (revision ? 'edited' : 'derived')} · revision ${revision}`);
+    setText($('#composition-terms-summary'),
+      revision ? `${facts.name} · ${shown.beads ?? '—'} beads · revision ${revision} was saved by hand; revision 0 is `
+                 + 'the derived model'
+               : `${facts.name} · ${shown.beads ?? '—'} beads · the derived model`);
+    setText($('#composition-terms-note'),
+      'Save in place appends the next revision and makes it current: the next CG run consumes it. Constraints and '
+      + 'virtual sites are model terms and cannot be edited. A run records the revision it consumed.');
+    renderTermRows();
+    setText($('#composition-terms-status'), '');
+  }
+
+  function clearTerms() {
+    termsView = null; termsOriginal = []; termsDraft = []; termsOverrides = []; termsSaving = false;
+    const card = $('#composition-terms');
+    if (card) card.hidden = true;
+    const body = $('#composition-term-rows');
+    if (body) body.replaceChildren();
+    setText($('#composition-terms-status'), '');
+  }
+
+  async function loadTerms(detail) {
+    const compositionId = detail?.molecule_id || detail?.id;
+    if (!compositionId) return null;
+    termsView = await api('/api/compositions/' + encodeURIComponent(compositionId) + '/parameterizations');
+    termsOriginal = (termsView.terms || []).map(cloneRow);
+    termsDraft = termsOriginal.map(cloneRow);
+    // A revision's overrides apply to the derived base, not to the previous revision, so each save must post the
+    // complete set: the ones already current plus the rows just changed. Posting only the dirty rows would silently
+    // return every earlier override to its derived value.
+    const current = (termsView.revisions || []).find(item => item.revision === termsView.current) || null;
+    termsOverrides = (current?.overrides || []).map(item => ({
+      section: item.section, beads: [...item.beads], function: Number(item.function),
+      parameters: (item.parameters || []).map(Number)}));
+    renderTerms();
+    return termsView;
+  }
+
+  async function openTerms(model) {
+    const compositionId = model?.molecule_id || model?.id;
+    if (!compositionId) return null;
+    setText($('#composition-panel-status'), 'Reading the bonded terms…');
+    const detail = await api('/api/cg-models/composition/' + encodeURIComponent(compositionId));
+    saved = detail; renderSaved(); updateActions();
+    await loadTerms(detail);
+    setText($('#composition-panel-status'),
+      `Editing ${modelFacts(detail).name}: Save in place writes a new revision.`);
+    return detail;
+  }
+
+  async function saveTerms() {
+    if (!termsView || termsSaving) return null;
+    const overrideKey = item => `${item.section}|${[...item.beads].join('|')}`;
+    const merged = new Map(termsOverrides.map(item => [overrideKey(item), item]));
+    for (const row of termsDraft.filter(row => row.editable && rowChanged(row))) {
+      const item = {section: row.kind, beads: [...row.beads], function: Number(row.function),
+                    parameters: row.parameters.map(Number)};
+      merged.set(overrideKey(item), item);
+    }
+    const overrides = [...merged.values()];
+    if (!termsDraft.some(rowChanged)) { updateTermActions(); return null; }
+    termsSaving = true; updateTermActions();
+    setText($('#composition-terms-status'), 'Saving the terms as a new revision…');
+    try {
+      const item = await post('/api/compositions/' + encodeURIComponent(termsView.composition_id)
+        + '/parameterizations', {expected_revision: termsView.current, overrides});
+      invalidateResource('/api/cg-models');
+      saved = await api('/api/cg-models/composition/' + encodeURIComponent(termsView.composition_id));
+      renderSaved(); updateActions();
+      await loadTerms(saved);
+      setText($('#composition-terms-status'),
+        `Saved as revision ${item.revision}: the next CG run consumes it.`);
+      invalidateResource('/api/molecules');
+      await loadSavedModels();
+      return item;
+    } catch (error) {
+      if (error.status === 409) {
+        await loadTerms(saved);
+        setText($('#composition-terms-status'),
+          'This model changed since it was read; the current revision was reloaded and nothing was saved.');
+      } else {
+        setText($('#composition-terms-status'), error.message);
+      }
+      return null;
+    } finally {
+      termsSaving = false;
+      updateTermActions();
+    }
   }
 
   function updateActions() {
@@ -287,7 +488,7 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       setText($('#composition-panel-status'), 'Waiting for the fragment catalogue; try again in a moment.');
       return null;
     }
-    const token = ++generation; saved = null; lastPreview = null; updateActions(); renderSaved();
+    const token = ++generation; saved = null; lastPreview = null; clearTerms(); updateActions(); renderSaved();
     setText($('#composition-panel-status'), 'Building deterministic preview…');
     try {
       const result = await post('/api/compositions/preview', payload());
@@ -307,25 +508,35 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
       catch (error) { saved = created; }
       renderSaved();
       invalidateResource('/api/cg-models'); invalidateResource('/api/molecules');
-      setText($('#composition-panel-status'), `Saved ${modelFacts(saved).name} as a candidate-unvalidated CG molecule.`);
       updateActions();
       await loadSavedModels();
+      // The new composition's derived model is revision 0: the terms card opens on it so a reader can edit its
+      // flexible terms straight away, and Save in place writes revision 1.
+      await loadTerms(saved);
+      setText($('#composition-panel-status'), `Saved ${modelFacts(saved).name} as a candidate-unvalidated CG molecule.`);
       return saved;
     } catch (error) { setText($('#composition-panel-status'), error.message); throw error; }
   }
   function clearResult() {
     lastPreview = null; saved = null; updateActions();
-    renderSaved();
+    renderSaved(); clearTerms();
   }
   sugar?.addEventListener('change', () => {
     clearResult(); syncEndpoints(); syncNameDefault(); syncHeadDefault(); updateActions();
   });
   recipe?.addEventListener('change', () => { clearResult(); updateActions(); });
   carbon?.addEventListener('input', () => { clearResult(); syncNameDefault(); updateActions(); });
+  // The endpoint and linkage-profile choices are part of the recipe too: a changed one makes the preview (and the
+  // saved model it produced) stale, exactly as a changed sugar or carbon count does. Without this the recipe form
+  // kept `saved` set and looked stuck until the reader previewed again.
+  head?.addEventListener('change', () => { clearResult(); updateActions(); });
+  tail?.addEventListener('change', () => { clearResult(); updateActions(); });
+  profile?.addEventListener('change', () => { clearResult(); updateActions(); });
   name?.addEventListener('input', () => { nameEdited = true; });
   headMolecule?.addEventListener('change', () => { linkEdited = true; });
   previewButton?.addEventListener('click', () => preview().catch(() => {}));
   saveButton?.addEventListener('click', () => save().catch(() => {}));
+  $('#composition-save-terms')?.addEventListener('click', () => saveTerms());
   openBonded?.addEventListener('click', () => saved && openBondedModel(saved));
   startRun?.addEventListener('click', () => saved && openCompositionRun(saved));
   return { mount: async () => { if (!mounted) { mounted = true; await load(); } }, preview, save };

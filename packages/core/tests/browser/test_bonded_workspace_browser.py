@@ -7,6 +7,7 @@ revisions replace the flat bonded-state list (D1), that the terms no engine fits
 site and its parents -- are shown and stay read-only (`:108-110`), and that the torsion switch still writes the
 mapping's own options.
 """
+import json
 import re
 
 from dashboard.models import mappings
@@ -80,11 +81,11 @@ def choose_mapping(page, file, molecule=None):
         page.locator('#bonded-parameterization-display').select_option(value)
 
 
-def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_page):
-    """D1, as the page: no state select, and a table that reads a revision rather than a state.
+def test_the_display_selector_is_the_only_history(dashboard, live_page):
+    """D1, as the page: no state select, no revision strip, and a table that reads a revision rather than a state.
 
-    The flat bonded-state store is gone from the codebase, not merely unshown, so there is nothing here to seed: what
-    this pins is that a mapping's parameterization is what the panel reads, and that no state-shaped control survives it.
+    The flat bonded-state store and the revision strip are gone from the codebase, not merely unshown: the display
+    selector is the history, and nothing else lists revisions.
     """
     saved = save_mapping(dashboard)
 
@@ -101,7 +102,7 @@ def test_the_revision_strip_replaces_the_flat_bonded_state_list(dashboard, live_
     # and its button were removed, so a second entry point must not come back.
     expect(page.get_by_role('button', name='Fit this model')).to_have_count(1)
     expect(page.get_by_role('button', name='Generate reference-informed draft')).to_have_count(0)
-    expect(page.locator('#bonded-revisions')).to_be_visible()
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
 
     # This mapping has no revision, so the rows are its own draft and every one of them says so.
     page.wait_for_selector('.bonded-interaction-table tbody tr', timeout=30000)
@@ -150,8 +151,12 @@ def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashb
     expect(site.nth(2)).to_contain_text('virtual site')
     expect(site.nth(3)).to_have_text('parents B02 · B03')
     expect(site.nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
-    # And nothing in the table is a control: neither kind is a draft anyone can edit.
-    expect(page.locator('.bonded-interaction-table input, .bonded-interaction-table select')).to_have_count(0)
+    # Neither kind is a draft anyone can edit: the readings have no inputs, and the function form is never a select.
+    table_rows = page.locator('.bonded-interaction-table tbody tr')
+    expect(table_rows.nth(0).locator('input')).to_have_count(0)
+    expect(table_rows.nth(1).locator('input')).to_have_count(0)
+    expect(table_rows.nth(2).locator('input')).to_have_count(2), 'the bond is the editable row'
+    expect(page.locator('.bonded-interaction-table select')).to_have_count(0)
     assert errors == []
 
 
@@ -388,6 +393,11 @@ def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashb
     page.route(re.compile(r'/api/bonded-parameterizations/engines$'),
                lambda route: route.fulfill(json={'engines': [
                    {'value': 'mapping-only', 'label': 'Mapping only', 'needs_reference': False}]}))
+    term_posts = []
+    page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}/terms$'),
+               lambda route: (term_posts.append((route.request.method, route.request.url,
+                                                 json.loads(route.request.post_data))),
+                              route.fulfill(json={'revision': 1}))[-1])
     asks = []
     page.on('request', lambda request: asks.append((request.method, request.url))
             if '/api/bonded-parameterizations' in request.url else None)
@@ -430,11 +440,11 @@ def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashb
     expect(rows).to_have_count(2)
     first_row = rows.nth(0).locator('td')
     expect(first_row.nth(0)).to_have_text('bonds')
-    expect(first_row.nth(3)).to_contain_text('0.32 nm')
+    expect(first_row.nth(3).locator('input').nth(0)).to_have_value('0.32')
     expect(first_row.nth(4)).to_have_text('martini-reference')
     angle_row = rows.nth(1).locator('td')
     expect(angle_row.nth(0)).to_have_text('angles')
-    expect(angle_row.nth(3)).to_contain_text('141.6')
+    expect(angle_row.nth(3).locator('input').nth(0)).to_have_value('141.6')
     expect(angle_row.nth(4)).to_have_text('martini-reference')
     expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
     # The terms are drawn, which is what says the ITP's `B01..` names found the mapping's own beads: a term whose
@@ -450,7 +460,13 @@ def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashb
     # The panel says what this is, and every control a fit would use is disabled rather than hidden.
     expect(page.locator('#bonded-model-summary')).to_contain_text('published Martini 3 sugar reference')
     expect(page.locator('#bonded-model-badge')).to_have_text('published reference')
-    expect(page.locator('#bonded-revisions')).to_contain_text('no revisions')
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
+    # Both terms buttons are offered, and the reason for the disabled one is visible in the status panel.
+    expect(page.locator('#bonded-save-terms-inplace')).to_be_disabled()
+    expect(page.locator('#bonded-save-terms-inplace')).to_have_attribute(
+        'title', re.compile('published Martini 3 reference'))
+    expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
+    expect(page.locator('#bonded-terms-status')).to_contain_text('only Save as new can store them')
     expect(page.locator('#bonded-fit')).to_be_disabled()
     expect(page.locator('#bonded-delete-parameterization')).to_be_disabled()
     # A published reference cannot become what a run consumes: it is not a fit of this molecule, and Make current is
@@ -464,9 +480,22 @@ def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashb
     expect(page.locator('#bonded-job')).to_be_hidden()
     expect(page.locator('#bonded-result')).to_be_hidden()
 
-    # No parameterization route is read for a reference, and none is written.
+    # No parameterization route is read for a reference, and none is written until the reader saves one.
     page.wait_for_timeout(400)
     assert asks == [], asks
+
+    # Save as new is the one live terms control: it posts the edits to the saved mapping, with `from_reference`.
+    reference_bond = page.locator('.bonded-interaction-table tbody tr').nth(0).locator('input')
+    expect(reference_bond).to_have_count(2)
+    reference_bond.nth(0).fill('0.34')
+    page.locator('#bonded-save-terms-new').click()
+    page.wait_for_timeout(600)
+    assert len(term_posts) == 1, term_posts
+    method, url, body = term_posts[0]
+    assert method == 'POST' and url.endswith('/terms'), (method, url)
+    assert sucrose['mapping_content_hash'] in url, (url, sucrose['mapping_content_hash'])
+    assert body == {'mode': 'new', 'from_reference': True, 'expected_revision': 0,
+                    'terms': [{'id': 'bonds:1', 'parameters': [0.34, 5000]}]}, body
 
     # Leaving the reference for the saved mapping restores the card and hands every control back.
     page.locator('#bonded-parameterization-display').select_option(f'draft:{sucrose["file"]}')
@@ -504,4 +533,39 @@ def test_a_context_that_cannot_be_read_draws_nothing_rather_than_another_molecul
     drawn = page.locator('.bonded-plot').evaluate(
         "(el) => (el.data || []).filter(trace => trace.meta === 'bead' || trace.meta === 'term').length")
     assert drawn == 0, f'the scene drew {drawn} traces without the named molecule'
+    assert errors == [], errors
+
+
+def test_a_reference_without_a_saved_mapping_disables_save_as_new_with_its_reason(dashboard, live_page):
+    """Save as new needs a saved mapping to seed; with none, the button is inert and the status says why."""
+    topology = '\n'.join([
+        '[ moleculetype ]', 'GLC 1', '',
+        '[ atoms ]',
+        *[f'{index} SP1r 1 GLC B{index:02d} 1 0 54' for index in range(1, 5)],
+        '', '[ bonds ]', '1 2 1 0.32 5000']) + '\n'
+    model = {'file': 'reference:Glucose', 'name': 'Martini 3 sugar reference · GLC',
+             'molecule_id': 'Glucose', 'read_only': True, 'reference_entry': 'GLC',
+             'beads': [{'name': f'B{index:02d}', 'atoms': [index]} for index in range(1, 5)],
+             'rings': [], 'connections': [], 'topology': topology,
+             'reference': {'path': 'references/GLC.itp', 'sha256': 'f' * 64},
+             'limitations': [], 'status': 'published-reference'}
+    page, errors = live_page
+    page.route(re.compile(r'/api/molecules$'),
+               lambda route: route.fulfill(json={'molecules': [{'id': 'Glucose', 'name': 'Glucose',
+                                                               'kind': 'aa'}]}))
+    page.route(re.compile(r'/api/mappings\?view=summary&molecule_id=Glucose$'),
+               lambda route: route.fulfill(json={'candidates': []}))
+    page.route(re.compile(r'/api/mappings/reference/Glucose$'), lambda route: route.fulfill(json={'model': model}))
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-parameterization-display option').length === 1",
+        timeout=30000)
+    expect(page.locator('#bonded-parameterization-display option')).to_have_value('draft:reference:Glucose')
+
+    expect(page.locator('#bonded-save-terms-inplace')).to_be_disabled()
+    expect(page.locator('#bonded-save-terms-inplace')).to_have_attribute(
+        'title', re.compile('published Martini 3 reference'))
+    expect(page.locator('#bonded-save-terms-new')).to_be_disabled()
+    expect(page.locator('#bonded-save-terms-new')).to_have_attribute('title', re.compile('needs a saved mapping'))
+    expect(page.locator('#bonded-terms-status')).to_contain_text('needs a saved mapping of Glucose to seed')
     assert errors == [], errors

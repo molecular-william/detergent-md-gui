@@ -3,7 +3,7 @@
  *
  * The panel has two halves. This module owns the molecule selector, the one parameterization selector, the bead
  * geometry and the interactions table; `bonded-parameterization.js` owns the model card's state (which revision is
- * shown, and which is current), the fit job, the result and the revision strip, and hands its terms here through
+ * shown, and which is current), the fit job, the result and the terms save, and hands its terms here through
  * `onTerms`. The split is the design's own: what is *read* about a model (`/api/bonded-parameterizations`) is a
  * different question from how its beads are drawn.
  *
@@ -12,13 +12,12 @@
  * offers one. Choosing an option reads that mapping's parameterization and shows the chosen revision; it never
  * changes the revision a run consumes, which is the separate **Make current** action.
  *
- * The table is read-only, and that is a recorded decision rather than an oversight: no route in this slice writes a
- * revision's terms, so a parameter input here would be a control that cannot act — the failure this repository's
- * panels are not allowed to have. `docs/design/2026-10-16-parameterization-and-new-run.md` D7 records it, with the
- * route that would restore the old manual editor. The `source` column is what a reader needs instead — it says
- * which engine fitted each term, or that the mapping (a ring constraint, a virtual site), a hand edit recorded
- * elsewhere, or a geometry fallback produced it. Two kinds are not a draft at all and are marked as the reading they
- * are: a constraint's length and a virtual site's parents come from the mapping.
+ * The table edits *parameters*, not the model: the function form, a constraint's length and a virtual site's parents
+ * are readings. A bond's length+force, an angle's angle+force and a dihedral's phase+force(+multiplicity) are inputs,
+ * and **Save in place** (the current revision) or **Save as new** (a clone appended and made current) writes them
+ * through `parameterization.saveTerms`. A published Martini 3 reference is never saved in place; its editable rows
+ * only feed Save as new, which seeds a revision of the molecule's saved mapping. The `source` column stays the
+ * store's reading -- an edited term reads `manual`.
  */
 import { $, setText, cachedApi, api, invalidateResource, CATALOGUE_MAX_AGE } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
@@ -74,9 +73,14 @@ function normalizeTerm(term, fallbackId) {
     value: String(option.value), label: option.label, description: option.description || '', labels: option.parameter_labels || [],
   })) : optionsFor(kind);
   const selected = options.find(option => option.value === functionValue) || options[0];
+  const spec = (FUNCTION_OPTIONS[kind] || {})[functionValue];
   return {...term, id: term.id || fallbackId, kind, beads: [...(term.beads || [])],
     function: functionValue, parameters: [...(term.parameters || [])],
-    editable: term.editable ?? false, function_options: options, source: term.source || 'unrecorded',
+    // A row is editable when its function has a known parameter list *and* the stored line carries exactly that
+    // many values; `mappingTerms` passes false because a draft connectivity is not a stored revision. A mismatched
+    // row is a reading: offering inputs the store's validator would refuse is a control that cannot act.
+    editable: term.editable ?? !!(spec && term.parameters?.length === spec.labels.length),
+    function_options: options, source: term.source || 'unrecorded',
     parameter_labels: term.parameter_labels?.length ? [...term.parameter_labels] : [...(selected?.labels || [])]};
 }
 
@@ -117,6 +121,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   const modelCard = $('.bonded-model', host);
   const tableHost = $('.bonded-interaction-table', host);
   const selectionStatus = $('.bonded-selection-status', host);
+  const saveInPlace = $('#bonded-save-terms-inplace', host);
+  const saveNew = $('#bonded-save-terms-new', host);
+  const termsStatus = $('#bonded-terms-status', host);
   const plot = mountBondedPlot($('.bonded-plot', host), {
     onBeadSelection: selected => { selectedBeads = selected; renderState(); },
     onTermSelection: id => { selectedTermId = id; renderState(); },
@@ -133,6 +140,16 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
   let terms = [];
   let selectedBeads = [];
   let selectedTermId = '';
+  //: Unsaved parameter values by term id, `{values: string[]}`. A map, not a flag, because every
+  //: table re-render (a bead or row selection) must keep what the reader typed. Cleared when the shown terms key
+  //: changes (a selector/molecule switch) or after a successful save.
+  let pending = new Map();
+  //: What the shown terms are: file + revision + digest, or the reference. It is how a background record re-read of
+  //: the same revision keeps typed values while a switch discards them (the status says so; no dialog).
+  let termsKey = '';
+  //: A server refusal or a save sentence, held until the next edit or model switch. The base sentence otherwise.
+  let pinnedStatus = null;
+  let saving = false;
   let generation = 0;
   let optionsGeneration = 0;
 
@@ -143,8 +160,27 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       // declares, and every row of it says where it came from rather than being presented as a fitted term.
       // A published reference is different in kind: its terms are the ITP it transcribed, marked as that reading.
       // A draft's distances are measured from the molecule's atoms, so without them there is no honest row.
-      terms = selectedMapping?.read_only ? referenceTerms(selectedMapping)
-        : revisionTerms ?? (structure ? mappingTerms(selectedMapping || {}) : []);
+      // Revision rows are normalised *here*, where FUNCTION_OPTIONS lives; the reader module hands over the store's
+      // rows and their sources.
+      const rows = selectedMapping?.read_only ? referenceTerms(selectedMapping)
+        : revisionTerms ? revisionTerms.map(row => normalizeTerm(row, row.id))
+          : (structure ? mappingTerms(selectedMapping || {}) : []);
+      const shown = parameterization.shownRevision();
+      const key = selectedMapping?.read_only
+        ? `reference:${selectedMapping.file || ''}`
+        : `${selectedMapping?.file || ''}:${shown ? `${shown.revision}:${shown.sha256 || ''}` : 'draft'}`;
+      // A selector/molecule switch changes the key and discards typed values with a sentence; a background re-read
+      // of the same revision (a fit finishing) keeps them. No dialog, per the approved behaviour.
+      if (key !== termsKey) {
+        // One switch can produce two `onTerms` calls (the null draft answer, then the record's); the notice must
+        // survive both, so it is marked and only a new edit/save replaces it. A switch with nothing pending clears
+        // an older message.
+        if (pending.size) pinnedStatus = {text: 'Unsaved parameter changes were discarded.', kind: 'warn', discarded: true};
+        else if (!pinnedStatus || !pinnedStatus.discarded) pinnedStatus = null;
+        pending.clear();
+        termsKey = key;
+      }
+      terms = rows;
       renderState();
     },
     // A record the model card re-read (a fit finished, a revision became current, a parameterization was deleted)
@@ -323,8 +359,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
    * aliased to the mapping's own by `revisionAliases` in the scene and compared against the `.itp` in the table.
    */
   function referenceTerms(mapping) {
+    // The published terms are editable on screen so the values can be changed before Save as new seeds a revision;
+    // the reference itself is never written. Constraints and virtual sites stay readings through `normalizeTerm`.
     return parseTopology(mapping?.topology).map(term =>
-      normalizeTerm({...term, editable: false, source: 'martini-reference'}, term.id));
+      normalizeTerm({...term, source: 'martini-reference'}, term.id));
   }
 
   /** The mapping's own connectivity, for a model that has no revision: a start, not a fitted result. */
@@ -342,6 +380,173 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     }, `mapping:${index}`));
   }
 
+  // --- editable parameters ---------------------------------------------------------------------------------------
+
+  /** The stored values as strings, the way an input holds them. */
+  function storedValues(term) { return (term.parameters || []).map(value => String(value)); }
+
+  /** The values the inputs show: the reader's pending edit when there is one, else the stored revision. */
+  function pendingValues(term) {
+    const entry = pending.get(term.id);
+    return entry ? entry.values : storedValues(term);
+  }
+
+  /** Whether two input strings name the same number; an empty/unparseable string is never the stored value. */
+  function sameNumber(text, stored) {
+    const value = Number(text);
+    return String(text).trim() !== '' && Number.isFinite(value) && value === Number(stored);
+  }
+
+  function termDirty(term) {
+    const entry = pending.get(term.id);
+    return !!entry && entry.values.some((value, index) => !sameNumber(value, term.parameters[index]));
+  }
+
+  /** Record one input's value; a term whose every value matches the stored revision leaves the pending map. */
+  function setPendingValue(term, index, value) {
+    const entry = pending.get(term.id) || {values: storedValues(term)};
+    const values = [...entry.values];
+    values[index] = value;
+    if (values.some((item, at) => !sameNumber(item, term.parameters[at]))) pending.set(term.id, {values});
+    else pending.delete(term.id);
+    pinnedStatus = null;
+  }
+
+  function dirtyTerms() { return terms.filter(term => term.editable && termDirty(term)); }
+
+  /** The one saved mapping a reference seed can target: exactly one, or none (the panel must not guess). */
+  function referenceTarget() {
+    if (!selectedMapping?.read_only) return null;
+    const listed = candidates.filter(candidate => !candidate.error && candidate.file);
+    return listed.length === 1 ? listed[0] : null;
+  }
+
+  /** The sentence the status line shows: a pinned server/save message, else what the shown state allows. */
+  function baseStatus() {
+    if (pinnedStatus) return pinnedStatus;
+    const reference = !!selectedMapping?.read_only;
+    const shown = parameterization.shownRevision();
+    if (!selectedMapping) return {text: 'Choose a model to read its terms.', kind: ''};
+    if (reference) {
+      const listed = candidates.filter(candidate => !candidate.error && candidate.file);
+      const target = referenceTarget();
+      if (!target) {
+        return {text: listed.length
+          ? `Save as new needs one saved mapping of ${selectedMapping.molecule_id || 'this molecule'}; this molecule has ${listed.length}.`
+          : `Save as new needs a saved mapping of ${selectedMapping.molecule_id || 'this molecule'} to seed; this molecule has none.`, kind: 'warn'};
+      }
+      return {text: `Published Martini 3 reference (${selectedMapping.reference_entry || 'reference'}): its terms can be edited, but only Save as new can store them — it seeds a revision of ${target.name || target.file}.`, kind: ''};
+    }
+    if (!shown) return {text: 'This model has no stored revision: its rows are the mapping\'s draft connectivity and cannot be saved here.', kind: ''};
+    if (!parameterization.canSaveInPlace()) {
+      return {text: `Revision ${shown.revision} is earlier. Save in place writes the revision a run consumes; make it current first, or use Save as new.`, kind: 'warn'};
+    }
+    const dirty = dirtyTerms();
+    return dirty.length
+      ? {text: `${dirty.length} parameter change${dirty.length === 1 ? '' : 's'}, not saved.`, kind: 'warn'}
+      : {text: `Showing revision ${shown.revision}, the revision a run consumes.`, kind: ''};
+  }
+
+  /** Both buttons and the status: the matrix is the panel's contract, and the title repeats the visible reason. */
+  function updateTermActions() {
+    if (!saveInPlace || !saveNew || !termsStatus) return;
+    const reference = !!selectedMapping?.read_only;
+    const shown = parameterization.shownRevision();
+    const listed = candidates.filter(candidate => !candidate.error && candidate.file);
+    const target = referenceTarget();
+    const dirty = dirtyTerms();
+    const inPlaceAllowed = !reference && parameterization.canSaveInPlace();
+    saveInPlace.disabled = saving || !inPlaceAllowed || dirty.length === 0;
+    saveInPlace.title = reference
+      ? 'A published Martini 3 reference is not this mapping\'s revision: it is a transcription of the upstream ITP, so it cannot be saved in place.'
+      : !selectedMapping ? 'Choose a saved mapping first.'
+        : !shown ? 'This model has no stored revision to save.'
+          : !parameterization.canSaveInPlace() ? `Revision ${shown.revision} is earlier. Make it current, or use Save as new.`
+            : dirty.length ? `Save the ${dirty.length} edited term${dirty.length === 1 ? '' : 's'} in place in revision ${shown.revision}.`
+              : 'No unsaved parameter changes.';
+    saveNew.disabled = saving || (reference ? !target : !shown);
+    saveNew.title = reference
+      ? (target ? `Seed a revision of ${target.name || target.file} from the published reference and make it current.`
+        : listed.length ? `Save as new needs one saved mapping of ${selectedMapping.molecule_id}; this molecule has ${listed.length}.`
+          : `Save as new needs a saved mapping of ${selectedMapping?.molecule_id || 'this molecule'} to seed; this molecule has none.`)
+      : !shown ? 'This model has no stored revision to clone.'
+        : dirty.length ? `Save the ${dirty.length} edited term${dirty.length === 1 ? '' : 's'} as a new revision and make it current.`
+          : 'Save the shown terms as a new revision and make it current.';
+    const status = baseStatus();
+    setText(termsStatus, status.text);
+    termsStatus.dataset.state = status.kind || '';
+  }
+
+  /** The request's term list: every dirty row's numeric values, or `null` with the reason in the status line. */
+  function collectEdits() {
+    const edits = [];
+    for (const term of dirtyTerms()) {
+      const values = pendingValues(term);
+      const numbers = values.map(value => Number(value));
+      if (values.some(value => String(value).trim() === '') || numbers.some(value => !Number.isFinite(value))) {
+        pinnedStatus = {text: 'Every edited parameter needs a number.', kind: 'error'};
+        updateTermActions();
+        return null;
+      }
+      edits.push({id: term.id, parameters: numbers});
+    }
+    return edits;
+  }
+
+  /** Save the dirty rows: in place on the current revision, a new clone, or a seed from the shown reference. */
+  async function saveEditedTerms(mode) {
+    if (saving) return;
+    const edits = collectEdits();
+    if (edits === null) return;
+    const reference = !!selectedMapping?.read_only;
+    let target = null;
+    if (reference) {
+      const listed = candidates.filter(candidate => !candidate.error && candidate.file);
+      const chosen = referenceTarget();
+      if (!chosen) {
+        pinnedStatus = {text: listed.length
+          ? `Save as new needs one saved mapping of this molecule; it has ${listed.length}.`
+          : 'Save as new needs a saved mapping of this molecule to seed; save one first.', kind: 'error'};
+        updateTermActions();
+        return;
+      }
+      const record = modelRecords.get(chosen.file);
+      target = {file: chosen.file, contentHash: chosen.mapping_content_hash,
+                recordRevision: Number((record && record.summary && record.summary.revision) || 0)};
+      if (!target.contentHash) {
+        pinnedStatus = {text: 'The saved mapping has no content identity; reload the panel.', kind: 'error'};
+        updateTermActions();
+        return;
+      }
+    } else if (mode === 'in_place' && !edits.length) {
+      pinnedStatus = {text: 'No parameter changes to save.', kind: 'warn'};
+      updateTermActions();
+      return;
+    }
+    const shown = parameterization.shownRevision();
+    saving = true;
+    pinnedStatus = null;
+    updateTermActions();
+    try {
+      const saved = await parameterization.saveTerms({mode, edits, target});
+      pending.clear();
+      const message = mode === 'in_place'
+        ? `Revision ${shown.revision} saved in place: ${edits.length} term${edits.length === 1 ? '' : 's'} edited; Source reads manual.`
+        : reference
+          ? `Revision ${saved.revision} of ${target.file} seeded from the published reference and made current.`
+          : `Revision ${saved.revision} saved and current; revision ${shown.revision} is unchanged.`;
+      // The reload is the record, not the route's echo: it re-reads the revision the save made current (in place,
+      // the same number with a new digest; as new, the appended one).
+      await loadShown(saved.file, saved.revision);
+      pinnedStatus = {text: message, kind: ''};
+    } catch (error) {
+      pinnedStatus = {text: `The terms were not saved: ${error.message}`, kind: 'error'};
+    } finally {
+      saving = false;
+      updateTermActions();
+    }
+  }
+
   function renderTable() {
     tableHost.replaceChildren();
     if (!terms.length) {
@@ -349,7 +554,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       return;
     }
     const table = document.createElement('table');
-    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from. Constraints and virtual-site parents are readings, not a draft.</caption>'
+    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from. Editable parameters are inputs; a constraint\'s length and a virtual site\'s parents are readings, and the function form is never a draft. A Fast-Forward torsion is one line per harmonic, so each such row is one line.</caption>'
       + '<thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th><th>Source</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const term of terms) {
@@ -357,26 +562,66 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       row.dataset.id = term.id;
       row.tabIndex = 0;
       row.setAttribute('aria-selected', String(term.id === selectedTermId));
-      // A constraint's length is the mapping's ring target and a virtual site's parents are the mapping's own
-      // beads: both are stated read-only, the way this panel stated them before it gained a `source` column.
-      const reading = term.kind === 'constraints' || term.kind === 'virtual_sitesn';
-      for (const [text, className] of [[term.kind, ''], [term.beads.join(' · '), ''],
-                                       [functionSentence(term), ''],
-                                       [parameterSentence(term), reading ? 'bonded-readonly-parameter' : ''],
-                                       [term.source || 'unrecorded', 'bonded-source']]) {
-        const cell = document.createElement('td');
-        cell.textContent = text;
-        if (className) cell.className = className;
-        if (className === 'bonded-readonly-parameter') {
-          cell.title = term.kind === 'constraints'
-            ? 'read-only: this constraint’s length is the mapping’s own ring target'
-            : 'read-only: these parents are the mapping’s own beads';
+      const kindCell = document.createElement('td');
+      kindCell.textContent = term.kind;
+      const beadsCell = document.createElement('td');
+      beadsCell.textContent = term.beads.join(' · ');
+      const functionCell = document.createElement('td');
+      functionCell.textContent = functionSentence(term);
+      row.append(kindCell, beadsCell, functionCell);
+      const parameters = document.createElement('td');
+      if (term.editable) {
+        const grid = document.createElement('div');
+        grid.className = 'bonded-term-inputs';
+        const values = pendingValues(term);
+        const labels = term.parameters.map((_, index) => term.parameter_labels[index] || `parameter ${index + 1}`);
+        for (const [index, label] of labels.entries()) {
+          const wrap = document.createElement('label');
+          wrap.textContent = label;
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.step = /multiplicity/i.test(label) ? '1' : 'any';
+          input.inputMode = 'decimal';
+          input.value = values[index] ?? '';
+          input.dataset.dirty = String(termDirty(term) && !sameNumber(values[index], term.parameters[index]));
+          input.setAttribute('aria-label', `${term.kind} ${term.beads.join(' ')} ${label}`);
+          input.oninput = () => {
+            setPendingValue(term, index, input.value);
+            input.dataset.dirty = String(termDirty(term));
+            updateTermActions();
+          };
+          // An input click must not bubble to the row: selecting the row re-renders the table and would steal focus
+          // from the field the reader is typing in. The value survives either way through `pending`.
+          input.onclick = event => event.stopPropagation();
+          wrap.append(input);
+          grid.append(wrap);
         }
-        row.append(cell);
+        parameters.append(grid);
+      } else {
+        parameters.className = 'bonded-readonly-parameter';
+        parameters.textContent = parameterSentence(term);
+        parameters.title = term.kind === 'constraints'
+          ? 'read-only: this constraint’s length is the mapping’s own ring target'
+          : term.kind === 'virtual_sitesn' || term.kind === 'virtual_sites3'
+            ? 'read-only: these parents are the mapping’s own beads'
+            : 'read-only: this term has no editable parameter list';
       }
-      row.onclick = () => { selectedTermId = term.id; renderState(); };
+      const source = document.createElement('td');
+      source.className = 'bonded-source';
+      source.textContent = term.source || 'unrecorded';
+      row.append(parameters, source);
+      row.onclick = event => {
+        if (event.target.closest('input, select')) return;
+        selectedTermId = term.id;
+        renderState();
+      };
       row.onkeydown = event => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedTermId = term.id; renderState(); }
+        if (event.target.closest('input')) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          selectedTermId = term.id;
+          renderState();
+        }
       };
       body.append(row);
     }
@@ -386,6 +631,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
   function renderState() {
     renderTable();
+    updateTermActions();
     if (!structure) {
       // No atoms, no scene: an empty figure and the reason, never another molecule's geometry under these names.
       plot.render({beads: [], edges: [], terms: [], selectedBeads, selectedTermId, beadAliases: new Map()});
@@ -629,6 +875,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     else await loadShown('');
   };
   if (deleteButton) deleteButton.onclick = () => deleteParameterization();
+  if (saveInPlace) saveInPlace.onclick = () => saveEditedTerms('in_place');
+  if (saveNew) saveNew.onclick = () => saveEditedTerms('new');
 
   async function mount() {
     // One model load at mount: the selects are set and their options filled here, and `showOption` below loads the

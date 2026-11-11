@@ -104,7 +104,7 @@ def publish_cross_check(dashboard, jid):
 
 SURFACES = {
     'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
-    'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'scientifically_validated': False,
     'aa_cg_comparison': 'analysis/surfaces/surface-comparison-aa-cg.json',
     'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
                           'mean_nm2': 5.8157, 'std_nm2': 0.077, 'xvg': 'analysis/surfaces/aa/sasa.xvg'},
@@ -139,7 +139,6 @@ def publish_surfaces(dashboard, jid):
     surfaces = output / 'analysis/surfaces'
     surfaces.mkdir(parents=True)
     (surfaces / 'metadata.json').write_text(json.dumps(SURFACES))
-    (surfaces / 'surface-comparison.html').write_text('<html><body>envelopes</body></html>')
     (surfaces / 'surface-comparison-aa-cg.json').write_text(json.dumps(SURFACE_PAIR))
     (surfaces / 'aa').mkdir(); (surfaces / 'simulated-cg').mkdir()
     (surfaces / 'aa/sasa.xvg').write_text(

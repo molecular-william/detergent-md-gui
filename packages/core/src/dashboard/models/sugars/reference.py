@@ -10,6 +10,7 @@ into `entry['guarded']` rather than dropped, so a future `-DCONST` build is a vi
 instead of a silent one.
 """
 import hashlib
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -23,6 +24,14 @@ PROVENANCE_NAME = 'martini_v3.0.0_sugars_v2.source.json'
 #: is the one exception: an entry whose mapping is identical to the one the identifier named may stand for the
 #: molecule when the molecule's own identity says so -- which is how glucose uses `GLC` although its layout says `GAL`.
 PUBLISHED_FOR = {'Sucrose': 'SUCR', 'Trehalose': 'TREH', 'Lactose': 'LAC', 'Glucose': 'GLC'}
+
+
+class ReferenceRefused(ValueError):
+    """The molecule has no published entry this reader may show, or its layout does not conform to it.
+
+    The route answers this as 404 (the entry is not offered) and the parameterization seeder answers it as 409 (the
+    molecule cannot seed a revision); both carry the same sentence, so the two doors cannot disagree.
+    """
 
 # The data root, asked of `dashboard.paths` when the package is importable -- it honours `DASHBOARD_ROOT`, and an
 # installed distribution does not sit inside a checkout. The sugar package is also shipped whole into the mapping
@@ -216,6 +225,45 @@ def run_topology(entry_name, *, residue_name=None, provenance=None):
                 fields = [str(row['site']), *[str(atom) for atom in row['atoms']]]
             lines.append(' '.join(fields))
     return '\n'.join(lines) + '\n'
+
+
+def published_model(molecule_id, structure):
+    """The read-only model for the molecule's own published entry, or ``ReferenceRefused`` with the reason.
+
+    One gate for the two readers: the core route shows this model, and the parameterization store seeds a revision
+    from it. The molecule must be one the entry is published *for* (``PUBLISHED_FOR``; identification is
+    stereochemistry-blind, so a layout match alone is not an identity), its candidate must identify an entry, and the
+    candidate's layout must still conform to the molecule's own entry. All four refusals are 404 on the route and 409
+    on the seed, with this function's sentence.
+    """
+    from . import coords as sugar_coords
+
+    entry_name = PUBLISHED_FOR.get(molecule_id)
+    if entry_name is None:
+        raise ReferenceRefused(
+            f'{molecule_id} has no published Martini 3 sugar entry; a matching bead layout is not the same as being '
+            'the molecule the entry describes')
+    candidate = sugar_coords.candidate(structure, molecule_id)
+    if candidate is None:
+        raise ReferenceRefused('No recognised sugar ring in this molecule')
+    identified = candidate.get('reference') or {}
+    identified_entry = identified.get('entry')
+    if not identified_entry:
+        raise ReferenceRefused('The bead layout does not identify a published sugar entry')
+    if not accepts_identity(candidate, molecule_id, entry_name):
+        raise ReferenceRefused(
+            f"The bead layout identifies {identified_entry}, not this molecule's published entry {entry_name}")
+    issues = conform(candidate, entry_name)
+    if issues:
+        raise ReferenceRefused('; '.join(issues))
+    provenance = json.loads(provenance_path().read_text())
+    provenance['path'] = reference_path().relative_to(ROOT).as_posix()
+    return {'file': f'reference:{molecule_id}', 'name': f'Martini 3 sugar reference · {entry_name}',
+            'molecule_id': molecule_id, 'read_only': True, 'reference_entry': entry_name,
+            'beads': candidate['beads'], 'rings': candidate['rings'], 'connections': candidate['connections'],
+            'topology': run_topology(entry_name), 'reference': provenance,
+            'limitations': candidate['limitations'], 'layout_note': layout_note(candidate, entry_name),
+            'status': 'published-reference'}
 
 
 def parameter_delta(topology_text, entry_name, *, layout='reference'):

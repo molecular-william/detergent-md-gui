@@ -152,7 +152,7 @@ def test_the_shape_scene_has_four_traces_and_the_checkboxes_toggle_them(dashboar
     assert table_box['x'] > plot_box['x'] + 40, (plot_box, table_box)
     assert _overlap(plot_box, table_box), (plot_box, table_box)
 
-    # The bead-overlap figure keeps its own, smaller frame; the surface fallback keeps the full-width one.
+    # The bead-overlap figure keeps its own, smaller frame; it is the pane's only iframe now.
     frame = pane.locator('.rvm-overlap-frame')
     expect(frame).to_have_count(1)
     size = frame.evaluate("el => { const style = getComputedStyle(el);"

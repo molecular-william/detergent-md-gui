@@ -58,6 +58,11 @@ def _cg_payload(data):
     composition_id = parameterization.get('composition_id') or data.get('composition_id')
     if not composition_id:
         raise ValueError('A composition CG run requires parameterization.composition_id')
+    revision = parameterization.get('composition_revision')
+    if revision is None:
+        revision = data.get('composition_revision')
+    if revision is not None and (isinstance(revision, bool) or not isinstance(revision, int) or revision < 0):
+        raise ValueError('parameterization.composition_revision must be a non-negative integer')
     for key in ('mapping_candidate', 'mapping_snapshot', 'reference_run_id'):
         if data.get(key) not in (None, ''):
             raise ValueError(f'A composition CG run cannot include {key}')

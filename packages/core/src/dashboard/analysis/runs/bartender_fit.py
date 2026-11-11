@@ -13,8 +13,10 @@ Two reconciliations it has to make, both learned by doing it by hand first:
   the virtual sites   the exporter's `.ndx` names the *physical* beads while the generated topology's atoms include
                       the ring virtual sites, so the two number the molecule differently. The topology is renumbered
                       to its physical beads and `virtual_sitesn` dropped, because a virtual site has no atoms to fit.
-  the trajectory      `-owntraj` takes DCD or multi-PDB, and this GROMACS writes XTC even when asked for `.dcd`, so
-                      the trajectory is written here.
+  the trajectory      `-owntraj` takes DCD or multi-PDB, and it is written here as a multi-PDB: goChem's DCD
+                      reader panics on the DCD MDAnalysis writes for a 12-heavy-atom molecule -- 12 * 4 bytes is
+                      exactly the 48-byte unit-cell block, so the unit cell is read as the X block and EOF lands
+                      in a critical read instead of the one that sets its last-frame flag.
 
 What it refuses: a run with no atomistic reference mapped onto the beads, because there is nothing to fit against.
 """
@@ -39,7 +41,9 @@ REPORT = 'bartender-fit.json'
 #: that fails.
 TOOL_TIMEOUT = 1200
 FITTED = 'gmx_out.itp'
-TRAJECTORY = 'solute_heavy.dcd'
+#: `-owntraj` takes DCD, multi-PDB or multi-XYZ. It is a multi-PDB here: goChem's DCD reader mistakes the
+#: 48-byte unit cell of a 12-atom frame for the X block and panics at EOF (`panic: dcd file  error: EOF`).
+TRAJECTORY = 'solute_heavy.pdb'
 INPUT_FILE = 'bartender.inp'
 #: BARTENDER's own default for the improper histogram is 1 degree, and its Newton fit does not converge at that width
 #: on a linkage an `ff_inter` topology writes as an improper (`funct 2`): the fit spins until the analysis kills it, so
@@ -56,9 +60,16 @@ ARITY = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
 def _run(command, cwd, timeout=None, env=None):
     """Run a tool with no terminal to answer: BARTENDER under an analysis subprocess went into `Sl` and stayed there,
     where the same command in a shell finished in a minute -- a prompt with nothing to answer it. `stdin=DEVNULL` turns
-    that into an end of input, and the timeout turns it into a failure rather than a task that never returns."""
-    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout or TOOL_TIMEOUT,
-                          env=env, stdin=subprocess.DEVNULL, check=True)
+    that into an end of input, and the timeout turns it into a failure rather than a task that never returns.
+
+    The failure keeps the tool's own words: the analysis kind has no job log to stream to, so its record would
+    otherwise say only that something exited non-zero."""
+    done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout or TOOL_TIMEOUT,
+                          env=env, stdin=subprocess.DEVNULL, check=False)
+    if done.returncode != 0:
+        from ...execution.environment import failure_detail
+        raise RuntimeError(f'{Path(str(command[0])).name} {failure_detail(done)}')
+    return done
 
 
 def find(root: Path, pattern: str) -> Path | None:
@@ -248,12 +259,18 @@ def shell_command(bartender, cpus, region, **kwargs) -> list[str]:
     return ['bash', '-c', f'source {shlex.quote(str(Path(region) / "bartender_config.sh"))}; exec {inner}']
 
 
-def run(work, payload=None) -> dict:
-    """Fit the molecule's bonded terms with BARTENDER and report them beside the ensemble they came from."""
+def run(work, payload=None, runner=None) -> dict:
+    """Fit the molecule's bonded terms with BARTENDER and report them beside the ensemble they came from.
+
+    `runner` is the command runner the caller wants the tool run through. The fit job hands its own, which
+    streams the output into the job log and can end the process on cancellation; the analysis worker leaves it
+    to `_run`, which has no job to log to but still reports the tool's own failure line.
+    """
     from ...execution import tools
 
     work = Path(work)
     payload = dict(payload or {})
+    execute = runner or _run
     bartender = tools.tool_path('bartender')
     if not bartender:
         raise ValueError('BARTENDER is not resolvable: check config/tools.json and that the tool is present')
@@ -286,9 +303,11 @@ def run(work, payload=None) -> dict:
 
     universe = mda.Universe(str(structure_path), str(trajectory_path))
     heavy = universe.select_atoms('not name H*')
-    with mda.Writer(str(work / TRAJECTORY), len(heavy)) as writer_dcd:
+    # One MODEL per frame, heavy atoms only, in the same order as `solute_heavy.gro`: `-owntraj` reads this
+    # without touching the DCD reader that panics on a 12-atom frame.
+    with mda.Writer(str(work / TRAJECTORY), len(heavy), multiframe=True) as writer_pdb:
         for _ in universe.trajectory:
-            writer_dcd.write(heavy)
+            writer_pdb.write(heavy)
 
     physical, names = physical_topology(topology_path.read_text(), beads)
     (work / 'physical.itp').write_text(physical)
@@ -296,13 +315,13 @@ def run(work, payload=None) -> dict:
     # The `.ndx` may already sit where the tool expects it; copying a file onto itself is an error, not a no-op.
     if ndx_path.resolve() != (work / 'mapping.ndx').resolve():
         shutil.copy2(ndx_path, work / 'mapping.ndx')
-    _run([sys.executable, str(writer), '-n', 'mapping.ndx', '-i', 'physical.itp', '-o', INPUT_FILE], cwd=work)
+    execute([sys.executable, str(writer), '-n', 'mapping.ndx', '-i', 'physical.itp', '-o', INPUT_FILE], cwd=work)
 
     environment = dict(os.environ)
     environment['BTROOT'] = str(region)
     cpus = int(payload.get('cpus') or 8)
-    _run(shell_command(bartender, cpus, region), cwd=work, env=environment,
-         timeout=int(payload.get('timeout') or TOOL_TIMEOUT))
+    execute(shell_command(bartender, cpus, region), cwd=work, env=environment,
+            timeout=int(payload.get('timeout') or TOOL_TIMEOUT))
 
     fitted = fitted_terms((work / FITTED).read_text()) if (work / FITTED).is_file() else {}
     # `payload['timeout']` is honoured because a model can legitimately need longer: one that writes its linkage

@@ -278,13 +278,12 @@ def prepare(run_dir, metadata):
     elif kind == 'composition':
         prepared_metadata = _composition_metadata(metadata)
         record = composition.PROTOCOL.prepare(run_dir, prepared_metadata)
-        # What the run consumed, in the shape a reader asks of every CG kind. The composition's own `molecule_id` and
-        # the AA molecule its head came from are recorded here: a reader can tell the model it selected from the
-        # molecule the derivation borrowed its published terms from.
-        parameterization = {'kind': 'composition',
-                            'composition_id': prepared_metadata.get('composition_id'),
-                            'molecule_id': record.get('molecule_id'),
-                            'head_molecule_id': record.get('head_molecule_id')}
+        # The composition's own manifest already carries the revision it consumed and the digests that prove it
+        # (`composition.prepare`); this keeps that block rather than restating a shorter one, so a reader cannot see
+        # a run that names revision 1 while the record said only "composition".
+        parameterization = dict(record.get('parameterization') or {})
+        parameterization['kind'] = 'composition'
+        parameterization.setdefault('composition_id', prepared_metadata.get('composition_id'))
     else:
         raise ValueError(f'Unknown CG parameterization kind: {kind}')
     manifest = Path(run_dir) / 'manifest.json'

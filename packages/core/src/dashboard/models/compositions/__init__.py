@@ -223,12 +223,17 @@ def artifacts(record):
     return paths_found
 
 
-def _itp_terms(path):
+def term_counts(topology):
     """The bead and term counts of a composition topology, read with the shared ITP section reader."""
-    counts = {name: len(rows) for name, rows in itp.sections(Path(path).read_text())
+    counts = {name: len(rows) for name, rows in itp.sections(topology)
               if name in TERM_SECTIONS and rows}
     beads = counts.pop('atoms', 0)
     return beads, counts
+
+
+def _itp_terms(path):
+    """The bead and term counts of the topology file a composition artifact names."""
+    return term_counts(Path(path).read_text())
 
 
 def derived_parameterization(cid):
@@ -244,13 +249,23 @@ def derived_parameterization(cid):
     found = artifacts(record)
     beads, terms = _itp_terms(found['composition.itp'])
     head = record.get('head_molecule_id')
-    return {'kind': 'composition', 'revision': 0, 'engine': 'composition-derivation',
+    return {'kind': 'composition', 'revision': 0, 'engine': 'composition-derivation', 'base': 'derived',
             'source': 'recipe+reference' if head else 'recipe-only',
             'head_molecule_id': head,
             'topology': {'path': str(found['composition.itp']), 'sha256': files.sha256(found['composition.itp']),
                          'beads': beads, 'terms': terms},
             'coordinates': {'path': str(found['composition.gro']),
                             'sha256': files.sha256(found['composition.gro'])}}
+
+
+def parameterization(cid):
+    """The composition's **current** parameterization in the catalog row shape.
+
+    Revision 0 is the derived model; a saved edit appends revision 1 and makes it current. The catalogue, the
+    panel and a run all read this one answer, so none of them can name a different revision than the others.
+    """
+    from . import parameterizations
+    return parameterizations.descriptor(cid)
 
 
 def composition_detail(cid, project_root=None):
@@ -260,7 +275,7 @@ def composition_detail(cid, project_root=None):
     detail['molecule_name'] = molecule_name(record)
     detail['head_molecule_id'] = record.get('head_molecule_id')
     detail['status'] = record.get('status', 'candidate-unvalidated')
-    detail['parameterization'] = derived_parameterization(cid)
+    detail['parameterization'] = parameterization(cid)
     return detail
 
 

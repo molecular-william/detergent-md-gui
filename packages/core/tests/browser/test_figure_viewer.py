@@ -2,8 +2,8 @@
 
 The viewer is the same `RunFigureViewer` the Runs page used; the panel it is mounted in is the Run view's Analysis
 card, so every selector here is that card's, and the view is opened through the same `?run=` link the Runs table
-offers. What the viewer itself does -- a tab per figure, a stored selection and zoom per run, an iframe for the one
-interactive figure -- is what this file pins; `test_run_view_analysis_browser.py` pins the card around it.
+offers. What the viewer itself does -- a tab per figure, a stored selection and zoom per run, and the image a tab
+shows -- is what this file pins; `test_run_view_analysis_browser.py` pins the card around it.
 """
 import json
 
@@ -17,7 +17,6 @@ WORKSPACE = 'detergent-validation'
 
 SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
        '<circle cx="200" cy="100" r="90" fill="blue"/></svg>')
-HTML = '<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>'
 
 
 def seed(dashboard, *run_ids, figures=True):
@@ -38,7 +37,6 @@ def seed(dashboard, *run_ids, figures=True):
         if figures:
             for name in ('alpha', 'beta'):
                 (directory / f'{name}.svg').write_text(SVG)
-            (directory / 'surface-comparison.html').write_text(HTML)
     return runs
 
 
@@ -46,7 +44,7 @@ def plots(page, side='A'):
     return page.locator(f'#run-view-analysis-plots-{side}')
 
 
-def open_view(page, live_page, run_id=A_RUN, figures=4):
+def open_view(page, live_page, run_id=A_RUN, figures=3):
     page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={run_id}')
     expect(page.locator('#runview')).to_be_visible()
     expect(plots(page).locator('[role=tab]')).to_have_count(figures)
@@ -71,18 +69,12 @@ def test_run_figure_tabs_zoom_and_mapping_display(dashboard, live_page):
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
     # The selection and the zoom are remembered per run, so a reload comes back to the figure the reader left on.
     page.reload()
-    expect(plots(page).locator('[role=tab]')).to_have_count(4)
+    expect(plots(page).locator('[role=tab]')).to_have_count(3)
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
     # ArrowLeft from beta selected alpha, whose own 125% zoom was remembered.
     expect(plots(page).locator('.figure-source')).to_have_text('alpha.svg')
     plots(page).get_by_role('button', name='Fit / reset', exact=True).click()
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('100%')
-    plots(page).get_by_role('tab', name='surface comparison', exact=True).click()
-    expect(plots(page).locator('iframe.figure-media')).to_have_attribute('sandbox', 'allow-scripts')
-    expect(plots(page).frame_locator('iframe').get_by_role('heading')).to_have_text('Interactive figure')
-    plots(page).get_by_role('button', name='Zoom in', exact=True).click()
-    expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')
-    assert '1.25' in plots(page).locator('iframe').evaluate('(el)=>el.style.transform')
     # The card is inside a monitor column, so it must not push the document sideways on a phone.
     page.set_viewport_size({'width': 390, 'height': 844})
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')

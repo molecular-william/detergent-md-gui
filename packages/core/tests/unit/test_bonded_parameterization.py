@@ -215,7 +215,7 @@ def test_the_record_lives_in_the_workspace_the_application_selected(dashboard):
 
 
 def test_a_record_can_be_read_by_hash_because_the_panel_works_from_hashes():
-    """The revision strip and a run's manifest hold hashes, not the mapping document: the store answers
+    """A hash-addressed reader and a run's manifest hold hashes, not the mapping document: the store answers
     both without one, and an unknown hash is the no-parameterization state rather than an error."""
     candidate = mapping()
     parameterization.save(candidate, revision())
@@ -317,3 +317,193 @@ def test_a_record_written_before_numbers_were_normalised_is_still_this_mappings(
     # float -- is the same mapping, so a fit queued from the panel is addressed by the digest the file produces.
     as_posted = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1}])
     assert parameterization.content_identity(as_posted) == parameterization.content_identity(candidate)
+
+
+# --- editing a stored revision's terms ------------------------------------------------------------------------
+
+from dashboard.models.mappings import context as mapping_context
+
+
+def _sha(revision):
+    return parameterization.revision_sha256(revision)
+
+
+def test_saving_terms_in_place_rewrites_the_current_revision_and_says_manual():
+    """Save in place keeps the revision's number and provenance and rewrites only its topology.
+
+    The Source column is the reason `edited_terms` is recorded: the stored topology no longer says the fit wrote that
+    value, so the row must read ``manual``. The checks are cleared because they described the pre-edit terms.
+    """
+    candidate = mapping()
+    first = parameterization.save(candidate, revision())
+
+    record = parameterization.save_terms(
+        candidate, mode='in_place', revision=1, expected_revision=1, expected_sha256=_sha(first),
+        edits=[{'id': 'bonds:2', 'parameters': [0.33, 6200]}])
+    updated = record['current']
+
+    assert updated['revision'] == 1 and record['revision'] == 1
+    assert '2 3 1 0.33 6200' in updated['topology'] and '1 2 1 0.30 5000' in updated['topology']
+    assert updated['engine'] == first['engine'] and updated['options'] == first['options']
+    assert updated['checks'] == {}
+    sources = {row['id']: row['source'] for row in updated['sources']}
+    assert sources['bonds:2'] == 'manual' and sources['bonds:1'] == 'ff_inter'
+    assert updated['edited_terms'] == [{
+        'id': 'bonds:2', 'kind': 'bonds', 'beads': ['B02', 'B03'], 'function': '1',
+        'before': [0.31, 5000], 'after': [0.33, 6200.0], 'at': updated['edited_terms'][0]['at']}]
+    assert _sha(updated) != _sha(first), 'the digest names the terms, so an edit changes it'
+    assert [item['revision'] for item in record['revisions']] == [1]
+
+
+def test_saving_terms_in_place_refuses_a_stale_number_digest_or_earlier_revision():
+    candidate = mapping()
+    first = parameterization.save(candidate, revision())
+    second = parameterization.save(candidate, revision(engine='bartender'))
+
+    with pytest.raises(parameterization.StaleRevision, match='changed; reload'):
+        parameterization.save_terms(candidate, mode='in_place', revision=2, expected_revision=1,
+                                    expected_sha256=_sha(second), edits=[{'id': 'bonds:1', 'parameters': [0.3, 1]}])
+    with pytest.raises(parameterization.StaleRevision, match='changed since it was read'):
+        parameterization.save_terms(candidate, mode='in_place', revision=2, expected_revision=2,
+                                    expected_sha256='0' * 64, edits=[{'id': 'bonds:1', 'parameters': [0.3, 1]}])
+    with pytest.raises(parameterization.Refused, match='not the current revision'):
+        parameterization.save_terms(candidate, mode='in_place', revision=1, expected_revision=2,
+                                    expected_sha256=_sha(first), edits=[{'id': 'bonds:1', 'parameters': [0.3, 1]}])
+    with pytest.raises(KeyError, match='Unknown parameterization revision'):
+        parameterization.save_terms(candidate, mode='in_place', revision=9, expected_revision=2,
+                                    expected_sha256=_sha(second), edits=[{'id': 'bonds:1', 'parameters': [0.3, 1]}])
+    assert parameterization.current(candidate)['revision'] == 2, 'a refused save writes nothing'
+
+
+def test_saving_terms_in_place_validates_every_edit_against_the_stored_topology():
+    candidate = mapping()
+    topology = TOPOLOGY.replace('[ bonds ]', '[ constraints ]\n1 2 1 0.31\n\n[ bonds ]')
+    item = parameterization.save(candidate, revision(topology=topology))
+    for edits, message in [
+        ([{'id': 'constraints:1', 'parameters': [0.3]}], 'not editable'),
+        ([{'id': 'bonds:9', 'parameters': [0.3, 5000]}], 'No editable term'),
+        ([{'id': 'bonds:1', 'parameters': [0.3, 5000, 1]}], 'takes 2 parameters'),
+        ([{'id': 'bonds:1', 'parameters': [9, 5000]}], 'between 0.01 and 2'),
+        ([], 'No parameter edits'),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            parameterization.save_terms(candidate, mode='in_place', revision=1, expected_revision=1,
+                                        expected_sha256=_sha(item), edits=edits)
+    # The stored terms are untouched by every refusal above.
+    assert parameterization.get(candidate, 1)['topology'] == item['topology']
+
+
+def test_saving_terms_as_new_clones_the_shown_revision_and_leaves_it_alone():
+    candidate = mapping()
+    first = parameterization.save(candidate, revision())
+    before = parameterization.get(candidate, 1)
+
+    record = parameterization.save_terms(
+        candidate, mode='new', revision=1, expected_revision=1, expected_sha256=_sha(first),
+        edits=[{'id': 'bonds:2', 'parameters': [0.33, 6200]}])
+    cloned = record['current']
+
+    assert (record['revision'], cloned['revision']) == (2, 2)
+    assert parameterization.get(candidate, 1) == before, 'the source revision is not rewritten'
+    assert '2 3 1 0.33 6200' in cloned['topology']
+    for key in ('engine', 'ensemble', 'aa_reference', 'options', 'engine_default_source'):
+        assert cloned[key] == before[key], key
+    assert cloned['checks'] == {}
+    assert any('cloned from revision 1' in note for note in cloned['notes'])
+    sources = {row['id']: row['source'] for row in cloned['sources']}
+    assert sources['bonds:2'] == 'manual' and sources['bonds:1'] == 'ff_inter'
+
+
+def test_saving_terms_as_new_from_an_earlier_revision_makes_the_clone_current():
+    candidate = mapping()
+    first = parameterization.save(candidate, revision())
+    parameterization.save(candidate, revision(engine='bartender'))
+
+    record = parameterization.save_terms(
+        candidate, mode='new', revision=1, expected_revision=2, expected_sha256=_sha(first),
+        edits=[{'id': 'angles:1', 'parameters': [118, 30]}])
+
+    assert record['revision'] == 3 and record['current']['revision'] == 3
+    assert record['current']['engine'] == 'fast-forward', 'the clone keeps the shown revision\'s engine'
+    assert [item['revision'] for item in record['revisions']] == [1, 2, 3]
+
+
+def test_a_revision_may_record_the_martini_reference_transcription_source_but_no_engine_lists_it():
+    stored = parameterization.save(mapping(), revision(engine='martini-reference', transcription={'entry': 'SUCR'}))
+
+    assert stored['engine'] == 'martini-reference'
+    assert 'transcribed from the published Martini 3 reference SUCR' in parameterization.describe(stored)
+    assert [item['value'] for item in parameterization.published()] == list(parameterization.ENGINES)
+    assert parameterization.ENGINES == ('fast-forward', 'bartender')
+
+
+def test_seeding_a_revision_from_the_published_reference_states_its_provenance(dashboard):
+    """The seed is a transcription of the molecule's own published entry, with the AA source inherited."""
+    context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', 'Sucrose')
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate['molecule_id'] = 'Sucrose'
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved = mappings.save_draft(candidate)
+    fitted = parameterization.save(saved, revision())
+
+    record = parameterization.save_terms(
+        saved, mode='new', from_reference=True, expected_revision=1,
+        edits=[{'id': 'bonds:1', 'parameters': [0.4, 5100]}],
+        molecule_root=dashboard.coordinator.ROOT / 'molecules')
+    seeded = record['current']
+
+    assert (record['revision'], seeded['revision']) == (2, 2)
+    assert seeded['engine'] == 'martini-reference'
+    assert seeded['engine_default_source'] == 'martini-reference'
+    assert seeded['transcription']['entry'] == 'SUCR'
+    assert seeded['transcription']['sha256']
+    assert seeded['aa_reference'] == fitted['aa_reference'], 'the AA source is inherited for a run'
+    assert seeded['ensemble']['frames'] is None and '[ constraints ]' in seeded['topology']
+    assert seeded['checks'] == {}
+    assert any('not a fit' in note for note in seeded['notes'])
+    assert any("not fitted against it" in note for note in seeded['notes'])
+    sources = {row['id']: row['source'] for row in seeded['sources']}
+    assert sources['bonds:1'] == 'manual'
+    assert sources['constraints:1'] == 'martini-reference'
+    assert 'transcribed from the published Martini 3 reference SUCR' in parameterization.describe(seeded)
+
+
+def test_seeding_refuses_a_mapping_that_is_not_the_published_entry_or_has_no_mapping(dashboard):
+    with pytest.raises(parameterization.Refused, match='no published Martini 3 sugar entry'):
+        parameterization.save_terms(mapping(molecule_id='DDM'), mode='new', from_reference=True,
+                                    expected_revision=0, edits=[],
+                                    molecule_root=dashboard.coordinator.ROOT / 'molecules')
+
+    context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', 'Sucrose')
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate['molecule_id'] = 'Sucrose'
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved = mappings.save_draft(candidate)
+    changed = json.loads(json.dumps(saved))
+    changed['beads'][0]['atoms'] = [999]
+    with pytest.raises(parameterization.Refused, match='beads differ'):
+        parameterization.save_terms(changed, mode='new', from_reference=True, expected_revision=0, edits=[],
+                                    molecule_root=dashboard.coordinator.ROOT / 'molecules')
+
+    with pytest.raises(parameterization.Refused, match='never edited in place'):
+        parameterization.save_terms(saved, mode='in_place', revision=1, expected_revision=0,
+                                    expected_sha256='0' * 64, from_reference=True, edits=[],
+                                    molecule_root=dashboard.coordinator.ROOT / 'molecules')
+
+
+def test_seeding_refuses_a_layout_the_reference_route_would_refuse(dashboard, monkeypatch):
+    """The seed runs the reference route's own gate; a refusal there is the seed's 409 sentence, not an AttributeError."""
+    context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', 'Sucrose')
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate['molecule_id'] = 'Sucrose'
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved = mappings.save_draft(candidate)
+    from dashboard.models.sugars import reference
+
+    def refuse(molecule_id, structure):
+        raise reference.ReferenceRefused('the published entry does not fit this molecule')
+
+    monkeypatch.setattr(reference, 'published_model', refuse)
+    with pytest.raises(parameterization.Refused, match='does not fit this molecule'):
+        parameterization.save_terms(saved, mode='new', from_reference=True, expected_revision=0, edits=[],
+                                    molecule_root=dashboard.coordinator.ROOT / 'molecules')

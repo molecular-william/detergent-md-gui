@@ -41,13 +41,13 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .bead-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .bead-legend-swatch{width:12px;height:12px;border-radius:3px;border:1px solid #00000026;display:inline-block}
 
-/* Producing a parameterization: the model card, the job box, the result card and the revision strip.
+/* Producing a parameterization: the model card, the job box, the result card, and the editable terms table.
  *
  * The panel is the `.panel` grid now, so each of those is a card on the measure rather than a block inside one
- * big card -- the layout the parameterization draft was approved with. Three things here are load-bearing:
- * the provenance list states its own columns (it must not depend on `new-run.css` being loaded), the strip wraps
- * rather than scrolling sideways (a mapping collects revisions for as long as it is used), and the meter has a
- * minimum height so a queued job's 0% is still visible as an empty bar rather than as nothing at all.
+ * big card. Three things here are load-bearing: the provenance list states its own columns (it must not depend on
+ * `new-run.css` being loaded), the parameter inputs sit in an auto-fit grid so a three-parameter dihedral and a
+ * two-parameter bond both stay inside the scrolling table, and the meter has a minimum height so a queued job's
+ * 0% is still visible as an empty bar rather than as nothing at all.
  */
 .bonded-model .section-heading, .bonded-job .section-heading, .bonded-result .section-heading { align-items: flex-start }
 .bonded-model-fields { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 18px; margin-top: 6px }
@@ -89,20 +89,22 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
 .bonded-provenance dd { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere }
 .bonded-checks-list { margin: 8px 0 0; padding-left: 20px; font-size: 13px }
 .bonded-checks-list li { margin: 4px 0 }
-.bonded-revision-strip { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none }
-.bonded-revision-strip > .hint { margin: 0 }
-.bonded-revision { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px;
-  border: 1px solid var(--line); border-radius: 999px; background: #f8fafd; font-size: 12px }
-.bonded-revision[data-current=true] { border-color: var(--accent); background: #edf3ff }
-.bonded-revision-number { font-weight: 750 }
-.bonded-revision-engine, .bonded-revision-date { color: var(--muted); font-variant-numeric: tabular-nums }
-.bonded-revision button { padding: 3px 10px; font-size: 12px }
-.bonded-revision button:disabled { opacity: .8; cursor: default }
 .bonded-columns > .card { margin: 0 }
 .bonded-interaction-table .bonded-source { color: var(--muted); font-variant-numeric: tabular-nums }
+/* The editable parameter cell: one label+input per parameter, in the function's own order. Auto-fit keeps a two-
+ * parameter bond compact and a three-parameter dihedral inside the table; the dirty accent is the only "unsaved"
+ * marker inside the row (the status line says it in words). */
+.bonded-term-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 6px }
+.bonded-term-inputs label { margin: 0; font-size: 11px; font-weight: 600; color: var(--muted) }
+.bonded-term-inputs input { width: 100%; margin-top: 3px; padding: 4px 6px; border: 1px solid var(--line);
+  border-radius: 6px; background: #fff; color: var(--ink); font: inherit; font-size: 12.5px;
+  font-variant-numeric: tabular-nums }
+.bonded-term-inputs input[data-dirty=true] { border-color: var(--accent); background: #eef4ff }
+.bonded-terms-actions { margin: 10px 0 0; border-top: 1px solid var(--line); padding-top: 12px }
+#bonded-terms-status[data-state=warn] { color: #8a4a00 }
+#bonded-terms-status[data-state=error] { color: var(--danger); font-weight: 600 }
 @media (max-width: 700px) {
   .bonded-provenance { grid-template-columns: minmax(0, 1fr) }
-  .bonded-revision { border-radius: 10px }
 }
 
 /* The model card's two columns: the seven fields three to a row on the left, the torsion fieldset beside them rather

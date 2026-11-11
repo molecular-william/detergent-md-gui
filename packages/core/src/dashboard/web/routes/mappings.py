@@ -1,6 +1,5 @@
 """Mapping workspace endpoints: candidates, drafts, review, exports, diagrams."""
 import io
-import json
 import zipfile
 
 from flask import Blueprint, Response, abort, jsonify, request, send_file
@@ -18,9 +17,6 @@ from ...models.mappings import (
 )
 from ...models.mappings import (
     suggestions as mapping_suggestions,
-)
-from ...models.sugars import (
-    coords as sugar_coords,
 )
 from ...models.sugars import (
     reference as sugar_reference,
@@ -70,42 +66,13 @@ def mapping_reference(molecule_id):
     A molecule with no published entry, or a layout that departs from the entry, answers 404 with the reason.
     """
     context = query_context(molecule_id)
-    expected = sugar_reference.PUBLISHED_FOR.get(molecule_id)
-    if expected is None:
-        abort(404, f'{molecule_id} has no published Martini 3 sugar entry; a matching bead layout is not the same '
-                   'as being the molecule the entry describes')
     try:
-        candidate = sugar_coords.candidate(molecule_context.as_structure(context), molecule_id)
-        if candidate is None:
-            abort(404, 'No recognised sugar ring in this molecule')
-        identified = candidate.get('reference') or {}
-        entry_name = identified.get('entry')
-        if not entry_name:
-            abort(404, 'The bead layout does not identify a published sugar entry')
-        if not sugar_reference.accepts_identity(candidate, context['molecule_id'], expected):
-            abort(404, f'The bead layout identifies {entry_name}, not this molecule\'s published entry {expected}')
-        issues = sugar_reference.conform(candidate, expected)
+        model = sugar_reference.published_model(molecule_id, molecule_context.as_structure(context))
+    except sugar_reference.ReferenceRefused as exc:
+        abort(404, str(exc))
     except (OSError, ValueError, KeyError) as exc:
         abort(400, str(exc))
-    if issues:
-        abort(404, '; '.join(issues))
-    provenance = json.loads(sugar_reference.provenance_path().read_text())
-    provenance['path'] = sugar_reference.reference_path().relative_to(sugar_reference.ROOT).as_posix()
-    return jsonify(model={
-        'file': f'reference:{molecule_id}',
-        'name': f'Martini 3 sugar reference · {expected}',
-        'molecule_id': context['molecule_id'],
-        'read_only': True,
-        'reference_entry': expected,
-        'beads': candidate['beads'],
-        'rings': candidate['rings'],
-        'connections': candidate['connections'],
-        'topology': sugar_reference.run_topology(expected),
-        'reference': provenance,
-        'limitations': candidate['limitations'],
-        'layout_note': sugar_reference.layout_note(candidate, expected),
-        'status': 'published-reference',
-    })
+    return jsonify(model=model)
 
 
 @blueprint.post('/api/mappings/overlay3d')

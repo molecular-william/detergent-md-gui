@@ -10,8 +10,9 @@
 //
 // **The server's `/figures` answer is the figure list.** It carries the run's current set (newest attempt of each
 // analysis kind) and how many earlier sets it replaced, so this module does not walk the artifact index and does not
-// guess which image is current. `RunFigureViewer` is the same viewer the Runs card used: tabs, captions, zoom, and an
-// iframe for the one interactive figure.
+// guess which image is current. `RunFigureViewer` is the same viewer the Runs card used: tabs, captions, zoom, and
+// pan for an image larger than its frame. Every figure it lists is a PNG or SVG; an interactive HTML artifact is
+// published data, not a figure tab, so the viewer carries no iframe.
 //
 // **The queue is the job record's own.** Every button posts the route it always did; the answer to a queue is not a
 // figure but a task, so the card asks `/analyses` again and re-reads `/figures` once a task settles. It polls only

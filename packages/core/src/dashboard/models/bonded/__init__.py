@@ -41,6 +41,66 @@ FUNCTIONS = {
     for kind, choices in FUNCTION_SPECS.items()
 }
 
+#: The editable parameter ranges, one row per (kind, function) and one entry per parameter, in the function's own
+#: order. JSON-safe on purpose: lane D publishes it for the browser's parameter editor and ``validate_term`` reads the
+#: same table, so the panel cannot offer a range the store would refuse.
+#:
+#: The bounds are the ones ``validate`` has always applied to a mapping override: a bond length and an angle in nm/deg,
+#: a dihedral phase in deg, every force constant 0-100000, and a periodic multiplicity an integer 1-6. Constraints and
+#: virtual sites are absent: their values are the mapping's readings, not a draft.
+_RANGE_BOUNDS = {
+    'bonds': {1: [(0.01, 2, False), (0, 100000, False)]},
+    'angles': {
+        1: [(0, 180, False), (0, 100000, False)],
+        2: [(0, 180, False), (0, 100000, False)],
+        10: [(0, 180, False), (0, 100000, False)],
+    },
+    'dihedrals': {
+        1: [(-180, 180, False), (0, 100000, False), (1, 6, True)],
+        2: [(-180, 180, False), (0, 100000, False)],
+        9: [(-180, 180, False), (0, 100000, False), (1, 6, True)],
+    },
+}
+PARAMETER_RANGES = {
+    kind: {
+        function: [{'min': low, 'max': high, 'integer': integer,
+                    'label': label}
+                   for (low, high, integer), label in zip(bounds, FUNCTION_PARAMETER_LABELS[kind][function])]
+        for function, bounds in choices.items()
+    }
+    for kind, choices in _RANGE_BOUNDS.items()
+}
+
+
+def validate_term(kind, function, parameters):
+    """Check one term's parameters against ``PARAMETER_RANGES`` and return them normalised.
+
+    The single validator for a hand edit and for a mapping override: an unknown kind/function, a parameter count
+    that does not belong to the function, a non-finite value, a value outside its range or a non-integer
+    multiplicity is a ``ValueError`` naming the field. A constraint or a virtual site is not in the table, so the
+    caller's own "not editable" sentence is the refusal it gets.
+    """
+    try:
+        function = int(function)
+    except (TypeError, ValueError):
+        raise ValueError(f'Unsupported bonded function: {function!r}') from None
+    bounds = PARAMETER_RANGES.get(kind, {}).get(function)
+    if bounds is None:
+        raise ValueError(f'Unsupported bonded function: {function!r} for {kind}')
+    if not isinstance(parameters, list) or len(parameters) != len(bounds):
+        raise ValueError(f'Function {function} of {kind} takes {len(bounds)} parameters')
+    values = []
+    for value, bound in zip(parameters, bounds):
+        label = bound['label']
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f'The {label} must be a finite number')
+        if bound['integer'] and int(value) != value:
+            raise ValueError(f"The {label} must be an integer from {bound['min']} to {bound['max']}")
+        if not bound['min'] <= value <= bound['max']:
+            raise ValueError(f"The {label} must be between {bound['min']} and {bound['max']}")
+        values.append(int(value) if bound['integer'] else float(value))
+    return values
+
 
 def _function_options(kind):
     return [
@@ -110,6 +170,73 @@ def parse_interactions(topology):
     return rows
 
 
+def rewrite_interactions(topology, edits):
+    """Replace edited terms' parameters in a topology, preserving every other byte of text.
+
+    ``edits`` maps a term id (the ``kind:n`` ids ``parse_interactions`` produces) to its new parameter values. Only
+    the fields after the atom indices and the stored function change; the leading whitespace and the trailing ``;``
+    comment are kept, and every other line -- headers, ``#ifdef`` directives, comments, sections with no edit -- is
+    copied through. The function is not editable, so it is read from the stored line rather than taken from the
+    caller.
+
+    The result is read back through ``parse_interactions``: the per-kind counts must be unchanged and every edited id
+    must carry the requested values. A mismatch is a ``RuntimeError`` (a store defect), not a bad request; an unknown
+    id is a ``ValueError``.
+    """
+    if not isinstance(topology, str):
+        raise ValueError('A topology is required')
+    wanted = {str(term_id): list(parameters) for term_id, parameters in (edits or {}).items()}
+    if not wanted:
+        return topology
+    for term_id in wanted:
+        if str(term_id).split(':', 1)[0] not in FUNCTIONS:
+            raise ValueError(f'No editable term {term_id} in this topology')
+    applied = set()
+    section = None
+    counts = {}
+    lines = []
+    for raw in topology.split('\n'):
+        clean = raw.split(';', 1)[0].strip()
+        replacement = None
+        if clean and not clean.startswith('#'):
+            if clean.startswith('[') and clean.endswith(']'):
+                section = clean[1:-1].strip().lower()
+            elif section in SECTION_WIDTHS:
+                width = SECTION_WIDTHS[section]
+                fields = clean.split()
+                if len(fields) >= width + 1:
+                    try:
+                        indices = [int(value) for value in fields[:width]]
+                    except ValueError:
+                        indices = None
+                    if indices is not None:
+                        counts[section] = counts.get(section, 0) + 1
+                        term_id = f'{section}:{counts[section]}'
+                        parameters = wanted.get(term_id)
+                        if parameters is not None:
+                            prefix = raw[:len(raw) - len(raw.lstrip())]
+                            suffix = ' ;' + raw.split(';', 1)[1] if ';' in raw else ''
+                            rendered = ' '.join([*(str(index) for index in indices), fields[width],
+                                                 *(f'{value:g}' for value in parameters)])
+                            replacement = prefix + rendered + suffix
+                            applied.add(term_id)
+        lines.append(raw if replacement is None else replacement)
+    missing = set(wanted) - applied
+    if missing:
+        raise ValueError(f'No editable term {sorted(missing)[0]} in this topology')
+    rewritten = '\n'.join(lines)
+    before = [(row['kind'], row['id']) for row in parse_interactions(topology)]
+    after = {row['id']: row for row in parse_interactions(rewritten)}
+    if [(row['kind'], row['id']) for row in parse_interactions(rewritten)] != before:
+        raise RuntimeError('The edited topology did not read back with the same terms')
+    for term_id, parameters in wanted.items():
+        row = after.get(term_id)
+        if row is None or any(abs(float(stored) - float(value)) > 1e-12
+                              for stored, value in zip(row['parameters'], parameters)):
+            raise RuntimeError('The edited topology did not read back as the store wrote it')
+    return rewritten
+
+
 def validate(data):
     options = data.get('bonded_options', {})
     if not isinstance(options, dict) or set(options)-{'torsion_model','torsion_scale'}:
@@ -141,14 +268,9 @@ def validate(data):
         allowed = {'bonds':{1:2}, 'angles':{1:2,2:2,10:2}, 'dihedrals':{1:3,2:2,9:3}}[section]
         if type(func) is not int or func not in allowed or not isinstance(params,list) or len(params)!=allowed[func]:
             raise ValueError('Unsupported bonded function or parameter count')
-        if any(type(v) not in (int,float) or not math.isfinite(v) for v in params):
-            raise ValueError('Bonded parameters must be finite numbers')
-        if not 0 <= params[1] <= 100000:
-            raise ValueError('Bonded force constant must be between 0 and 100000')
-        lo, hi = {'bonds':(0.01,2), 'angles':(0,180), 'dihedrals':(-180,180)}[section]
-        if not lo <= params[0] <= hi: raise ValueError('Bonded equilibrium value outside allowed range')
-        if len(params)==3 and (int(params[2])!=params[2] or not 1<=params[2]<=6):
-            raise ValueError('Periodic torsion multiplicity must be an integer from 1 to 6')
+        # One validator for a mapping override and a revision's hand edit: the ranges and the force/integer rules
+        # cannot drift between the two doors.
+        validate_term(section, func, params)
         key = (section,min(tuple(names),tuple(reversed(names))))
         if key in seen: raise ValueError('Duplicate bonded override')
         seen.add(key)

@@ -251,8 +251,12 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     facts.textContent = ` · ${model.molecule_name || model.name} · ${model.status || 'candidate-unvalidated'}`;
     status.append(title, facts);
     const note = document.createElement('p'); note.className = 'hint';
-    note.textContent = "This run reads the composition's own immutable topology and coordinates. There is no AA "
-      + 'stage, no mapping and no fit; the parameterization is derived from the recipe and the head reference.';
+    const revision = model.parameterization?.revision ?? 0;
+    note.textContent = revision
+      ? `This run reads the composition's own immutable geometry and parameterization revision ${revision} (its `
+        + 'bonded terms were edited in Combinations). There is no AA stage, no mapping and no fit.'
+      : "This run reads the composition's own immutable topology and coordinates. There is no AA "
+        + 'stage, no mapping and no fit; the parameterization is derived from the recipe and the head reference.';
     panel.replaceChildren(note);
   }
 
@@ -381,13 +385,15 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     fillModels(candidates, records, reference, wanted);
   }
 
-  /** The one derived model a composition has: read-only, revision 0, and named with its source and head link. */
+  /** The composition's current parameterization: revision 0 (the derived model), or a revision edited in Combinations. */
   function fillCompositionModel(model) {
     const key = `composition:${model.id}`;
     const parameterization = model.parameterization || {};
+    const revision = parameterization.revision ?? 0;
+    const base = parameterization.base || (revision ? 'edited' : 'derived');
     const source = parameterization.source ? ` · ${parameterization.source}` : '';
     const head = model.head_molecule_id ? ` · links to ${model.head_molecule_id}` : '';
-    const label = `derived · revision ${parameterization.revision ?? 0} · composition recipe${source}${head}`;
+    const label = `${base} · revision ${revision} · composition recipe${source}${head}`;
     const group = document.createElement('optgroup');
     group.label = 'Derived composition';
     const option = new Option(label, key);
@@ -481,7 +487,12 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   function parameterizationPayload() {
     const model = selectedModel();
     if (model?.kind === 'reference') return {kind: 'reference', sugar_entry: model.entry};
-    if (model?.kind === 'composition') return {kind: 'composition', composition_id: model.id};
+    if (model?.kind === 'composition') {
+      // The revision is the model the panel showed: a run names it, so a later edit cannot change what this run
+      // consumes. The catalogue's row carries the current revision; revision 0 is the derived model.
+      return {kind: 'composition', composition_id: model.id,
+              composition_revision: model.model?.revision ?? 0};
+    }
     return {kind: 'revision',
             mapping_candidate: model?.file || '',
             revision: model?.revision ?? null,

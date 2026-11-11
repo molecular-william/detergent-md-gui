@@ -286,7 +286,8 @@ def test_a_saved_composition_is_a_molecule_and_posts_its_derived_model(dashboard
     expect(page.locator('#notice')).to_have_text('Run queued.')
 
     assert posted['run_type'] == 'cg' and posted['molecule_id'] == record['molecule_id']
-    assert posted['parameterization'] == {'kind': 'composition', 'composition_id': record['id']}
+    assert posted['parameterization'] == {'kind': 'composition', 'composition_id': record['id'],
+                                           'composition_revision': 0}
     for retired in ('mapping_candidate', 'reference_run_id', 'sugar_entry', 'method', 'profile', 'force_field'):
         assert retired not in posted, f'{retired} is still sent: {posted}'
     # The composition adapter's CG dialect, not the AA half's: the AA durations never reach this run.
@@ -297,7 +298,8 @@ def test_a_saved_composition_is_a_molecule_and_posts_its_derived_model(dashboard
     # The two questions before the queue used the composition kind as well.
     readiness = [json.loads(parse_qs(urlsplit(url).query)['parameterization'][0])
                  for url in seen['readiness'] if 'parameterization=' in url]
-    assert {'kind': 'composition', 'composition_id': record['id']} in readiness, readiness
+    assert {'kind': 'composition', 'composition_id': record['id'], 'composition_revision': 0} in \
+        readiness, readiness
     assert any(parse_qs(urlsplit(url).query).get('parameterization_kind') == ['composition']
                for url in seen['defaults']), seen['defaults']
     assert errors == []

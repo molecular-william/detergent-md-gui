@@ -45,7 +45,7 @@ def publish(dashboard, jid, attempt='attempt1', comparison=None, output='output/
 
 SURFACES = {
     'probe_nm': 0.191, 'rendering': 'SAS mesh, GROMACS Connolly dots retained separately',
-    'scientifically_validated': False, 'comparison_html': 'analysis/surfaces/surface-comparison.html',
+    'scientifically_validated': False,
     'aa_cg_comparison': 'analysis/surfaces/surface-comparison-aa-cg.json',
     'statistics': {'AA': {'frames': 20001, 'start_ps': 0.0, 'end_ps': 200000.0,
                           'mean_nm2': 5.8157, 'std_nm2': 0.077, 'xvg': 'analysis/surfaces/aa/sasa.xvg'},
@@ -62,7 +62,6 @@ def publish_surfaces(dashboard, jid, attempt='attempt1', output='output/abc123',
     surfaces_dir = directory / output / 'analysis/surfaces'
     surfaces_dir.mkdir(parents=True)
     (surfaces_dir / 'metadata.json').write_text(json.dumps(published))
-    (surfaces_dir / 'surface-comparison.html').write_text('<html>envelopes</html>')
     (surfaces_dir / 'surface-comparison-aa-cg.json').write_text(json.dumps({'panels': []}))
     (surfaces_dir / 'aa').mkdir(exist_ok=True); (surfaces_dir / 'simulated-cg').mkdir(exist_ok=True)
     (surfaces_dir / 'aa/sasa.xvg').write_text('0 5.80\n100 5.82\n')
@@ -72,7 +71,7 @@ def publish_surfaces(dashboard, jid, attempt='attempt1', output='output/abc123',
     return directory
 
 
-def test_a_published_surfaces_analysis_comes_with_its_numbers_and_its_figure(dashboard):
+def test_a_published_surfaces_analysis_comes_with_its_numbers(dashboard):
     """The envelope analysis is its own kind and its own attempt; the panel reads what it published."""
     job(dashboard, 'aa11bb22cc33')
     publish(dashboard, 'aa11bb22cc33')
@@ -85,9 +84,8 @@ def test_a_published_surfaces_analysis_comes_with_its_numbers_and_its_figure(das
     assert surfaces['statistics']['Simulated CG']['mean_nm2'] == 5.599
     assert surfaces['validated'] is False
     assert 'SAS mesh' in surfaces['rendering']
-    # Relative to the run directory, so the panel builds the artifact URL from it and never from a filesystem path.
-    assert surfaces['figure'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
-                                  'analysis/surfaces/surface-comparison.html')
+    # The removed interactive figure is not a payload field; the pair JSON is the Shape pane's data.
+    assert 'figure' not in surfaces
     assert surfaces['aa_cg_comparison'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
                                             'analysis/surfaces/surface-comparison-aa-cg.json')
     assert surfaces['statistics']['AA']['xvg'] == ('analyses/surfaces/hash/attempt1/output/abc123/'

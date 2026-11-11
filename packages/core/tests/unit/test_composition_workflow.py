@@ -10,12 +10,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import pytest
 from dashboard.execution import protocol, run_inputs, run_scripts
 from dashboard.execution.adapters import cg, cg_run, composition
 from dashboard.execution.environment import ROOT
 from dashboard.models import compositions
+from dashboard.models.compositions import parameterizations
 
 PAYLOAD = {'head_fragment_id': 'builtin:martini-sugars-v2:GLC', 'tail_recipe_id': 'linear-c1',
            'carbon_count': 12, 'head_endpoint': {'bead': 'C'}, 'tail_endpoint': {'bead': 'C01'},
@@ -91,8 +93,11 @@ def test_prepare_writes_the_cg_build_the_script_reads(tmp_path, saved):
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['run_type'] == 'cg' and manifest['execution_kind'] == 'cg-simulation'
     assert manifest['composition_id'] == saved['id'] and manifest['composition_identity'] == saved['identity']
-    assert manifest['parameterization'] == {'kind': 'composition', 'composition_id': saved['id'],
-                                            'molecule_id': saved['id'], 'head_molecule_id': None}
+    derived_digest = saved['snapshot']['artifacts']['composition.itp']
+    assert manifest['parameterization'] == {
+        'kind': 'composition', 'composition_id': saved['id'], 'composition_revision': 0,
+        'base': 'derived', 'base_sha256': derived_digest, 'topology_sha256': derived_digest,
+        'molecule_id': saved['id'], 'head_molecule_id': None}
     assert manifest['cg_names'] == {'residue_name': 'GLC', 'initial_itp': 'GLC.itp', 'final_itp': 'GLC.itp'}
     assert manifest['stage_plan'] == [name for name, _ in composition.STAGES]
     assert manifest['scientifically_validated'] is False
@@ -193,3 +198,74 @@ def test_the_settings_are_the_cg_dialect_and_are_advertised():
     profile = protocol.profile_for_run_type('cg')
     defaults = cg_run.defaults_for('composition')
     assert defaults['values']['cg_production_ps'] == cg.stage_defaults(profile)['values']['cg_production_ps']
+
+
+# --- the revision a run consumes, and one real (short) CG run ---------------------------------------------------------
+
+OVERRIDE = [{'section': 'bonds', 'beads': ['C', 'C01'], 'function': 1, 'parameters': [0.47, 3000]}]
+
+
+def test_prepare_with_no_named_revision_consumes_the_current_one(tmp_path, saved):
+    """The precedence rule: a payload that names no revision gets the record's current one, not revision 0."""
+    item = parameterizations.save(saved['id'], {'overrides': OVERRIDE}, expected_revision=0)
+    _prepare(tmp_path / 'run', saved)
+    assert (tmp_path / 'run/stages/3_initial_CG/GLC.itp').read_text() == item['topology']
+    manifest = json.loads((tmp_path / 'run/manifest.json').read_text())
+    assert manifest['parameterization']['composition_revision'] == item['revision'] == 1
+
+
+def test_readiness_answers_the_revision_the_payload_names(monkeypatch, saved):
+    """A named revision that the record does not hold is a blocker, never a silent fall back to current."""
+    import dashboard.execution.adapters.composition as composition_adapter
+    monkeypatch.setattr(composition_adapter.tools, 'tool_path', lambda name, **kwargs: f'/injected/{name}')
+    parameterizations.save(saved['id'], {'overrides': OVERRIDE}, expected_revision=0)
+    metadata = {'composition_id': saved['id'], 'molecule_id': saved['id'], 'profile': 'draft-smoke-reference',
+                'parameterization': {'kind': 'composition', 'composition_id': saved['id'],
+                                     'composition_revision': 1}}
+    ready = cg_run.PROTOCOL.readiness(metadata)
+    assert ready['ready'] is True, ready['blockers']
+    unknown = cg_run.PROTOCOL.readiness({**metadata, 'parameterization': {
+        'kind': 'composition', 'composition_id': saved['id'], 'composition_revision': 9}})
+    assert unknown['ready'] is False
+    assert 'Unknown composition parameterization revision' in unknown['blockers'][0]
+
+
+@pytest.mark.slow
+def test_a_composition_cg_run_of_an_edited_revision_completes(dashboard):
+    """The proof the 2026-11-10 plan promised: a real, twenty-picosecond CG run through `POST /`.
+
+    The broken geometry that made this test meaningful put the head endpoint and the tail's first bead on the same
+    point; GROMACS' first minimisation step read `-nan`. The run is a timed fixture (measured ~15 s on this host), not
+    a long simulation: 20 ps of equilibration and 20 ps of production.
+    """
+    from dashboard.execution import tools
+    if not tools.tool_path('gmx'):
+        pytest.skip('this host resolves no gmx, so no CG simulation can run here')
+    created = dashboard.client.post('/api/compositions', json=dict(PAYLOAD))
+    assert created.status_code == 201, created.data
+    composition_id = created.json['id']
+    edited = dashboard.client.post(f'/api/compositions/{composition_id}/parameterizations',
+                                   json={'expected_revision': 0, 'overrides': OVERRIDE})
+    assert edited.status_code == 201, edited.data
+    response = dashboard.client.post('/', json={
+        'run_type': 'cg', 'molecule_id': composition_id, 'detergent': composition_id,
+        'label': 'composition-edited-run',
+        'parameterization': {'kind': 'composition', 'composition_id': composition_id, 'composition_revision': 1},
+        'cg_equil_ps': 20, 'cg_production_ps': 20, 'temperature_k': 300, 'output_interval_ps': 20,
+        'cg_seed': 1, 'mdrun_ntomp': 2, 'mdrun_ranks': 1, 'mdrun_cpt': 5})
+    assert response.status_code == 201, response.data
+    started = time.monotonic()
+    deadline = started + 60
+    job = dashboard.coordinator.lookup(response.json['id'])
+    while job['status'] not in ('completed', 'failed', 'cancelled', 'blocked') and time.monotonic() < deadline:
+        time.sleep(1)
+        job = dashboard.coordinator.lookup(response.json['id'])
+    elapsed = time.monotonic() - started
+    assert job['status'] == 'completed', (job.get('status'), job.get('stage'), job.get('error'))
+    assert elapsed < 60, f'the 20 ps fixture run took {elapsed:.1f} s'
+    manifest = json.loads((dashboard.coordinator.run_path(job) / 'manifest.json').read_text())
+    assert [(stage['name'], stage['status']) for stage in manifest['stages']] == [
+        ('CG simulation', 'completed'), ('CG assessment', 'skipped')]
+    assert manifest['parameterization']['composition_revision'] == 1
+    staged = (dashboard.coordinator.run_path(job) / 'stages/3_initial_CG/GLC.itp').read_text()
+    assert ' 3000' in staged, 'the run staged the edited terms, not revision 0'

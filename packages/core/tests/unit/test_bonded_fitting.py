@@ -15,6 +15,7 @@ land under the isolated workspace the `dashboard` fixture selects.
 """
 import copy
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -471,3 +472,50 @@ def test_a_job_is_found_by_its_own_id_whatever_its_mapping_hash_says(candidate):
     assert [record['id'] for record in fitting.jobs(job_id=first['id'])] == [first['id']]
     assert [record['id'] for record in fitting.jobs(job_id=second['id'])] == [second['id']]
     assert fitting.jobs(job_id='0' * 16) == []
+
+
+def _await_terminal(job_id, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        record = fitting.job(job_id)
+        if record.get('status') in ('completed', 'failed', 'cancelled'):
+            return record
+        time.sleep(0.05)
+    raise AssertionError(f'fit job {job_id} did not finish within {timeout:g} s')
+
+
+def test_a_failing_tool_writes_its_stderr_to_the_job_log_and_the_record_names_the_cause(candidate, dashboard,
+                                                                                        monkeypatch):
+    """Measured on Glucose job 55f1c70debc74bea: `capture_output=True` dropped BARTENDER's
+    `panic: dcd file  error: EOF`, so the panel showed an empty log and only "returned non-zero exit status 2".
+    The engine now runs through the job's own runner."""
+    from dashboard.analysis.runs import bartender_fit
+
+    work = fitting.work_dir(candidate, REFERENCE['run_id'])
+    write_frames(work / '2_mapping', candidate['beads'], frames=2)
+
+    def failing(work, payload=None, runner=None):
+        assert runner is not None, 'the job hands BARTENDER its own runner, or its output is lost'
+        runner(['bash', '-c', 'echo "panic: dcd file  error: EOF" >&2; exit 2'], work)
+
+    monkeypatch.setattr(bartender_fit, 'run', failing)
+    record = fitting.start(candidate, engine='bartender', reference=REFERENCE, molecule_root=MOLECULES)
+    ended = _await_terminal(record['id'])
+
+    assert ended['status'] == 'failed'
+    assert 'exited 2' in ended['error'], 'the record says what failed, not only an exit status'
+    assert 'panic: dcd file  error: EOF' in ended['error']
+    assert 'panic: dcd file  error: EOF' in ended['log_tail']
+    assert 'panic: dcd file  error: EOF' in Path(ended['log']).read_text()
+    assert parameterization.current(candidate) is None
+
+
+def test_the_job_log_keeps_only_its_tail(tmp_path):
+    """A tool that prints a lot cannot grow a job log without bound; the panel reads a tail anyway."""
+    log = tmp_path / 'job.log'
+    fitting.run_command([sys.executable, '-c', "print('x' * 70000); print('the tail')"],
+                        tmp_path, log=log, timeout=60)
+    text = log.read_text()
+
+    assert len(text) <= fitting.LOG_LIMIT
+    assert 'the tail' in text, 'the end of the output is what a reader diagnoses from'

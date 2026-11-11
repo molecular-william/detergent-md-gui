@@ -23,11 +23,11 @@ def test_only_the_newest_set_of_a_kind_is_shown():
 def test_each_analysis_kind_keeps_its_own_newest_set():
     """Two kinds are two answers; only repeats of one kind are the same picture twice."""
     snapshots = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg')
-    validation = figure('analyses/carbohydrate-validation/cccc/3333/output/z/surface-comparison.html')
+    overview = figure('analyses/trajectory-overview/cccc/3333/output/z/trajectory-overview.png')
 
-    kept, superseded = current_figures([snapshots, validation])
+    kept, superseded = current_figures([snapshots, overview])
 
-    assert sorted(entry['path'] for entry in kept) == sorted([snapshots['path'], validation['path']])
+    assert sorted(entry['path'] for entry in kept) == sorted([snapshots['path'], overview['path']])
     assert superseded == 0
 
 

@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ... import martini3, paths
 from ...models import compositions
+from ...models.compositions import parameterizations as composition_parameterizations
 from .. import devices, protocol, run_inputs, tools
 from ..environment import ROOT, environment, recorded_environment
 from ..mdp import write_mdp
@@ -119,6 +120,24 @@ def _record(metadata):
     return compositions.get(composition_id)
 
 
+def _revision(metadata):
+    """The composition revision the payload names, or None for "the current one".
+
+    A run that names no revision consumes the record's current revision (revision 0, the derived model, when no
+    edit has been saved); a run that names one gets exactly that revision. The value is checked here, at the
+    adapter boundary, so a route and a direct caller cannot disagree about what a legal revision is.
+    """
+    payload = metadata.get('parameterization') if isinstance(metadata, dict) else None
+    value = payload.get('composition_revision') if isinstance(payload, dict) else None
+    if value is None and isinstance(metadata, dict):
+        value = metadata.get('composition_revision')
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError('composition_revision must be a non-negative integer')
+    return value
+
+
 def _context(metadata):
     """The placeholders the stage contract resolves with: the topology file the run will write."""
     names = metadata.get('cg_names') if isinstance(metadata, dict) else None
@@ -139,8 +158,8 @@ def stages(metadata):
     return tuple(stage.resolve(_context(metadata)) for stage in STAGE_DEFS)
 
 
-def readiness(composition_id, molecule_id=None):
-    """Can this composition run start? Its artifacts, their immutability, the molecule binding and GROMACS.
+def readiness(composition_id, molecule_id=None, revision=None):
+    """Can this composition run start? Its artifacts, the named revision, the molecule binding and GROMACS.
 
     A refusal is a blocker, never an exception: a caller that does not know what this run type needs must still get
     an answer. Nothing here writes to the store.
@@ -151,11 +170,18 @@ def readiness(composition_id, molecule_id=None):
         root = compositions.artifact_root(record)
         bound = compositions.molecule_id(record)
         artifacts = compositions.artifacts(record)
+        parameterization = composition_parameterizations.revision(composition_id, revision)
     except (OSError, ValueError, KeyError, FileNotFoundError) as exc:
         return {'ready': False, 'checks': [], 'blockers': [str(exc)]}
     for name in ARTIFACTS:
         checks.append({'label': name, 'path': str(artifacts[name]), 'ready': True,
                        'detail': 'Immutable composition artifact'})
+    checks.append({'label': f"parameterization revision {parameterization['revision']}",
+                   'path': f"composition_revision={parameterization['revision']}",
+                   'ready': True,
+                   'detail': ('Derived from the recipe and the head reference'
+                              if parameterization['revision'] == 0
+                              else f"Edited terms seeded from {parameterization.get('base_sha256', '')[:12]}")})
     if molecule_id and bound != molecule_id:
         blockers.append(f'This composition belongs to {bound}, not {molecule_id}')
         checks.append({'label': 'Molecule binding', 'path': str(root), 'ready': False,
@@ -210,10 +236,15 @@ def prepare(run_dir, metadata):
     sim = stages / '4_CG_sim'
     for directory in (mapping, initial, sim / 'inputs', stages / '5_assessment'):
         directory.mkdir(parents=True, exist_ok=True)
-    # The composition's own geometry and topology, copied into the stage that reads them. The copies are the run's
+    # The composition's own geometry, and the topology of the revision this run consumes: revision 0 is the
+    # immutable derived `.itp`, a saved edit is the revision's own text seeded from it. The copies are the run's
     # generated data; the store stays the immutable original the input record names.
     (mapping / 'mapped.gro').write_bytes(artifacts['composition.gro'].read_bytes())
-    (initial / names['final_itp']).write_bytes(artifacts['composition.itp'].read_bytes())
+    item = composition_parameterizations.revision(composition_id, _revision(metadata))
+    if item['revision'] == 0:
+        (initial / names['final_itp']).write_bytes(artifacts['composition.itp'].read_bytes())
+    else:
+        (initial / names['final_itp']).write_text(item['topology'])
     (sim / 'system_EMPTY.top').write_text(
         f'#include "{martini3.include(cg.MARTINI_FF, sim)}"\n'
         f'#include "{martini3.include(cg.MARTINI_SOLVENTS, sim)}"\n'
@@ -235,6 +266,14 @@ def prepare(run_dir, metadata):
     ]
     profile = _profile(metadata.get('profile'))
     head = record.get('head_molecule_id')
+    # The provenance copy: which revision the run consumed, what it was seeded from, and the digest of the topology
+    # the run actually stages. A reader can prove the run simulated the edited terms and not revision 0.
+    parameterization = {'kind': 'composition', 'composition_id': composition_id,
+                        'composition_revision': item['revision'],
+                        'base': 'derived' if item['revision'] == 0 else 'derived-revision-0',
+                        'base_sha256': item.get('base_sha256') or item['topology_sha256'],
+                        'topology_sha256': item['topology_sha256'],
+                        'molecule_id': bound, 'head_molecule_id': head}
     document = {
         'run_type': 'cg', 'workflow_version': VERSION, 'profile': profile,
         'execution_kind': 'cg-simulation',
@@ -245,8 +284,7 @@ def prepare(run_dir, metadata):
         'molecule_name': compositions.molecule_name(record),
         'head_molecule_id': head,
         'status': record.get('status', 'candidate-unvalidated'),
-        'parameterization': {'kind': 'composition', 'composition_id': composition_id,
-                             'molecule_id': bound, 'head_molecule_id': head},
+        'parameterization': parameterization,
         'cg_names': names,
         'settings': settings,
         'mdp_profiles': dict(MDP_PROFILES),
@@ -269,7 +307,11 @@ def _protocol_readiness(metadata):
     composition_id = _composition_id(metadata)
     if not composition_id:
         return protocol.blocked('composition_id is required to check a composition run')
-    return readiness(composition_id, metadata.get('molecule_id'))
+    try:
+        revision = _revision(metadata)
+    except ValueError as exc:
+        return protocol.blocked(str(exc))
+    return readiness(composition_id, metadata.get('molecule_id'), revision)
 
 
 def _protocol_prepare(run_dir, metadata):

@@ -25,6 +25,10 @@ import re
 #: stage root is.
 ASSESSMENT_ATTEMPT = re.compile(r'^(?:stages/)?(?:09_final_assessment|5_assessment)(?:@(\d+))?/')
 
+#: What a reader sees in the figure viewer: an image. An analysis may publish an interactive HTML artifact (the
+#: overlap heatmap, an older surfaces comparison), but that is an artifact served by its own route, not a figure.
+FIGURE_SUFFIXES = ('.png', '.svg')
+
 
 def current_figures(entries):
     """`(kept, superseded)`: the figures to show, and how many published sets a newer one replaced.

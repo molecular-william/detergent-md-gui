@@ -210,7 +210,7 @@
        it has no revision yet, and the molecule's published Martini 3 reference when the route answers one. The select
        carries no `name`: the payload's `parameterization` is built from it by `new-run.js`, never submitted raw. #}
     <label>Parameterization<select id="run-parameterization" aria-describedby="parameterization-help"><option value="">Select a molecule first</option></select></label>
-    <p id="parameterization-help" class="hint">A CG run consumes one parameterization of the selected molecule. A saved mapping's revision is fitted in CG Bond Interactions; a published Martini 3 reference and a saved composition's derived model are read-only.</p>
+    <p id="parameterization-help" class="hint">A CG run consumes one parameterization of the selected molecule. A saved mapping's revision is fitted in CG Bond Interactions; a published Martini 3 reference is read-only, and a saved composition's derived model is read-only until its bonded terms are edited in Combinations; a run consumes its current revision.</p>
     <div class="toolbar parameterization-actions"><a class="button secondary" id="open-bonded" href="#">Open in CG Bond Interactions</a></div>
     {# The revision kind's second choice. A revision that predates the stored frame cannot start from it, and the option
        says so rather than letting readiness refuse the default silently. #}
@@ -425,7 +425,7 @@
       <label>Molecule name<input id="composition-molecule-name" maxlength="160" placeholder="GLC-C12" aria-describedby="composition-name-note"></label>
       <p id="composition-name-note" class="hint">Shown in Bond Interactions and New run. Defaults to the sugar residue and carbon count, and follows them until you type one.</p>
       <label>Links to molecule<select id="composition-head-molecule"><option value="">No link (derived only)</option></select></label>
-      <div class="toolbar"><button type="button" id="composition-preview" disabled>Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save as CG molecule</button></div>
+      <div class="toolbar"><button type="button" id="composition-preview" disabled>Preview composition</button><button type="button" class="secondary" id="composition-save" disabled>Save as new CG molecule</button></div>
       <p id="composition-panel-status" class="hint" role="status"></p>
     </section>
     <aside class="card composition-provenance" aria-labelledby="composition-provenance-title">
@@ -451,6 +451,21 @@
     <p class="hint">Every saved composition is a derived, candidate-unvalidated CG model; these are the rows Bond Interactions and New run read.</p>
     <div class="table-scroll"><table><caption>One row per saved composition</caption><thead><tr><th>Molecule</th><th>Links to</th><th>Beads</th><th>Terms</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="composition-model-rows"></tbody></table></div>
     <p id="composition-models-status" class="hint" role="status">Loading saved compositions…</p>
+  </section>
+  {# The terms editor is one card for the selected saved model. It is rendered only for a saved composition:
+     a preview has no persistence target, so its table is read-only with the reason. A published Martini 3
+     reference never reaches this card; the rule lives in the shared controller and the Bond Interactions panel. #}
+  <section class="card composition-terms" id="composition-terms" aria-labelledby="composition-terms-title" hidden>
+    <div class="section-heading"><div><span class="eyebrow">Parameterization</span>
+      <h3 id="composition-terms-title">Bonded terms</h3>
+      <p class="hint" id="composition-terms-summary">Select a saved CG molecule.</p></div>
+      <span class="badge" id="composition-terms-badge">derived · revision 0</span></div>
+    <p class="hint" id="composition-terms-note"></p>
+    <div class="table-scroll"><table><caption>One row per bonded interaction of the shown revision</caption>
+      <thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th><th>Source</th></tr></thead>
+      <tbody id="composition-term-rows"></tbody></table></div>
+    <div class="toolbar"><button type="button" id="composition-save-terms" disabled>Save in place</button></div>
+    <p id="composition-terms-status" class="hint" role="status"></p>
   </section>
 </section>
 <section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
@@ -582,8 +597,15 @@
   <div class="bonded-columns">
     <section class="card">
       <h3>Interactions</h3>
-      <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a hand edit, or geometry where the automatic draft had no reference. A constraint's length and a virtual site's parents are the mapping's own and are shown read-only — no route in this slice writes a revision's terms, so nothing here is an input. Select a row to highlight it in the diagram.</p>
+      <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a <b>hand edit</b>, or geometry where the automatic draft had no reference. A bond's length and force, an angle's angle and force, and a dihedral's phase, force and multiplicity are editable here; the function form, a constraint's length and a virtual site's parents are readings and stay read-only. <b>Save in place</b> rewrites the current revision (the one a run consumes); <b>Save as new</b> appends a revision cloned from the shown one and makes it current. A published Martini 3 reference is never saved in place: <b>Save as new</b> seeds a revision of the molecule's saved mapping. One Fast-Forward torsion is written as one line per harmonic, so each such row is one line and is edited on its own. Select a row to highlight it in the diagram.</p>
       <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
+      <div class="toolbar bonded-terms-actions">
+        <button type="button" class="secondary" id="bonded-save-terms-inplace" disabled
+                aria-describedby="bonded-terms-status">Save in place</button>
+        <button type="button" id="bonded-save-terms-new" disabled
+                aria-describedby="bonded-terms-status">Save as new</button>
+      </div>
+      <p class="hint" id="bonded-terms-status" role="status">Choose a parameterization revision to edit its terms.</p>
     </section>
     <section class="card">
       <h3>Molecular connectivity</h3>
@@ -593,16 +615,6 @@
       <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
     </section>
   </div>
-
-  {# The revision strip is the parameterization's history, read-only: each card names its engine, date and term counts,
-     and one of them is current. Choosing what is shown is the model card's selector, never a control here. #}
-  <section class="card bonded-revisions" aria-labelledby="bonded-revisions-title">
-    <div class="section-heading">
-      <div><span class="eyebrow">Revisions</span><h3 id="bonded-revisions-title">Revisions of this mapping</h3>
-        <p class="hint">History, not a selector: what the table and the diagram draw is chosen above. A run consumes the current revision and records which; making a different one current rewrites nothing — the numbers stay, and every revision keeps its own engine, ensemble and checks.</p></div>
-    </div>
-    <ol class="bonded-revision-strip" id="bonded-revisions"></ol>
-  </section>
 
   <p class="bonded-panel-message hint" role="status"></p>
 </section>

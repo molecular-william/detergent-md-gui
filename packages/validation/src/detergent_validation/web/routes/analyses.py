@@ -72,10 +72,10 @@ def mapping_consistency_api(jid):
                               'queued by hand, and it reads the atomistic, the mapped and the simulated '
                               'trajectories together.'}
     else:
-        surfaces_attempt, published, metadata, figure = published_surfaces
-        # The attempt's own output directory: `metadata.json`, the published figure, the per-model `sasa.xvg` and the
-        # AA/CG panel data are all addressed from it. The panel reads the two data files through the artifact route,
-        # which resolves against the run root, so each path is re-based here rather than handed over raw.
+        surfaces_attempt, published, metadata = published_surfaces
+        # The attempt's own output directory: `metadata.json`, the per-model `sasa.xvg` and the AA/CG panel data are
+        # all addressed from it. The panel reads the two data files through the artifact route, which resolves
+        # against the run root, so each path is re-based here rather than handed over raw.
         output = surfaces_attempt / str(json.loads((surfaces_attempt / 'result.json').read_text())['output_directory'])
 
         def exposed(relative):
@@ -98,11 +98,8 @@ def mapping_consistency_api(jid):
                     'probe_nm': published.get('probe_nm'),
                     'validated': bool(published.get('scientifically_validated')),
                     # The primary AA-vs-Simulated-CG pair as data the card draws itself. Older attempts published
-                    # before the pair existed answer None; the figure below is then the fallback.
+                    # before the pair existed answer None; the section then states that and offers Recalculate.
                     'aa_cg_comparison': exposed(published.get('aa_cg_comparison')),
-                    # Relative to the run directory: the panel builds the artifact URL from this, and the route
-                    # that serves it resolves against the run too.
-                    'figure': str(figure.relative_to(c.run_path(job))) if figure else None,
                     'source': str(metadata.relative_to(c.RUNS))}
     # The bead-overlap analysis is another separate kind on the same run, read the same way and absent for the same
     # reason most runs have no surfaces analysis at all.

@@ -1,5 +1,5 @@
 """CG Bond Interactions as the place a parameterization is produced: the model card, the fit job, the result,
-the `source` column, and the revision strip.
+and the editable `source`/parameter table.
 
 The six routes this panel drives are landing in `web/routes/**` in a parallel slice, so all six are stubbed here
 and what is asserted is the request the panel sends -- method, path and body -- beside what it renders from the
@@ -68,7 +68,7 @@ LIG1 1
 1 2 3 10 141.6 26.8
 
 [ dihedrals ]
-1 2 3 4 2 -102.273 36.636 1
+1 2 3 4 2 -102.273 36.636
 """
 
 #: One row per term of the topology above, as `parameterization.term_sources` computes them: the ring pair is the
@@ -84,8 +84,8 @@ CHECKS = {'dihedral-fit': {'rows': [{'beads': ['B01', 'B02', 'B03', 'B04']}], 'd
                                  'disagreements': [['B01', 'B02']], 'frames_measured': 20001}}
 
 
-def revision(number, *, engine='fast-forward', created_at='2026-10-16T14:30:00+00:00', **extra):
-    record = {'revision': number, 'created_at': created_at,
+def revision(number, *, engine='fast-forward', created_at='2026-10-16T14:30:00+00:00', sha256=None, **extra):
+    record = {'revision': number, 'created_at': created_at, 'sha256': sha256 or f'{number:064x}',
               'mapping_hash': CANDIDATE_HASH, 'mapping_content_hash': CONTENT_HASH,
               'engine': engine, 'engine_default_source': 'ff_inter',
               'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
@@ -157,7 +157,7 @@ def save(dashboard, name='E3 maltose mapping', molecule='DDM'):
 
 
 def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, posts=None, patches=None,
-         cancels=None, on_patch=None):
+         cancels=None, on_patch=None, terms=None, on_terms=None):
     """Every route this panel drives, answered from the test.
 
     `record` is the object `route.fulfill(json=...)` gets for a record read, so a test can mutate it where a route
@@ -167,6 +167,7 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
     posts = posts if posts is not None else []
     patches = patches if patches is not None else []
     cancels = cancels if cancels is not None else []
+    terms = terms if terms is not None else []
 
     page.route(re.compile(r'/api/bonded-parameterizations/engines$'),
                lambda route: route.fulfill(json={'engines': list(engines)}))
@@ -182,6 +183,15 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
             on_patch(json.loads(route.request.post_data or '{}'))
         route.fulfill(json=record)
 
+    def save_terms(route):
+        body = json.loads(route.request.post_data or '{}')
+        terms.append((route.request.method, route.request.url.split('/api')[1], body))
+        number = on_terms(body) if on_terms is not None else body.get('revision') or 1
+        # The terms route answers the stored record; the panel only reads `revision` from it and then re-reads the
+        # record through the GET below, which `on_terms` has mutated to the saved state.
+        route.fulfill(json={'revision': number})
+
+    page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}/terms$'), save_terms)
     page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}$'), patch)
     page.route(re.compile(r'/api/bonded-parameterizations\?'),
                lambda route: route.fulfill(json=record))
@@ -304,7 +314,8 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     assert f'content_hash={content}' in reads[0] and f'mapping_hash={candidate}' in reads[0], reads[0]
     expect(page.locator('#bonded-model-badge')).to_have_text('no parameterization')
     expect(page.locator('#bonded-result')).to_be_hidden()
-    expect(page.locator('#bonded-revisions')).to_contain_text('no revisions yet')
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
+    expect(page.locator('#bonded-parameterization-display option')).to_have_count(1)
     # And the table is the mapping's own draft, saying so in the source column.
     expect(cells(page, 0).last).to_have_text('mapping')
 
@@ -815,7 +826,10 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     # The default display choice is the revision a run consumes, and the table and the scene are that revision's.
     expect(page.locator('#bonded-parameterization-display')).to_have_value(f'revision:{saved["file"]}:2')
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 2 · current')
-    expect(page.locator('#bonded-revisions .bonded-revision').nth(1)).to_have_attribute('aria-current', 'true')
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
+    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    assert any('Revision 2 · current' in label for label in labels), labels
+    assert any('Revision 1 · earlier' in label for label in labels), labels
     plot = page.locator('.bonded-plot')
     expect(plot.locator('.plotly')).to_be_visible(timeout=20000)
     page.wait_for_function(
@@ -825,8 +839,9 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     # An earlier revision is viewable without making it current, and nothing is written.
     choose_revision(page, saved['file'], 1)
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · earlier, shown')
-    expect(page.locator('#bonded-revisions .bonded-revision').nth(1)).to_have_attribute('aria-current', 'true')
     assert patches == [], patches
+    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    assert any('Revision 2 · current' in label for label in labels), 'viewing r1 does not move current'
     assert page.locator('#bonded-parameterization-display').input_value() == f'revision:{saved["file"]}:1'
     # The result card is the shown revision's own record, not the current one's.
     provenance = page.locator('#bonded-result-provenance').inner_text()
@@ -838,7 +853,9 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     rows = page.locator('.bonded-interaction-table tbody tr')
     expect(rows).to_have_count(1)
     expect(cells(page, 0).nth(0)).to_have_text('bonds')
-    expect(cells(page, 0).nth(3)).to_have_text('0.4 · 2500')
+    bond_inputs = cells(page, 0).nth(3).locator('input')
+    expect(bond_inputs.nth(0)).to_have_value('0.4')
+    expect(bond_inputs.nth(1)).to_have_value('2500')
     expect(cells(page, 0).last).to_have_text('bartender')
     # And so is the scene: the later revision's torsion is gone, because it is not part of this one.
     page.wait_for_function(
@@ -850,12 +867,11 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     assert errors == [], errors
 
 
-def test_the_revision_strip_is_history_and_make_current_is_the_only_mutation(dashboard, live_page):
-    """The strip states engine, date and counts and offers no control; Make current acts on the shown revision.
+def test_make_current_is_the_one_mutation_and_the_selector_labels_the_history(dashboard, live_page):
+    """The display selector is the history: its labels say current/earlier; Make current acts on the shown revision.
 
     Making an earlier revision current is a PATCH carrying the revision and `confirm: true`, and it is asked for first
-    -- `{}` and `null` are not enough, and a dismissed confirmation sends nothing at all. The strip is history: a card
-    cannot show itself.
+    -- `{}` and `null` are not enough, and a dismissed confirmation sends nothing at all.
     """
     saved, content, _ = save(dashboard)
     page, errors = live_page
@@ -870,29 +886,24 @@ def test_the_revision_strip_is_history_and_make_current_is_the_only_mutation(das
     _, patches, _ = stub(page, record, on_patch=make_current)
     open_panel(page, live_page, saved['file'])
 
-    items = page.locator('#bonded-revisions .bonded-revision')
-    expect(items).to_have_count(3)
-    for index, number in enumerate((1, 2, 3)):
-        expect(items.nth(index).locator('.bonded-revision-number')).to_have_text(f'r{number}')
-        expect(items.nth(index).locator('.bonded-revision-date')).to_have_text('2026-10-16')
-    expect(items.nth(1).locator('.bonded-revision-engine')).to_contain_text('BARTENDER')
-    expect(items.nth(2)).to_have_attribute('aria-current', 'true')
-    # Each card states what its revision contains, so the strip is a history rather than a row of numbers.
-    expect(items.nth(0).locator('.bonded-revision-counts')).to_have_text(
-        '1 bonds · 1 angles · 1 dihedrals · 1 constraints')
-    # And it holds no control: the only mutating control is Make current, on the model card.
-    expect(page.locator('#bonded-revisions button')).to_have_count(0)
+    # The strip is gone; the display selector is the history, and its labels state which revision is current.
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
+    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    assert any('Revision 3 · current' in label for label in labels), labels
+    assert any('Revision 1 · earlier' in label for label in labels), labels
+    assert sum('current' in label for label in labels) == 1, labels
 
     make = page.locator('#bonded-make-current')
     expect(make).to_be_disabled()
     expect(make).to_have_attribute('title', 'The shown revision is already the one a run consumes.')
 
-    # Showing an earlier revision is a read: no PATCH, and the strip's current marker does not move.
+    # Showing an earlier revision is a read: no PATCH, and the selector's labels do not move current.
     choose_revision(page, saved['file'], 1)
     expect(make).to_be_enabled()
     page.wait_for_timeout(300)
     assert patches == [], patches
-    expect(items.nth(2)).to_have_attribute('aria-current', 'true')
+    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    assert any('Revision 3 · current' in label for label in labels), labels
 
     # A dismissed confirmation is a refusal.
     make.click()
@@ -910,14 +921,161 @@ def test_the_revision_strip_is_history_and_make_current_is_the_only_mutation(das
     assert path == f'/bonded-parameterizations/{content}', path
     assert json.loads(body) == {'current': 1, 'confirm': True}, body
 
-    # The strip follows the record, and the shown revision is now the one a run consumes.
-    expect(page.locator('#bonded-revisions .bonded-revision').nth(0)).to_have_attribute('aria-current', 'true')
+    # The record follows, and the shown revision is now the one a run consumes.
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     expect(make).to_be_disabled()
     # The selector's labels are relabelled from the record: r3 is now the earlier one.
     labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
     assert any('Revision 1 · current' in label for label in labels), labels
     assert any('Revision 3 · earlier' in label for label in labels), labels
+    assert errors == [], errors
+
+
+# ---------------------------------------------------------------------------------- editing the terms
+
+def edited_record(record, *, revision=1, old='2 3 1 0.32 5000', new='2 3 1 0.33 6000', term='bonds:1',
+                  number=None):
+    """Apply one edit to a stubbed record in place, the way the terms route + the re-read would show it."""
+    item = next(row for row in record['revisions'] if row['revision'] == revision)
+    item['topology'] = item['topology'].replace(old, new)
+    item['sources'] = [dict(row, source='manual') if row['id'] == term else row for row in item['sources']]
+    if number is not None:
+        item['revision'] = number
+    return item
+
+
+def test_the_parameter_inputs_follow_the_function_and_leave_readings_read_only(dashboard, live_page):
+    """Bonds/angles/dihedrals have one input per parameter; a constraint's length stays a reading.
+
+    The fixture revision's dihedral is function 2 (phase + force), so the row has two inputs and no multiplicity. The
+    function column is text on every row: changing the potential form is a different model, not a parameter edit.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer([revision(1)]))
+    open_panel(page, live_page, saved['file'])
+
+    rows = page.locator('.bonded-interaction-table tbody tr')
+    expect(rows).to_have_count(4)
+    expect(rows.nth(0).locator('input')).to_have_count(0)
+    expect(rows.nth(0).locator('td').nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
+    for index, expected in ((1, 2), (2, 2), (3, 2)):
+        inputs = rows.nth(index).locator('input')
+        expect(inputs).to_have_count(expected)
+        expect(inputs.first).to_be_editable()
+    # The function form is text everywhere: no select in the table.
+    expect(page.locator('.bonded-interaction-table select')).to_have_count(0)
+    # The bold inputs belong to the flexible rows only, and the rows still select on click.
+    rows.nth(2).click()
+    expect(rows.nth(2)).to_have_attribute('aria-selected', 'true')
+    assert errors == [], errors
+
+
+def test_saving_a_parameter_in_place_posts_the_current_revision_and_reloads_manual(dashboard, live_page):
+    """The in-place contract as the page sends it: mode, revision, both optimistic values, confirm, the edit.
+
+    The answer is the stored record; the panel re-reads it and the Source column says the term is now a hand edit.
+    """
+    saved, content, _ = save(dashboard)
+    page, errors = live_page
+    record = answer([revision(1)])
+    saved_posts = []
+
+    def apply(body):
+        edited_record(record)
+        return 1
+
+    stub(page, record, terms=saved_posts, on_terms=apply)
+    open_panel(page, live_page, saved['file'])
+
+    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs.nth(0).fill('0.33')
+    inputs.nth(1).fill('6000')
+    expect(page.locator('#bonded-terms-status')).to_contain_text('1 parameter change')
+    expect(page.locator('#bonded-save-terms-inplace')).to_be_enabled()
+    expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
+
+    page.locator('#bonded-save-terms-inplace').click()
+    page.wait_for_function(
+        "() => document.querySelector('#bonded-terms-status')?.textContent?.includes('saved in place')",
+        timeout=10000)
+
+    assert len(saved_posts) == 1, saved_posts
+    method, path, body = saved_posts[0]
+    assert method == 'POST', method
+    assert path == f'/bonded-parameterizations/{content}/terms', path
+    assert body == {'mode': 'in_place', 'revision': 1, 'expected_revision': 1,
+                    'expected_sha256': f'{1:064x}', 'confirm': True,
+                    'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}, body
+    # The re-read is the stored state: the edited cell's Source says manual, and the button is inert again.
+    cells = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('td')
+    expect(cells.last).to_have_text('manual')
+    expect(page.locator('#bonded-save-terms-inplace')).to_be_disabled()
+    assert errors == [], errors
+
+
+def test_an_earlier_revision_disables_in_place_and_save_as_new_clones_it(dashboard, live_page):
+    """Shown is not current: in place is inert with its reason, and Save as new appends a clone of the shown revision."""
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    history = [revision(1, created_at='2026-10-16T10:00:00+00:00'),
+               revision(2, created_at='2026-10-16T11:00:00+00:00')]
+    record = answer(history, current=2)
+    saved_posts = []
+
+    def clone(body):
+        base = next(row for row in record['revisions'] if row['revision'] == 1)
+        detached = {**base, 'revision': 3, 'sha256': f'{3:064x}',
+                    'topology': base['topology'].replace('2 3 1 0.32 5000', '2 3 1 0.33 6000'),
+                    'sources': [dict(row, source='manual') if row['id'] == 'bonds:1' else row
+                                for row in base['sources']]}
+        record['revisions'].append(detached)
+        record['summary'] = summary(3, record['revisions'])
+        return 3
+
+    stub(page, record, terms=saved_posts, on_terms=clone)
+    open_panel(page, live_page, saved['file'])
+    choose_revision(page, saved['file'], 1)
+
+    in_place = page.locator('#bonded-save-terms-inplace')
+    expect(in_place).to_be_disabled()
+    expect(in_place).to_have_attribute('title', re.compile('earlier'))
+    expect(page.locator('#bonded-terms-status')).to_contain_text('Save in place writes the revision a run consumes')
+    expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
+
+    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs.nth(0).fill('0.33')
+    inputs.nth(1).fill('6000')
+    page.locator('#bonded-save-terms-new').click()
+    page.wait_for_function(
+        "() => document.querySelector('#bonded-result-title')?.textContent?.includes('Revision 3')", timeout=10000)
+
+    assert len(saved_posts) == 1, saved_posts
+    method, path, body = saved_posts[0]
+    assert body['mode'] == 'new' and body['revision'] == 1 and body['expected_revision'] == 2, body
+    assert body['expected_sha256'] == f'{1:064x}'
+    assert body['terms'] == [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]
+    assert 'confirm' not in body
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 3 · current')
+    assert errors == [], errors
+
+
+def test_a_selector_switch_discards_unsaved_values_and_says_so(dashboard, live_page):
+    """No dialog: a switch loads the other model and the status line states that the typed values were discarded."""
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    history = [revision(2, created_at='2026-10-16T14:30:00+00:00'), earlier_revision()]
+    stub(page, answer(history, current=2))
+    open_panel(page, live_page, saved['file'])
+
+    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs.nth(0).fill('0.33')
+    expect(page.locator('#bonded-terms-status')).to_contain_text('1 parameter change')
+
+    choose_revision(page, saved['file'], 1)
+    expect(page.locator('#bonded-terms-status')).to_contain_text('Unsaved parameter changes were discarded')
+    # The earlier revision's own value is what the table now shows: the typed 0.33 did not travel with it.
+    expect(page.locator('.bonded-interaction-table tbody tr').nth(0).locator('input').nth(0)).to_have_value('0.4')
     assert errors == [], errors
 
 
@@ -941,7 +1099,7 @@ def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     provenance = page.locator('#bonded-result-provenance').inner_text()
     assert 'Fast-Forward' in provenance, provenance
-    expect(page.locator('#bonded-revisions .bonded-revision')).to_have_count(1)
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
     # Every term's source is what the store computed from the revision rather than anything the fixture said: a
     # Fast-Forward revision's terms are the engine's, and the store is what stamps that name onto them.
     sources = set(page.locator('.bonded-interaction-table tbody tr td:last-child').all_inner_texts())
@@ -950,10 +1108,10 @@ def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page
 
 
 def test_the_panel_fits_a_narrow_window_without_scrolling_sideways(dashboard, live_page):
-    """The 390 px guard, on this panel's own cards: a strip of revisions is the obvious place to overflow.
+    """The 390 px guard, on this panel's own cards: the editable parameter grid is the obvious place to overflow.
 
-    The revision strip wraps rather than scrolling and the provenance list states its own single column below
-    700 px; both are new, so both are measured where a narrow window would show the difference.
+    The parameter inputs sit in an auto-fit grid inside the scrolling table and the provenance list states its own
+    single column below 700 px; both are measured where a narrow window would show the difference.
     """
     saved, _, _ = save(dashboard)
     page, errors = live_page
@@ -963,7 +1121,7 @@ def test_the_panel_fits_a_narrow_window_without_scrolling_sideways(dashboard, li
     expect(page.locator('#bonded-result')).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), \
         page.evaluate('document.documentElement.scrollWidth')
-    boxes = page.evaluate("""() => ['#bonded-model-summary', '#bonded-result-provenance', '#bonded-revisions',
+    boxes = page.evaluate("""() => ['#bonded-model-summary', '#bonded-result-provenance',
                                      '.bonded-interaction-table']
       .map(selector => {
         const element = document.querySelector(selector);
@@ -1031,7 +1189,7 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
     page.on('dialog', accept)
     open_panel(page, live_page, first['file'])
     expect(page.locator('#bonded-delete-parameterization')).to_be_enabled()
-    expect(page.locator('#bonded-revisions .bonded-revision')).to_have_count(1)
+    expect(page.locator('#bonded-revisions')).to_have_count(0)
 
     # The click opens the panel's confirmation and the DELETE follows it: the response is the point where the request
     # has been made, which the click alone does not establish.

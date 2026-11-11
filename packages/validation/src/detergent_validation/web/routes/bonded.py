@@ -9,6 +9,7 @@ The routes are the contract in `docs/design/2026-10-16-parameterization-and-new-
 payload keys it names, and each route is a thin shell over one model call.
 """
 
+import re
 from pathlib import Path
 
 from dashboard.models import mappings
@@ -122,8 +123,13 @@ def parameterization_list():
     # empty document has no content identity when only a candidate hash was asked about, and an absent
     # hash is no filter at all. `fitting.jobs` owns the matching (content = compatibility, candidate =
     # provenance) and applies its limit after it.
+    # Each revision carries the digest the panel must send back to save it: an in-place write keeps the revision
+    # number, so the digest -- not the number -- is what detects a revision that changed since this read. It is
+    # computed here and never stored, or it would include itself.
+    revisions = [{**item, 'sha256': parameterization.revision_sha256(item)}
+                 for item in (record.get('revisions') or []) if isinstance(item, dict)]
     return jsonify(summary=parameterization.view(record),
-                   revisions=list(record.get('revisions') or []),
+                   revisions=revisions,
                    jobs=bonded_fitting.jobs(
                        content_hash=content_hash or record.get('mapping_content_hash'),
                        mapping_hash=mapping_hash or record.get('mapping_hash')))
@@ -220,3 +226,54 @@ def parameterization_current(content_hash):
     except (KeyError, ValueError) as exc:
         abort(404, _message(exc))
     return jsonify(parameterization.one(content_hash))
+
+@blueprint.post('/api/bonded-parameterizations/<content_hash>/terms')
+def parameterization_terms(content_hash):
+    """Edit a stored revision's bonded parameters, or seed a revision from the published reference.
+
+    `mode='in_place'` rewrites the revision the panel shows and is accepted only while it is the record's current
+    revision; `mode='new'` appends a clone of the shown revision and makes it current; `from_reference=true` (new
+    only) seeds the saved mapping from its molecule's published Martini 3 entry. The route is a thin shell over
+    `parameterization.save_terms`: the checks that need the record are the model's, and the statuses here name them.
+    """
+    payload = json_object()
+    mode = payload.get('mode')
+    if mode not in ('in_place', 'new'):
+        abort(400, 'mode must be "in_place" or "new"')
+    if mode == 'in_place' and payload.get('confirm') is not True:
+        abort(400, 'Saving terms in place requires confirmation')
+    from_reference = payload.get('from_reference') is True
+    if from_reference and mode != 'new':
+        abort(409, 'A published Martini 3 reference is never edited in place')
+    revision = payload.get('revision')
+    if not from_reference and (isinstance(revision, bool) or not isinstance(revision, int)):
+        abort(400, 'A revision number is required')
+    expected = payload.get('expected_revision')
+    if isinstance(expected, bool) or not isinstance(expected, int) or expected < 0:
+        abort(400, 'A revision number is required')
+    terms = payload.get('terms')
+    if not isinstance(terms, list) or len(terms) > 300:
+        abort(400, 'terms must be a list of at most 300 edits')
+    if from_reference:
+        expected_sha256 = None
+    else:
+        expected_sha256 = payload.get('expected_sha256')
+        if expected_sha256 is None:
+            abort(400, 'expected_sha256 is required to save a stored revision')
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
+            abort(400, 'expected_sha256 must be a revision digest')
+    mapping = _parameterization_mapping(content_hash)
+    try:
+        record = parameterization.save_terms(
+            mapping, mode=mode, edits=terms, revision=None if from_reference else revision,
+            expected_revision=expected, expected_sha256=expected_sha256,
+            from_reference=from_reference, molecule_root=coordinator().ROOT / 'molecules')
+    except parameterization.StaleRevision as exc:
+        abort(409, _message(exc))
+    except parameterization.Refused as exc:
+        abort(409, _message(exc))
+    except KeyError as exc:
+        abort(404, _message(exc))
+    except ValueError as exc:
+        abort(400, _message(exc))
+    return jsonify(record)

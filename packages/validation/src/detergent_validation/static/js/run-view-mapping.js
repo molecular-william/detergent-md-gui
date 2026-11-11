@@ -278,16 +278,23 @@ function surfaceRows(surfaces) {
       independent evidence: they come from the same atomistic frames. None of these numbers is an experiment.</p></div>`;
 }
 
-function surfaceFigure(surfaces, run) {
-  if (!surfaces.available || !surfaces.figure) return '';
-  const relative = String(surfaces.figure).split('/').map(encodeURIComponent).join('/');
-  return `<iframe class="rvm-frame" loading="lazy" title="Solvent-accessible envelopes, drawn by the surfaces analysis"
-    src="/api/jobs/${encodeURIComponent(run)}/artifacts/${relative}?inline=1"></iframe>`;
+function surfacePairMarkup(surfaces) {
+  if (surfaces.aa_cg_comparison) {
+    return `<div class="rvm-checks">
+      <label><input type="checkbox" data-surface-model="aa" checked> AA reference</label>
+      <label><input type="checkbox" data-surface-model="cg" checked> Simulated CG</label>
+    </div>
+    <div class="rvm-surface-plot" role="img"
+      aria-label="AA reference and Simulated CG solvent-accessible envelopes in one scene"></div>`;
+  }
+  return `<div class="rvm-surface-fallback"><p class="hint">This surfaces attempt predates the AA vs Simulated CG
+    pair. The SASA table and series below are this attempt's own; <b>Recalculate surfaces</b> publishes the two
+    panels.</p></div>`;
 }
 
-// The surfaces analysis publishes the primary pair as data beside its own figure: two centred meshes, the same probe
-// and the same extent. The card draws them in one scene with the Plotly it already loads, so the primary pair is not
-// one column among the published variants and no second Plotly bundle is loaded.
+// The surfaces analysis publishes the primary pair as data: two centred meshes, the same probe and the same extent.
+// The card draws them in one scene with the Plotly it already loads, so the primary pair is not one column among the
+// measured variants and no second Plotly bundle is loaded.
 
 //: `gmx sasa -o` writes `time(ps) area(nm^2)`; the chart reads the same file the analysis measured.
 function parseSasaSeries(text) {
@@ -304,21 +311,6 @@ function parseSasaSeries(text) {
 
 //: One scene, four traces: each model's mesh and its markers. The two checkboxes are the legend -- the scene's own
 //: legend stays off -- and `data-surface-model` says which pair of traces a box owns.
-function surfacePairMarkup(surfaces, run) {
-  if (surfaces.aa_cg_comparison) {
-    return `<div class="rvm-checks">
-      <label><input type="checkbox" data-surface-model="aa" checked> AA reference</label>
-      <label><input type="checkbox" data-surface-model="cg" checked> Simulated CG</label>
-    </div>
-    <div class="rvm-surface-plot" role="img"
-      aria-label="AA reference and Simulated CG solvent-accessible envelopes in one scene"></div>`;
-  }
-  if (!surfaces.figure) return '';
-  return `<div class="rvm-surface-fallback">${surfaceFigure(surfaces, run)}
-    <p class="hint">This surfaces attempt predates the AA vs Simulated CG pair. The published figure shows AA against
-      each variant; recalculating surfaces publishes the primary pair as two panels.</p></div>`;
-}
-
 function drawSurfacePair(pane, data) {
   const plotHost = pane?.querySelector('.rvm-surface-plot');
   const panels = Array.isArray(data?.panels) ? data.panels : [];
@@ -575,6 +567,16 @@ function showFfTerm(host, aside, ff, comparison, index) {
   drawFfChart(aside.querySelector('.rvm-ff-chart'), term);
 }
 
+//: The mirror of the map's `rvm-term-focus`: this pane selected a term and the comparison map owns the scene's
+//: highlight. The event bubbles to the Analysis card, where the map listens; it carries the map's own id vocabulary
+//: and nothing else, so the map and the rows cannot disagree about which term is selected.
+function announceTermToMap(host, index) {
+  if (!Number.isInteger(index) || index < 0) return;
+  host.dispatchEvent(new CustomEvent('rvm-term-select', {
+    bubbles: true, detail: {mode: 'mapping-bonded', itemId: `term:${index}`},
+  }));
+}
+
 async function paintGeometry(host, {job, isCurrent, button, refresh, queue}) {
   const body = await loadBody(host, job, isCurrent, queue ? () => queue(
     `/api/jobs/${encodeURIComponent(job.id)}/mapping-consistency`, {},
@@ -610,12 +612,24 @@ async function paintBonded(host, {job, isCurrent, button, refresh, queue}) {
   // interaction record publishing later must repaint the pane even though the comparison itself is unchanged.
   const attemptKey = [body.attempt, body.bonded_cross_check?.attempt, body.dihedral_fit?.attempt,
     ff?.attempt, ff?.published_at].map(value => value ?? '').join('|');
-  if (refresh && host.dataset.attempt === attemptKey) return;
+  if (refresh && host.dataset.attempt === attemptKey) {
+    // Returning to this section: the map may have cleared its item id when the section changed, and the pane's
+    // remembered term is this section's selection. Hand it back; the published record is unchanged, so the index
+    // still names this same row.
+    if (host.dataset.ffTerm) announceTermToMap(host, Number(host.dataset.ffTerm));
+    return;
+  }
   host.dataset.attempt = attemptKey;
   // A selection belongs to one run's term list: a monitor that moves to another run must not open the same index
   // against the new comparison.
   if (host.dataset.run !== String(job.id)) {
     host.dataset.run = String(job.id);
+    delete host.dataset.ffTerm;
+  }
+  // An index names a row in one attempt's published term list; a republished comparison is a new list, so the
+  // remembered selection is dropped rather than pointed at whatever now holds that index.
+  if (host.dataset.comparison !== String(body.attempt ?? '')) {
+    host.dataset.comparison = String(body.attempt ?? '');
     delete host.dataset.ffTerm;
   }
   const comparison = body.comparison || {};
@@ -676,7 +690,12 @@ async function paintBonded(host, {job, isCurrent, button, refresh, queue}) {
     const index = Number(String(article.dataset.item).split(':')[1]);
     article.tabIndex = 0;
     article.setAttribute('role', 'option');
-    const activate = () => showFfTerm(host, aside, ff, comparison, index);
+    // One selection in two views: this row paints the Fast-Forward panel and tells the comparison map which term
+    // to highlight. The map never answers this event, so the two directions cannot echo each other.
+    const activate = () => {
+      showFfTerm(host, aside, ff, comparison, index);
+      announceTermToMap(host, index);
+    };
     article.addEventListener('click', activate);
     article.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); }
@@ -692,7 +711,15 @@ async function paintBonded(host, {job, isCurrent, button, refresh, queue}) {
     const index = Number(String(event.detail.itemId || '').split(':')[1]);
     if (Number.isInteger(index) && index >= 0) showFfTerm(host, aside, ff, comparison, index);
   }, {signal: controller.signal});
-  if (host.dataset.ffTerm) showFfTerm(host, aside, ff, comparison, Number(host.dataset.ffTerm));
+  if (host.dataset.ffTerm !== undefined) {
+    const index = Number(host.dataset.ffTerm);
+    if (Number.isInteger(index) && index >= 0 && index < (comparison.terms || []).length) {
+      showFfTerm(host, aside, ff, comparison, index);
+      announceTermToMap(host, index);
+    } else {
+      delete host.dataset.ffTerm;
+    }
+  }
 }
 
 //: The Shape section's missing analyses are started here: the generic queue route takes an empty body, so the button
@@ -754,7 +781,7 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
         : cell(surfaces.reason || 'The run’s envelope analysis has not been published.')}</p>
       ${surfaces.available
         ? `<div class="rvm-surface-view">
-            <div class="rvm-surface-plot-col">${surfacePairMarkup(surfaces, run)}</div>
+            <div class="rvm-surface-plot-col">${surfacePairMarkup(surfaces)}</div>
             <div class="rvm-surface-table">${surfaceRows(surfaces)}</div>
           </div>`
         : ''}
@@ -783,8 +810,8 @@ async function paintShape(host, {job, isCurrent, button, refresh, queue}) {
     addQueueButton(subs[1], job, queue,
       {label: 'Calculate bead overlap', kind: 'overlap', sentence: 'Bead overlap analysis queued.'});
   }
-  // An attempt published before the pair JSON existed still has its old figure and SASA files; a new attempt is the
-  // only way to publish the two-panel pair, so the fallback carries the action its sentence promises.
+  // An attempt published before the pair JSON existed still has its SASA files and numbers; a new attempt is the
+  // only way to publish the two-panel pair, so the pane states that and carries the action its sentence promises.
   if (surfaces.available && !surfaces.aa_cg_comparison && subs[0]) {
     addQueueButton(subs[0], job, queue,
       {label: 'Recalculate surfaces', kind: 'surfaces', sentence: 'Surfaces analysis queued.'});

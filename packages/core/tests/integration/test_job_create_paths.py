@@ -36,9 +36,10 @@ def created(dashboard, monkeypatch):
     return calls
 
 
-MODEL = {'kind': 'composition', 'composition_id': '0123456789abcdef',
+MODEL = {'kind': 'composition', 'composition_id': '0123456789abcdef', 'composition_revision': 1,
          'molecule_id': '0123456789abcdef', 'head_molecule_id': 'Trehalose'}
-"""A composition CG run's model as the New-run form posts it: the composition's own id, and its head link."""
+"""A composition CG run's model as the New-run form posts it: the composition's own id, the revision it consumes,
+and its head link. A retry or a clone must keep the revision, or it would quietly simulate the derived model."""
 
 
 def test_cloning_a_composition_run_keeps_the_composition_it_is_a_clone_of(dashboard, created):
@@ -206,3 +207,22 @@ def test_a_composition_run_names_its_own_molecule_and_never_the_atomistic_catalo
     assert job['run_type'] == 'cg' and job['molecule_id'] == record_['id']
     assert job['parameterization']['kind'] == 'composition'
     assert job['stage_plan'] == ['CG simulation', 'CG assessment']
+
+
+def test_the_queue_keeps_the_composition_revision_a_run_names(dashboard, created):
+    """The form posts the revision it showed; the run record must name the same one."""
+    response = dashboard.client.post('/', json={
+        'run_type': 'cg', 'molecule_id': '0123456789abcdef', 'detergent': '0123456789abcdef',
+        'parameterization': {'kind': 'composition', 'composition_id': '0123456789abcdef',
+                             'composition_revision': 1}})
+    assert response.status_code == 201, response.data
+    assert created[0]['parameterization']['composition_revision'] == 1
+
+
+def test_the_queue_refuses_a_composition_revision_that_is_not_a_number(dashboard, created):
+    response = dashboard.client.post('/', json={
+        'run_type': 'cg', 'molecule_id': '0123456789abcdef', 'detergent': '0123456789abcdef',
+        'parameterization': {'kind': 'composition', 'composition_id': '0123456789abcdef',
+                             'composition_revision': -1}})
+    assert response.status_code == 400
+    assert not created

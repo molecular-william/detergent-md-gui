@@ -13,7 +13,7 @@ from flask import Blueprint, Response, abort, current_app, jsonify, redirect, re
 
 from ... import features
 from ...analysis.runs import layout, structures
-from ...analysis.runs.figures import current_figures
+from ...analysis.runs.figures import FIGURE_SUFFIXES, current_figures
 from ...execution import adoption, devices, protocol
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
@@ -429,7 +429,7 @@ def artifacts_api(jid):
                                or request.args.get('media') == '1')
     page, limit = pagination(); search = request.args.get('search','').lower()
     entries = [e for e in entries if search in e['path'].lower()]
-    if request.args.get('media') == '1': entries = [e for e in entries if e['path'].endswith(('.png','.svg','surface-comparison.html'))]
+    if request.args.get('media') == '1': entries = [e for e in entries if e['path'].endswith(FIGURE_SUFFIXES)]
     return jsonify(artifacts=entries[(page-1)*limit:page*limit], total=len(entries), page=page, limit=limit)
 
 
@@ -445,7 +445,7 @@ def figures_api(jid):
     c = coordinator()
     entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('refresh') == '1')
     figures, superseded = current_figures(
-        [e for e in entries if e['path'].endswith(('.png', '.svg', 'surface-comparison.html'))])
+        [e for e in entries if e['path'].endswith(FIGURE_SUFFIXES)])
     return jsonify(artifacts=figures, superseded=superseded,
                    revision=c.lookup(jid).get('artifact_revision'))
 

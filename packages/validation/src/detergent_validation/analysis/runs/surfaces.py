@@ -109,8 +109,6 @@ def _gmx_variant(label, work, gmx):
 
 def generate(run_dir):
     import MDAnalysis as mda
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
     root=Path(run_dir); output=root/'analysis/surfaces'; output.mkdir(parents=True,exist_ok=True)
     if (output/'metadata.json').exists(): raise FileExistsError('Generate a new immutable surface analysis attempt')
     model=json.loads((root/'2_mapping/model.json').read_text())
@@ -157,42 +155,18 @@ def generate(run_dir):
                     continue
                 commands.extend(variant_commands);stats[label]=variant_stats
             if failures: raise RuntimeError('surface variants failed: '+'; '.join(failures))
-            progress.report('Surfaces: envelopes and figure')
+            progress.report('Surfaces: envelopes and pair')
             target=first['Mapped raw']
         first['Simulated CG']=align(first['Simulated CG'],target,physical)
         center=first['AA'].mean(axis=0)
-        meshes={label:envelope(positions-center,variants[label][1]) for label,positions in first.items()}
-        others=[k for k in variants if k!='AA']; count=len(others)
-        fig=make_subplots(rows=1,cols=count,specs=[[{'type':'scene'}]*count],subplot_titles=[f'AA vs {k}' for k in others])
-        colors={'AA':'#2864b5','Mapped raw':'#d95454','Mapped ring-scaled':'#e89123','Simulated CG':'#188b75'}
-        for col,label in enumerate(others,1):
-            for kind in ('AA',label):
-                v,f=meshes[kind]
-                fig.add_trace(go.Mesh3d(x=v[:,0],y=v[:,1],z=v[:,2],i=f[:,0],j=f[:,1],k=f[:,2],color=colors[kind],opacity=.45,name=kind,showlegend=kind!='AA' or col==1,legendgroup=kind),row=1,col=col)
-            # Show the molecular structure inside the envelope: small atom markers
-            # and bonds provide orientation while keeping the surface readable.
-            aa_xyz=first['AA']-center
-            fig.add_trace(go.Scatter3d(x=aa_xyz[:,0],y=aa_xyz[:,1],z=aa_xyz[:,2],mode='markers',
-                marker={'size':3,'color':'#26384f','opacity':.9},name='AA atoms',showlegend=col==1,
-                legendgroup='AA atoms',hoverinfo='skip'),row=1,col=col)
-            if label != 'AA':
-                cg_xyz=first[label]-center
-                fig.add_trace(go.Scatter3d(x=cg_xyz[:,0],y=cg_xyz[:,1],z=cg_xyz[:,2],mode='markers',
-                    marker={'size':5,'color':colors[label],'opacity':.95},name=f'{label} beads',showlegend=col==1,
-                    legendgroup=f'{label} beads',hoverinfo='skip'),row=1,col=col)
+        # Only the two panels the pair JSON carries: the AA-vs-each-variant envelopes fed the removed figure.
+        meshes={label:envelope(positions-center,variants[label][1]) for label,positions in first.items()
+                if label in ('AA','Simulated CG')}
+        colors={'AA':'#2864b5','Simulated CG':'#188b75'}
         extent=max(np.max(np.abs(v)) for v,_ in meshes.values())+.1
-        fig.update_scenes(aspectmode='cube',**{axis:{'title':axis[0]+' (nm)','range':[-extent,extent]} for axis in ('xaxis','yaxis','zaxis')})
-        fig.update_layout(title='Solvent-accessible envelopes · probe 0.191 nm · drag to rotate',height=600,margin={'l':0,'r':0,'b':0,'t':65})
-        sync="""const plot=document.getElementById('{plot_id}'); let updating=false;
-plot.on('plotly_relayout',event=>{if(updating)return;const key=Object.keys(event).find(k=>/^scene[0-9]*\\.camera$/.test(k));if(!key)return; const changes={}; for(const s of Object.keys(plot.layout).filter(k=>/^scene[0-9]*$/.test(k)))changes[s+'.camera']=event[key]; updating=true;Plotly.relayout(plot,changes).finally(()=>updating=false);});"""
-        path=output/'surface-comparison.html';fig.write_html(path,include_plotlyjs=True,post_script=sync)
-        import html
-        table='<table><tr><th>Model</th><th>Frames</th><th>Duration (ps)</th><th>Mean SASA (nm²)</th><th>SD (nm²)</th></tr>'+''.join(f'<tr><td>{html.escape(k)}</td><td>{v["frames"]}</td><td>{v["end_ps"]-v["start_ps"]:.1f}</td><td>{v["mean_nm2"]:.3f}</td><td>{v["std_nm2"]:.3f}</td></tr>' for k,v in stats.items())+'</table>'
-        text=path.read_text();text=text.replace('</head>', '<style>body{font:15px/1.5 system-ui,sans-serif;color:#24344d;margin:16px}p{max-width:1100px}table{border-collapse:collapse;margin:18px 0}td,th{padding:8px 16px;text-align:left;border-bottom:1px solid #dbe2ea}th{background:#f1f5f9}</style></head>');text=text.replace('</body>','<p>Meshes show the union of probe-inflated spheres (SAS), not a re-entrant solvent-excluded surface. Original GROMACS Connolly dot files are downloadable separately. Simulated CG is fitted to the raw mapped first frame using massive sites. Local ring dilation is illustrative; inter-sugar fitting targets remain unscaled.</p>'+table+'<p>Statistics cover all supplied frames; SD is frame variability, not uncertainty of the mean. Short trajectories do not establish convergence. Paper comparisons averaged at least 200 ns.</p></body>');path.write_text(text)
         # The primary pair as its own machine-readable panels: the dashboard draws AA and Simulated CG side by side,
-        # on the same centred coordinates and the same extent, instead of leaving the primary pair as one column
-        # among the published variants. Data only, so the reader reuses the dashboard's Plotly instead of loading
-        # another bundle; vertices/faces are the same meshes the published figure carries.
+        # on the same centred coordinates and the same extent. Data only, so the reader reuses the dashboard's
+        # Plotly instead of loading another bundle; vertices/faces are the same meshes the SASA work built.
         def panel(label, kind, marker_name, marker_colour, marker_size):
             vertices, faces = meshes[kind]
             markers = first[kind] - center
@@ -209,7 +183,7 @@ plot.on('plotly_relayout',event=>{if(updating)return;const key=Object.keys(event
                'panels':[panel('AA','AA','AA atoms','#26384f',3),
                          panel('Simulated CG','Simulated CG','Simulated CG beads',colors['Simulated CG'],5)]}
         aa_cg_path=output/'surface-comparison-aa-cg.json';aa_cg_path.write_text(json.dumps(aa_cg)+'\n')
-        metadata={'probe_nm':PROBE,'AA_radii_nm':AA_RADII,'CG_radii_nm':carbohydrates.RADII_NM,'grid_spacing_nm':.04,'statistics':stats,'commands':commands,'scientifically_validated':False,'comparison_html':str(path.relative_to(root)),'aa_cg_comparison':str(aa_cg_path.relative_to(root)),'rendering':'SAS mesh, GROMACS Connolly dots retained separately','source_sha256':{str(p.relative_to(root)):files.sha256(p) for p in [root/'2_mapping/model.json',root/'1_AA-reference/prod/lig.xtc',root/'4_CG_sim/prod/lig_CG.xtc']}}
+        metadata={'probe_nm':PROBE,'AA_radii_nm':AA_RADII,'CG_radii_nm':carbohydrates.RADII_NM,'grid_spacing_nm':.04,'statistics':stats,'commands':commands,'scientifically_validated':False,'aa_cg_comparison':str(aa_cg_path.relative_to(root)),'rendering':'SAS mesh, GROMACS Connolly dots retained separately','source_sha256':{str(p.relative_to(root)):files.sha256(p) for p in [root/'2_mapping/model.json',root/'1_AA-reference/prod/lig.xtc',root/'4_CG_sim/prod/lig_CG.xtc']}}
         (output/'metadata.json').write_text(json.dumps(metadata,indent=2));return metadata
     finally:
         aa.trajectory.close();cg.trajectory.close()

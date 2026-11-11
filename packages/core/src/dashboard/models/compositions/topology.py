@@ -283,13 +283,13 @@ def render_itp(result: dict) -> str:
 def preview_geometry(result: dict) -> dict:
     """Per-fragment CG bead positions for the combined-geometry panel.
 
-    The tail's positions are the recipe's own (`tail['coordinates']`, which `render_gro` writes too), laid
-    in the same z=0 plane as the head layout so an initial composite is coplanar: a line and a circle share
-    a plane. That is a stated convention for a starting geometry, not a conformer -- the head's are a
-    *layout* from its bead set, since the composition catalog does not carry the sugar's reference
-    positions, and the joint bonds are seeded from these coordinates, so the fitting stage corrects what the
-    flat start implies. The joined view translates the tail so its endpoint sits beside the head's, which is
-    a preview arrangement -- nothing is minimised, and this is the mapped CG molecule, not the atomistic one.
+    The tail's positions are the recipe's own (`tail['coordinates']`), laid in the same z=0 plane as the
+    head layout so an initial composite is coplanar: a line and a circle share a plane. That is a stated
+    convention for a starting geometry, not a conformer -- the head's are a *layout* from its bead set,
+    since the composition catalog does not carry the sugar's reference positions, and the joint bonds are
+    seeded from these coordinates, so the fitting stage corrects what the flat start implies. The joined
+    view translates the tail so its endpoint sits beside the head's; `starting_geometry` is this same
+    arrangement, which is what the run's `.gro` writes, so the picture and the run cannot disagree.
     """
     import math
     tail = result["tail"]
@@ -379,15 +379,41 @@ def render_pdb(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def starting_geometry(result: dict) -> dict:
+    """The bead positions a CG run starts from: the joined layout the panel already draws.
+
+    One arrangement for the panel, the PDB and the `.gro`. The head is a layout from its bead set and the
+    tail is the recipe's own line, with the tail translated one bond length off the head endpoint by
+    `preview_geometry`; nothing is minimised, which is what the panel's caption says. Head beads are spaced
+    on the layout circle (0.35 nm radius) and tail beads at the recipe's 0.47 nm, so no two physical beads
+    coincide -- the placeholder z-stack this replaced put the head endpoint and the tail's first bead on the
+    same point, and GROMACS' first minimisation step read `-nan`.
+
+    A virtual site is not simulated at its written position, so the position written here is its parents'
+    centroid: the file stays coherent with the `[ virtual_sitesn ]` block and no reader is asked to trust
+    an arbitrary site coordinate.
+    """
+    positions = {bead["name"]: [float(value) for value in bead["position"]]
+                 for bead in preview_geometry(result)["joined"]["beads"]}
+    for site in result["topology"].get("virtual_sites") or []:
+        points = [positions[name] for name in site["parents"] if name in positions]
+        if points:
+            positions[site["site"]] = [round(sum(point[axis] for point in points) / len(points), 6)
+                                       for axis in range(3)]
+        else:
+            positions.setdefault(site["site"], [0.0, 0.0, 0.0])
+    return positions
+
+
 def render_gro(result: dict) -> str:
     atoms = result["topology"]["atoms"]
-    tail_coordinates = result["tail"]["coordinates"]
-    coords = {atom["name"]: [0.0, 0.0, 0.1 * (atom["index"] - 1)] for atom in atoms}
-    for bead, coord in zip(result["tail"]["beads"], tail_coordinates):
-        coords[bead["name"]] = coord
+    positions = starting_geometry(result)
+    missing = [atom["name"] for atom in atoms if atom["name"] not in positions]
+    if missing:
+        raise ValueError(f"the starting geometry places no bead for {missing[0]}")
     lines = ["Generated composition", str(len(atoms))]
     for index, atom in enumerate(atoms, 1):
-        x, y, z = coords[atom["name"]]
+        x, y, z = positions[atom["name"]]
         lines.append(f"    1{result['mapping']['residue_name'][:5]:<5}{atom['name'][:5]:>5}{index:5d}{x:8.3f}{y:8.3f}{z:8.3f}")
     lines.append("   3.00000   3.00000   3.00000")
     return "\n".join(lines) + "\n"

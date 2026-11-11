@@ -70,23 +70,24 @@ def newest_comparison(c, job):
 
 
 def newest_surfaces(c, job):
-    """A run's newest published surfaces analysis: `(attempt, published, metadata_path, figure)`, or `None`.
+    """A run's newest published surfaces analysis: `(attempt, published, metadata_path)`, or `None`.
 
     The solvent-accessible envelope analysis is its own kind with its own attempt, because it needs the atomistic
     trajectory, the mapped one and the simulated one and takes minutes rather than seconds. It publishes SASA
-    statistics and a self-contained figure. Most runs have never had one -- it is queued by hand -- and that is a
-    state a card has to be able to say, so this answers `None` rather than raising.
+    statistics and the AA-vs-Simulated-CG pair the Shape pane draws; it writes no figure of its own. Most runs have
+    never had one -- it is queued by hand -- and that is a state a card has to be able to say, so this answers `None`
+    rather than raising.
     """
-    return newest_published(c, job, 'surfaces', 'analysis/surfaces/metadata.json',
-                            figure_key='comparison_html')
+    return newest_published(c, job, 'surfaces', 'analysis/surfaces/metadata.json')
 
 
 def newest_overlap(c, job):
     """A run's newest published bead-overlap analysis: `(attempt, published, report, figure_or_None)`, or `None`.
 
-    Same shape as `newest_surfaces`, with one deliberate difference: an attempt whose figure is gone does not answer
-    *unless nothing better exists*, and then it still answers with `figure=None` so the card can report that the
-    analysis published and its figure is no longer on disk -- a sentence a run that was never analysed must not get.
+    Unlike `newest_surfaces`, this one has a figure, and the attempt's figure is read with it: an attempt whose figure
+    is gone does not answer *unless nothing better exists*, and then it still answers with `figure=None` so the card
+    can report that the analysis published and its figure is no longer on disk -- a sentence a run that was never
+    analysed must not get.
     """
     return newest_published(c, job, 'overlap', 'overlap.json', figure_key='figure',
                             require_figure=True, tolerate_missing_figure=True)

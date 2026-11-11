@@ -30,20 +30,38 @@ from pathlib import Path
 
 from ... import files, paths
 from .. import mappings
-from . import parse_interactions
+from . import PARAMETER_RANGES, parse_interactions, rewrite_interactions, validate_term
 
 #: The engines a parameterization can be produced by (D3). Each names the ensemble it saw on its
 #: result, and each has one label published for the panel; the labels live here rather than in the
 #: web layer so a new engine is one edit and the route cannot invent a fourth.
 ENGINES = ('fast-forward', 'bartender')
 
+#: A revision's source when it is a transcription of the published Martini 3 reference rather than a fit. It is a
+#: *revision source*, never a fitting engine: `published()` lists only ``ENGINES``, and the job/queue routes keep
+#: reading ``ENGINES``, so a reference can be seeded as an editable revision but can never be "fitted".
+TRANSCRIPTION_SOURCE = 'martini-reference'
+
+#: What ``validate`` accepts on a stored revision: the two fit engines and the reference transcription.
+REVISION_SOURCES = ENGINES + (TRANSCRIPTION_SOURCE,)
+
 ENGINE_LABELS = {
     'fast-forward': 'Fast-Forward fit (ff_inter)',
     'bartender': 'BARTENDER fit (-refit -owntraj)',
+    TRANSCRIPTION_SOURCE: 'Martini 3 reference transcription',
 }
 
 #: What each engine's terms are called in the `source` column of the interactions table.
-ENGINE_SOURCES = {'fast-forward': 'ff_inter', 'bartender': 'bartender'}
+ENGINE_SOURCES = {'fast-forward': 'ff_inter', 'bartender': 'bartender',
+                  TRANSCRIPTION_SOURCE: TRANSCRIPTION_SOURCE}
+
+
+class StaleRevision(ValueError):
+    """The record or revision this writer read has moved on: the caller must reload before saving (409)."""
+
+
+class Refused(ValueError):
+    """A write that this revision's state cannot accept (an earlier revision in place, a reference, a bad seed)."""
 
 #: The provenance of a term that came from the mapping rather than from an engine, and of one the
 #: automatic draft could not find a reference for. Both are named so a hand-edited row is visible.
@@ -384,7 +402,7 @@ def _read(path) -> dict:
 def one(content_hash) -> dict:
     """The record a content identity addresses, for a reader that holds hashes and not a mapping.
 
-    The revision strip and the run panel both work from hashes: the strip is addressed by the candidate
+    The display selector and the run panel both work from hashes: the selector is addressed by the candidate
     the workspace already loaded, and a run's manifest carries the hashes it was prepared with. An
     unknown hash answers with an empty document rather than an error, because "this model has no
     parameterization" is the state a caller is asking about.
@@ -554,7 +572,7 @@ def validate(payload) -> dict:
     if not isinstance(payload, dict):
         raise ValueError('A parameterization revision must be an object')
     engine = payload.get('engine')
-    if engine not in ENGINES:
+    if engine not in REVISION_SOURCES:
         raise ValueError(f'Unknown fitting engine: {engine!r}')
     topology = payload.get('topology')
     if (not isinstance(topology, str) or '[ moleculetype ]' not in topology
@@ -600,6 +618,42 @@ def validate(payload) -> dict:
     return dict(payload, checks=checks, sources=None, scientifically_validated=False)
 
 
+def _append_revision(record, mapping, checked, *, work=None, source=None) -> dict:
+    """Append one revision and make it current, in one atomic write.
+
+    The one writer for a fit (``save``) and for both term saves: it stamps the identities and the computed
+    ``sources``, claims the mapping, numbers the revision, and attaches the coordinate/distribution records either
+    from ``source`` (a clone of an earlier revision shares them) or from the fit's ``work`` directory.
+    """
+    entry = owner_entry(mapping)
+    claimed = owners(record)
+    if not any(item['mapping_hash'] == entry['mapping_hash'] for item in claimed):
+        record['owners'] = claimed + [entry]
+    # The identities a revision records, stamped here and not taken from the caller: a hash-addressed reader answers
+    # `matches` from them without holding the mapping.
+    checked.update(identities(mapping))
+    checked['sources'] = term_sources(checked, mapping)
+    revision = record['revision'] + 1
+    item = {'revision': revision, 'created_at': files.now_iso(), **checked}
+    if source is not None:
+        for key in ('coordinates', 'distributions'):
+            if isinstance(source.get(key), dict):
+                item[key] = source[key]
+    if work is not None:
+        distributions = _record_distributions(checked['mapping_content_hash'], revision, work)
+        if distributions:
+            item['distributions'] = distributions
+        stored_coordinates = _record_coordinates(checked['mapping_content_hash'], revision, work)
+        if stored_coordinates:
+            item['coordinates'] = stored_coordinates
+    record['revisions'].append(item)
+    record['revision'] = revision
+    record['current'] = item
+    record['updated_at'] = files.now_iso()
+    files.atomic_json(_path(mapping), record)
+    return item
+
+
 def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     """Append a revision and make it current, refusing a stale writer.
 
@@ -614,30 +668,199 @@ def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     record = document(mapping)
     if expected_revision is not None and int(expected_revision) != record['revision']:
         raise ValueError('Parameterization changed; reload it before saving')
-    checked = validate(payload)
-    # The identities a revision records, stamped here and not taken from the caller: `bonded.states`
-    # carries the same two on every revision item, and they are what a hash-addressed reader answers
-    # `matches` from without holding the mapping.
-    checked.update(identities(mapping))
-    entry = owner_entry(mapping)
-    claimed = owners(record)
-    if not any(item['mapping_hash'] == entry['mapping_hash'] for item in claimed):
-        record['owners'] = claimed + [entry]
-    checked['sources'] = term_sources(checked, mapping)
-    revision = record['revision'] + 1
-    item = {'revision': revision, 'created_at': files.now_iso(), **checked}
-    distributions = _record_distributions(checked['mapping_content_hash'], revision, work)
-    if distributions:
-        item['distributions'] = distributions
-    stored_coordinates = _record_coordinates(checked['mapping_content_hash'], revision, work)
-    if stored_coordinates:
-        item['coordinates'] = stored_coordinates
-    record['revisions'].append(item)
-    record['revision'] = revision
-    record['current'] = item
-    record['updated_at'] = files.now_iso()
-    files.atomic_json(_path(mapping), record)
-    return item
+    return _append_revision(record, mapping, validate(payload), work=work)
+
+
+def _find_revision(record, revision):
+    for item in record.get('revisions') or []:
+        if item.get('revision') == revision:
+            return item
+    raise KeyError(f'Unknown parameterization revision: {revision}')
+
+
+def _number(text):
+    value = float(text)
+    return int(value) if value.is_integer() else value
+
+
+def _validated_edits(topology, edits):
+    """Check one request's term edits against the stored topology, with the value it is replacing.
+
+    The function is read from the row, never taken from the caller: a parameter edit changes values, not the
+    potential form. Constraints and virtual sites have no ``PARAMETER_RANGES`` row and are refused by their own
+    reading sentinel.
+    """
+    if not isinstance(edits, list) or len(edits) > 300:
+        raise ValueError('terms must be a list of at most 300 edits')
+    rows = {row['id']: row for row in parse_interactions(topology)}
+    validated = {}
+    for edit in edits:
+        if not isinstance(edit, dict) or set(edit) != {'id', 'parameters'}:
+            raise ValueError('Each edit needs id and parameters')
+        term_id = edit['id']
+        if not isinstance(term_id, str) or term_id in validated:
+            raise ValueError(f'Duplicate or invalid term id: {term_id!r}')
+        row = rows.get(term_id)
+        if row is None:
+            raise ValueError(f'No editable term {term_id} in this revision')
+        kind = row['kind']
+        if kind not in PARAMETER_RANGES:
+            if kind == 'constraints':
+                raise ValueError("A constraint's length is the mapping's; it is not editable")
+            if kind.startswith('virtual_sites'):
+                raise ValueError("A virtual site's parents are the mapping's; they are not editable")
+            raise ValueError(f'{kind} terms are not editable')
+        validated[term_id] = {'kind': kind, 'beads': list(row['beads']), 'function': str(row['function']),
+                              'before': [_number(value) for value in row['parameters']],
+                              'parameters': validate_term(kind, row['function'], edit['parameters'])}
+    return validated
+
+
+def _merge_edits(existing, validated):
+    """Fold this request's edits into a revision's edit history, keeping the values they replaced."""
+    at = files.now_iso()
+    merged = {term['id']: term for term in existing or []
+              if isinstance(term, dict) and isinstance(term.get('id'), str)}
+    for term_id, edit in validated.items():
+        merged[term_id] = {'id': term_id, 'kind': edit['kind'], 'beads': list(edit['beads']),
+                           'function': edit['function'], 'before': list(edit['before']),
+                           'after': list(edit['parameters']), 'at': at}
+    return list(merged.values())
+
+
+def _partition(beads):
+    """The bead partition a published entry's term indices would land on: name, atoms, parents, order."""
+    rows = []
+    for bead in beads or []:
+        if not isinstance(bead, dict):
+            continue
+        virtual = bead.get('virtual_site')
+        parents = virtual.get('parents') if isinstance(virtual, dict) else None
+        rows.append((str(bead.get('name')), tuple(int(atom) for atom in bead.get('atoms') or []),
+                     tuple(sorted(str(parent) for parent in parents or [])), bool(virtual)))
+    return rows
+
+
+def _seed_from_reference(mapping, record, edits, molecule_root):
+    """The payload for a revision transcribed from the molecule's published Martini 3 entry.
+
+    The entry is re-derived from the saved mapping's own molecule, never from the request, and the saved mapping's
+    bead partition must equal the published candidate's: the published term indices are bead positions, so a
+    different partition would attach them to different beads. The AA reference of the mapping's current revision is
+    inherited for a run's source pin (a run must record its AA source) and the revision says it was not fitted
+    against it.
+    """
+    molecule_id = mapping.get('molecule_id')
+    if not molecule_id:
+        raise Refused('The saved mapping names no molecule, so it has no published entry to seed from')
+    from ..mappings import context as mapping_context
+    from ..sugars import reference as sugar_reference
+
+    entry = sugar_reference.PUBLISHED_FOR.get(molecule_id)
+    if entry is None:
+        raise Refused(f'{molecule_id} has no published Martini 3 sugar entry to seed from')
+    if not molecule_root:
+        raise ValueError('molecule_root is required to seed a published reference')
+    context = mapping_context.build_context(Path(molecule_root), molecule_id)
+    try:
+        model = sugar_reference.published_model(molecule_id, mapping_context.as_structure(context))
+    except sugar_reference.ReferenceRefused as exc:
+        raise Refused(str(exc)) from exc
+    if _partition(mapping.get('beads')) != _partition(model.get('beads')):
+        raise Refused("This mapping's beads differ from the published entry; a seed would attach the terms to "
+                      'different beads')
+    topology = sugar_reference.run_topology(entry)
+    validated = _validated_edits(topology, edits)
+    if validated:
+        topology = rewrite_interactions(topology, {term_id: edit['parameters']
+                                                   for term_id, edit in validated.items()})
+    current = record.get('current') if isinstance(record.get('current'), dict) else None
+    reference = current.get('aa_reference') if current else None
+    notes = [f'seeded from the published Martini 3 reference {entry}; not a fit']
+    if reference:
+        notes.append(f'AA reference inherited from revision {current["revision"]} for a run\'s source pin; '
+                     'these terms were not fitted against it.')
+    else:
+        notes.append('no AA reference: a CG run cannot pin its source until this mapping has a fitted revision')
+    provenance = model.get('reference') or {}
+    return validate({
+        'engine': TRANSCRIPTION_SOURCE, 'engine_default_source': TRANSCRIPTION_SOURCE,
+        'topology': topology, 'terms': term_counts({'topology': topology}),
+        'options': normalise_options(mapping),
+        'ensemble': {'frames': None, 'source': 'the published Martini 3 reference; no AA trajectory was read'},
+        'aa_reference': reference, 'checks': {}, 'edited_terms': _merge_edits(None, validated),
+        'notes': notes,
+        'transcription': {'molecule_id': molecule_id, 'entry': entry,
+                          'path': provenance.get('path'), 'sha256': provenance.get('sha256'),
+                          'paper_doi': provenance.get('paper_doi')},
+    })
+
+
+def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, expected_sha256=None,
+               from_reference=False, molecule_root=None) -> dict:
+    """Write edited terms into the mapping's parameterization record.
+
+    ``mode='in_place'`` rewrites the *current* revision's topology and only that; the revision number and its fit
+    provenance stay, its ``checks`` are cleared (they described the pre-edit terms), and ``edited_terms`` keeps the
+    values it replaced. ``mode='new'`` clones the shown revision -- current or earlier -- with its engine, ensemble,
+    AA reference, options and coordinate/distribution records, replaces the topology, clears the checks, appends it
+    and makes it current; the source revision is untouched.
+
+    ``from_reference`` is the seed: a new revision of the saved mapping transcribed from its molecule's published
+    Martini 3 entry (see ``_seed_from_reference``), never an in-place write. Returns the stored record.
+    """
+    if mode not in ('in_place', 'new'):
+        raise ValueError('mode must be "in_place" or "new"')
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+        raise ValueError('A revision number is required')
+    record = document(mapping)
+    if expected_revision != record['revision']:
+        raise StaleRevision('This parameterization changed; reload it before saving')
+    if from_reference:
+        if mode != 'new':
+            raise Refused('A published Martini 3 reference is never edited in place')
+        _append_revision(record, mapping, _seed_from_reference(mapping, record, edits, molecule_root))
+        return record
+    if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
+        raise ValueError('expected_sha256 is required to save a stored revision')
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise ValueError('A revision number is required')
+    item = _find_revision(record, revision)
+    if revision_sha256(item) != expected_sha256:
+        raise StaleRevision('This revision changed since it was read; reload it before saving')
+    if mode == 'in_place':
+        current = (record.get('current') or {}).get('revision')
+        if revision != current:
+            raise Refused(f'Revision {revision} is not the current revision; Save in place writes the revision a '
+                          'run consumes')
+        validated = _validated_edits(item['topology'], edits)
+        if not validated:
+            raise ValueError('No parameter edits were given')
+        rewritten = rewrite_interactions(item['topology'], {term_id: edit['parameters']
+                                                            for term_id, edit in validated.items()})
+        updated = validate({**item, 'topology': rewritten, 'terms': term_counts({'topology': rewritten}),
+                            'checks': {}, 'edited_terms': _merge_edits(item.get('edited_terms'), validated)})
+        updated['sources'] = term_sources(updated, mapping)
+        record['revisions'] = [updated if candidate.get('revision') == revision else candidate
+                               for candidate in record['revisions']]
+        record['current'] = next(candidate for candidate in record['revisions']
+                                 if candidate.get('revision') == revision)
+        record['updated_at'] = files.now_iso()
+        files.atomic_json(_path(mapping), record)
+        return record
+    validated = _validated_edits(item['topology'], edits)
+    rewritten = (rewrite_interactions(item['topology'], {term_id: edit['parameters']
+                                                        for term_id, edit in validated.items()})
+                 if validated else item['topology'])
+    payload = {key: item.get(key) for key in ('engine', 'engine_default_source', 'ensemble', 'aa_reference',
+                                              'options', 'temperature_source', 'engine_terms', 'engine_command',
+                                              'refinement', 'diagnostics', 'transcription') if key in item}
+    payload.update(topology=rewritten, terms=term_counts({'topology': rewritten}), checks={},
+                   edited_terms=_merge_edits(item.get('edited_terms'), validated),
+                   notes=list(item.get('notes') or []) + [f'cloned from revision {revision}; '
+                                                          'its checks were not re-run'])
+    _append_revision(record, mapping, validate(payload), source=item)
+    return record
 
 
 def distributions(mapping, revision=None) -> dict | None:
@@ -705,6 +928,11 @@ def term_sources(revision, mapping) -> list:
         if isinstance(term, dict) and isinstance(term.get('beads'), list):
             provenance = term.get('provenance') or {}
             reported[_canonical(term.get('kind'), term['beads'])] = bool(provenance.get('fallback'))
+    # A hand-edited term is recorded by the revision itself, not by the mapping: the edit rewrote the stored
+    # topology, so its ids are what the row is read from. This is checked before the mapping-override and geometry
+    # fallbacks, because those describe where the *fitted* term came from, not the value now stored.
+    edited_ids = {term.get('id') for term in revision.get('edited_terms') or []
+                  if isinstance(term, dict) and isinstance(term.get('id'), str)}
     override_keys, ring_pairs = _override_keys(mapping), _ring_pairs(mapping)
     rows = []
     for row in parse_interactions(revision.get('topology')):
@@ -713,6 +941,8 @@ def term_sources(revision, mapping) -> list:
             source = MAPPING_SOURCE
         elif kind == 'constraints' and frozenset(beads) in ring_pairs:
             source = MAPPING_SOURCE
+        elif row['id'] in edited_ids:
+            source = MANUAL_SOURCE
         elif _canonical(kind, beads) in override_keys:
             source = MANUAL_SOURCE
         elif reported.get(_canonical(kind, beads)):
@@ -743,7 +973,7 @@ def view(record) -> dict:
     A record with no revisions answers `parameterized: False` and the sentence the run panel shows in
     place of the terms; the run then fits in stage 3 and records that it did. Nothing here raises for
     an absent record, because absence is a state and not a fault -- and a hash-addressed reader (the
-    revision strip, a run's manifest) can produce this without holding the mapping.
+    the display selector, a run's manifest) can produce this without holding the mapping.
     """
     revision = (record or {}).get('current')
     if not revision:
@@ -797,6 +1027,14 @@ def describe(revision) -> str:
     """D5's first honest sentence: this model is parameterized, and by what."""
     options = revision.get('options') or {}
     reference = revision.get('aa_reference') or {}
-    return (f"fitted with {ENGINE_LABELS.get(revision['engine'], revision['engine'])}"
+    engine = revision['engine']
+    if engine == TRANSCRIPTION_SOURCE:
+        transcription = revision.get('transcription') or {}
+        inherited = (f"; AA source {reference.get('run_id')} inherited for a run, not fitted against"
+                     if reference.get('run_id') else '; no AA source recorded')
+        return (f"transcribed from the published Martini 3 reference {transcription.get('entry') or 'unknown'}"
+                f"{inherited}, revision {revision['revision']}, hash {revision_sha256(revision)[:12]},"
+                f" torsion model {options.get('torsion_model')}")
+    return (f"fitted with {ENGINE_LABELS.get(engine, engine)}"
             f" against {reference.get('run_id') or 'no AA reference'}, revision {revision['revision']},"
             f" hash {revision_sha256(revision)[:12]}, torsion model {options.get('torsion_model')}")

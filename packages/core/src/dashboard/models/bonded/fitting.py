@@ -56,6 +56,10 @@ STATUSES = ('queued', 'running', 'completed', 'failed', 'cancelled')
 #: slow one, and BARTENDER is slower still when a linkage goes in as an improper.
 DEFAULT_TIMEOUT = 3600
 
+#: The panel renders the last 4,000 characters; the file is cut back after every command so a chatty tool
+#: cannot grow a job's log without bound.
+LOG_LIMIT = 64_000
+
 _JOB = re.compile(r'[a-f0-9]{16}')
 
 #: The live jobs of *this process*: the cancellation flag and the process to end. A running job also
@@ -309,6 +313,16 @@ def _tail(path, limit=2000) -> str:
         return ''
 
 
+def _trim_log(path, limit=LOG_LIMIT) -> None:
+    """Keep only the tail of a job's log, after a command has finished writing it."""
+    try:
+        if path.stat().st_size <= limit:
+            return
+        path.write_text(path.read_text(errors='replace')[-limit:])
+    except OSError:
+        pass
+
+
 def _is_cancelled(job_id) -> bool:
     with _LOCK:
         active = _ACTIVE.get(_validate(job_id))
@@ -379,9 +393,15 @@ def run_command(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
     child is the call that is already blocked. A job the panel can cancel needs the handle, so this
     uses `Popen` and polls -- and sets `stdin=DEVNULL` for the reason that module documents, which is
     that an unattended subprocess has to get past a prompt with nothing to answer it.
+
+    The child's stdout and stderr go to the job's log. A non-zero exit is raised with the first line
+    that says what went wrong, not just the status: the panel shows the log, and "exited 2" alone is
+    not a report.
     """
     timeout = timeout or DEFAULT_TIMEOUT
-    target = Path(log).open('a') if log else None
+    log_path = Path(log) if log else None
+    start = log_path.stat().st_size if log_path is not None and log_path.is_file() else 0
+    target = log_path.open('a') if log_path is not None else None
     try:
         process = subprocess.Popen(command, cwd=cwd, env=_environment(env), stdin=subprocess.DEVNULL,
                                    stdout=target or subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True)
@@ -394,6 +414,7 @@ def run_command(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
             if active is not None:
                 active['process'] = process
     deadline = time.monotonic() + timeout
+    failure = None
     try:
         while process.poll() is None:
             if job_id and _is_cancelled(job_id):
@@ -409,8 +430,21 @@ def run_command(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
                 active = _ACTIVE.get(job_id)
                 if active is not None:
                     active['process'] = None
-    if process.returncode != 0:
-        raise RuntimeError(f'{" ".join(str(part) for part in command)} exited {process.returncode}')
+        # Computed before the trim, so `start` still indexes the bytes the tool wrote.
+        if process.returncode not in (None, 0):
+            from ...execution.environment import failure_detail
+            output = ''
+            if log_path is not None:
+                try:
+                    output = log_path.read_bytes()[start:].decode('utf-8', 'replace')
+                except OSError:
+                    pass
+            failure = (f'{Path(str(command[0])).name} '
+                       f'{failure_detail(subprocess.CompletedProcess(command, process.returncode, output, ""))}')
+        if log_path is not None:
+            _trim_log(log_path)
+    if failure is not None:
+        raise RuntimeError(failure)
     return process
 
 
@@ -626,7 +660,12 @@ def _bartender(loaded, names, record, call, timeout) -> dict:
     _ring_constraints(work, names, call)
     fitted = stage / bartender_fit.FITTED
     if not fitted.is_file():
-        bartender_fit.run(work, {'cpus': 8, 'timeout': timeout})
+        # The tool's stdout/stderr and its input writer's go to the job's log through the same cancellable
+        # runner every other command uses; `subprocess.run(capture_output=True)` is what dropped
+        # `panic: dcd file  error: EOF` and left the panel with an empty log.
+        def tool(command, cwd, timeout=None, env=None):
+            return call(command, cwd, env=env, limit=timeout)
+        bartender_fit.run(work, {'cpus': 8, 'timeout': timeout}, runner=tool)
     if not fitted.is_file():
         raise RuntimeError('BARTENDER did not write gmx_out.itp; there is no fit to store')
     terms = bartender_fit.fitted_terms(fitted.read_text())

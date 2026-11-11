@@ -342,6 +342,21 @@ export async function mount({host, job, side, isCurrent, queue}) {
   //: The map may be opened while the card is still reading its other answers; a token keeps a late answer out.
   let token = 0;
   const current = (mine) => mine === token && isCurrent();
+  //: A row selected while this scene is still reading its record, or before the card has switched it to the
+  //: Bonded mode, is remembered and applied when that mode is shown. The event is the pane's own selection;
+  //: the map never answers it (`rvm-term-focus` stays the one map -> pane direction).
+  let pendingTerm = '';
+  const card = host.closest('.run-view-analysis');
+  const selectionAbort = new AbortController();
+  card?.addEventListener('rvm-term-select', event => {
+    const mode = event.detail?.mode;
+    if (!mode) return;
+    if (mode !== state.mode) {
+      if (mode === 'mapping-bonded') pendingTerm = String(event.detail.itemId || '');
+      return;
+    }
+    selectTerm(String(event.detail.itemId || ''));
+  }, {signal: selectionAbort.signal});
 
   const plot = mountBondedPlot(plotHost, {
     onBeadSelection: (names) => {
@@ -351,12 +366,8 @@ export async function mount({host, job, side, isCurrent, queue}) {
     },
     onTermSelection: (picked) => {
       const id = Array.isArray(picked) ? picked[0] : picked;
-      const term = state.terms.find(entry => entry.id === id);
-      if (!term) return;
-      state.selected = {beadKeys: term.beads, itemId: term.id, pairId: null, termId: term.id};
-      state.status = `${term.kind} · ${term.label} · overlap ${fixed(term.overlap, 2)}`;
-      renderAll();
-      announceTerm(term.id);
+      if (!selectTerm(id)) return;
+      announceTerm(id);
     },
     onPairSelection: (picked) => {
       const id = Array.isArray(picked) ? picked[0] : picked;
@@ -390,6 +401,27 @@ export async function mount({host, job, side, isCurrent, queue}) {
     host.dispatchEvent(new CustomEvent('rvm-term-focus', {
       bubbles: true, detail: {mode: state.mode, itemId: termId},
     }));
+  }
+
+  //: One selected term, reached from a line clicked in the map, a ranked attention item and a row selected in the
+  //: Bonded terms pane. It draws the scene's own selection and never announces: the pane's row is already its own
+  //: selection, so answering it would be a second dispatch path.
+  function selectTerm(termId) {
+    const term = state.terms.find(entry => entry.id === termId);
+    if (!term) return false;
+    state.selected = {beadKeys: term.beads, itemId: term.id, pairId: null, termId: term.id};
+    state.status = `${term.kind} · ${term.label} · overlap ${fixed(term.overlap, 2)}`;
+    renderAll();
+    return true;
+  }
+
+  //: The card calls `setMode` only after this scene's own read finished; a row can be clicked before that. Apply the
+  //: remembered request once the Bonded mode is the one shown.
+  function applyPending() {
+    if (!pendingTerm || state.mode !== 'mapping-bonded') return;
+    const termId = pendingTerm;
+    pendingTerm = '';
+    selectTerm(termId);
   }
 
   function choose(item) {
@@ -529,6 +561,8 @@ export async function mount({host, job, side, isCurrent, queue}) {
     modeLabel.textContent = MODES[state.mode]?.label || state.mode;
     host.dataset.mode = state.mode;
     host.dataset.selectedBeads = state.selected.beadKeys.join(' ');
+    // The scene's selected item, so a test (and a reader inspecting the DOM) can read the same state the drawing uses.
+    host.dataset.selectedTerm = state.selected.termId || '';
     paintReading();
     paintStatus();
     // The Shape perspective has no bead map: the card steps out and the pane carries the AA vs Simulated CG surface
@@ -681,7 +715,10 @@ export async function mount({host, job, side, isCurrent, queue}) {
 
   function setMode(sectionName) {
     if (!MODES[sectionName] || sectionName === state.mode) {
-      if (MODES[sectionName]) renderAll();
+      if (MODES[sectionName]) {
+        renderAll();
+        applyPending();
+      }
       return;
     }
     state.mode = sectionName;
@@ -690,6 +727,7 @@ export async function mount({host, job, side, isCurrent, queue}) {
     state.selected = {beadKeys: state.selected.beadKeys, itemId: null, pairId: null, termId: null};
     state.status = '';
     renderAll();
+    applyPending();
   }
 
   async function refresh() {
@@ -702,13 +740,22 @@ export async function mount({host, job, side, isCurrent, queue}) {
       return;   // the record that was already read stays; a failed re-read does not erase it
     }
     if (!current(mine)) return;
+    const previous = state.body;
     state.body = next;
+    // An item id is an index into one attempt's term list; a republished comparison is a new list, so the
+    // selection it named is dropped rather than pointed at whatever now holds that index.
+    if (String(next.attempt ?? '') !== String(previous?.attempt ?? '')) {
+      state.selected = {...state.selected, itemId: null, pairId: null, termId: null};
+      state.status = '';
+    }
     derive();
     renderAll();
   }
 
   function reset() {
     token += 1;
+    pendingTerm = '';
+    selectionAbort.abort();
     plot.destroy();
     host.replaceChildren();
   }

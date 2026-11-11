@@ -7,6 +7,7 @@ the envelope and the bead overlap -- plus the two states a run can be in: no com
 defined for the run type.
 """
 import json
+import re
 
 from playwright.sync_api import expect
 
@@ -366,6 +367,119 @@ def test_the_map_term_line_selects_the_same_ff_distribution(dashboard, live_page
     assert errors == []
 
 
+#: The scene's own selection seam plus what the reader sees: `data-selected-term` is what the map drew, the trace
+#: width is the halo treatment (`bonded-plot` keeps the metric ink and adds a white underlay for `selection: 'halo'`).
+SELECTED_TERM = """([selector, id]) => {
+  const plot = document.querySelector(selector);
+  const host = plot && plot.closest('.analysis-map');
+  return Boolean(host && host.dataset.selectedTerm === id && plot.data
+    && plot.data.some(trace => trace.meta === 'term' && String(trace.customdata?.[0]) === id
+                              && trace.line.width === 10)
+    && plot.data.some(trace => trace.meta === 'term-halo' && String(trace.customdata?.[0]) === id
+                              && trace.line.width === 16 && trace.line.color === '#ffffff'));
+}"""
+
+
+def test_clicking_a_bonded_term_highlights_it_on_the_comparison_map(dashboard, live_page):
+    """The mirror of the map's focus: selecting a row must select the same term in the scene, for every kind.
+
+    The row keeps the Fast-Forward panel it always painted; the map takes the term from the pane's event and applies
+    its existing halo treatment. Bond, angle and dihedral each go through the same path.
+    """
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    publish_ff(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-bonded')
+    wait_for_map(page, meta='term')
+    host = map_host(page)
+
+    for group in ('Bonds (1)', 'Angles (1)'):
+        pane.locator('details.rvm-term-group', has_text=group).locator('summary').click()
+    pane.locator('[data-item="term:0"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:0'], timeout=30000)
+    expect(host.locator('.rvm-map-status')).to_contain_text('bonds')
+    expect(host.locator('.rvm-map-status')).to_contain_text('overlap 0.82')
+
+    pane.locator('[data-item="term:1"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:1'], timeout=30000)
+    expect(host.locator('.rvm-map-status')).to_contain_text('angles')
+    expect(host.locator('.rvm-map-status')).to_contain_text('overlap 0.44')
+
+    # A dihedral row is flat in the pane, not inside a group.
+    pane.locator('[data-item="term:2"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+    expect(host.locator('.rvm-map-status')).to_contain_text('dihedrals')
+    expect(host.locator('.rvm-map-status')).to_contain_text('overlap 0.21')
+
+    # The row is keyboard-activatable, and it is the same selection path.
+    pane.locator('[data-item="term:0"]').focus()
+    pane.locator('[data-item="term:0"]').press('Enter')
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:0'], timeout=30000)
+    expect(pane.locator('[data-item="term:0"]')).to_have_attribute('aria-selected', 'true')
+    # One click, both views: the pane's own panel moved with the map's selection.
+    expect(pane.locator('[data-ff-panel]')).to_contain_text('FF Hellinger distance')
+    assert errors == []
+
+
+def test_the_selected_term_survives_figures_and_geometry_round_trips(dashboard, live_page):
+    """The highlight is the Bonded section's selection, not a tab-local one; a mode change hands it back."""
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
+    root = page.locator(CARD)
+    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    wait_for_map(page, meta='term')
+    host = map_host(page)
+
+    root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:2"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+
+    # Figures is another pane on the same card: the scene is hidden, never reset.
+    root.locator('.analysis-views button[data-section="figures"]').click()
+    expect(host).to_be_hidden()
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+
+    # A mode change clears the item id the map owns; returning to Bonded lets the pane re-announce its term.
+    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
+    assert host.get_attribute('data-selected-term') == ''
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+    expect(root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:2"]')) \
+        .to_have_attribute('aria-selected', 'true')
+    assert errors == []
+
+
+def test_a_settle_repaint_keeps_the_selected_term(dashboard, live_page):
+    """An analysis settling repaints the scene; the selection belongs to the record, not to the paint."""
+    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
+    publish_mapping(dashboard, 'aa11bb22cc33')
+    page, errors = live_page
+    page.add_init_script('window.__runViewPollMs = 120')
+    state = {'tasks': [{'id': 'task-1', 'kind': 'surfaces', 'status': 'running',
+                        'directory': 'analyses/surfaces/hash/attempt1'}]}
+    page.route(re.compile(r'/api/jobs/aa11bb22cc33/analyses(?:\?.*)?$'),
+               lambda route: route.fulfill(json=state['tasks']))
+    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
+    root = page.locator(CARD)
+    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
+    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
+    wait_for_map(page, meta='term')
+    root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:2"]').click()
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+
+    # The card notices running -> completed and refreshes the map and the section; the published comparison is the
+    # same attempt, so the selection it names is still the same term.
+    state['tasks'][0]['status'] = 'completed'
+    expect(root.locator('#run-view-analysis-tasks-A li')).to_have_attribute(
+        'data-status', 'completed', timeout=15000)
+    page.wait_for_function(SELECTED_TERM, arg=[MAP_PLOT, 'term:2'], timeout=30000)
+    assert errors == []
+
+
 def test_a_term_without_a_published_ff_record_says_so(dashboard, live_page):
     publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
     publish_mapping(dashboard, 'aa11bb22cc33')
@@ -529,11 +643,11 @@ def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, l
     assert errors == []
 
 
-def test_an_older_surfaces_attempt_without_the_pair_falls_back_to_its_figure(dashboard, live_page):
-    """An attempt published before the AA/CG pair existed still shows its own figure and the SASA series.
+def test_an_older_surfaces_attempt_states_the_missing_pair(dashboard, live_page):
+    """An attempt published before the AA/CG pair existed still shows its own SASA numbers, not the removed figure.
 
-    The pair is data on the newest attempts; an older attempt must not read as a broken one, and its own figure is
-    still the AA-vs-variant comparison it published.
+    The old interactive HTML is an artifact now: the section states the pair is missing, keeps the SASA table and
+    series from the attempt's own statistics, and offers Recalculate surfaces as the way to publish the two panels.
     """
     publish(dashboard, 'bb22cc33dd44')
     attempt = publish_surfaces(dashboard, 'bb22cc33dd44')
@@ -546,9 +660,12 @@ def test_an_older_surfaces_attempt_without_the_pair_falls_back_to_its_figure(das
     pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     envelope = pane.locator('[data-shape="surfaces"]')
-    expect(envelope.locator('iframe')).to_have_count(1, timeout=30000)
-    assert 'surface-comparison.html' in envelope.locator('iframe').get_attribute('src')
-    assert 'predates the AA vs Simulated CG pair' in envelope.text_content()
+    expect(envelope.locator('.rvm-table')).to_have_count(1, timeout=30000)
+    expect(envelope.locator('.rvm-surface-plot')).to_have_count(0)
+    expect(envelope.locator('iframe')).to_have_count(0)
+    text = ' '.join(envelope.text_content().split())
+    assert 'predates the AA vs Simulated CG pair' in text, text
+    assert "this attempt's own" in text, text
     expect(envelope.get_by_role('button', name='Recalculate surfaces')).to_be_visible()
     browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', 2)
     assert errors == []
@@ -752,7 +869,7 @@ def test_the_map_is_shown_on_a_mapping_section_and_hidden_on_figures(dashboard, 
     root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
     expect(host).to_be_visible()
     expect(host.locator('.rvm-map-mode')).to_have_text('Terms · overlap')
-    # Shape has no bead map: the card steps out and the pane carries the AA vs Simulated CG surface comparison. This
+    # Shape has no bead map: the card steps out and the pane carries the AA vs Simulated CG pair. This
     # run has no surfaces published yet, so the pane says so instead of drawing anything.
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
     expect(host).to_be_hidden()
@@ -794,7 +911,7 @@ def test_the_three_sections_recolour_one_map(dashboard, live_page):
     assert '#1f7a4d' in term_inks and '#c08a1f' in term_inks and '#c02a37' in term_inks, term_inks
 
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    # The map is not recoloured for Shape: the surface comparison and the SASA series replace it there.
+    # The map is not recoloured for Shape: the AA vs Simulated CG pair and the SASA series replace it there.
     expect(map_host(page)).to_be_hidden()
     expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
     assert errors == []

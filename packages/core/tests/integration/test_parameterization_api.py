@@ -521,3 +521,176 @@ def test_deleting_a_parameterization_that_does_not_exist_is_not_an_error(dashboa
 
     assert response.status_code == 200
     assert response.json['deleted'] is False and response.json['revisions'] == []
+
+
+# --- POST /api/bonded-parameterizations/<content_hash>/terms --------------------------------------------------
+
+from dashboard.models.mappings import context as mapping_context
+
+
+def store(candidate, *, topology=TOPOLOGY, engine='fast-forward', aa_reference=None):
+    """A stored revision with the given topology, written by the store (the call a fit ends with)."""
+    return parameterization.save(candidate, {
+        'engine': engine, 'topology': topology,
+        'options': {'constraints_threshold': 10000, 'temperature_k': 300, 'torsion_model': 'legacy'},
+        'ensemble': {'frames': 5}, 'aa_reference': aa_reference, 'checks': {}})
+
+
+def terms_route(content_hash):
+    return f'/api/bonded-parameterizations/{content_hash}/terms'
+
+
+def test_a_record_answers_each_revisions_digest_for_the_optimistic_save(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    item = store(saved)
+    content_hash = parameterization.content_identity(saved)
+
+    body = dashboard.client.get('/api/bonded-parameterizations',
+                                query_string={'content_hash': content_hash}).json
+
+    assert body['revisions'][0]['sha256'] == parameterization.revision_sha256(item)
+    assert body['revisions'][0]['revision'] == 1
+
+
+def test_terms_saved_in_place_rewrite_the_current_revision_and_read_manual(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    item = store(saved)
+    content_hash = parameterization.content_identity(saved)
+
+    response = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'in_place', 'revision': 1, 'expected_revision': 1,
+        'expected_sha256': parameterization.revision_sha256(item), 'confirm': True,
+        'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
+
+    assert response.status_code == 200, response.get_json()
+    body = response.json
+    assert body['revision'] == 1
+    current = body['current']
+    assert '1 2 1 0.33 6000' in current['topology'] and current['checks'] == {}
+    assert {row['id']: row['source'] for row in current['sources']}['bonds:1'] == 'manual'
+    assert current['edited_terms'][0]['before'] == [0.31, 5000]
+    # The panel re-reads the record: the edit is what the store answers, with the new digest.
+    read = dashboard.client.get('/api/bonded-parameterizations',
+                                query_string={'content_hash': content_hash}).json
+    assert read['revisions'][0]['sha256'] == parameterization.revision_sha256(current)
+    assert read['revisions'][0]['sha256'] != parameterization.revision_sha256(item)
+
+
+def test_terms_saved_as_new_clone_the_shown_revision_and_make_it_current(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    item = store(saved)
+    content_hash = parameterization.content_identity(saved)
+
+    response = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'new', 'revision': 1, 'expected_revision': 1,
+        'expected_sha256': parameterization.revision_sha256(item),
+        'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
+
+    assert response.status_code == 200, response.get_json()
+    body = response.json
+    assert body['revision'] == 2 and body['current']['revision'] == 2
+    assert [entry['revision'] for entry in body['revisions']] == [1, 2]
+    assert '1 2 1 0.33 6000' in body['current']['topology']
+    assert '1 2 1 0.31 5000' in body['revisions'][0]['topology'], 'the source is unchanged'
+    assert body['revisions'][0]['checks'] == {}, 'the source is unchanged'
+
+
+def test_the_terms_route_names_its_refusals(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    item = store(saved)
+    content_hash = parameterization.content_identity(saved)
+    digest = parameterization.revision_sha256(item)
+
+    def post(**overrides):
+        body = {'mode': 'in_place', 'revision': 1, 'expected_revision': 1, 'expected_sha256': digest,
+                'confirm': True, 'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}
+        body.update(overrides)
+        return dashboard.client.post(terms_route(content_hash), json=body)
+
+    assert post(confirm=False).status_code == 400
+    assert 'confirmation' in post(confirm=False).json['error']
+    assert post(confirm=True, mode='later').status_code == 400
+    assert post(confirm=True, expected_sha256=None).status_code == 400
+    assert 'required' in post(confirm=True, expected_sha256=None).json['error']
+    assert post(confirm=True, expected_revision=0).status_code == 409
+    assert 'changed; reload' in post(confirm=True, expected_revision=0).json['error']
+    assert post(confirm=True, expected_sha256='0' * 64).status_code == 409
+    assert post(confirm=True, revision=9).status_code == 404
+    assert 'Unknown parameterization revision' in post(confirm=True, revision=9).json['error']
+    assert post(confirm=True, terms=[{'id': 'bonds:9', 'parameters': [0.3, 5000]}]).status_code == 400
+    assert post(confirm=True, terms=[{'id': 'bonds:1', 'parameters': [9, 5000]}]).status_code == 400
+    assert post(confirm=True, terms=[{'id': 'bonds:1', 'parameters': [0.3, 5000, 1]}]).status_code == 400
+    # Nothing was written by any refusal.
+    assert parameterization.get(saved, 1)['topology'] == item['topology']
+    # A second revision makes revision 1 earlier; in place now refuses with 409.
+    store(saved)
+    assert post(confirm=True, revision=1, expected_revision=2, expected_sha256=digest).status_code == 409
+
+
+def test_an_unknown_content_hash_cannot_receive_terms(dashboard):
+    response = dashboard.client.post(terms_route('e' * 64), json={
+        'mode': 'new', 'revision': 1, 'expected_revision': 1, 'expected_sha256': '0' * 64, 'terms': []})
+
+    assert response.status_code == 404
+    assert 'No saved mapping' in response.json['error']
+
+
+def test_the_reference_seed_is_a_transcription_revision_through_the_real_routes(dashboard):
+    """The whole seed path: the molecule's saved mapping, the published entry, and an in-place edit afterwards."""
+    context = dashboard.client.get('/api/mappings/context?molecule_id=Sucrose').json['context']
+    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate['molecule_id'] = 'Sucrose'
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved_response = dashboard.client.post('/api/mappings/drafts', json=candidate)
+    assert saved_response.status_code == 201, saved_response.json
+    saved = mappings.get(saved_response.json['file'])
+    content_hash = saved['mapping_content_hash']
+
+    seeded = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'new', 'from_reference': True, 'expected_revision': 0,
+        'terms': [{'id': 'bonds:1', 'parameters': [0.4, 5100]}]})
+
+    assert seeded.status_code == 200, seeded.json
+    body = seeded.json
+    revision = body['current']
+    assert body['revision'] == 1
+    assert revision['engine'] == 'martini-reference'
+    assert revision['transcription']['entry'] == 'SUCR'
+    assert revision['aa_reference'] is None
+    assert '1 5 1 0.4 5100' in revision['topology']
+    sources = {row['id']: row['source'] for row in revision['sources']}
+    assert sources['bonds:1'] == 'manual' and sources['constraints:1'] == 'martini-reference'
+    assert revision['checks'] == {}
+
+    # The seeded revision is an ordinary stored revision: it is current, so it can now be edited in place.
+    stored = dashboard.client.get('/api/bonded-parameterizations',
+                                  query_string={'content_hash': content_hash}).json
+    edited = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'in_place', 'revision': 1, 'expected_revision': 1,
+        'expected_sha256': stored['revisions'][0]['sha256'], 'confirm': True,
+        'terms': [{'id': 'bonds:1', 'parameters': [0.42, 5200]}]})
+    assert edited.status_code == 200, edited.json
+    assert edited.json['current']['edited_terms'][0]['before'] == [0.4, 5100]
+
+
+def test_the_reference_seed_refuses_a_molecule_without_a_published_entry(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    content_hash = parameterization.content_identity(saved)
+
+    response = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'new', 'from_reference': True, 'expected_revision': 0, 'terms': []})
+
+    assert response.status_code == 409
+    assert 'no published Martini 3 sugar entry' in response.json['error']
+
+
+def test_a_reference_is_never_saved_in_place(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+    content_hash = parameterization.content_identity(saved)
+
+    response = dashboard.client.post(terms_route(content_hash), json={
+        'mode': 'in_place', 'from_reference': True, 'revision': 1, 'expected_revision': 0, 'confirm': True,
+        'terms': []})
+
+    assert response.status_code == 409
+    assert 'never edited in place' in response.json['error']

@@ -37,8 +37,6 @@ def seed(dashboard, *, overview=False):
         directory.mkdir(parents=True, exist_ok=True)
         for name in names:
             (directory / f'{name}.svg').write_text(SVG)
-    (owner.RUNS / A_RUN / 'surface-comparison.html').write_text(
-        '<!doctype html><title>Surface comparison</title><h1>Interactive figure</h1>')
     if overview:
         output = owner.RUNS / A_RUN / 'analyses/trajectory-overview/signature/attempt/output/key'
         output.mkdir(parents=True)
@@ -62,10 +60,11 @@ def tick(page, item):
     return item.locator('.check').evaluate("el => getComputedStyle(el, '::after').content")
 
 
-def open_view(page, live_page, run_id=A_RUN, tabs=4):
+def open_view(page, live_page, run_id=A_RUN, tabs=3):
     """The Run view with `run_id` in monitor A; the second monitor picks the other run by itself.
 
-    The tab count includes the disabled `trajectory overview` placeholder: three real figures plus the pending one.
+    The tab count includes the disabled `trajectory overview` placeholder when no overview is published: two real
+    figures plus the pending one.
     """
     page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={run_id}')
     expect(page.locator('#runview')).to_be_visible()
@@ -79,11 +78,9 @@ def test_a_monitor_draws_its_own_runs_figures(dashboard, live_page):
 
     open_view(page, live_page)
 
-    expect(note(page)).to_contain_text('3 figures')
+    expect(note(page)).to_contain_text('2 figures')
     expect(plots(page).locator('.figure-media')).to_have_count(1)
     expect(plots(page).get_by_role('tab', name='alpha', exact=True)).to_have_attribute('aria-selected', 'true')
-    plots(page).get_by_role('tab', name='surface comparison', exact=True).click()
-    expect(plots(page).locator('iframe.figure-media')).to_have_attribute('sandbox', 'allow-scripts')
     plots(page).get_by_role('tab', name='beta', exact=True).click()
     plots(page).get_by_role('button', name='Zoom in', exact=True).click()
     expect(plots(page).locator('.figure-zoom-level')).to_have_text('125%')

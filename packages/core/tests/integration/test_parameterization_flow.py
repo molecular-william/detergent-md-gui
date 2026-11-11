@@ -90,7 +90,7 @@ def test_the_job_is_not_a_run_and_its_work_is_not_a_run_directory(fitted):
 
 
 def test_the_current_revision_is_what_a_run_consumes_and_a_second_fit_moves_it(fitted, tmp_path, monkeypatch):
-    """The revision strip is the interface: a run reads whatever is current, and a fit appended later
+    """The stored record is the interface: a run reads whatever is current, and a fit appended later
     is what the next run reads. The panel's own list is the same fact, newest first."""
     from dashboard.analysis.runs import references as aa_references
     dashboard, candidate, first = fitted

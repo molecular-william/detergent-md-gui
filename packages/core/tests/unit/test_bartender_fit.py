@@ -283,3 +283,52 @@ def test_the_improper_histogram_is_coarse_enough_that_the_fit_terminates(tmp_pat
     assert '-improperIncrement' in command, 'the 1-degree default does not terminate'
     width = float(command[command.index('-improperIncrement') + 1])
     assert width >= 2.0, 'and a width the fit converges at is what makes it return'
+
+
+def test_the_trajectory_bartender_is_handed_is_a_multiframe_pdb_of_the_heavy_atoms(tmp_path, monkeypatch):
+    """The DCD MDAnalysis wrote made BARTENDER's goChem reader panic on a 12-atom frame: 12 * 4 bytes is exactly
+    the 48-byte unit-cell block, so the unit cell is read as the X block and EOF lands in a critical read.
+    `-owntraj` also takes multi-PDB, and this is the file it is handed instead."""
+    import json
+
+    import numpy as np
+
+    work = tmp_path / 'work'
+    reference = work / '1_AA-reference' / 'prod'
+    mapping = work / '2_mapping'
+    stage = work / '3_initial_CG'
+    for directory in (reference, mapping, stage):
+        directory.mkdir(parents=True)
+    universe = mda.Universe.empty(3, trajectory=True)
+    universe.add_TopologyAttr('name', ['O', 'C', 'H1'])
+    universe.add_TopologyAttr('resname', ['LIG'])
+    universe.add_TopologyAttr('resid', [1])
+    universe.atoms.positions = [[0.0, 0.0, 0.0], [0.3, 0.0, 0.0], [0.3, 0.3, 0.0]]
+    universe.atoms.write(str(reference / 'lig.gro'))
+    frames = np.array([universe.atoms.positions + shift for shift in (0.0, 0.1, 0.2)], dtype=np.float32)
+    universe.trajectory = mda.coordinates.memory.MemoryReader(frames, order='fac')
+    with mda.Writer(str(reference / 'lig.xtc'), n_atoms=3) as writer:
+        for _ in universe.trajectory:
+            writer.write(universe.atoms)
+    (mapping / 'model.json').write_text(json.dumps({'beads': BEADS}))
+    (mapping / 'mapping.ndx').write_text('[ R1 ]\n1\n')
+    (stage / 'MOL.itp').write_text(TOPOLOGY)
+    monkeypatch.setattr('dashboard.execution.tools.tool_path', lambda _name: str(tmp_path / 'bartender'))
+
+    class Stop(Exception):
+        pass
+
+    def stop(command, cwd, *, timeout=None, env=None):
+        raise Stop('the preparation is what this test reads')
+
+    with pytest.raises(Stop):
+        bartender_fit.run(work, {}, runner=stop)
+
+    trajectory = work / bartender_fit.TRAJECTORY
+    assert trajectory.suffix == '.pdb', 'a DCD of a 12-atom frame is what panics the reader'
+    text = trajectory.read_text()
+    assert sum(1 for line in text.splitlines() if line.startswith('MODEL')) == 3
+    assert sum(1 for line in text.splitlines() if line.startswith('ENDMDL')) == 3
+    names = [line[12:16].strip() for line in text.splitlines() if line.startswith('ATOM')]
+    assert names == ['O', 'C'] * 3, 'one MODEL per frame, heavy atoms only, in the structure order'
+    assert (work / 'solute_heavy.gro').read_text().splitlines()[1] == '2', 'the geometry file is heavy-only too'

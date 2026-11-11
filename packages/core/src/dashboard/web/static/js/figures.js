@@ -12,7 +12,7 @@ export class RunFigureViewer {
     this.pending=Array.isArray(options.pending)?options.pending.slice():[]; this.pendingLabels=[];
     const saved=storage.get(this.key,{});
     this.state={selected:saved?.selected||'',zoom:saved?.zoom&&typeof saved.zoom==='object'?saved.zoom:{}};
-    host.innerHTML='<div class="figure-tabs" role="tablist" aria-label="Run figures"></div><section class="figure-panel" role="tabpanel"><div class="toolbar figure-controls"><button type="button" class="secondary figure-zoom-out">Zoom out</button><output class="figure-zoom-level" aria-live="polite">100%</output><button type="button" class="secondary figure-zoom-in">Zoom in</button><button type="button" class="secondary figure-zoom-reset">Fit / reset</button><a class="button secondary figure-original" target="_blank" rel="noopener">Open original</a></div><figure><figcaption class="figure-caption"></figcaption><p class="figure-source hint"></p><div class="figure-viewport" tabindex="0" aria-label="Figure viewport; scroll to pan when zoomed"><div class="figure-canvas"></div></div><p class="figure-help hint">Zoom to enlarge; scroll to pan. Interactive 3D figures also support dragging to rotate.</p><p class="figure-error notice" role="status" hidden></p></figure></section><p class="figure-empty" hidden>No analysis graphs yet. Use the analysis buttons to generate results.</p>';
+    host.innerHTML='<div class="figure-tabs" role="tablist" aria-label="Run figures"></div><section class="figure-panel" role="tabpanel"><div class="toolbar figure-controls"><button type="button" class="secondary figure-zoom-out">Zoom out</button><output class="figure-zoom-level" aria-live="polite">100%</output><button type="button" class="secondary figure-zoom-in">Zoom in</button><button type="button" class="secondary figure-zoom-reset">Fit / reset</button><a class="button secondary figure-original" target="_blank" rel="noopener">Open original</a></div><figure><figcaption class="figure-caption"></figcaption><p class="figure-source hint"></p><div class="figure-viewport" tabindex="0" aria-label="Figure viewport; scroll to pan when zoomed"><div class="figure-canvas"></div></div><p class="figure-help hint">Zoom to enlarge; scroll to pan.</p><p class="figure-error notice" role="status" hidden></p></figure></section><p class="figure-empty" hidden>No analysis graphs yet. Use the analysis buttons to generate results.</p>';
     this.tabs=$('.figure-tabs',host);this.panel=$('.figure-panel',host);
     this.panel.id=`figure-panel-${runId}`;
     this.viewport=$('.figure-viewport',host);this.canvas=$('.figure-canvas',host);
@@ -72,17 +72,16 @@ export class RunFigureViewer {
     children.forEach((tab,i)=>{const selected=i===childIndex;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;});
     this.panel.setAttribute('aria-labelledby',children[childIndex].id);
     this.state.selected=path;storage.set(this.key,this.state);
-    if(this.active===path)return; // Preserve an iframe's camera and image scroll on refresh.
+    if(this.active===path)return; // Preserve the image's scroll on a refresh that changed nothing.
     this.active=path;
     const saved=Number(this.state.zoom[path]);this.zoom=Number.isFinite(saved)&&saved>=.25&&saved<=4?saved:1;
     const caption=this.figureCaption(this.labels[index],path,this.metadata?.[index]);$('.figure-caption',this.host).innerHTML=caption.title+(caption.help?`<small>${caption.help}</small>`:'');setText($('.figure-source',this.host),path);
     this.panel.classList.toggle('score-figure', /score|matrix/i.test(this.labels[index]));
     const url=`/api/jobs/${this.runId}/artifacts/${path.split('/').map(encodeURIComponent).join('/')}?inline=1`;
     $('.figure-original',this.host).href=url;$('.figure-error',this.host).hidden=true;
-    this.interactive=path.endsWith('.html');this.media=document.createElement(this.interactive?'iframe':'img');
+    this.media=document.createElement('img');
     this.media.className='figure-media';this.media.src=url;
-    if(this.interactive){this.media.title=this.labels[index];this.media.setAttribute('sandbox','allow-scripts');}
-    else {this.media.alt=this.labels[index];this.media.onload=()=>this.layout();this.media.onerror=()=>{setText($('.figure-error',this.host),'Could not load this figure. Open the original to inspect the artifact.');$('.figure-error',this.host).hidden=false;};}
+    this.media.alt=this.labels[index];this.media.onload=()=>this.layout();this.media.onerror=()=>{setText($('.figure-error',this.host),'Could not load this figure. Open the original to inspect the artifact.');$('.figure-error',this.host).hidden=false;};
     this.canvas.replaceChildren(this.media);this.viewport.scrollTo(0,0);this.layout();
   }
   figureCaption(label,path,metadata=null) {
@@ -97,14 +96,13 @@ export class RunFigureViewer {
     if(lower.includes('interaction')||lower.includes('bond')||lower.includes('angle')||lower.includes('dihedral')) return {title:legacy+'Interaction distributions',help:'Agreement of peak positions, widths, and populations is desired; any reported mismatch score is lower-is-better.'};
     if(lower.includes('distance')) return {title:legacy+'Distance distributions',help:'Agreement of distributions is desired. Deliberate 15% ring expansion can create a systematic raw-AA difference.'};
     if(lower.includes('sasa')) return {title:legacy+'SASA over time',help:'AA and CG means and variability should agree; SASA is not universally better when larger or smaller.'};
-    if(lower.includes('surface')) return {title:legacy+'AA/CG surface comparison',help:'Similar aligned envelopes are desired; this is a snapshot or cached surface diagnostic.'};
     return {title:legacy+label};
   }
   setZoom(value){this.zoom=Math.min(4,Math.max(.25,value));this.state.zoom[this.active]=this.zoom;storage.set(this.key,this.state);this.layout();}
   layout(){
     if(!this.media)return;
     const width=this.viewport.clientWidth;if(!width)return;
-    const height=this.interactive?780:(this.media.naturalWidth?width*this.media.naturalHeight/this.media.naturalWidth:400);
+    const height=this.media.naturalWidth?width*this.media.naturalHeight/this.media.naturalWidth:400;
     this.media.style.width=`${width}px`;this.media.style.height=`${height}px`;this.media.style.transform=`scale(${this.zoom})`;
     this.canvas.style.width=`${width*this.zoom}px`;this.canvas.style.height=`${height*this.zoom}px`;
     setText($('.figure-zoom-level',this.host),`${Math.round(this.zoom*100)}%`);

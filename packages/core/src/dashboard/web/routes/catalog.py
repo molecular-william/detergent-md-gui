@@ -5,6 +5,7 @@ from flask import Blueprint, abort, jsonify, send_file
 
 from ...models import catalog as cg_models
 from ...models import compositions
+from ...models.compositions import parameterizations as composition_parameterizations
 from ...models.mappings import references as mapping_references
 from ...models.molecules import evidence
 from .common import coordinator, json_object
@@ -38,6 +39,39 @@ def composition_create_api():
     except ValueError as exc:
         status = 409 if ('stale' in str(exc).lower() or 'already exists' in str(exc).lower()) else 400
         abort(status, str(exc))
+
+
+@blueprint.get('/api/compositions/<composition_id>/parameterizations')
+def composition_parameterizations_api(composition_id):
+    """A saved composition's parameterization: the derived revision 0, the edits above it, and the ranges.
+
+    The current revision's topology **text** is in the answer, so the terms card needs no second parse route; the
+    ranges come from `dashboard.models.bonded.PARAMETER_RANGES`, which owns them, and are not restated here.
+    """
+    try:
+        return jsonify(composition_parameterizations.view(composition_id))
+    except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
+        abort(404, str(exc))
+
+
+@blueprint.post('/api/compositions/<composition_id>/parameterizations')
+def composition_parameterization_save_api(composition_id):
+    """Append an edited revision seeded from the derived model, and make it current.
+
+    `expected_revision` is the optimistic check the panel sends: a record that moved on answers 409 rather than
+    losing the newer edit. A named revision a run consumes is resolved by the adapter, not here.
+    """
+    data = json_object()
+    try:
+        saved = composition_parameterizations.save(composition_id, data,
+                                                  expected_revision=data.get('expected_revision'))
+        return jsonify(saved), 201
+    except composition_parameterizations.StaleRevision as exc:
+        abort(409, str(exc))
+    except (KeyError, FileNotFoundError) as exc:
+        abort(404, str(exc))
+    except (ValueError, OSError) as exc:
+        abort(400, str(exc))
 
 
 @blueprint.get('/api/cg-models')

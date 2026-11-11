@@ -123,3 +123,104 @@ def test_two_molecule_blocks_keep_their_own_torsions(tmp_path):
 
     assert len([torsion for torsion in report['torsions']]) == 2, 'one rewrite per block'
     assert len([line for line in result.splitlines() if line.strip().startswith('1 2 5 6 2')]) == 2
+
+
+# --- editable terms: one range table, one writer --------------------------------------------------------------
+
+#: Four named beads, the flexible sections, and a constraint that must never be offered as an edit.
+EDITABLE_TOPOLOGY = """[ moleculetype ]
+MOL 1
+
+[ atoms ]
+1 C1 1 MOL B01 1 0 72
+2 C1 1 MOL B02 2 0 72
+3 C1 1 MOL B03 3 0 72
+4 C1 1 MOL B04 4 0 72
+
+[ constraints ]
+1 2 1 0.31
+
+[ bonds ]
+2 3 1 0.30 5000 ; keep this comment
+3 4 1 0.31 5000
+
+[ angles ]
+1 2 3 10 141.6 26.8
+
+[ dihedrals ]
+1 2 3 4 1 -102.273 36.636 2
+"""
+
+
+def test_parameter_ranges_are_json_safe_and_name_their_fields():
+    """Lane D publishes this table to the browser; it must survive json.dumps and carry the unit labels."""
+    import json
+    encoded = json.dumps(bonded.PARAMETER_RANGES)
+    assert set(bonded.PARAMETER_RANGES) == {'bonds', 'angles', 'dihedrals'}
+    for kind, functions in bonded.PARAMETER_RANGES.items():
+        for function, bounds in functions.items():
+            assert len(bounds) == bonded.FUNCTIONS[kind][function]
+            for bound in bounds:
+                assert set(bound) == {'min', 'max', 'integer', 'label'}
+                assert bound['min'] < bound['max']
+    dihedral = bonded.PARAMETER_RANGES['dihedrals'][1]
+    assert dihedral[2] == {'min': 1, 'max': 6, 'integer': True, 'label': 'multiplicity'}
+    assert 'multiplicity' in encoded
+
+
+@pytest.mark.parametrize('kind, function, parameters', [
+    ('bonds', 1, [0.01, 0]),
+    ('bonds', 1, [2, 100000]),
+    ('angles', 10, [0, 100000]),
+    ('dihedrals', 1, [-180, 0, 1]),
+    ('dihedrals', 9, [180, 100000, 6]),
+    ('dihedrals', 2, [0, 25]),
+])
+def test_validate_term_accepts_the_edges_of_its_ranges(kind, function, parameters):
+    assert bonded.validate_term(kind, function, parameters) == parameters
+
+
+@pytest.mark.parametrize('kind, function, parameters, message', [
+    ('bonds', 1, [0.001, 5000], 'length'),
+    ('bonds', 1, [0.3], 'takes 2 parameters'),
+    ('bonds', 1, ['0.3', 5000], 'finite number'),
+    ('angles', 1, [181, 25], 'angle'),
+    ('dihedrals', 1, [0, 10, 1.5], 'integer'),
+    ('dihedrals', 1, [0, 100001, 1], 'force'),
+    ('dihedrals', 9, [0, 10, 7], 'between 1 and 6'),
+    ('dihedrals', 99, [0, 10, 1], 'Unsupported bonded function'),
+])
+def test_validate_term_refuses_values_the_store_cannot_run(kind, function, parameters, message):
+    with pytest.raises(ValueError, match=message):
+        bonded.validate_term(kind, function, parameters)
+
+
+def test_rewrite_interactions_changes_only_the_edited_line():
+    rewritten = bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'bonds:1': [0.32, 6000]})
+
+    assert '2 3 1 0.32 6000 ; keep this comment' in rewritten
+    assert '3 4 1 0.31 5000' in rewritten
+    assert '1 2 3 10 141.6 26.8' in rewritten
+    assert '1 2 3 4 1 -102.273 36.636 2' in rewritten
+    assert [row['id'] for row in bonded.parse_interactions(rewritten)] == [
+        row['id'] for row in bonded.parse_interactions(EDITABLE_TOPOLOGY)]
+    assert bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {}) == EDITABLE_TOPOLOGY
+
+
+def test_rewrite_interactions_numbers_funct_nine_lines_independently():
+    """One Fast-Forward torsion is eight harmonic lines; each line is its own editable row."""
+    topology = '[ dihedrals ]\n' + ''.join(
+        f'1 2 3 4 9 {index * 10:.1f} {index * 2:.1f} {index}\n' for index in range(1, 9))
+    rewritten = bonded.rewrite_interactions(topology, {'dihedrals:5': [77.0, 9.0, 3]})
+
+    lines = [line for line in rewritten.splitlines() if line.strip()]
+    assert lines[0] == '[ dihedrals ]'
+    assert lines[5] == '1 2 3 4 9 77 9 3'
+    assert lines[1] == '1 2 3 4 9 10.0 2.0 1', 'an earlier harmonic moved'
+
+
+def test_rewrite_interactions_refuses_constraints_and_unknown_ids():
+    with pytest.raises(ValueError, match='No editable term constraints:1'):
+        bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'constraints:1': [0.3]})
+    with pytest.raises(ValueError, match='No editable term bonds:9'):
+        bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'bonds:9': [0.3, 5000]})

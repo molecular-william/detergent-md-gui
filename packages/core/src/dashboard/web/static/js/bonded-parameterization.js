@@ -1,17 +1,16 @@
 /**
- * The parameterization half of CG Bond Interactions: the model card, the fit job, its result, and the
- * mapping's revision strip.
+ * The parameterization half of CG Bond Interactions: the model card, the fit job, its result, and the terms save.
  *
  * A **parameterization** is a mapping's bonded terms together with the provenance of those terms, and it is
  * produced by a job of this panel's own. It makes no MD, so nothing here becomes a run: a run consumes the
  * revision this panel makes current and records which. The design is
- * `docs/design/2026-10-16-parameterization-and-new-run.md`, and the layout is the draft the owner approved,
- * `docs/design/drafts/2026-11-10-bond-interactions-parameterization.html`.
+ * `docs/design/2026-10-16-parameterization-and-new-run.md`.
  *
  * **Shown is not current.** `shownRevision()` is the display-only choice the model card's selector makes: it drives
  * `termsOf`, the result card and the scene, and reading it reads no route and writes nothing. `currentRevision()` is
- * what a run consumes, and only the **Make current** action moves it. The revision strip is history -- it states each
- * revision's engine, date and term counts and holds no control.
+ * what a run consumes. The display selector is the revision history (its labels say current/earlier); there is no
+ * second strip. **Save in place** rewrites the shown revision only while it is current; **Save as new** appends a
+ * clone and makes it current; both are POSTs to the terms route.
  *
  * Every reading is taken from the routes and none is reconstructed here:
  *
@@ -21,6 +20,7 @@
  *   GET    /api/bonded-parameterizations/jobs?content_hash=           -> {jobs}   (a mapping's whole job history)
  *   POST   /api/bonded-parameterizations                              -> the job record
  *   POST   /api/bonded-parameterizations/jobs/<id>/cancel             -> the job record
+ *   POST   /api/bonded-parameterizations/<content_hash>/terms         -> the record (in_place / new / from_reference)
  *   PATCH  /api/bonded-parameterizations/<content_hash>               -> the record
  *
  * Three rules this module exists to keep:
@@ -113,9 +113,11 @@ function termsOf(revision, mapping) {
   if (!revision || !revision.topology) return [];
   const declared = new Map();
   for (const row of revision.sources || []) if (row && row.id) declared.set(row.id, row.source);
+  // The editable flag, the function labels and the parameter labels are bonded.js's (it owns FUNCTION_OPTIONS);
+  // this reader only adds the source the store computed. Keeping the function table out of here avoids a circular
+  // import and a second copy of it.
   return parseTopology(revision.topology).map(row => ({
     ...row,
-    editable: false,
     source: declared.get(row.id) || 'unrecorded',
   }));
 }
@@ -154,7 +156,6 @@ export function setupParameterization({host, onTerms, onRecord}) {
   const resultBadge = $('#bonded-result-badge', host);
   const provenance = $('#bonded-result-provenance', host);
   const checksBox = $('#bonded-result-checks', host);
-  const strip = $('#bonded-revisions', host);
 
   let mapping = null;
   let summary = null;
@@ -183,7 +184,11 @@ export function setupParameterization({host, onTerms, onRecord}) {
   const currentRevision = () => revisions.find(item => item && item.revision === currentNumber()) || null;
   const shownRevision = () => revisions.find(item => item && item.revision === shownRevisionNumber)
     || (shownRevisionNumber === null ? currentRevision() : null);
-  const engineLabel = value => (engines.find(item => item.value === value) || {}).label || value || 'fit';
+  /** Whether Save in place can act: the shown revision is the one a run consumes, and this is not a reference. */
+  const canSaveInPlace = () => !readOnly && !!shownRevision() && shownRevision().revision === currentNumber();
+  const SOURCE_LABELS = {'martini-reference': 'Martini 3 reference transcription'};
+  const engineLabel = value => (engines.find(item => item.value === value) || {}).label
+    || SOURCE_LABELS[value] || value || 'fit';
   const pollMilliseconds = () => Number(window.__bondedPollMs) || POLL_MS;
   const visible = () => {
     const panel = host.closest('.panel') || host;
@@ -582,12 +587,6 @@ export function setupParameterization({host, onTerms, onRecord}) {
       .reduce((total, [, count]) => total + (Number(count) || 0), 0);
   }
 
-  /** One card per revision: history, never a selector. Engine, date and counts, and no control. */
-  function revisionCounts(revision) {
-    const entries = Object.entries((revision && revision.terms) || {}).filter(([kind]) => kind !== 'virtual_sitesn');
-    return entries.length ? entries.map(([kind, count]) => `${count} ${kind}`).join(' · ') : 'no terms recorded';
-  }
-
   /** The one mutating control, and it names the revision the panel shows rather than the one it happens to hold. */
   function syncMakeCurrent() {
     if (!makeCurrentButton) return;
@@ -616,8 +615,11 @@ export function setupParameterization({host, onTerms, onRecord}) {
     setText(resultTitle, `Revision ${revision.revision} · ${isCurrent ? 'current' : 'earlier, shown'}`);
     const options = revision.options || {};
     const reference = revision.aa_reference || null;
+    const transcription = revision.engine === 'martini-reference';
     setText(resultSummary, `${number(totalTerms(revision))} terms · ${engineLabel(revision.engine)}`
-      + `${reference ? ` · fitted against ${reference.run_id}` : ' · fitted from the mapping alone'}`);
+      + (transcription
+        ? ` · seeded from the published reference${(revision.transcription || {}).entry ? ` ${revision.transcription.entry}` : ''}`
+        : reference ? ` · fitted against ${reference.run_id}` : ' · fitted from the mapping alone'));
     setText(resultBadge, 'saved');
     resultBadge.dataset.status = 'completed';
     const counts = revision.terms || {};
@@ -630,10 +632,14 @@ export function setupParameterization({host, onTerms, onRecord}) {
       ...definition('Torsion model', options.torsion_model === 'circular-harmonic'
         ? `circular-harmonic · stiffness scale ${options.torsion_scale}`
         : 'legacy — the periodic fit as recorded'),
-      ...definition('AA reference', reference
-        ? [reference.run_id, reference.temperature_k != null ? `${reference.temperature_k} K` : '',
-           reference.production_ns != null ? `${reference.production_ns} ns` : ''].filter(Boolean).join(' · ')
-        : 'none — this engine read the mapping alone'),
+      ...definition('AA reference', transcription
+        ? (reference
+          ? `${reference.run_id} · inherited for a run's source; these terms were not fitted against it`
+          : 'none — a CG run cannot pin its source until this mapping is fitted')
+        : reference
+          ? [reference.run_id, reference.temperature_k != null ? `${reference.temperature_k} K` : '',
+             reference.production_ns != null ? `${reference.production_ns} ns` : ''].filter(Boolean).join(' · ')
+          : 'none — this engine read the mapping alone'),
       ...definition('Terms', Object.entries(counts).length
         ? Object.entries(counts).filter(([kind]) => kind !== 'virtual_sitesn')
             .map(([kind, count]) => `${count} ${kind}`).join(' · ')
@@ -645,11 +651,11 @@ export function setupParameterization({host, onTerms, onRecord}) {
         : 'not carried for an earlier revision'),
       ...definition('Fitted', date(revision.created_at) || 'not recorded'));
     const heading = document.createElement('strong');
-    heading.textContent = 'Checks on this fit';
+    heading.textContent = 'Checks recorded with this revision';
     const note = document.createElement('p');
     note.className = 'hint';
-    note.textContent = 'Re-derivations of the terms beside them, run as part of this fit. A check that could not run'
-      + ' is recorded with its reason and is not a failed fit.';
+    note.textContent = 'Re-derivations recorded with the terms. A check that could not run is recorded with its'
+      + ' reason and is not a failed fit; a hand-edited or transcribed revision carries none.';
     const list = document.createElement('ul');
     list.className = 'bonded-checks-list';
     const checks = revision.checks || {};
@@ -661,46 +667,43 @@ export function setupParameterization({host, onTerms, onRecord}) {
     checksBox.append(heading, note, list);
   }
 
-  function renderStrip() {
-    strip.replaceChildren();
-    if (readOnly) {
-      const empty = document.createElement('li');
-      empty.className = 'hint';
-      empty.textContent = 'The published reference has no revisions: it is a transcription of an upstream ITP, not a fit.';
-      strip.append(empty);
-      return;
+  /**
+   * Save edited terms. `in_place` rewrites the current revision; `new` clones the shown one and makes it current;
+   * with a reference shown, `target` names the one saved mapping to seed from the published entry.
+   *
+   * ponytail: no browser confirmation. The Lead's pattern: the button acts and the result/status says what changed
+   * (the same unconditional `confirm: true` the Make current payload carries). The route still refuses a missing
+   * `confirm`; a reader who wants a dialog can add it at this one call.
+   */
+  async function saveTerms({mode, edits, target}) {
+    const shown = shownRevision();
+    if (mode === 'in_place' && readOnly) {
+      throw new Error('A published Martini 3 reference is never edited in place');
     }
-    if (!revisions.length) {
-      const empty = document.createElement('li');
-      empty.className = 'hint';
-      empty.textContent = mapping
-        ? 'This mapping has no revisions yet. A fit stores the first one.'
-        : 'Choose a mapping to read its revisions.';
-      strip.append(empty);
-      return;
+    if (mode === 'in_place' && !canSaveInPlace()) {
+      throw new Error('Save in place writes the revision a run consumes; make the shown revision current first');
     }
-    for (const revision of revisions) {
-      const item = document.createElement('li');
-      item.className = 'bonded-revision';
-      item.dataset.revision = String(revision.revision);
-      const isCurrent = revision.revision === currentNumber();
-      item.dataset.current = String(isCurrent);
-      if (isCurrent) item.setAttribute('aria-current', 'true');
-      const number_ = document.createElement('span');
-      number_.className = 'bonded-revision-number';
-      number_.textContent = `r${revision.revision}`;
-      const engine = document.createElement('span');
-      engine.className = 'bonded-revision-engine';
-      engine.textContent = engineLabel(revision.engine);
-      const when = document.createElement('span');
-      when.className = 'bonded-revision-date';
-      when.textContent = date(revision.created_at) || 'no date recorded';
-      const counts = document.createElement('span');
-      counts.className = 'bonded-revision-counts';
-      counts.textContent = revisionCounts(revision);
-      item.append(number_, engine, when, counts);
-      strip.append(item);
+    const fromReference = readOnly;
+    const contentHash = fromReference ? (target && target.contentHash) : hash();
+    if (!contentHash) throw new Error(fromReference ? 'No saved mapping to seed' : 'Choose a saved mapping first');
+    const body = {mode, terms: edits,
+                  expected_revision: fromReference
+                    ? Number((target && target.recordRevision) || 0)
+                    : Number((summary && summary.revision) || 0)};
+    if (fromReference) {
+      body.from_reference = true;
+    } else {
+      if (!shown) throw new Error('This model has no stored revision to save');
+      body.revision = shown.revision;
+      if (!shown.sha256) throw new Error('Reload the revision before saving: its digest was not read');
+      body.expected_sha256 = shown.sha256;
+      if (mode === 'in_place') body.confirm = true;
     }
+    const record = await post('/api/bonded-parameterizations/' + encodeURIComponent(contentHash) + '/terms', body);
+    // The answer is the stored record; the panel reloads through the route it already reads (the record is the
+    // answer, not the route's echo of it).
+    return {record, revision: record.revision,
+            file: fromReference ? target.file : (mapping && mapping.file)};
   }
 
   async function makeCurrent() {
@@ -782,7 +785,6 @@ export function setupParameterization({host, onTerms, onRecord}) {
     }
     renderModel();
     renderResult();
-    renderStrip();
     updateFit();
     // `null` when the record carries no revision: the table then shows the mapping's own draft and says so,
     // where an empty list would read as a revision whose terms had all been removed. Only the shown revision is
@@ -841,7 +843,6 @@ export function setupParameterization({host, onTerms, onRecord}) {
     fillOptions(fresh);
     renderModel();
     renderResult();
-    renderStrip();
     renderJob();
     onTerms(null);
     if (!mapping) {
@@ -988,5 +989,6 @@ export function setupParameterization({host, onTerms, onRecord}) {
   /** The model's content identity: what a parameterization is addressed by, and a rename does not change. */
   function contentHash() { return hash() || (summary && summary.mapping_content_hash) || ''; }
 
-  return {mount, load, show, revisionCount, isBusy, contentHash, currentRevisionNumber: currentNumber, shownRevision};
+  return {mount, load, show, revisionCount, isBusy, contentHash, currentRevisionNumber: currentNumber,
+          shownRevision, saveTerms, isReference: () => readOnly, canSaveInPlace};
 }

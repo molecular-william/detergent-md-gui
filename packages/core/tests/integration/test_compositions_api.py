@@ -156,3 +156,55 @@ def test_readiness_answers_a_composition_through_its_own_model(dashboard):
     assert wrong.status_code == 200
     assert wrong.json['ready'] is False
     assert any(f'belongs to {saved.json["id"]}' in blocker for blocker in wrong.json['blockers'])
+
+
+#: One flexible bond edit: the linkage keeps its length and gets a softer force.
+OVERRIDE = [{'section': 'bonds', 'beads': ['C', 'C01'], 'function': 1, 'parameters': [0.47, 3000]}]
+
+
+def test_a_saved_edit_is_a_revision_the_catalogue_and_a_run_read(dashboard):
+    """The composition's current parameterization is what the rows, the detail and the run all name."""
+    client = dashboard.client
+    saved = client.post('/api/compositions', json=composition_payload(molecule_name='GLC-C12'))
+    composition_id = saved.json['id']
+
+    view = client.get(f'/api/compositions/{composition_id}/parameterizations')
+    assert view.status_code == 200, view.data
+    assert view.json['current'] == 0 and view.json['edited'] is False
+    assert view.json['ranges']['bonds']['1'][1]['label'] == 'force (kJ mol^-1 nm^-2)'
+
+    edit = client.post(f'/api/compositions/{composition_id}/parameterizations',
+                       json={'expected_revision': 0, 'overrides': OVERRIDE})
+    assert edit.status_code == 201, edit.data
+    assert edit.json['revision'] == 1 and edit.json['base'] == 'derived-revision-0'
+    assert len(edit.json['topology_sha256']) == 64
+
+    stale = client.post(f'/api/compositions/{composition_id}/parameterizations',
+                        json={'expected_revision': 0, 'overrides': OVERRIDE})
+    assert stale.status_code == 409 and 'changed' in stale.get_data(as_text=True)
+    refused = client.post(f'/api/compositions/{composition_id}/parameterizations',
+                          json={'expected_revision': 1, 'overrides': [
+                              {'section': 'bonds', 'beads': ['A', 'VS'], 'function': 1,
+                               'parameters': [0.47, 3000]}]})
+    assert refused.status_code == 400, refused.data
+
+    row = next(item for item in client.get('/api/cg-models').json['models']
+               if item['kind'] == 'composition' and item['id'] == composition_id)
+    assert row['parameterization']['revision'] == 1 and row['parameterization']['base'] == 'edited'
+    detail = client.get(f'/api/cg-models/composition/{composition_id}').json
+    assert detail['parameterization']['revision'] == 1
+    view = client.get(f'/api/compositions/{composition_id}/parameterizations').json
+    assert view['current'] == 1 and view['edited'] is True
+    assert [term['source'] for term in view['terms'] if term['source'] == 'manual']
+
+
+def test_readiness_refuses_a_composition_revision_the_record_does_not_hold(dashboard):
+    saved = dashboard.client.post('/api/compositions', json=composition_payload(molecule_name='GLC-C12'))
+    composition_id = saved.json['id']
+    query = {'run_type': 'cg', 'molecule_id': composition_id, 'detergent': composition_id,
+             'parameterization': json.dumps({'kind': 'composition', 'composition_id': composition_id,
+                                             'composition_revision': 9})}
+    answer = dashboard.client.get('/api/readiness', query_string=query)
+    assert answer.status_code == 200, answer.data
+    assert answer.json['ready'] is False
+    assert 'Unknown composition parameterization revision' in answer.json['blockers'][0]
