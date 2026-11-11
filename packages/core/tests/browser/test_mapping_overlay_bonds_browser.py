@@ -22,6 +22,7 @@ viewer tests use.
 """
 import json
 
+from tests.harness import browser
 from tests.harness.bond_fixtures import atom_count, model_pairs, regrouped
 
 OVERLAY = '#mapping-editor-overlay3d'
@@ -67,19 +68,14 @@ def _open_editor(page, live_page):
                            timeout=60000)
 
 
-def _drawn(page, expression, ready=lambda value: bool(value), tries=24, pause_ms=250):
+def _drawn(page, expression, ready=lambda value: bool(value)):
     """Read the viewer once it is holding what the read needs.
 
     `update()` clears the components before it rebuilds them, so a read that lands in that window meets an empty
     list. Retrying is the remedy, and it is bounded: if the view never draws, this raises with the expression that
     timed out rather than letting a later assertion fail for an unrelated reason.
     """
-    for _ in range(tries):
-        value = page.locator(OVERLAY).evaluate(expression)
-        if ready(value):
-            return value
-        page.wait_for_timeout(pause_ms)
-    raise AssertionError(f'the viewer never held what this read needs: {expression.strip()[:70]}')
+    return browser.read_when(page, OVERLAY, expression, ready=ready, timeout=6000)
 
 
 def _drawn_holding_the_model_to_the_view(page, live_page, transform):

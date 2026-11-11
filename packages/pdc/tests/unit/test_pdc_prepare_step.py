@@ -20,9 +20,7 @@ is only true if the implementation is exercised.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -31,14 +29,12 @@ from detergent_pdc.execution.adapters import pdc, pdc_preparation
 from detergent_pdc.execution.scripts import pdc_build, pdc_prepare
 from micelle.frame import stated_half_thickness_nm
 
-from tests.harness.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, script_of, system_stage
+from tests.harness.pdc_fixtures import inputs_dir, molecule_tree, prepared_run, system_stage, write_cg_pdb
 
 STAGE = 'Protein preparation'
 SYSTEM = 'System preparation'
-TEMPLATE = {
-    'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
+#: One coarse-grained bead, at the origin: what the stage will read back when a test does not write its own.
+CG_BEADS = [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))]
 #: The `REMARK` OPM writes into every structure it serves, which is where the belt's frame comes from. A prepared
 #: structure that loses it makes a stated bilayer into the sphere the placement falls back on.
 MEMBRANE_REMARK = 'REMARK      1/2 of bilayer thickness:   16.8'
@@ -75,17 +71,6 @@ def settings_of(run: Path) -> dict:
     return json.loads((inputs_dir(run) / pdc.SETTINGS_NAME).read_text())
 
 
-def stage_environment() -> dict:
-    """The environment a stage runs under, with this application's interpreter handed over the way the executor may."""
-    return {**os.environ, 'PYTHON': sys.executable}
-
-
-def run_stage(run: Path, name: str = STAGE) -> subprocess.CompletedProcess:
-    directory = stage_directory(run, name)
-    return subprocess.run(['bash', str(script_of(name))], cwd=directory,
-                          env=stage_environment(), capture_output=True, text=True)
-
-
 def fake_pdb2pqr(*, added=None, returncode: int = 0, write_output: bool = True, log: str | None = None):
     """A `pdb2pqr` that writes exactly what its own command names, and the log the real one writes.
 
@@ -117,12 +102,6 @@ def cg_pdb(atoms) -> str:
     return '\n'.join(f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
                      f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
                      for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)) + '\nEND\n'
-
-
-def write_cg_pdb(path: Path, atoms=None) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(cg_pdb(atoms if atoms is not None else [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))]))
-    return path
 
 
 # --- the plan: one stage, first, and nothing existing moves ------------------------------------------------------
@@ -380,7 +359,7 @@ def test_the_build_reads_the_prepared_structure_when_the_stage_left_one(tmp_path
     stage = system_stage(run)
     # The CG step's own gate is the file its command names, so the structure it would have written is written here:
     # what is under test is the file it was *handed*, which the command names.
-    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
     captured = {}
 
     def fake_martinize(protein, out):
@@ -415,7 +394,7 @@ def test_the_build_finds_the_prepared_structure_through_the_spelling_a_stage_scr
     assert pdc_prepare.main(['--stage', str(directory)]) == 0
 
     stage = system_stage(run)
-    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
     captured = {}
 
     def fake_martinize(protein, out):
@@ -436,7 +415,7 @@ def test_the_build_finds_the_prepared_structure_through_the_spelling_a_stage_scr
 def test_the_build_reads_the_deposited_file_when_the_preparation_did_not_run(tmp_path, monkeypatch):
     run = prepared(tmp_path)
     stage = system_stage(run)
-    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb')
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
     captured = {}
 
     def fake_martinize(protein, out):
@@ -510,7 +489,7 @@ def test_the_preview_runs_the_preparer_only_when_the_form_asks_for_it(tmp_path, 
         martinize_calls.append([str(part) for part in command])
         structure = Path(command[command.index('-x') + 1])
         structure.parent.mkdir(parents=True, exist_ok=True)
-        structure.write_text(cg_pdb([(1, 'PRO', 'B01', (0.0, 0.0, 0.0))]))
+        structure.write_text(cg_pdb(CG_BEADS))
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(pdc_build.subprocess, 'run', fake_martinize)
@@ -561,7 +540,7 @@ def test_the_preview_runs_no_preparer_twice_for_one_entry(tmp_path, monkeypatch)
     def fake_martinize(command, **kwargs):
         structure = Path(command[command.index('-x') + 1])
         structure.parent.mkdir(parents=True, exist_ok=True)
-        structure.write_text(cg_pdb([(1, 'PRO', 'B01', (0.0, 0.0, 0.0))]))
+        structure.write_text(cg_pdb(CG_BEADS))
         return subprocess.CompletedProcess(command, 0)
 
     def fake_prepare(source, directory, **kwargs):

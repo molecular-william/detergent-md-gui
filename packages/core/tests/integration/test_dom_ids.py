@@ -152,15 +152,10 @@ def test_every_registered_panel_has_a_section_and_every_section_a_panel(dashboar
     assert page.panels <= from_tabs, f'rendered panels no section offers: {sorted(page.panels - from_tabs)}'
 
 
-def test_a_slug_that_is_not_built_has_no_tab(dashboard):
-    """The other half of D1: a panel that is planned is *labelled* and must not be tabbed.
-
-    `PLANNED` is how a slug is registered before its section exists -- it can carry a label and a DOM id so the shape
-    accounts for it, and it must not appear in a section's tabs, because that is the line between "registered" and
-    "a live tab pointing at nothing".
-    """
+def test_every_tab_has_a_label_a_glyph_and_a_dom_id():
+    """A tab needs both registry halves: a label for the rail and an id for the section it resolves to."""
     tabbed = {slug for section in sections.SECTIONS.values() for slug in section['tabs']}
-    for slug, reason in sections.PLANNED.items():
-        assert slug not in tabbed, f'{slug} is planned ({reason}) and must not be a live tab'
-    assert set(sections.PANELS) <= tabbed | set(sections.PLANNED), 'a labelled panel is neither built nor planned'
-    assert set(sections.TAB_IDS) <= tabbed | set(sections.PLANNED), 'an id is named for no panel at all'
+    for slug in tabbed:
+        assert slug in sections.PANELS, f'{slug} is a tab with no label'
+        assert sections.PANELS[slug][0], f'{slug} has an empty label'
+        assert slug in sections.TAB_IDS, f'{slug} is a tab with no DOM id'

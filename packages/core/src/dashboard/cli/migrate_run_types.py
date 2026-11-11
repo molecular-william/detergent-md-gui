@@ -34,7 +34,7 @@ RETIRED = {'aa_cg': ('revision', 'cg-v1'),
            'sugar_cg': ('reference', 'cg-reference-v1'),
            'cg_composition': ('composition', 'cg-composition-v1')}
 
-ACTIVE = ('queued', 'waiting', 'running', 'cancelling')
+ACTIVE = ('queued', 'running', 'cancelling')
 
 
 def _status(run_id, run_dir, status, *, why=None, old=None, kind=None):

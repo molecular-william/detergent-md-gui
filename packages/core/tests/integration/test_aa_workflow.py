@@ -1,6 +1,5 @@
 import json
 import shutil
-from pathlib import Path
 
 import pytest
 from dashboard.execution import devices, workflow
@@ -73,38 +72,3 @@ def test_aa_settings_do_not_require_cg_duration():
     with pytest.raises(ValueError):aa.normalize_settings({'cg_production_ps':1})
     with pytest.raises(ValueError):aa.normalize_settings({'box_nm':0.5})
 
-
-def test_aa_resume_uses_server_stages_and_rejects_changed_upstream(tmp_path,monkeypatch):
-    import subprocess
-
-    from dashboard import files
-    from dashboard.execution.adapters import aa
-    root=tmp_path/'source';root.mkdir();(root/'logs').mkdir()
-    molecules=PROJECT_ROOT/'molecules'
-    selected=aa_molecules.selection(molecules,'DDM',run_type='aa_only')
-    monkeypatch.setattr(aa,'tool_metadata',lambda:{})
-    monkeypatch.setattr(aa,'gromacs_flavour',lambda *arguments,**keywords:'mpi')
-    aa.prepare_run(root,molecules,selected,{'box_nm':4.0})
-    data=json.loads((root/'manifest.json').read_text());data['stage_plan']=['untrusted script path']
-    files.atomic_json(root/'manifest.json',data)
-    def execute(command,**kwargs):
-        assert Path(command[-1]).parent.name=='01_solvation'
-        (Path(kwargs['cwd'])/'system.gro').write_text('completed solvation output')
-        return subprocess.CompletedProcess(command,0)
-    workflow.run(root,root/'logs/console.log',execute=execute,stop_after=aa.STAGES[0][0])
-    assert workflow.resumable_stages(root)==[name for name,_ in aa.STAGES[:2]]
-    recorded=json.loads((root/'manifest.json').read_text())['stages'][0]['outputs_sha256']
-    assert all(not name.endswith(('run.sh', 'run.mdp')) for name in recorded)
-    stage_script=root/'stages/01_solvation/run.sh'
-    stage_script.write_text(stage_script.read_text()+'\n# regenerated launcher\n')
-    target=tmp_path/'resumed';target.mkdir()
-    workflow.prepare_resume(target,root,aa.STAGES[1][0])
-    metadata=json.loads((target/'manifest.json').read_text())
-    assert metadata['stages'][0]['status']=='reused'
-    assert all(not name.endswith('run.sh') for name in metadata['stages'][0]['outputs_sha256'])
-    assert (target/'stages/01_solvation/system.gro').read_text()=='completed solvation output'
-    assert '# regenerated launcher' not in (target/'stages/01_solvation/run.sh').read_text()
-    (root/'stages/01_solvation/system.gro').write_text('tampered')
-    bad=tmp_path/'bad';bad.mkdir()
-    with pytest.raises(ValueError,match='changed'):
-        workflow.prepare_resume(bad,root,aa.STAGES[1][0])

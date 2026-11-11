@@ -57,6 +57,20 @@ def isolated_workspace(tmp_path):
         yield selected
 
 
+@pytest.fixture
+def gpu_host(monkeypatch):
+    """A host with one GPU, stated rather than probed: a protocol's published table is judged on it.
+
+    Files take it with `pytestmark = pytest.mark.usefixtures('gpu_host')`; a file judging the no-GPU half
+    overrides `devices.detect` itself.
+    """
+    from dashboard.execution import devices
+    devices.clear_cache()
+    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
+    yield
+    devices.clear_cache()
+
+
 def pytest_collection_modifyitems(items):
     for item in items:
         # Only the directory decides: a name heuristic here would silently pull a future

@@ -15,6 +15,7 @@ from dashboard import files
 from dashboard.execution.adapters import aa, cg
 from dashboard.models import mappings
 from dashboard.models.mappings import store as mapping_store
+from dashboard.web import views
 
 
 class DashboardTests(unittest.TestCase):
@@ -166,7 +167,7 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn('Mapping exports', page)
 
     def test_eta_is_latest_and_not_shown_after_finish(self):
-        parse = self.dashboard.coordinator.parse_gromacs_eta
+        parse = views.parse_gromacs_eta
         self.assertEqual(parse('remaining wall clock time: 300 s\rremaining wall clock time: 22.5 s')['gromacs_remaining_seconds'], 22.5)
         self.assertEqual(parse('remaining wall clock time: 300 s\nwill finish Fri Sep 11 09:00:00 2026')['gromacs_eta'], 'Fri Sep 11 09:00:00 2026')
         self.assertEqual(parse('remaining wall clock time: 300 s\nFinished mdrun'), {})

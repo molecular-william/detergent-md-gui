@@ -10,20 +10,10 @@ import re
 
 from playwright.sync_api import expect
 
+from tests.harness import browser
 from tests.harness.validation_fixtures import publish, publish_cross_check, publish_mapping, publish_overlap, publish_surfaces
 
 CARD = '#run-view-analysis-A'
-
-
-def open_section(page, live_page, jid, section, card=CARD):
-    """Open the Run view on one run and one analysis section, and return that section's pane."""
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run={jid}')
-    root = page.locator(card)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator(f'.analysis-views button[data-section="{section}"]').click()
-    pane = root.locator(f'.analysis-pane[data-section="{section}"]')
-    expect(pane).to_be_visible()
-    return pane
 
 
 def one_column(page):
@@ -41,7 +31,7 @@ def test_the_map_and_reading_are_stacked_at_half_width_and_side_by_side_at_full_
     publish(dashboard, 'aa11bb22cc33')
     publish_mapping(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    open_section(page, live_page, 'aa11bb22cc33', 'mapping-geometry')
+    browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-geometry')
     map_host = page.locator(f'{CARD} .analysis-map')
     body = map_host.locator('.rvm-map-body')
     reading = map_host.locator('.rvm-reading')
@@ -77,7 +67,7 @@ def test_the_disclosures_start_closed_and_open_on_click(dashboard, live_page):
     publish_cross_check(dashboard, 'aa11bb22cc33')
     page, errors = live_page
 
-    geometry = open_section(page, live_page, 'aa11bb22cc33', 'mapping-geometry')
+    geometry = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-geometry')
     pairs = geometry.locator('details.rvm-term-group', has_text='Constrained pairs')
     expect(pairs).to_have_count(1)
     expect(pairs.locator('summary')).to_contain_text('Constrained pairs (2)')
@@ -90,7 +80,7 @@ def test_the_disclosures_start_closed_and_open_on_click(dashboard, live_page):
     # The caveat is inside the disclosure, after the rows it is about.
     expect(pairs.locator('.hint').last).to_contain_text('These constraints are fitted')
 
-    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-bonded')
     bonds = pane.locator('details.rvm-term-group', has_text='Bonds (1)')
     angles = pane.locator('details.rvm-term-group', has_text='Angles (1)')
     for group in (bonds, angles):
@@ -131,14 +121,11 @@ def test_the_shape_scene_has_four_traces_and_the_checkboxes_toggle_them(dashboar
     publish_surfaces(dashboard, 'bb22cc33dd44')
     publish_overlap(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
     envelope = pane.locator('[data-shape="surfaces"]')
     plot = envelope.locator('.rvm-surface-plot')
     expect(plot).to_have_count(1)
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 4);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', 4)
     types = plot.evaluate('el => el.data.map(trace => trace.type)')
     assert types == ['mesh3d', 'scatter3d', 'mesh3d', 'scatter3d'], types
     assert plot.evaluate('el => el.layout.showlegend') is not True
@@ -153,10 +140,8 @@ def test_the_shape_scene_has_four_traces_and_the_checkboxes_toggle_them(dashboar
     checks = envelope.locator('.rvm-checks input')
     assert checks.evaluate_all('els => els.map(el => el.checked)') == [True, True]
     envelope.locator('.rvm-checks').get_by_label('Simulated CG').uncheck()
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data[2].visible === false && el.data[3].visible === false);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', 4,
+                            ready='el.data[2].visible === false && el.data[3].visible === false')
     visible = plot.evaluate('el => el.data.map(trace => trace.visible)')
     assert visible[0] is not False and visible[1] is not False, 'AA reference stays drawn'
     assert visible[2] is False and visible[3] is False, 'Simulated CG is hidden'
@@ -181,7 +166,7 @@ def test_the_map_and_chart_legends_are_twelve_pixels(dashboard, live_page):
     publish_mapping(dashboard, 'aa11bb22cc33')
     publish_surfaces(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    open_section(page, live_page, 'aa11bb22cc33', 'mapping-geometry')
+    browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-geometry')
     legend = page.locator(f'{CARD} .analysis-map .rvm-map-legend')
     expect(legend).to_be_visible(timeout=30000)
     legend_size = legend.evaluate('el => parseFloat(getComputedStyle(el).fontSize)')
@@ -189,10 +174,7 @@ def test_the_map_and_chart_legends_are_twelve_pixels(dashboard, live_page):
 
     page.locator(f'{CARD} .analysis-views button[data-section="mapping-shape"]').click()
     chart = page.locator(f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart')
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 2);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', 2)
     chart_size = chart.evaluate('el => el.layout.legend.font.size')
     assert chart_size >= 12, chart_size
     assert errors == []
@@ -202,7 +184,9 @@ def test_the_plotly_hosts_resize_when_the_card_width_changes(dashboard, live_pag
     publish(dashboard, 'aa11bb22cc33')
     publish_mapping(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    open_section(page, live_page, 'aa11bb22cc33', 'mapping-geometry')
+    browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-geometry')
+    # Only Plotly's layout, not a trace count: the map draws one trace per bead type, virtual site and pair, so its
+    # count depends on the comparison this run published.
     page.wait_for_function("""selector => {
       const el = document.querySelector(selector);
       return Boolean(el && el.data && el._fullLayout);

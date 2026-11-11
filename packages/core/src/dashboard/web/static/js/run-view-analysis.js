@@ -27,7 +27,7 @@
 // which section is showing, hides it on Figures (that section is the figure viewer, not a perspective), refreshes
 // it when an analysis settles and resets it when the run changes. The engine passes the section names through
 // without knowing them: `setMode(name)` is the whole vocabulary it shares with the feature.
-import { $, api, post, liveVisible, whenLive, liveApi, panelIds } from './shared.js';
+import { $, api, post, liveVisible, whenLive, liveApi, panelIds, artifactUrl } from './shared.js';
 import { setPanelBusy } from './panel-busy.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
@@ -134,8 +134,7 @@ export function createAnalysis({root, side}) {
     let message = task.error || '';
     if (task.directory) {
       try {
-        const path = `${task.directory.split('/').map(encodeURIComponent).join('/')}/console.log`;
-        const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/artifacts/${path}?inline=1`);
+        const response = await fetch(artifactUrl(job.id, `${task.directory}/console.log`));
         if (response.ok) {
           const lines = (await response.text()).split('\n').map(line => line.trimEnd()).filter(Boolean);
           if (lines.length) message = lines[lines.length - 1];

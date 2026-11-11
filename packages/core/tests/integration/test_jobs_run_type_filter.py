@@ -8,7 +8,7 @@ Three properties, and the third is the one worth the file:
 
 * **absent `run_type` changes nothing.** The three existing callers (`runs.js`'s refresh, the validation panel modules
   and and the pdc panel module, each at `?limit=100`) send no such parameter and must get byte-identical answers. That is asserted
-  against the store's own `page`, which is the thing they used to go through.
+  against the store's own `page`, the one query both paths now share.
 * **a named run type narrows the whole list, not the fetched page.** `total`, `page` and `limit` describe the
   narrowed list, so paging walks the filtered sequence.
 * **a name the registry does not have is a 400 that says what it does have**, rather than an empty page -- which
@@ -153,6 +153,10 @@ def test_the_osmotic_panel_can_ask_for_the_series_runs_alone(dashboard):
 
     assert total == 2 and len(rows) == 2
     assert all(job.get('run_type') == 'osmotic' for job, _ in rows)
+    # The route has no SQL of its own: its filtered answer is the store's own page, row for row.
+    stored, stored_total = dashboard.coordinator.database().page(1, 100, search='', run_types=['osmotic'])
+    assert [job['id'] for job, _ in rows] == [job['id'] for job, _ in stored]
+    assert total == stored_total
     # The unfiltered path is the store's own answer, unchanged: no clause, no narrowing, all five rows.
     unfiltered, everyone = runs_route.pages_of_runs(dashboard.coordinator, 1, 100)
     assert everyone == 5 and len(unfiltered) == 5

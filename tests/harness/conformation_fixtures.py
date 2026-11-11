@@ -42,6 +42,8 @@ CONSTRAINTS = ((1, 2), (1, 3), (2, 3), (5, 6), (5, 7), (6, 7))
 VIRTUAL_SITES = ((4, (1, 2, 3)), (8, (5, 6, 7)))
 #: The stage the assessment leg writes, the one `detergent_pdc.segments` names `CG assessment MD`.
 STAGE = '06_assessment'
+#: The fixture box's edge in nm: molecule 0 crosses a face of it, so making it whole is the extraction's job.
+BOX_NM = 6.0
 
 
 def beads_for(residue=RESIDUE):
@@ -80,7 +82,7 @@ def pair_lengths():
 
 
 def run_tree(workspace, run_id='b920391735dd', *, status='completed', run_type='pdc', protein='',
-             residue=RESIDUE, mapping_sha256=MAPPING_SHA256, molecules=4, frames=2, box_nm=6.0, boxed=True,
+             residue=RESIDUE, mapping_sha256=MAPPING_SHA256, molecules=4, frames=2, boxed=True,
              broken_molecule=None, omit=()):
     """Write one run tree under `<workspace>/runs/<run_id>` and return its paths and record.
 
@@ -114,14 +116,14 @@ def run_tree(workspace, run_id='b920391735dd', *, status='completed', run_type='
     stage = run / 'stages' / STAGE / 'prod'
     stage.mkdir(parents=True, exist_ok=True)
     write_trajectory(stage / 'run.gro', stage / 'whole.xtc', residue=residue, molecules=molecules, frames=frames,
-                     box_nm=box_nm, boxed=boxed, broken_molecule=broken_molecule,
+                     boxed=boxed, broken_molecule=broken_molecule,
                      with_frames='trajectory' not in omit)
     return {'run_id': run_id, 'run': run, 'stage_root': run / 'stages', 'inputs': inputs,
             'structure': stage / 'run.gro', 'trajectory': stage / 'whole.xtc', 'beads': beads_for(residue),
             'manifest': manifest, 'molecules': molecules, 'frames': frames}
 
 
-def write_trajectory(structure, path, *, residue=RESIDUE, molecules=4, frames=2, box_nm=6.0, boxed=True,
+def write_trajectory(structure, path, *, residue=RESIDUE, molecules=4, frames=2, boxed=True,
                      broken_molecule=None, with_frames=True):
     """A `.gro` and a real `.xtc` of `molecules` rigid detergent copies, one of them split across the boundary.
 
@@ -137,12 +139,12 @@ def write_trajectory(structure, path, *, residue=RESIDUE, molecules=4, frames=2,
     universe.atoms.names = [name for _index in range(molecules) for name, _kind, _position in BEADS]
     universe.atoms.residues.resnames = [residue] * molecules
     universe.atoms.residues.resids = np.arange(1, molecules + 1)
-    box = np.full(3, box_nm * 10.0)  # ångström: MDAnalysis' own unit
+    box = np.full(3, BOX_NM * 10.0)  # ångström: MDAnalysis' own unit
     positions = np.zeros((molecules * width, 3))
     for molecule in range(molecules):
         start = molecule * width
         turned = geometry @ _rotation(molecule).T
-        placed = turned * 10.0 + _base(molecule, box_nm) * 10.0
+        placed = turned * 10.0 + _base(molecule, BOX_NM) * 10.0
         positions[start:start + width] = placed % box if boxed else placed
     dimensions = [*box, 90.0, 90.0, 90.0] if boxed else [0.0, 0.0, 0.0, 90.0, 90.0, 90.0]
     if broken_molecule is not None:

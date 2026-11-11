@@ -146,19 +146,6 @@ def test_cg_worker_does_not_pass_reference_run_id_to_preparation(dashboard, serv
     assert captured['parameterization']['kind'] == 'revision'
 
 
-def test_waiting_consumer_starts_only_after_source_slot_is_released(dashboard, service):
-    source=reference_fixture(dashboard)
-    child={'id':'222222222222','status':'waiting','run_type':'cg','reference_run_id':source['id'],
-           'molecule_snapshot':source['molecule_snapshot'],'settings':source['settings']}
-    dashboard.coordinator.database().insert(child)
-    dashboard.coordinator.WORKERS[source['id']]=dashboard.coordinator.Worker()
-    dashboard.coordinator.schedule_waiting();assert dashboard.coordinator.lookup(child['id'])['status']=='waiting'
-    dashboard.coordinator.WORKERS.clear();dashboard.coordinator.schedule_waiting()
-    assert dashboard.coordinator.lookup(child['id'])['status']=='queued'
-    assert list(dashboard.coordinator.WORKERS)==[child['id']]
-    assert dashboard.coordinator.lookup(child['id'])['shared_reference']['source_run_id']==source['id']
-
-
 def test_aa_retry_rejects_changed_canonical_inputs(dashboard, service):
     response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM'})
     job=response.get_json();dashboard.coordinator.database().update(job['id'],status='failed');dashboard.coordinator.WORKERS.clear()
@@ -238,17 +225,6 @@ def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch
                 mapping_snapshot=mapping_snapshot,
                 parameterization={'kind': 'revision', 'mapping_candidate': 'ddm.map'})
     assert len(dashboard.coordinator.database().all()) == 1
-
-
-def test_cancelled_source_cancels_waiting_consumer(dashboard, service):
-    source = reference_fixture(dashboard)
-    dashboard.coordinator.database().update(source['id'], status='cancelled')
-    child = {'id': '222222222222', 'run_type': 'aa_cg', 'status': 'waiting',
-             'reference_run_id': source['id']}
-    dashboard.coordinator.database().insert(child)
-    dashboard.coordinator.schedule_waiting()
-    assert dashboard.coordinator.lookup(child['id'])['status'] == 'cancelled'
-    assert not dashboard.coordinator.WORKERS
 
 
 def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, service):

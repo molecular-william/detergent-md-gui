@@ -70,15 +70,6 @@ def test_a_stage_with_no_legs_anywhere_reports_nothing_rather_than_a_zero(run_di
     assert views.eta(job, stages, run_dir=run_dir) == {}
 
 
-def test_the_console_tail_still_reads_the_recorded_file(run_dir):
-    """The console panel is not this fix's business: it shows the file the writer named, legs or no legs."""
-    job, stages = stage_records(run_dir)
-    current, stage_dir = views.running_stage(job, stages)
-    path = views.stage_log_file(job, current, stage_dir, run_dir=run_dir)
-    assert path == run_dir / 'logs' / 'console.log'
-    assert 'console chatter' in views.stage_log(job, current, stage_dir, run_dir=run_dir)
-
-
 def test_a_manifest_that_names_no_log_at_all_still_finds_the_stage_log(run_dir):
     job, stages = stage_records(run_dir, log_name='../nowhere.log')
     stages[0].pop('log')

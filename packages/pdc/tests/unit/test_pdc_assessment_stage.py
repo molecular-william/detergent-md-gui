@@ -17,15 +17,6 @@ from detergent_pdc.execution.scripts import pdc_solvate
 
 from tests.harness.pdc_fixtures import inputs_dir, prepared_run, run_script, script_of, stage_dir
 
-TEMPLATE = {
-    'name': 'DDM',
-    'residue': 'DDM',
-    'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp',
-    'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
-PROTEIN = 'molecules/DDM/protein.pdb'
-TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
 ASSESSMENT = 'CG assessment MD'
 
 

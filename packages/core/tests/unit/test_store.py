@@ -27,7 +27,7 @@ def test_the_journal_mode_is_switched_once_not_once_per_connection(tmp_path, mon
     store = Store(tmp_path / 'jobs.sqlite3')
     store.insert({'id': JOB, 'status': 'running', 'created': CREATED})
     for _ in range(5):
-        store.page(1, 20, '', '')
+        store.page(1, 20)
 
     switches = [statement for statement in trace if 'journal_mode' in statement.lower()]
     assert len(switches) == 1, trace
@@ -41,7 +41,7 @@ def test_a_writer_beside_several_readers_never_raises_the_lock_error(tmp_path):
     def read():
         for _ in range(25):
             try:
-                store.page(1, 20, '', '')
+                store.page(1, 20)
             except Exception as error:  # noqa: BLE001 - the assertion reports what a caller would have seen
                 errors.append(error)
 

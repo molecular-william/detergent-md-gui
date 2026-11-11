@@ -73,10 +73,7 @@ PLACEMENT_PDB = ('REMARK 950 PLACEMENT PREVIEW\n'
 
 def serve(page, body, requests=None):
     """Every read the panel makes before it can ask, and the route under test."""
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
 
     def route_preview(route):
         if requests is not None:

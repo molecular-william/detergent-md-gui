@@ -9,7 +9,6 @@ would be declared against a directory that no longer holds what they read).
 No tool is run: the job's engine is stood in for at the command runner, as in the unit tests, and the
 AA reference is a resolved dictionary rather than a store lookup.
 """
-import copy
 import json
 from pathlib import Path
 
@@ -19,12 +18,10 @@ import pytest
 from dashboard.analysis import kinds
 from dashboard.execution import workflow
 from dashboard.execution.adapters import cg
-from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '2' * 12, 'sha256': {}}
@@ -35,14 +32,6 @@ RESOLVED = {'run_id': '2' * 12, 'directory': '/nonexistent/reference', 'referenc
                                         'production_ns': 10.0}}}
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM B01 1 0 72\n2 C1 1 DDM B02 2 0 72\n\n'
             '[ bonds ]\n1 2 1 0.31 5000\n')
-
-
-def ddm_mapping():
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), 'DDM')
-    candidate.update(schema_version=3, molecule_id='DDM',
-                     molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
 
 
 def engine(mapping_dir, beads, frames=5):
@@ -81,7 +70,7 @@ def runner(command, cwd, *, env=None, timeout=None, job_id=None, log=None):
 @pytest.fixture
 def fitted(dashboard):
     """One fit of the packaged DDM model against a resolved reference, in the app's own workspace."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     record = fitting.start(candidate, engine='fast-forward', reference=RESOLVED, molecule_root=MOLECULES,
                            background=False, runner=runner)
     return dashboard, candidate, record

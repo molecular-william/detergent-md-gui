@@ -163,7 +163,7 @@ class Coordinator:
                 raise RunBusy('Active analyses must finish before the run can be resumed')
             if self.externally_busy(job):
                 raise RunBusy('An external worker still holds this run')
-            if any(other.get('reference_run_id') == jid or other.get('resume_of') == jid
+            if any(other.get('reference_run_id') == jid
                    for other in self.database().all() if other.get('id') != jid):
                 raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
             self.admit_device(job)
@@ -301,7 +301,6 @@ class Coordinator:
                 except ValueError: raise RunBusy('Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
                 temporary.cleanup(self.database().all(), self.RUNS, self.database())
-            self.schedule_waiting()
 
 
     def limits(self):
@@ -337,14 +336,6 @@ class Coordinator:
     def stage_log_path(self, job, recorded):
         """Resolve captured log provenance within this run after workspace moves."""
         return resolve_stage_log(self.run_path(job), recorded=recorded)
-
-
-    def tail(self, path, limit=65536):
-        return views.tail(path, limit)
-
-
-    def parse_gromacs_eta(self, text):
-        return views.parse_gromacs_eta(text)
 
 
     def ownership(self, job):
@@ -404,7 +395,6 @@ class Coordinator:
             finally:
                 if worker.lease_file: worker.lease_file.close()
                 with self.JOBS_LOCK: self.WORKERS.pop(jid, None)
-                self.schedule_waiting()
             rec['status'], rec['error'] = status, error
 
         try:
@@ -425,10 +415,10 @@ class Coordinator:
                 worker.lease_file = self.lease(work/'.worker.lock')
                 if not in_place:
                     files.atomic_json(work/'manifest.json', {'id': jid, 'status': 'running', 'stages': [], **{k:job[k] for k in ('run_type','workflow_version','protocol_version','stage_plan','reference_run_id','shared_reference','molecule_id','molecule_snapshot','composition_id','composition_snapshot_sha256') if k in job}})
-                if job.get('molecule_snapshot') and not (job.get('resume_of') or in_place):
+                if job.get('molecule_snapshot') and not in_place:
                     aa_molecules.verify_selection(self.ROOT/'molecules', job['molecule_snapshot'])
                 aa_only=job.get('run_type')=='aa_only'
-                resuming = in_place or bool(job.get('resume_of'))
+                resuming = in_place
                 if resuming:
                     readiness = {'ready': True}
                 else:
@@ -446,17 +436,15 @@ class Coordinator:
                 prepare_metadata = features.prepare_for(job.get('run_type'))
                 if not readiness['ready']:
                     raise ValueError('; '.join(readiness['blockers']))
-                source_id = None if in_place else (job.get('resume_of') or job.get('reference_run_id'))
+                source_id = None if in_place else job.get('reference_run_id')
                 source_lease = self.lease(self.RUNS/source_id/'.worker.lock') if source_id else None
                 try:
-                    if job.get('resume_of'):
-                        workflow.prepare_resume(work, self.RUNS/job['resume_of'], job['resume_from'])
-                    elif not in_place and prepare_metadata is not None:
+                    if not in_place and prepare_metadata is not None:
                         # A feature's run type states the arguments its own adapter's `prepare` takes; the CG kwargs
                         # below describe a molecule and are not a shape every run type shares.
                         protocol.adapter_for(job.get('run_type')).prepare(work, prepare_metadata(job, self.ROOT))
                     elif not in_place:
-                        # The same door the four branches above use. The run type's own prepare now owns the stage
+                        # The same door the feature branch above uses. The run type's own prepare now owns the stage
                         # directory, the `inputs/` copy and the manifest, and applies its own settings dialect -- the
                         # coordinator used to filter the settings and assemble the arguments before calling into the
                         # orchestrator, which put a run type's vocabulary in the queue.
@@ -515,7 +503,7 @@ class Coordinator:
                     fp.write(f'\nRun failed: {exc}\n')
 
 
-    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, resume_of=None, resume_from=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None, settings_preset=None, parameterization=None):
+    def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None, settings_preset=None, parameterization=None):
         try:
             admission.validate_run_type({'run_type': run_type, 'composition_id': composition_id,
                                          'molecule_id': molecule_id, 'molecule_snapshot': molecule_snapshot,
@@ -532,11 +520,11 @@ class Coordinator:
             label = generated_label(molecule_id or detergent, run_type, settings, profile)
         settings_preset = preset_record(settings_preset)
         if run_type=='aa_only':
-            if molecule_snapshot and not resume_of:
+            if molecule_snapshot:
                 try:aa_molecules.verify_selection(self.ROOT/'molecules',molecule_snapshot)
                 except (OSError,ValueError) as exc:raise RunConflict(str(exc))
-            job=self.aa_job_record(molecule_id or detergent,label,settings,molecule_snapshot if resume_of else None,profile)
-            job.update(retry_of=retry_of,resume_of=resume_of,resume_from=resume_from,settings_preset=settings_preset)
+            job=self.aa_job_record(molecule_id or detergent,label,settings,profile=profile)
+            job.update(retry_of=retry_of,settings_preset=settings_preset)
             return self.admit_jobs([job],job)
         # The CG run type's parameterization kind decides whether it consumes a shared AA reference. Only the
         # `revision` kind does: a published reference and a composition carry their own coordinates and topology.
@@ -568,10 +556,10 @@ class Coordinator:
             except ValueError as exc: raise InvalidRequest(str(exc))
             if not composition_model:
                 try:
-                    selected = molecule_snapshot if resume_of and molecule_snapshot else aa_molecules.selection(self.ROOT/'molecules', molecule_id)
-                    if molecule_snapshot and not resume_of and selected != molecule_snapshot:
+                    selected = aa_molecules.selection(self.ROOT/'molecules', molecule_id)
+                    if molecule_snapshot and selected != molecule_snapshot:
                         raise ValueError('Molecule files changed; clone with a fresh selection instead')
-                    molecule_snapshot = selected if not resume_of else molecule_snapshot
+                    molecule_snapshot = selected
                 except (OSError, ValueError) as exc: raise RunConflict(str(exc))
         if mapping_snapshot is not None:
             mapping_snapshot = cg.draft_model.load(mapping_snapshot, molecule_root=self.ROOT / 'molecules')
@@ -665,7 +653,7 @@ class Coordinator:
             # A composition's molecule is its own record, so there is no snapshot to store beside it; the id is kept
             # so a retry, a clone and the run's own reader name the same model.
             job['molecule_id'] = molecule_id
-        job.update(layout_version=2, resume_of=resume_of, resume_from=resume_from)
+        job.update(layout_version=2)
         # The stage plan and the workflow version belong to the run's own type. Stamping every job that reaches here
         # as a CG run is why a protein-detergent job was answered by the CG adapter's readiness check -- which knows
         # only the methods it fits -- and refused as "not connected to an executable workflow".
@@ -683,7 +671,7 @@ class Coordinator:
         worker = self.Worker()
         with self.JOBS_LOCK:
             self.admit_device(job)
-            source_id = resume_of or reference_run_id
+            source_id = reference_run_id
             required = 2*resources.usage(self.RUNS/source_id) if source_id else 0
             if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
             resources.admit(self.storage_report(), len(self.WORKERS)+len(self.ANALYSIS_WORKERS), required)
@@ -712,41 +700,11 @@ class Coordinator:
     def admit_jobs(self, records,first,result=None):
         with self.JOBS_LOCK:
             self.admit_device(first)
-            copies=[]
-            for job in records:
-                required=2*resources.usage(self.RUNS/job['resume_of']) if job.get('resume_of') else 0
-                if required>self.limits()['max_run_bytes']:raise CapacityFull('Source copies exceed the per-run storage limit')
-                copies.append(required)
-            resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS)+len(records)-1,sum(copies))
+            resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS)+len(records)-1,0)
             self.database().insert_many(records)
             worker=self.Worker();self.WORKERS[first['id']]=worker
             threading.Thread(target=self.run_job,args=(first['id'],worker),daemon=True).start()
         return result or first
-
-
-    def schedule_waiting(self):
-        """One fixed dependency: CG waits for its AA source without a worker slot."""
-        with self.JOBS_LOCK:
-            for job in reversed(self.database().all()):
-                if job.get('status')!='waiting':continue
-                source=self.database().get(job['reference_run_id'])
-                if not source or source['status'] in ('failed','blocked','cancelled'):
-                    self.database().update(job['id'],status='cancelled' if source and source['status']=='cancelled' else 'blocked',
-                               ended_at=self.now(),error='AA source did not complete; clone with a new source',stage='AA source unavailable')
-                    continue
-                if source['status']!='completed':continue
-                try:
-                    self.admit_device(job)
-                except CapacityFull:
-                    continue
-                try:
-                    _,reference=aa_references.resolve(self.RUNS,source['id'],molecule_snapshot=job['molecule_snapshot'],settings=job['settings'])
-                    resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS))
-                except (ValueError,OSError) as exc:
-                    self.database().update(job['id'],status='blocked',error=str(exc),ended_at=self.now());continue
-                self.database().update(job['id'],status='queued',stage='queued',shared_reference={'source_run_id':source['id'],'sha256':reference['sha256']})
-                worker=self.Worker();self.WORKERS[job['id']]=worker
-                threading.Thread(target=self.run_job,args=(job['id'],worker),daemon=True).start()
 
 
     def manifest_data(self, job):
@@ -801,9 +759,6 @@ class Coordinator:
     def cancel_job(self, jid):
         with self.JOBS_LOCK:
             job = self.lookup(jid)
-            if job['status']=='waiting':
-                self.database().update(jid,status='cancelled',ended_at=self.now(),error='Cancelled while waiting for AA source')
-                return self.lookup(jid), 202
             if job['status'] in ('cancelled', 'cancelling'):
                 return job, 200
             worker = self.WORKERS.get(jid)

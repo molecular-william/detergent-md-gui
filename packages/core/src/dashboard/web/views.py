@@ -73,7 +73,7 @@ def parse_gromacs_eta(text) -> dict:
 def ownership_flags(job, *, active=False, analysis_active=False) -> dict:
     """can_cancel / can_retry / can_delete for a run, given who holds it locally."""
     return {
-        'can_cancel': (active and job['status'] in ('queued','running')) or job['status'] == 'waiting',
+        'can_cancel': active and job['status'] in ('queued','running'),
         'can_retry': job['status'] == 'failed',
         'can_delete': job['status'] in ('completed','failed','cancelled','blocked') and not active and not analysis_active,
     }
@@ -182,24 +182,6 @@ def stage_log_candidates(job, current, stage_dir, *, run_dir, console_log=None) 
         # being resumed from, so an ETA read from it would report progress not yet made.
         candidates.append(Path(console_log))
     return candidates
-
-
-def stage_log_file(job, current, stage_dir, *, run_dir, console_log=None):
-    """The first recorded or discoverable log file for the running stage, or None.
-
-    What the console tail reads: the file the writer named, whether or not GROMACS ever wrote to it. Progress and
-    the ETA ask a different question and go through `stage_log_candidates` instead.
-    """
-    for candidate in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def stage_log(job, current, stage_dir, *, run_dir, console_log=None) -> str:
-    """The end of the running stage's log, or '' when no candidate file holds it."""
-    path = stage_log_file(job, current, stage_dir, run_dir=run_dir, console_log=console_log)
-    return tail(path) if path is not None else ''
 
 
 def eta(job, stages, *, run_dir, console_log=None) -> dict:

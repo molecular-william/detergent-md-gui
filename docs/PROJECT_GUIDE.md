@@ -209,7 +209,7 @@ continue the selected run in place.
 
 Cancellation targets process groups created by the current coordinator. Recovery marks interrupted active jobs and analyses failed. Orphan subprocess leases continue to block unsafe reuse and deletion. Logs and stage records retain commands, environment, start/end times, exit codes, hashes, and failure details.
 
-SQLite transactions protect job updates and attachment/deletion relationships. Completed CG consumers keep their AA source protected from deletion. A waiting CG consumer occupies no simulation slot. AA failure blocks its waiting consumers; AA cancellation cancels them.
+SQLite transactions protect job updates and attachment/deletion relationships. Completed CG consumers keep their AA source protected from deletion. A CG run consumes a completed AA reference and queues directly; no consumer waits for a slot.
 
 ## AA-only and shared-reference protocol
 See the **molecule directory contract**. Each molecule folder contains a matching ITP and GRO or PDB pair, optionally in nested SwissParam output directories, plus local topology dependencies. Missing metadata.json is generated without overwriting user metadata. PDB conversion happens in immutable run preparation; original coordinates remain unchanged. Checks reject traversal, symlinks, missing includes, unsupported directives, inconsistent atom order, and incompatible force fields. GROMACS preprocessing verifies parameter resolution.

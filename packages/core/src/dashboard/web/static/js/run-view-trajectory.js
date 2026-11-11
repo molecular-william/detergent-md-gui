@@ -21,7 +21,7 @@
 // The trap this block shares with the segment table is the token. A reader can pick another run, or another segment,
 // while a fetch is in flight; an answer that belongs to the row they left must write nothing. `runToken` separates
 // runs, `formToken` separates arguments, `loading` separates series files.
-import { liveVisible, whenLive, liveApi, panelIds } from './shared.js';
+import { liveVisible, whenLive, liveApi, panelIds, api } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
 
 //: The eleven keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
@@ -50,21 +50,13 @@ const pollMilliseconds = () => Number(window.__runViewPollMs) || POLL_MS;
 
 //: A build is queued under the job lock and the server fingerprints the chosen trajectory before it answers -- 5.8 s
 //: for a live 2.5 GB `.xtc`, measured, and worse on a cold cache. The shared `api()` client caps every request at ten
-//: seconds and combines that with any signal using the shorter one, so this request carries its own, longer timeout;
-//: without it a queued build would be reported as refused while it was in fact running.
+//: seconds by default and combines that with any signal using the shorter one, so this call passes its own, longer
+//: `timeoutMs`; without it a queued build would be reported as refused while it was in fact running.
 const BUILD_TIMEOUT_MS = 120000;
 
 async function queueBuild(path, body) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(BUILD_TIMEOUT_MS),
-  });
-  const type = response.headers.get('content-type') || '';
-  const data = type.includes('json') ? await response.json() : {error: `Request failed (${response.status})`};
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
-  return data;
+  return api(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body), timeoutMs: BUILD_TIMEOUT_MS});
 }
 
 // The block, above the segment table. A group rather than a form region: the controls act on the canvas beside them,

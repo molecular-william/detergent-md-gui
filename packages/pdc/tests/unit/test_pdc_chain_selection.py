@@ -17,12 +17,8 @@ import pytest
 from detergent_pdc.execution.adapters import pdc, pdc_import
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.harness.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage
+from tests.harness.pdc_fixtures import molecule_tree, prepared_run, settings_of, system_stage, write_cg_pdb
 
-TEMPLATE = {
-    'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
 # A two-subunit protein: the chains the selection is offered and validated against.
 PROTEIN_TEXT = ('ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n'
                 'ATOM      2  CA  LEU B   1       1.000   0.000   0.000  1.00  0.00           C\n'
@@ -36,24 +32,6 @@ def prepared(tmp_path: Path, settings: dict | None = None):
 
 def stage_directory(run: Path) -> Path:
     return system_stage(run)
-
-
-def gro_text(atoms, box=(8.0, 8.0, 8.0)) -> str:
-    lines = ['system', str(len(atoms))]
-    lines += [f'{1:5d}{residue:<5}{name:>5}{index:5d}{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}'
-              for index, (residue, name, xyz) in enumerate(atoms, 1)]
-    lines.append(''.join(f'{value:10.5f}' for value in box))
-    return '\n'.join(lines) + '\n'
-
-
-def write_cg_pdb(path: Path, atoms) -> Path:
-    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, read back by the stage."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
-             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
-             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    path.write_text('\n'.join(lines) + '\nEND\n')
-    return path
 
 
 # --- the setting the run carries ---------------------------------------------------------------------------------

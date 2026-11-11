@@ -12,7 +12,7 @@ from dashboard import files
 from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, send_file, url_for
 
 from ... import features
-from ...analysis.runs import structures
+from ...analysis.runs import layout, structures
 from ...analysis.runs.figures import current_figures
 from ...execution import devices, protocol
 from ...execution.coordination import admission
@@ -116,44 +116,18 @@ def panel_view(section, panel):
 def pages_of_runs(c, page, limit, statuses=(), search='', run_types=(), methods=()):
     """One page of run records, optionally narrowed by status, run type and fitting method.
 
-    **The narrowing clauses live here rather than in `Store.page`.** That method is the one place the run list's
-    ordering and its search clause are decided, and it has four other callers that want every run; the narrowing is
-    a *view* over the same list, so the clauses below are written to agree with it exactly -- newest first, the same
-    substring test -- and the filtered answer is asserted to be the unfiltered one narrowed
-    (`test_jobs_run_type_filter.py`). The alternative, filtering a fetched page in Python, would move the page
-    boundaries: `total` would count runs the caller asked not to see.
+    **The narrowing clauses live in `Store.page`.** That method decides the run list's ordering, its search clause and
+    its narrowing clauses in one query; this function passes the caller's groups through unchanged, so the filtered
+    answer is the unfiltered one narrowed (`test_jobs_run_type_filter.py`). It used to keep a private copy of the SQL
+    for the filtered case, which made the two implementations agree by hand; the one-filter case delegated and every
+    other case did not.
 
     Each parameter is a sequence because the Runs panel offers checkboxes: several values in one group are an *or*
-    (an `IN` clause) and the groups are an *and*. The values are never interpolated -- one placeholder per value --
-    and the caller (the route) is what checks a run type against the registry. A group with no values contributes
-    no clause, which is why "no box ticked" is "everything".
-
-    An absent `run_type` on a record is the historical combined AA-to-CG job, which the run-type migration rewrites
-    to `cg` (`protocol.run_type_of` and `cli/migrate_run_types` agree on that default), so filtering for `cg` finds
-    those too rather than reporting them as nothing.
-
-    The one-filter-or-none case delegates to `Store.page`, so the answer every pre-existing caller gets is not
-    merely equal to the store's but is the store's own query.
+    (an `IN` clause) and the groups are an *and*, with no value interpolated -- one placeholder per value. A group
+    with no values contributes no clause, which is why "no box ticked" is "everything". The caller (the route) is
+    what checks a run type against the registry.
     """
-    store = c.database()
-    statuses, run_types, methods = tuple(statuses), tuple(run_types), tuple(methods)
-    if not run_types and not methods and len(statuses) <= 1:
-        return store.page(page, limit, statuses[0] if statuses else '', search)
-    tests = ["(?='' OR instr(lower(data),lower(?))>0)"]
-    args = [search, search]
-    for column, values in (("json_extract(data,'$.status')", statuses),
-                           ("COALESCE(json_extract(data,'$.run_type'),'cg')", run_types),
-                           ("json_extract(data,'$.method')", methods)):
-        if values:
-            tests.append(f'{column} IN ({",".join("?" * len(values))})')
-            args.extend(values)
-    clause = 'WHERE ' + ' AND '.join(tests)
-    with store.connection() as db:
-        count = db.execute('SELECT count(*) FROM jobs ' + clause, args).fetchone()[0]
-        rows = db.execute("SELECT data,revision FROM jobs " + clause
-                          + " ORDER BY json_extract(data,'$.created') DESC, rowid DESC LIMIT ? OFFSET ?",
-                          (*args, limit, (page - 1) * limit)).fetchall()
-    return [(json.loads(row[0]), row[1]) for row in rows], count
+    return c.database().page(page, limit, statuses, search, run_types, methods)
 
 
 #: What a run's recorded `method` is called where a person reads it. The run cards and the filter box share this one
@@ -471,22 +445,6 @@ def structure_target(run_dir, relative: str) -> Path:
     return path
 
 
-def run_topology(run_dir, manifest=None, run_type=None) -> Path | None:
-    """The run's own coarse-grained moleculetype, or `None` when the run states none.
-
-    The location is the run's own layout rule (`analysis.runs.layout.coarse_topology`): the molecule `.itp` under
-    `stages/3_initial_CG/` for a single-molecule CG build, and under `stages/1_system/` for a protein-detergent
-    run's detergent -- searched at the run's root and under `stages/`, because both layouts are live in one
-    workspace. A fitted run leaves several copies in its directory, so the run's manifest names the one it simulated
-    -- `FINAL_ITP`, which every CG stage records in its environment -- and the protein-detergent build's own
-    filename answers when nothing was recorded. Every other case resolves to `None` rather than to a ranked guess,
-    because the topology is what decides which beads exist and a picture of a model nobody ran is not worth drawing.
-    """
-    from ...analysis.runs import layout
-
-    return layout.recorded_topology(run_dir, run_type, manifest)
-
-
 @blueprint.get('/api/jobs/<jid>/trajectory')
 def run_trajectory_api(jid):
     """What a run offers to play, as ordered segments rather than one file.
@@ -569,7 +527,9 @@ def run_structure_api(jid):
     job = c.lookup(jid)
     run_dir = c.run_path(job)
     path = structure_target(run_dir, request.args.get('path', '').strip())
-    topology = run_topology(run_dir, c.manifest_data(job), job.get('run_type'))
+    # The run's own coarse-grained moleculetype, resolved by the layout rule: the run's manifest names the one it
+    # simulated (`FINAL_ITP`, recorded in every CG stage's environment); a run that states none resolves to `None`.
+    topology = layout.recorded_topology(run_dir, job.get('run_type'), c.manifest_data(job))
     moleculetype = None
     if topology is not None:
         try:

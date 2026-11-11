@@ -17,18 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from dashboard.execution import devices  # noqa: E402
 from dashboard.execution.adapters.aa import mdrun_command_flags, mdrun_launch, normalize_settings  # noqa: E402
 
-
-@pytest.fixture(autouse=True)
-def gpu_host(monkeypatch):
-    """A host with one GPU, recorded: the bracket and the offload choices are what this file judges.
-
-    The builder asks `devices.present()`; forcing it here keeps the assertions off the machine that runs them,
-    and the no-GPU half is stated by its own test below.
-    """
-    devices.clear_cache()
-    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
-    yield
-    devices.clear_cache()
+pytestmark = pytest.mark.usefixtures('gpu_host')
 
 
 def flags(settings):

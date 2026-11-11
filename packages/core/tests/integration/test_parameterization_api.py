@@ -23,9 +23,8 @@ import numpy as np
 import pytest
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM B01 1 0 72\n2 C1 1 DDM B02 2 0 72\n\n'
@@ -35,15 +34,6 @@ REFERENCE = {'run_id': 'a' * 12, 'directory': '/nonexistent/reference', 'referen
                         'aa_reference': {'run_id': 'a' * 12, 'reference_sha256': 'ab' * 32,
                                          'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                                          'production_ns': 10.0}}}
-
-
-def ddm_mapping(name='DDM'):
-    """The saved-candidate shape the panel posts: the molecule's snapshot, exported by one mapper."""
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), name)
-    candidate.update(schema_version=3, molecule_id='DDM',
-                     molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
 
 
 def variant(candidate, label='a'):
@@ -142,7 +132,7 @@ def test_the_engines_route_publishes_the_engines_a_fit_accepts(dashboard):
 
 def test_a_fit_is_queued_with_the_payload_the_panel_sends(dashboard, started):
     run_id, digest = reference_run(dashboard.paths.workspace)
-    payload = {'mapping': ddm_mapping(), 'engine': 'fast-forward', 'aa_reference': run_id,
+    payload = {'mapping': saved_mapping(), 'engine': 'fast-forward', 'aa_reference': run_id,
                'options': {'constraints_threshold': 12000, 'temperature_k': 310.0,
                            'torsion_model': 'circular-harmonic', 'torsion_scale': 1.2},
                'molecule_root': 'molecules', 'timeout': 900}
@@ -173,7 +163,7 @@ def test_the_engine_that_read_no_reference_is_no_longer_an_engine(dashboard, sta
     unknown engine gets, and no job is created for one nothing can run.
     """
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'reference-informed'})
+                                     json={'mapping': saved_mapping(), 'engine': 'reference-informed'})
 
     assert response.status_code == 400
     assert 'Unknown fitting engine' in response.json['error']
@@ -182,7 +172,7 @@ def test_the_engine_that_read_no_reference_is_no_longer_an_engine(dashboard, sta
 
 def test_an_engine_this_build_does_not_have_is_refused(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'gromacs-magic',
+                                     json={'mapping': saved_mapping(), 'engine': 'gromacs-magic',
                                            'aa_reference': 'a' * 12})
 
     assert response.status_code == 400
@@ -192,7 +182,7 @@ def test_an_engine_this_build_does_not_have_is_refused(dashboard, started):
 
 def test_an_engine_that_fits_to_an_ensemble_needs_its_reference(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'fast-forward'})
+                                     json={'mapping': saved_mapping(), 'engine': 'fast-forward'})
 
     assert response.status_code == 400
     assert 'link an AA reference' in response.json['error']
@@ -201,7 +191,7 @@ def test_an_engine_that_fits_to_an_ensemble_needs_its_reference(dashboard, start
 
 def test_a_reference_that_is_not_a_run_in_this_workspace_is_not_found(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'fast-forward',
+                                     json={'mapping': saved_mapping(), 'engine': 'fast-forward',
                                            'aa_reference': 'b' * 12})
 
     assert response.status_code == 404
@@ -211,7 +201,7 @@ def test_a_reference_that_is_not_a_run_in_this_workspace_is_not_found(dashboard,
 
 def test_a_malformed_reference_id_is_a_bad_request(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'fast-forward',
+                                     json={'mapping': saved_mapping(), 'engine': 'fast-forward',
                                            'aa_reference': 'not-a-run'})
 
     assert response.status_code == 400
@@ -222,7 +212,7 @@ def test_an_option_a_revision_cannot_record_is_refused_by_the_job_that_would_rec
     """No stubbed job here: the refusal is `fitting.start`'s own, reached through the real route."""
     run_id, _ = reference_run(dashboard.paths.workspace)
     response = dashboard.client.post('/api/bonded-parameterizations',
-                                     json={'mapping': ddm_mapping(), 'engine': 'fast-forward',
+                                     json={'mapping': saved_mapping(), 'engine': 'fast-forward',
                                            'aa_reference': run_id, 'options': {'torsion_scale': 9.0}})
 
     assert response.status_code == 400
@@ -241,7 +231,7 @@ def test_a_body_without_a_mapping_is_a_bad_request(dashboard, started):
 # --- GET /api/bonded-parameterizations ----------------------------------------------------------------
 
 def test_a_record_answers_its_summary_its_whole_history_and_its_jobs(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     job = fit(candidate)
     content_hash = parameterization.content_identity(candidate)
 
@@ -264,7 +254,7 @@ def test_a_record_answers_its_summary_its_whole_history_and_its_jobs(dashboard):
 
 
 def test_a_record_is_also_found_by_the_candidate_its_revisions_were_made_for(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
 
     response = dashboard.client.get('/api/bonded-parameterizations',
@@ -276,7 +266,7 @@ def test_a_record_is_also_found_by_the_candidate_its_revisions_were_made_for(das
 
 
 def test_every_record_is_listed_when_the_caller_names_no_mapping(dashboard):
-    fit(ddm_mapping())
+    fit(saved_mapping())
 
     response = dashboard.client.get('/api/bonded-parameterizations')
 
@@ -304,7 +294,7 @@ def test_a_candidate_with_no_record_is_answered_with_none_of_the_other_models_jo
     store answers with has no record -- but the request named a candidate hash, and the jobs beside it in
     the workspace belong to other models. Answering them would be an answer about three models at once.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
     fit(variant(candidate, 'd'))
     fit(variant(candidate, 'e'))
@@ -327,7 +317,7 @@ def test_a_job_queued_before_its_record_exists_is_still_this_models(dashboard):
     Filtering the empty answer by the hash the request named -- rather than by the record's content hash,
     which an absent record does not have -- is what makes both cases true at once.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
 
     def writes_nothing(command, cwd, **kwargs):
         return None
@@ -349,7 +339,7 @@ def test_a_job_queued_before_its_record_exists_is_still_this_models(dashboard):
 # --- GET /api/bonded-parameterizations/jobs -----------------------------------------------------------
 
 def test_the_job_box_lists_one_mappings_jobs_newest_first(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     first = fit(candidate)
     second = fit(candidate)
     other = fit(variant(candidate))
@@ -390,7 +380,7 @@ def test_cancelling_a_job_nobody_queued_is_not_found(dashboard):
 # --- PATCH /api/bonded-parameterizations/<content_hash> -----------------------------------------------
 
 def test_making_a_revision_current_requires_confirmation(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
     content_hash = parameterization.content_identity(candidate)
 
@@ -403,7 +393,7 @@ def test_making_a_revision_current_requires_confirmation(dashboard):
 
 
 def test_an_earlier_revision_is_made_current_again_by_a_content_hash(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
     fit(candidate)
     content_hash = parameterization.content_identity(candidate)
@@ -431,7 +421,7 @@ def test_an_unknown_hash_cannot_be_made_current(dashboard):
 
 
 def test_a_revision_that_does_not_exist_is_not_found(dashboard):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
     content_hash = parameterization.content_identity(candidate)
     mappings.save_draft(candidate)
@@ -450,8 +440,8 @@ def test_the_jobs_route_answers_a_job_by_its_own_id(dashboard):
     mapping's hash is right only while the job's hash agrees with it, and when they disagreed the box kept the record
     it queued and sat on `queued` with nothing saying why.
     """
-    candidate = ddm_mapping()
-    other = ddm_mapping(name='DDM · another')
+    candidate = saved_mapping()
+    other = saved_mapping(name='DDM · another')
     other['beads'][0]['label'] = 'v'
     first = fit(candidate)
     second = fit(other)
@@ -479,7 +469,7 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     revision, the fit job that produced it and the work those fits built go, and the saved candidate is still there
     afterwards -- which is the difference between this route and `DELETE /api/mappings/drafts/<name>`.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     job = fit(candidate)
     content_hash = parameterization.content_identity(candidate)
     workspace = Path(dashboard.paths.workspace)
@@ -504,7 +494,7 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
 
 def test_deleting_a_parameterization_needs_confirmation_and_a_revision_that_still_matches(dashboard):
     """Two refusals, both about irreversibility: no confirmation, and a record that moved on since the panel read it."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fit(candidate)
     content_hash = parameterization.content_identity(candidate)
 

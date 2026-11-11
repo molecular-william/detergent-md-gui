@@ -8,19 +8,16 @@ These tests read the *prepared run directory* rather than the branch that used t
 disappear is proved absent by the run it leaves behind, and by the profile it used to skip. Two outside-world
 seams are stubbed -- the AA reference resolution and the tool report -- because neither decides what is staged.
 """
-import copy
 import inspect
 import json
 
 import pytest
 from dashboard.execution import run_scripts
 from dashboard.execution.adapters import cg
-from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '111111111111', 'sha256': {}}
@@ -37,14 +34,6 @@ STAGED = ('2_mapping/model.json', '2_mapping/mapping.map', '2_mapping/mapping.nd
 #: presence check over the executable lines is the one that cannot be fooled by the explanation.
 EXECUTABLE = tuple(line for line in (cg.SCRIPTS / 'fit_topology.sh').read_text().splitlines()
                    if not line.lstrip().startswith('#'))
-
-
-def ddm_mapping():
-    """The saved-candidate shape the queue builds: the molecule's current snapshot, exported by one mapper."""
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), 'DDM')
-    candidate.update(schema_version=3, molecule_id='DDM', molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
 
 
 def fitted(mapping, *, coordinates=True):
@@ -81,7 +70,7 @@ def prepared_run(tmp_path, monkeypatch, mapping_candidate=None, **prepare_argume
     run = tmp_path / 'run'
     run.mkdir()
     cg.prepare(run, molecule_snapshot=aa_molecules.selection(MOLECULES, 'DDM'),
-               mapping_candidate=mapping_candidate or ddm_mapping(), shared_reference=REFERENCE,
+               mapping_candidate=mapping_candidate or saved_mapping(), shared_reference=REFERENCE,
                molecule_root=MOLECULES, **prepare_arguments)
     return run
 
@@ -179,7 +168,7 @@ def test_stage_three_is_named_for_what_it_does():
 
 def test_a_stored_run_stages_the_revision_frame_and_stage_two_is_the_coordinates_script(tmp_path, monkeypatch):
     """The frame the fit measured is copied into `coordinates/`; stage 2 places it instead of re-mapping AA."""
-    mapping = ddm_mapping()
+    mapping = saved_mapping()
     revision = fitted(mapping)
     run = prepared_run(tmp_path, monkeypatch, mapping_candidate=mapping,
                        revision=revision['revision'], starting_coordinates='stored')
@@ -200,7 +189,7 @@ def test_a_stored_run_stages_the_revision_frame_and_stage_two_is_the_coordinates
 
 
 def test_a_remap_run_keeps_the_mapping_stage(tmp_path, monkeypatch):
-    mapping = ddm_mapping()
+    mapping = saved_mapping()
     revision = fitted(mapping)
     run = prepared_run(tmp_path, monkeypatch, mapping_candidate=mapping,
                        revision=revision['revision'], starting_coordinates='remap')
@@ -225,7 +214,7 @@ def _readiness(monkeypatch, mapping, starting):
 
 def test_readiness_refuses_a_stored_start_a_revision_does_not_record(tmp_path, monkeypatch):
     """An old revision has no frame; the refusal names the choice that works instead of falling back."""
-    mapping = ddm_mapping()
+    mapping = saved_mapping()
     fitted(mapping, coordinates=False)
 
     stored = _readiness(monkeypatch, mapping, 'stored')

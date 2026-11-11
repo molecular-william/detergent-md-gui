@@ -20,7 +20,7 @@ from detergent_pdc.execution.adapters import pdc, pdc_placement
 from detergent_pdc.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.harness.pdc_fixtures import system_stage
+from tests.harness.pdc_fixtures import system_stage, write_cg_pdb
 
 TEMPLATE = {
     'name': 'DDM',
@@ -46,16 +46,6 @@ def molecule_records(length_nm: float = MOLECULE_LENGTH_NM) -> str:
     span = length_nm * 10.0
     return ('HETATM    1  C1  DDM A   1       0.000   0.000   0.000  1.00  0.00\n'
             f'HETATM    2  C2  DDM A   1   {span:8.3f}   0.000   0.000  1.00  0.00\n')
-
-
-def write_cg_pdb(path: Path, atoms) -> Path:
-    """The CG structure as martinize2 writes it (`-x`): `ATOM` records in Angstroms, the stage reads them back."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
-             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
-             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    path.write_text('\n'.join(lines) + '\nEND\n')
-    return path
 
 
 def protein_records(remark: bool) -> str:

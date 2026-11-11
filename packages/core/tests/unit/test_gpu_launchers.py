@@ -10,14 +10,13 @@ device**. The fallbacks are the case with no executor and no device named -- thr
 named device 0 would silently overrule a run that chose device 1 whenever the executor failed to export the
 variable.
 """
-import subprocess
-import sys
 from pathlib import Path
 
 import detergent_pdc
 import detergent_validation
 
-from tests.harness.support import PACKAGE, PROJECT_ROOT
+from tests.harness.pdc_fixtures import run_script
+from tests.harness.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
 #: The pdc scripts moved to their feature distribution; a launcher is checked where the run would find it.
@@ -70,23 +69,6 @@ def test_the_aa_reference_launcher_reads_both_brackets():
     assert '${MDRUN_LAUNCHER:-}' in production, 'the ranks the builder decided reach this stage too'
 
 
-def run_script(script: Path, cwd: Path, **environment) -> subprocess.CompletedProcess:
-    """Run a launcher under a stand-in `gmx` that records its argv and does nothing else.
-
-    A resume branches before it calls any tool, and so does the plain path's grompp/mdrun sequence; nothing here
-    reads GROMACS' output, only the script's own `set -x` trace.
-    """
-    shims = cwd / 'shims'
-    shims.mkdir(exist_ok=True)
-    gmx = shims / 'gmx'
-    gmx.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$GMX_TRACE"\n')
-    gmx.chmod(0o755)
-    env = {'PATH': f'{shims}:{Path(sys.executable).parent}:/usr/bin:/bin', 'PYTHON': sys.executable,
-           'PROJECT_ROOT': str(PROJECT_ROOT), 'PYTHONPATH': str(PROJECT_ROOT),
-           'GMX_TRACE': str(cwd / 'gmx.trace'), **environment}
-    return subprocess.run(['bash', str(script)], cwd=cwd, capture_output=True, text=True, timeout=60, env=env)
-
-
 def cg_workspace(tmp_path):
     """The files `cg_simulation.sh` reads before its mdrun, so the plain path can run without a real build."""
     stage = tmp_path / 'stage'
@@ -110,7 +92,8 @@ def aa_workspace(tmp_path):
 def test_a_resumed_cg_simulation_runs_only_its_production_leg(tmp_path):
     checkpoint = tmp_path / 'md.cpt'
 
-    done = run_script(SCRIPTS / 'cg_simulation.sh', tmp_path, MDRUN_CONTINUE=str(checkpoint))
+    done = run_script(SCRIPTS / 'cg_simulation.sh', tmp_path,
+                      environment={'MDRUN_CONTINUE': str(checkpoint)})
 
     assert done.returncode == 0, done.stderr
     assert f'+ gmx mdrun -deffnm md -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr
@@ -121,7 +104,8 @@ def test_a_resumed_cg_simulation_runs_only_its_production_leg(tmp_path):
 def test_a_cg_simulation_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp_path):
     stage = cg_workspace(tmp_path)
 
-    done = run_script(SCRIPTS / 'cg_simulation.sh', stage, FINAL_ITP='lig.itp', MOLECULE_TYPE='DDM')
+    done = run_script(SCRIPTS / 'cg_simulation.sh', stage,
+                      environment={'FINAL_ITP': 'lig.itp', 'MOLECULE_TYPE': 'DDM'})
 
     assert done.returncode == 0, done.stderr
     for command in ('+ cp ../3_initial_CG/lig.itp lig.itp',
@@ -139,7 +123,8 @@ def test_a_cg_simulation_without_a_continue_checkpoint_runs_the_commands_it_alwa
 def test_a_resumed_aa_reference_runs_only_its_production_leg(tmp_path):
     checkpoint = tmp_path / '3-run.cpt'
 
-    done = run_script(SCRIPTS / 'aa_reference.sh', tmp_path, MDRUN_CONTINUE=str(checkpoint))
+    done = run_script(SCRIPTS / 'aa_reference.sh', tmp_path,
+                      environment={'MDRUN_CONTINUE': str(checkpoint)})
 
     assert done.returncode == 0, done.stderr
     assert f'+ gmx mdrun -deffnm 3-run -cpi {checkpoint} -append -ntomp 8 -v' in done.stderr

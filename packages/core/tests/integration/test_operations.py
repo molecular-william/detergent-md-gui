@@ -239,34 +239,4 @@ class OperationsTests(unittest.TestCase):
                 resources.check_worker(self.run,self.dashboard.coordinator.RUNS,rule)
 
 
-class ResumeTests(unittest.TestCase):
-    pytestmark = pytest.mark.slow
-
-    def test_resume_reuses_verified_stage_and_keeps_old_attempt(self):
-        # The resume path records tool versions, so the probe is stubbed: this
-        # test is about resume bookkeeping, not about which tools this machine
-        # happens to have installed. The stage plan comes from the runner's own
-        # seam (stage_definitions), which is what run() iterates.
-        with tempfile.TemporaryDirectory() as temp, patch.object(workflow,'stage_definitions',lambda metadata: ([('first','first/run.sh'),('second','second/run.sh')], {}, {'first':('result.txt',),'second':('result.txt',)})), patch.object(cg,'tool_metadata',return_value={'gmx':{'path':'stub'}}):
-            root=Path(temp); source=root/'source'; source.mkdir(); stages=source/'stages'; stages.mkdir()
-            for name in ('first','second'):
-                (stages/name).mkdir(); (stages/name/'run.sh').write_text('echo ran > result.txt\n'+('exit 3\n' if name=='second' else ''))
-            import shutil
-            shutil.copytree(stages,source/'inputs')
-            files.atomic_json(source/'manifest.json',{'stages':[],'input_snapshot_sha256':files.hashes(source/'inputs')})
-            with self.assertRaises(subprocess.CalledProcessError): workflow.run(source,source/'console.log')
-            before=files.hashes(source)
-            destination=root/'resumed'; destination.mkdir()
-            workflow.prepare_resume(destination,source,'second')
-            self.assertFalse((destination/'stages/second/result.txt').exists())
-            (destination/'stages/second/run.sh').write_text('echo fixed > result.txt\n')
-            workflow.run(destination,destination/'console.log')
-            stages_data=json.loads((destination/'manifest.json').read_text())['stages']
-            self.assertEqual([s['status'] for s in stages_data],['reused','completed'])
-            files.verify(source,before)
-            (source/'stages/first/result.txt').write_text('tampered')
-            rejected=root/'rejected'; rejected.mkdir()
-            with self.assertRaisesRegex(ValueError,'changed or missing'): workflow.prepare_resume(rejected,source,'second')
-
-
 if __name__=='__main__': unittest.main()

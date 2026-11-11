@@ -20,10 +20,9 @@ from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.harness.support import PACKAGE, PROJECT_ROOT
+from tests.harness.support import PACKAGE, PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '1' * 12, 'sha256': {}}
@@ -37,14 +36,6 @@ REVISION = {'engine': 'fast-forward', 'topology': '[ moleculetype ]\nDDM 1\n\n[ 
                              'production_ns': 10.0}}
 
 
-def ddm_mapping():
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), 'DDM')
-    candidate.update(schema_version=3, molecule_id='DDM',
-                     molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
-
-
 def another_mapping():
     """The same molecule and beads, a different model.
 
@@ -53,7 +44,7 @@ def another_mapping():
     which is the only way to ask `prepare` to fit. Renaming a bead instead would break the virtual
     site that names it.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     candidate['rings'][0]['scale'] = 1.2
     return candidate
 
@@ -102,7 +93,7 @@ def prepared(tmp_path, monkeypatch, **arguments):
     run = tmp_path / 'run'
     run.mkdir(parents=True)
     cg.prepare(run, molecule_snapshot=aa_molecules.selection(MOLECULES, 'DDM'),
-               mapping_candidate=arguments.pop('mapping_candidate', ddm_mapping()),
+               mapping_candidate=arguments.pop('mapping_candidate', saved_mapping()),
                shared_reference=REFERENCE, molecule_root=MOLECULES, **arguments)
     return run
 
@@ -114,7 +105,7 @@ def manifest(run):
 def test_a_model_with_a_parameterization_is_consumed_and_the_run_says_it_did_not_fit(tmp_path, monkeypatch):
     """D5's first honest state. Stage 3 runs a different repository script, and the stage it replaces is not there
     for a reader to mistake for what ran -- not even as a copy inside the run."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
@@ -138,7 +129,7 @@ def test_the_run_resolves_the_same_stage_plan_from_what_it_recorded(tmp_path, mo
     disagree with the run about which script stage 3 ran -- or about what it had to produce."""
     from dashboard.execution import protocol  # the coordinator's own reader
 
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     consuming = prepared(tmp_path / 'consuming', monkeypatch, mapping_candidate=candidate)
     # A *different model* is what makes a run fit: the key is the mapping's content identity, so a
@@ -159,7 +150,7 @@ def test_the_run_resolves_the_same_stage_plan_from_what_it_recorded(tmp_path, mo
 def test_the_assessment_stage_is_the_shape_of_the_fit_that_did_not_happen(tmp_path, monkeypatch):
     """An atomistic reference distribution is a fit's output, so a run that did not fit has none and
     its assessment stage is declared without them -- and the run's own limitations say so."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
@@ -198,13 +189,13 @@ def test_a_model_with_no_parameterization_is_fitted_by_the_run_and_the_run_recor
 def test_a_fit_against_another_reference_is_named_in_the_runs_own_limitations(tmp_path, monkeypatch):
     """D4: the model's reference is the run's default, and a run that consumes a different one says so
     rather than presenting a fit of one ensemble beside a simulation of another."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
     limitations = ' '.join(manifest(run)['limitations'])
     assert 'do not share a reference' in limitations, 'the revision was fitted against a54ac8f64710'
 
-    other = ddm_mapping()
+    other = saved_mapping()
     other['beads'] = copy.deepcopy(other['beads'])
     fitted(other, {**REVISION, 'aa_reference': {**REVISION['aa_reference'],
                                                 'run_id': REFERENCE['source_run_id']}})
@@ -215,8 +206,8 @@ def test_a_fit_against_another_reference_is_named_in_the_runs_own_limitations(tm
 def test_the_run_type_publishes_which_of_the_two_things_will_happen(tmp_path, monkeypatch):
     """The panel renders this sentence rather than composing it, so the promise a run makes about
     fitting is stated next to the code that keeps it."""
-    plain = cg._parameterization_state({'mapping_candidate': ddm_mapping()})
-    candidate = ddm_mapping()
+    plain = cg._parameterization_state({'mapping_candidate': saved_mapping()})
+    candidate = saved_mapping()
     fitted(candidate)
     state = cg._parameterization_state({'mapping_candidate': candidate})
 
@@ -234,7 +225,7 @@ def test_the_readiness_answer_carries_that_state_beside_its_checks(tmp_path, mon
     from dashboard.analysis.runs import references as aa_references
     monkeypatch.setattr(aa_references, 'resolve', lambda *args, **kwargs: REFERENCE)
     monkeypatch.setattr(cg, 'readiness', lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
-    answer = cg._protocol_readiness({'molecule_id': 'DDM', 'mapping_candidate': ddm_mapping(),
+    answer = cg._protocol_readiness({'molecule_id': 'DDM', 'mapping_candidate': saved_mapping(),
                                      'molecule_root': str(MOLECULES)})
 
     assert answer['ready'] is True
@@ -245,7 +236,7 @@ def test_the_readiness_answer_carries_that_state_beside_its_checks(tmp_path, mon
 def test_a_record_the_run_cannot_read_is_a_blocker_and_not_a_promise_to_fit(tmp_path, monkeypatch):
     """`prepare` refuses a corrupt record, so readiness must not answer "the run will fit it in
     stage 3": that is a promise the run cannot keep. The error is named instead."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     path = parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json'
     path.write_text('{not json')
@@ -316,7 +307,7 @@ def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
     A working directory is scratch -- deleting the mapping deletes it, and a re-fit overwrites it -- so a baseline left
     there would let a run's score depend on a folder that can change underneath it.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     item = fitted(candidate)
 
     recorded = parameterization.distributions(candidate)
@@ -330,14 +321,14 @@ def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
         assert path.is_file()
         assert parameterizations_digest(path) == entry['sha256']
     # A revision fitted without a working directory records none, and says so by answering None rather than [].
-    plain = ddm_mapping()
+    plain = saved_mapping()
     plain['rings'][0]['scale'] = 1.2
     parameterization.save(plain, {**REVISION, 'engine': 'bartender'})
     assert parameterization.distributions(plain) is None
 
 
 def test_deleting_the_mapping_takes_the_recorded_histograms_and_reports_them(tmp_path):
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     content = parameterization.content_identity(candidate)
     assert parameterization.revisions_root(content).is_dir()
@@ -357,7 +348,7 @@ def test_the_consuming_run_names_the_baseline_in_place_and_the_assessment_reads_
     Nothing of the baseline is staged, so a reader sees the store's own files rather than a second copy that could
     drift from it.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
@@ -388,7 +379,7 @@ def test_the_consuming_run_names_the_baseline_in_place_and_the_assessment_reads_
 def test_the_run_records_how_many_pair_histograms_it_can_score_with(tmp_path, monkeypatch):
     """The score matrix is built from one `<resid>_<a>_<resid>_<b>_distances_distr.dat` per bead pair, so the run
     counts that family rather than listing 68 names and hoping: a reader can see 55 of 55 before the simulation runs."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     pairs = bead_pairs(candidate)
     bonded = ('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat')
     assert len(pairs) == 55, 'eleven beads make fifty-five pairs, which is what `ff_assess` scores'
@@ -417,7 +408,7 @@ def test_a_revision_without_the_pair_histograms_is_not_scored_and_says_why(tmp_p
     `ce1318485197`, whose revision predates the pair family being recorded). It is now not scored at all, and the run's
     own stage 5 records `skipped` with the reason rather than a number it did not measure.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate, files=('B01_B11_bonds_distr.dat', 'B01_B02_B05_angles_distr.dat'))
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
@@ -440,7 +431,7 @@ def test_a_revision_without_the_pair_histograms_is_not_scored_and_says_why(tmp_p
 
 def test_the_prepared_stage_five_goes_on_when_the_revision_brought_the_pair_histograms(tmp_path, monkeypatch):
     """The other half: with the family staged, the guard does not fire and `ff_assess` is what runs."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate, files=(*bead_pairs(candidate), 'B01_B11_bonds_distr.dat'))
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 
@@ -457,7 +448,7 @@ def test_a_bartender_model_runs_and_its_assessment_records_that_it_had_nothing_t
     brought (nothing), writes the reason into the inventory, and stage 5 records `skipped` with those words: a stage that
     had nothing to do, said so, and was not confused with one that scored nothing.
     """
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     bartender = {**REVISION, 'engine': 'bartender'}
     parameterization.save(candidate, bartender)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
@@ -478,7 +469,7 @@ def test_a_bartender_model_runs_and_its_assessment_records_that_it_had_nothing_t
 def test_a_revision_that_predates_recorded_baselines_also_runs_and_says_so(tmp_path, monkeypatch):
     """The other way to have no baseline: a fast-forward revision from before they were recorded. Same answer -- the
     run happens, the assessment records why it could not score, and the reason names the remedy."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     parameterization.save(candidate, REVISION)
     run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
 

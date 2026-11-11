@@ -15,8 +15,9 @@ run's own layout rule, so nothing here spells a stage directory by hand.
 from __future__ import annotations
 
 import pytest
+from dashboard.analysis.runs import layout
 from dashboard.analysis.runs import structures as pdc_view
-from dashboard.web.routes.runs import run_topology, structure_target
+from dashboard.web.routes.runs import structure_target
 from werkzeug.exceptions import NotFound
 
 from tests.harness.support import DDM_BEADS, DDM_BONDS, DDM_CLASSES, DDM_CONSTRAINTS, ddm_moleculetype, gro_atom_line
@@ -143,7 +144,7 @@ def test_the_moleculetype_is_located_by_the_runs_own_layout(tmp_path):
     """`analysis.runs.layout.cg_topology` is the one place that says where a consumer keeps its topology."""
     run = coarse_run(tmp_path)
 
-    assert run_topology(run, {}) == run / TOPOLOGY
+    assert layout.recorded_topology(run, None, {}) == run / TOPOLOGY
 
 
 def test_the_manifests_final_itp_names_the_topology_when_the_run_holds_several(tmp_path):
@@ -152,13 +153,13 @@ def test_the_manifests_final_itp_names_the_topology_when_the_run_holds_several(t
     (run / TOPOLOGY).write_text(ddm_moleculetype())
     manifest = {'stages': [{'name': 'CG simulation', 'environment': {'FINAL_ITP': 'DDM.itp'}}]}
 
-    assert run_topology(run, manifest) == run / TOPOLOGY
+    assert layout.recorded_topology(run, None, manifest) == run / TOPOLOGY
 
 
 def test_a_run_that_states_no_topology_resolves_to_none_rather_than_guessing(tmp_path):
     run = coarse_run(tmp_path, topology=None)
 
-    assert run_topology(run, {}) is None
+    assert layout.recorded_topology(run, None, {}) is None
 
 
 def test_a_path_that_leaves_the_run_is_refused(tmp_path):

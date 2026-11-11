@@ -25,12 +25,8 @@
 
 import { runViewStructureRule } from './run-view-extension.js';
 
-//: The engine's own run types whose structures are coarse-grained. A feature's run type is added by its extension's
-//: `structure.isCoarseGrained` rule rather than listed here, so this table is the engine's vocabulary alone.
-export const CG_RUN_TYPES = ('cg').split(' ');
-
 //: The stage directories whose contents are beads rather than atoms.
-const CG_PATH_HINTS = ('2_mapping 4_CG_sim 3_initial_CG').split(' ');
+const CG_PATH_HINTS = ['2_mapping', '4_CG_sim', '3_initial_CG'];
 
 export function structureExtension(path) {
   const match = /\.(gro|pdb)$/i.exec(String(path || ''));
@@ -46,7 +42,7 @@ export function isCoarseGrained(path, runType) {
   // A feature's run type or file convention is asked first; `undefined` leaves the engine's own answer standing.
   const registered = runViewStructureRule('isCoarseGrained', path, runType);
   if (registered !== undefined) return registered;
-  return CG_RUN_TYPES.includes(String(runType || '')) || isCoarseGrainedPath(path);
+  return String(runType || '') === 'cg' || isCoarseGrainedPath(path);
 }
 
 //: The number of `CONECT` records in the file text. `^CONECT` in multiline mode is the test the bead viewer uses, and
@@ -102,10 +98,8 @@ export function structureRank(path) {
 
 //: The directories the engine's own runs keep their stages in: `stages/` for a run written in the current layout.
 //: A feature's run layout adds its own names through its extension's `structure.inStage` rule.
-export const STAGE_DIRECTORIES = ['stages/'];
-
 export function inStage(path) {
   const text = String(path || '');
-  if (STAGE_DIRECTORIES.some(directory => text.startsWith(directory))) return true;
+  if (text.startsWith('stages/')) return true;
   return runViewStructureRule('inStage', path) === true;
 }

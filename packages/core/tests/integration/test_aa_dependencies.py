@@ -6,7 +6,7 @@ from dashboard.store import Store
 def test_pair_insertion_is_atomic_and_requires_source(tmp_path):
     store = Store(tmp_path/'jobs.sqlite3')
     source = {'id': '111111111111', 'run_type': 'aa_only', 'status': 'queued'}
-    child = {'id': '222222222222', 'run_type': 'aa_cg', 'status': 'waiting',
+    child = {'id': '222222222222', 'run_type': 'aa_cg', 'status': 'queued',
              'reference_run_id': source['id']}
     with pytest.raises(ValueError, match='source'):
         store.insert(child)

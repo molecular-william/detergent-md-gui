@@ -68,9 +68,8 @@ class Feature:
     run_type_labels: Mapping[str, str] = field(default_factory=dict)
     #: `(name, record)` added to `web.sections.SECTIONS`: the workspace this feature contributes.
     section: tuple | None = None
-    #: `(slug, (label, glyph))` and `(slug, blurb)` and `(slug, DOM id)` for the panels in that workspace.
+    #: `(slug, (label, glyph))` and `(slug, DOM id)` for the panels in that workspace.
     panels: tuple = ()
-    blurbs: tuple = ()
     tab_ids: tuple = ()
     #: `(recorded path prefix, distribution, prefix in that package)` for code the feature took over, so a prepared
     #: run's recorded `dashboard/...` path still resolves to the file's new home.
@@ -217,7 +216,7 @@ def ensure() -> list[Feature]:
             for register_layout in feature.layout:
                 register_layout()
             if feature.section:
-                sections.register(feature.section, panels=feature.panels, blurbs=feature.blurbs,
+                sections.register(feature.section, panels=feature.panels,
                                   tab_ids=feature.tab_ids, owner=feature.name)
     return _features
 
@@ -290,10 +289,7 @@ def admission_for(run_type):
     Called before the engine's own rule chain: a feature that owns a run type owns its payload contract too, and the
     engine has no branch that could second-guess it.
     """
-    for feature in ensure():
-        if run_type in feature.admission:
-            return feature.admission[run_type]
-    return None
+    return _hook(lambda feature: feature.admission, run_type)
 
 
 def code_fingerprint_files():
@@ -336,10 +332,7 @@ def readiness_for(run_type):
 
 def kind_payload_for(kind):
     """The body contract a feature registered for one analysis kind, or None."""
-    for feature in ensure():
-        if kind in feature.kind_payload:
-            return feature.kind_payload[kind]
-    return None
+    return _hook(lambda feature: feature.kind_payload, kind)
 
 
 def protein_topologies(run_dir):

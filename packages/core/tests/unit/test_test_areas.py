@@ -46,6 +46,15 @@ def test_every_area_has_modules():
     assert empty == [], f'areas with no module: {empty}'
 
 
+def test_every_pattern_names_a_module():
+    """A pattern that matches nothing is dead weight: the module it was written for was renamed or removed."""
+    present = shapes()
+    dead = [(name, pattern) for name, patterns in areas.AREAS.items() for pattern in patterns
+            if not any(fnmatch.fnmatch(shape, pattern) for shape in present)]
+
+    assert dead == [], f'patterns with no module: {dead}'
+
+
 def test_the_narrow_name_wins_over_the_broad_one():
     """`test_cg_mapping_script.py` is mapping work and `test_cg_models.py` a parameterization; the adapter is `runs`."""
     unit = TREES['core'] / 'unit'

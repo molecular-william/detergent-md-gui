@@ -531,7 +531,7 @@ def _frames(job_id, loaded, reference, engine, record, call) -> bool:
     mapping_dir.mkdir(parents=True, exist_ok=True)
     stage_dir.mkdir(parents=True, exist_ok=True)
     names = _names_for(loaded, record.get('molecule_root'))
-    cg.stage_mapping(mapping_dir, loaded, names=names)
+    cg.stage_mapping(mapping_dir, loaded)
     cg.stage_parameterization(stage_dir, loaded, names=names, molecule_root=record.get('molecule_root'))
     directory = (reference or {}).get('directory')
     if directory is None:

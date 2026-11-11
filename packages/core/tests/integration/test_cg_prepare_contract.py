@@ -83,12 +83,12 @@ def test_metadata_the_run_type_has_no_argument_for_is_dropped(prepared):
     """Dropped rather than forwarded into a `TypeError` three calls down -- and the arguments it does have all
     arrive, which is the half that a filter written by hand gets wrong.
 
-    The two retired bonded keys are in this list for the reason they went: a job record written before D1 still
-    names them, and the run type is no longer able to receive them."""
+    The retired bonded keys and the retired `detergent` argument are in this list for the reason they went: a job
+    record written before D1 still names them, and the run type is no longer able to receive them."""
     kwargs = prepared['seen'][0]['kwargs']
-    for absent in ('run_type', 'runs_root', 'molecule_id', 'bonded_state_snapshot', 'bonded_intent'):
+    for absent in ('run_type', 'runs_root', 'molecule_id', 'detergent', 'bonded_state_snapshot', 'bonded_intent'):
         assert absent not in kwargs
-    assert set(kwargs) == {'detergent', 'profile', 'settings', 'mapping_candidate', 'revision', 'starting_coordinates',
+    assert set(kwargs) == {'profile', 'settings', 'mapping_candidate', 'revision', 'starting_coordinates',
                            'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root'}
     assert kwargs['shared_reference']['source_run_id'] == '111111111111', 'the reference still arrives'
     assert kwargs['molecule_snapshot'] == SNAPSHOT

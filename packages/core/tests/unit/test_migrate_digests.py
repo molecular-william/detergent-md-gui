@@ -37,10 +37,6 @@ def workspace(tmp_path):
     return root
 
 
-def entries(plan, store=None):
-    return [entry for entry in plan if store is None or entry['store'] == store]
-
-
 def test_every_stored_digest_is_planned_for_a_rewrite(workspace):
     plan = migration.plan(workspace)
 

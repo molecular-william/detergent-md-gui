@@ -20,7 +20,7 @@ from dashboard import martini3
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.harness.pdc_fixtures import TEMPLATE_PATH, inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage
+from tests.harness.pdc_fixtures import TEMPLATE_PATH, inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage, write_cg_pdb
 from tests.harness.support import PROJECT_ROOT
 
 TEMPLATE = {
@@ -53,28 +53,10 @@ def write_gro(path: Path, atoms) -> Path:
     return path
 
 
-def write_cg_pdb(path: Path, atoms) -> Path:
-    """The CG structure as martinize2 writes it: `-x` is a PDB, one `ATOM` record per bead, Angstroms.
-
-    The positions handed in are nanometres -- what the stage's builders work in -- so they are written the way the
-    tool writes them and read back by the stage's own reader.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f'ATOM  {index:5d} {name:^4s} {residue:>3s} A{residue_id:4d}    '
-             f'{xyz[0] * 10.0:8.3f}{xyz[1] * 10.0:8.3f}{xyz[2] * 10.0:8.3f}  1.00  0.00'
-             for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
-    path.write_text('\n'.join(lines) + '\nEND\n')
-    return path
-
-
 def prepared(tmp_path: Path, settings: dict | None = None, template: str = TEMPLATE_PATH):
     # The box margins this file reads are explicit: they are what several of its assertions are about.
     return prepared_run(tmp_path, settings={'box_margin_nm': 2.0, 'initial_z_nm': 6.0} | (settings or {}),
                         template=template)
-
-
-def stage_directory(run: Path) -> Path:
-    return run / pdc.STAGES_DIRECTORY / Path(pdc.stage_by_name(SYSTEM_STAGE).relative).parent
 
 
 def built_system_topology(run: Path) -> Path:

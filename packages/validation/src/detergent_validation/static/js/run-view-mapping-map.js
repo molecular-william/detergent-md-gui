@@ -8,7 +8,7 @@
 //
 // Nothing here computes a measurement: every number is the published comparison's, and the reading ranks the
 // record's own items rather than combining them into a score.
-import { api } from '/static/js/shared.js';
+import { api, artifactText, plural } from '/static/js/shared.js';
 import { mountBondedPlot } from '/static/js/bonded-plot.js';
 import { registerRunViewAnalysisMap } from '/static/js/run-view.js';
 import { observePlotResize } from './run-view-mapping.js';
@@ -50,7 +50,6 @@ const numeric = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
-const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const labelOf = (bead) => (Array.isArray(bead) ? `(${bead[0]},${bead[1]})` : String(bead ?? '—'));
 const beadLabel = (bead) => (bead ? labelOf([bead.residue, bead.letter]) : '—');
 const fixed = (value, digits = 2) => (numeric(value) === null ? '—' : numeric(value).toFixed(digits));
@@ -68,14 +67,8 @@ function isComparisonRun(job) {
   return (job.analyses || []).some(task => task.kind === 'mapping-consistency');
 }
 
-//: A run-root path through the artifact route, as text. `null` means the file is not on disk, which the map states
-//: rather than drawing an empty scene.
-async function artifact(job, path) {
-  const relative = String(path).split('/').map(encodeURIComponent).join('/');
-  const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/artifacts/${relative}?inline=1`);
-  if (!response.ok) return null;
-  return response.text();
-}
+//: A run-root path is read through the shared `artifactText`, whose `null` means the file is not on disk rather than
+//: an empty scene.
 
 /** Atoms in a GRO frame, by name: `{1-based resid, resname, name, x, y, z}` fixed columns, positions in nm. */
 function parseGro(text) {
@@ -147,11 +140,6 @@ function overlapPairs(overlap, alias) {
 function weakestTerms(terms) {
   return terms.filter(term => term.overlap !== null)
     .sort((first, second) => first.overlap - second.overlap);
-}
-
-function lowestOverlapPairs(pairs) {
-  return pairs.filter(pair => pair.value !== null)
-    .sort((first, second) => first.value - second.value);
 }
 
 function geometryReading(state) {
@@ -639,7 +627,7 @@ export async function mount({host, job, side, isCurrent, queue}) {
     state.body = body;
     let modelText = null;
     try {
-      modelText = await artifact(job, MODEL_PATH);
+      modelText = await artifactText(job.id, MODEL_PATH);
     } catch (error) {
       modelText = null;
     }
@@ -668,8 +656,8 @@ export async function mount({host, job, side, isCurrent, queue}) {
     let groText = null;
     let groPath = GRO_PATH;
     try {
-      groText = await artifact(job, GRO_PATH);
-      if (groText === null) { groPath = GRO_FALLBACK; groText = await artifact(job, GRO_FALLBACK); }
+      groText = await artifactText(job.id, GRO_PATH);
+      if (groText === null) { groPath = GRO_FALLBACK; groText = await artifactText(job.id, GRO_FALLBACK); }
     } catch (error) {
       groText = null;
     }

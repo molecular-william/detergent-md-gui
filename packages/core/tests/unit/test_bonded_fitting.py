@@ -26,9 +26,8 @@ from dashboard import martini3
 from dashboard.execution.adapters import cg
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'run_id': 'a' * 12, 'directory': '/nonexistent/reference', 'reference_sha256': 'ab' * 32,
@@ -36,15 +35,6 @@ REFERENCE = {'run_id': 'a' * 12, 'directory': '/nonexistent/reference', 'referen
                         'aa_reference': {'run_id': 'a' * 12, 'reference_sha256': 'ab' * 32,
                                          'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                                          'production_ns': 10.0}}}
-
-
-def ddm_mapping(name='DDM'):
-    """The saved-candidate shape the panel posts: the molecule's snapshot, exported by one mapper."""
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), name)
-    candidate.update(schema_version=3, molecule_id='DDM',
-                     molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
 
 
 def write_frames(directory, beads, frames=5):
@@ -114,7 +104,7 @@ class Recorder:
 
 @pytest.fixture
 def candidate():
-    return ddm_mapping()
+    return saved_mapping()
 
 
 def run_job(candidate, recorder, **kwargs):
@@ -399,7 +389,7 @@ def test_the_jobs_are_listed_for_the_mapping_that_owns_them(candidate):
     listed = [record['id'] for record in fitting.jobs(candidate)]
     assert set(listed) == {first['id'], second['id']}
     assert fitting.latest(candidate)['id'] in (first['id'], second['id'])
-    renamed = ddm_mapping(name='DDM · another')
+    renamed = saved_mapping(name='DDM · another')
     assert [record['id'] for record in fitting.jobs(renamed)] == listed, 'a rename is the same model'
     changed = copy.deepcopy(candidate)
     changed['beads'][0]['name'] = 'B99'
@@ -419,7 +409,7 @@ def test_the_jobs_are_listed_by_the_hashes_a_hash_addressed_caller_holds(candida
     """
     recorder = Recorder()
     first = run_job(candidate, recorder)
-    other = ddm_mapping(name='DDM · another')
+    other = saved_mapping(name='DDM · another')
     other['beads'][0]['label'] = 'v'
     second = run_job(other, recorder)
     content = mappings.content_identity(candidate)
@@ -443,7 +433,7 @@ def test_a_job_names_its_engine_and_refuses_one_it_does_not_have(candidate):
 def test_the_options_a_job_records_are_the_mappings_and_never_a_free_hand():
     """D4a: the mapping owns the torsion model, and a revision that a run will read cannot carry a
     scale the mapping's own validator would refuse."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     candidate['bonded_options'] = {'torsion_model': 'circular-harmonic', 'torsion_scale': 1.2}
     options = parameterization.normalise_options(candidate, {})
     assert options['torsion_model'] == 'circular-harmonic' and options['torsion_scale'] == 1.2

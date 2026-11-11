@@ -19,12 +19,7 @@ SERVER_WAIT = 30000
 
 
 def open_panel(page, base_url):
-    def ready(page):
-        page.wait_for_function(
-            "() => document.querySelector('#composition-molecule-name').value !== ''"
-            " && document.querySelectorAll('#composition-head-molecule option').length > 1", timeout=SERVER_WAIT)
-
-    return browser.open_panel(page, base_url, '/detergent-validation/combinations', tab='Combinations', ready=ready)
+    return browser.open_compositions(page, base_url)
 
 
 def _preview(page):

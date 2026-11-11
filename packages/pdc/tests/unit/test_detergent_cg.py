@@ -21,18 +21,6 @@ STRUCTURE = {'atoms': [{'id': 1, 'xyz': [0.0, 0.0, 0.0]}, {'id': 2, 'xyz': [1.0,
              'bonds': [[1, 2], [2, 3], [3, 4]]}
 
 
-def write_candidate(path: Path, **overrides) -> Path:
-    data = {'schema_version': 3, 'molecule_id': 'DDM', 'name': 'test mapping',
-            'beads': [{'name': 'A', 'type': 'C1', 'atoms': [1, 2]},
-                      {'name': 'B', 'type': 'C1', 'atoms': [3, 4]},
-                      {'name': 'VS', 'type': 'TC4', 'atoms': [],
-                       'virtual_site': {'function': 1, 'parents': ['A', 'B']}}],
-            'connections': [['A', 'B']]}
-    data.update(overrides)
-    path.write_text(json.dumps(data))
-    return path
-
-
 def _write(path: Path, data: dict) -> Path:
     path.write_text(json.dumps({**{'beads': [{'name': 'A', 'atoms': [1]}]}, **data}))
     return path

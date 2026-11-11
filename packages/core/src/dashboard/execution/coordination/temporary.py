@@ -18,7 +18,6 @@ def cleanup(jobs, runs_root, store, *, now=None):
         key=job.get('mapping_candidate') or 'unassigned'
         grouped.setdefault(key,[]).append(job)
     protected={j.get('reference_run_id') for j in jobs if j.get('reference_run_id')}; results=[]
-    protected.update(j.get('resume_of') for j in jobs if j.get('status') in ('queued','waiting','running','cancelling'))
     for group in grouped.values():
         terminal=sorted((j for j in group if j.get('status') in ('completed','failed','cancelled')),
                         key=lambda j:j.get('ended_at') or j.get('created',''), reverse=True)

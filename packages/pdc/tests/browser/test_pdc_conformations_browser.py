@@ -62,10 +62,7 @@ PREVIEW_BODY = {
 def serve(page, *, runs=None, runs_status=200, libraries=None, posted=None, previews=None, library_calls=None,
           preview_body=None):
     """Every read the panel makes before it can ask, plus the two conformation routes this feature is about."""
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
     page.route(re.compile(r'/api/pdc/conformations/runs'), lambda route: route.fulfill(
         status=runs_status, json=(runs or RUNS) if runs_status == 200 else {'error': 'the run store is unavailable'}))
 

@@ -11,19 +11,7 @@ from collections.abc import Mapping
 import pytest
 from dashboard.execution import devices, protocol, tools
 
-
-@pytest.fixture(autouse=True)
-def gpu_host(monkeypatch):
-    """The published vocabulary below is judged on a host with a GPU, so the machine running it cannot decide.
-
-    Dropping the device setting is the no-GPU change, and it has its own test rather than being inferred from
-    whichever host happens to run the suite.
-    """
-    devices.clear_cache()
-    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
-    yield
-    devices.clear_cache()
-
+pytestmark = pytest.mark.usefixtures('gpu_host')
 
 RUN_TYPES = ('aa_only', 'cg')
 """The run types whose contract is molecule-scoped, which is what the shape assertions below can be stated over.

@@ -10,7 +10,7 @@
 // The sections are registered with `run-view.js` when this module loads (Feature.extension_modules), one instance
 // per monitor. Every selector is resolved inside the host the card hands over and every mutable token lives in a
 // per-host dataset, because two monitors in one page share this module.
-import { api } from '/static/js/shared.js';
+import { api, artifactText, plural } from '/static/js/shared.js';
 import { ensurePlotly } from '/static/js/plotly-loader.js';
 import { registerRunViewAnalysisNotice, registerRunViewAnalysisSection } from '/static/js/run-view.js';
 
@@ -37,9 +37,6 @@ const pairLabel = (pair) => {
   return pair.map(part => (Array.isArray(part) ? `(${part[0]},${part[1]})` : String(part))).join(' – ');
 };
 const shortTime = (value) => String(value ?? '').replace('T', ' ').slice(0, 16);
-
-//: The card's label for a section, kept in one place so a count is written the same way twice.
-const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 //: Which runs have a comparison to read. A run type is the fast answer; a record that predates the type but holds a
 //: published comparison is served too, because the endpoint answers for it and hiding the tab would be a second
@@ -291,12 +288,6 @@ function surfaceFigure(surfaces, run) {
 // The surfaces analysis publishes the primary pair as data beside its own figure: two centred meshes, the same probe
 // and the same extent. The card draws them in one scene with the Plotly it already loads, so the primary pair is not
 // one column among the published variants and no second Plotly bundle is loaded.
-async function artifactText(run, relative) {
-  if (!relative) return null;
-  const path = String(relative).split('/').map(encodeURIComponent).join('/');
-  const response = await fetch(`/api/jobs/${encodeURIComponent(run)}/artifacts/${path}?inline=1`);
-  return response.ok ? response.text() : null;
-}
 
 //: `gmx sasa -o` writes `time(ps) area(nm^2)`; the chart reads the same file the analysis measured.
 function parseSasaSeries(text) {

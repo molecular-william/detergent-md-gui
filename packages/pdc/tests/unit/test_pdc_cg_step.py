@@ -35,12 +35,6 @@ from detergent_pdc.execution.scripts import pdc_build
 
 from tests.harness.pdc_fixtures import prepared_run, system_stage
 
-TEMPLATE = {
-    'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'},
-                                                   {'name': 'HEAD', 'type': 'SN6', 'role': 'head'}],
-}
-
 
 def peptide(residues: int = 6) -> str:
     """A peptide with an ideal backbone, so a secondary-structure assignment has something to read.

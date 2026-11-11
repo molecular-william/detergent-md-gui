@@ -85,7 +85,6 @@ FEATURE = features.Feature(
         'form_blurb': 'fragments/new-run-pdc-blurb.html',
     }),
     panels=(('complexes', ('Complexes', '\u2b21')),),
-    blurbs=(('complexes', 'build and inspect a system'),),
     tab_ids=(('complexes', 'pdc'),),
     # A prepared pdc run records the engine spelling `dashboard/execution/scripts/pdc_*.sh`; the files live here now,
     # and the resolver looks for them in this distribution before the engine's own scripts directory.

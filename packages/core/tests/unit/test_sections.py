@@ -10,7 +10,7 @@ and giving it a label, and the tests below fail if either half is missing.
 import pytest
 from dashboard import features
 from dashboard.web import sections
-from dashboard.web.sections import PANEL_BLURBS, PANELS, PLANNED, SECTIONS, panel_glyph, panel_label, section_by_slug, section_for, tabs_for
+from dashboard.web.sections import PANELS, SECTIONS, section_by_slug
 
 from tests.harness import factory
 
@@ -31,28 +31,15 @@ def test_every_section_starts_on_a_panel_it_owns():
 
 def test_the_panels_that_are_about_one_molecule_stay_out_of_the_simulations_section():
     """The heart of the split: a detergent's own model work is not a protein-detergent system's business."""
-    assert set(tabs_for('validation')) >= {'runs', 'new-run', 'bead-assignment', 'bond-interactions',
-                                           'combinations', 'osmotic-pressure'}
-    assert set(tabs_for('simulations')) >= {'runs', 'new-run', 'complexes'}
+    assert set(SECTIONS['validation']['tabs']) >= {'runs', 'new-run', 'bead-assignment', 'bond-interactions',
+                                                   'combinations', 'osmotic-pressure'}
+    assert set(SECTIONS['simulations']['tabs']) >= {'runs', 'new-run', 'complexes'}
     for panel in ('bead-assignment', 'bond-interactions', 'combinations', 'osmotic-pressure'):
-        assert panel not in tabs_for('simulations')
+        assert panel not in SECTIONS['simulations']['tabs']
     # The Mapping Validation tab is retired: its per-run analysis lives in Run view, so no workspace offers it.
-    assert 'mapping-validation' not in tabs_for('validation')
+    assert 'mapping-validation' not in SECTIONS['validation']['tabs']
     for panel in ('complexes', 'initial-state'):
-        assert panel not in tabs_for('validation')
-
-
-def test_a_planned_panel_is_not_offered_by_any_workspace():
-    """A panel registered in `tabs` renders a live tab, so an unbuilt one must not be there.
-
-    This is the invariant that was violated: `osmotic-pressure` and `initial-state` were listed as tabs while no
-    section existed for either, and a tab whose panel is missing hides every panel on the page when clicked. They
-    belong in `PLANNED` -- named, greyed where the overview lists them, and not clickable -- until their sections
-    are written.
-    """
-    registered = {panel for section in SECTIONS.values() for panel in section['tabs']}
-    for panel in PLANNED:
-        assert panel not in registered, f'{panel} is planned but offered as a tab'
+        assert panel not in SECTIONS['validation']['tabs']
 
 
 def test_both_workspaces_have_their_own_run_list_and_queue_form():
@@ -63,8 +50,8 @@ def test_both_workspaces_have_their_own_run_list_and_queue_form():
     quietly merging them.
     """
     for name in SECTIONS:
-        assert 'runs' in tabs_for(name)
-        assert 'new-run' in tabs_for(name)
+        assert 'runs' in SECTIONS[name]['tabs']
+        assert 'new-run' in SECTIONS[name]['tabs']
 
 
 def test_every_slug_is_a_url_segment_and_every_panel_is_labelled():
@@ -75,7 +62,7 @@ def test_every_slug_is_a_url_segment_and_every_panel_is_labelled():
         assert ' ' not in slug and '_' not in slug and '/' not in slug
         for panel in section['tabs']:
             assert panel in PANELS, f'{panel} has no label or glyph'
-            assert panel_label(panel), f'{panel} has an empty label'
+            assert PANELS[panel][0], f'{panel} has an empty label'
 
 
 def test_the_slugs_are_distinct_from_the_section_names_they_are_not_derived_from():
@@ -90,28 +77,8 @@ def test_the_slugs_are_distinct_from_the_section_names_they_are_not_derived_from
     assert SECTIONS['simulations']['slug'] == 'protein-detergent'
 
 
-def test_every_blurb_describes_a_panel_that_exists_and_every_panel_has_one():
-    """The overview lists these, so a panel without a blurb and a blurb without a panel are both rendering bugs."""
-    registered = {panel for section in SECTIONS.values() for panel in section['tabs']}
-    for panel in registered:
-        assert panel in PANEL_BLURBS, f'{panel} is rendered but undescribed'
-    for panel in PANEL_BLURBS:
-        assert panel in registered or panel in PLANNED, f'{panel} is described but never rendered'
-
-
-def test_a_panel_with_no_label_raises_rather_than_returning_its_slug():
-    """A missing label is a registry error. Returning the slug ships a page reading `new-run` to a person."""
-    with pytest.raises(KeyError):
-        panel_label('not-a-panel')
-    assert panel_label('new-run') == 'New run'
-    assert panel_glyph('new-run') == '▶'
-    assert panel_glyph('not-a-panel') == '', 'an unregistered glyph is empty, not an exception: the rail can do without it'
-
-
 def test_an_unknown_section_is_refused_rather_than_defaulted():
     """A URL naming a workspace that does not exist is a 404, not a silent redirect into one that does."""
-    assert section_for('nonsense') is None
-    assert section_for('validation') is SECTIONS['validation']
     assert section_by_slug('nonsense') is None
     assert section_by_slug('detergent-validation') is SECTIONS['validation']
     assert section_by_slug('protein-detergent') is SECTIONS['simulations']
@@ -124,23 +91,23 @@ def test_the_two_workspaces_label_their_new_run_panel_differently():
     the same thing: the two workspaces queue different pipelines, and "Single Molecule Simulations" against
     "Protein-Detergent Simulations" is where a reader learns which one they are in.
     """
-    assert panel_label('new-run') == 'New run'
-    assert panel_label('new-run', 'detergent-validation') == 'Single Molecule Simulations'
-    assert panel_label('new-run', 'protein-detergent') == 'Protein-Detergent Simulations'
+    assert PANELS['new-run'][0] == 'New run'
+    assert SECTIONS['validation']['panel_labels']['new-run'] == 'Single Molecule Simulations'
+    assert SECTIONS['simulations']['panel_labels']['new-run'] == 'Protein-Detergent Simulations'
 
 
 def test_no_other_panel_label_moves_when_one_workspace_names_a_panel():
     """A per-workspace label is a list of exceptions: a panel left out of it keeps its rail label, by name."""
     for section in SECTIONS.values():
+        renamed = section.get('panel_labels', {})
         for panel in section['tabs']:
-            if panel in section.get('panel_labels', {}):
+            if panel in renamed:
                 continue
-            assert panel_label(panel, section['slug']) == PANELS[panel][0], \
-                f'{panel} in {section["slug"]} was renamed without being registered'
-    assert panel_label('runs', 'protein-detergent') == 'Runs'
-    assert panel_label('complexes', 'protein-detergent') == 'Complexes'
-    with pytest.raises(KeyError):
-        panel_label('not-a-panel', 'protein-detergent')
+            assert PANELS[panel][0], f'{panel} in {section["slug"]} has no rail label'
+    assert set(SECTIONS['validation']['panel_labels']) == {'new-run'}
+    assert set(SECTIONS['simulations']['panel_labels']) == {'new-run'}
+    assert PANELS['runs'][0] == 'Runs'
+    assert PANELS['complexes'][0] == 'Complexes'
 
 
 def test_a_per_workspace_label_names_a_panel_that_workspace_owns():

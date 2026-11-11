@@ -66,10 +66,7 @@ def served_chains(url):
 
 
 def serve(page, asked=None):
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
 
     def estimate(route):
         chains = served_chains(route.request.url)

@@ -4,9 +4,8 @@ This was three modules with a helper or two each -- fixtures.py (PROJECT_ROOT, p
 QuietHandler), mapping_fixtures.py (write_aa_fixture), and tool_paths.py, which imported its
 PROJECT_ROOT back out of fixtures and carried fast_forward_source. One module now, so a test has
 one import to reach for.
-
-The old names are re-exported for one commit while the importing files move over, then they go.
 """
+import copy
 from pathlib import Path
 
 from dashboard import paths as dashboard_paths
@@ -54,11 +53,11 @@ def gro_atom_line(residue_id, residue, name, serial, xyz) -> str:
             + ''.join(f'{value:8.3f}' for value in xyz))
 
 
-def ddm_system_gro(molecules, *, protein_beads=0, spacing_nm=3.0) -> str:
+def ddm_system_gro(molecules, *, protein_beads=0) -> str:
     """A built system's .gro text: `protein_beads` protein beads, then `molecules` DDM molecules.
 
     One place for the coordinates the panel's assertion and the route's share, so both describe the same system.
-    Each molecule sits `spacing_nm` from the next, so no bead of one is near enough for a viewer's distance-based
+    Each molecule sits 3 nm from the next, so no bead of one is near enough for a viewer's distance-based
     guess to join it to another -- which is what makes a drawn bond count a statement about the model.
     """
     lines = ['protein-detergent complex (DDM)', str(protein_beads + len(DDM_PLACEMENT) * molecules)]
@@ -70,7 +69,7 @@ def ddm_system_gro(molecules, *, protein_beads=0, spacing_nm=3.0) -> str:
         for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
             serial += 1
             lines.append(gro_atom_line(2 + molecule, 'DDM', name, serial,
-                                       (xyz[0] + molecule * spacing_nm, xyz[1], xyz[2])))
+                                       (xyz[0] + molecule * 3.0, xyz[1], xyz[2])))
     lines.append('   30.00000   10.00000   10.00000')
     return '\n'.join(lines) + '\n'
 
@@ -96,6 +95,17 @@ def ddm_moleculetype() -> str:
             '[ dihedrals ]\n2 5 7 6 1 5 10 1\n\n'
             '[ virtual_sitesn ]\n4 1 1 2 3\n\n'
             '[ exclusions ]\n4 1 2 3\n')
+
+
+def saved_mapping(name='DDM'):
+    """The saved-candidate shape the panel posts: the molecule's snapshot, exported by one mapper."""
+    from dashboard.models import mappings
+    from dashboard.models.mappings.context import as_structure, build_context
+    context = build_context(PROJECT_ROOT / 'molecules', 'DDM')
+    candidate = mappings.automatic_candidate(as_structure(context), name)
+    candidate.update(schema_version=3, molecule_id='DDM',
+                     molecule_snapshot=copy.deepcopy(context['snapshot']))
+    return candidate
 
 
 def physical_mapping():

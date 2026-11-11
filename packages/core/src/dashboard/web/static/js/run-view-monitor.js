@@ -12,7 +12,7 @@
 // chooser filters as you type over the run's own label, molecule, type, id and date. Nothing here decides anything
 // twice.
 
-import { $, api } from './shared.js';
+import { $, api, artifactText as artifactFile } from './shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend, sizeClassOf } from './ngl-beads.js';
 import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, structureExtension,
          structureRank } from './run-view-structure.js';
@@ -24,6 +24,8 @@ import { runViewExtensionFor } from './run-view-extension.js';
 const PAGE_LIMIT = 100;
 //: D18 -- the scale this panel draws its beads at, on top of `ngl-beads.js`'s table, for reading only.
 const BEAD_SCALE = 0.3;
+//: This monitor reads files a reader opened, so a refused one is an error for the caller and not an absent entry.
+const artifactText = (jobId, path) => artifactFile(jobId, path, {strict: true});
 
 export function createMonitor({root, side, runs, onPick}) {
   const id = name => `#${name}-${side}`;
@@ -392,14 +394,6 @@ function chooser(root, side, runs, onPick) {
     } catch (error) {
       return null;
     }
-  }
-
-  async function artifactText(jobId, path) {
-    const url = `/api/jobs/${encodeURIComponent(jobId)}/artifacts/`
-      + path.split('/').map(encodeURIComponent).join('/') + '?inline=1';
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`${path} could not be read (${response.status})`);
-    return response.text();
   }
 
   //: The route that writes a run's own bonds onto one of its structures. A `.gro` carries no bond records -- and

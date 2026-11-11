@@ -6,10 +6,12 @@ const storage = {
   set(key, value) { try { localStorage.setItem('ddm.' + key, JSON.stringify(value)); } catch {} }
 };
 const setText = (node, value) => { const text = String(value ?? ''); if (node.textContent !== text) node.textContent = text; };
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 function notice(message) { setText($('#notice'), message); $('#notice').hidden = !message; }
 async function api(path, options = {}) {
-  const timeout=AbortSignal.timeout(10000);
-  const response = await fetch(path, {...options, signal:options.signal?AbortSignal.any([timeout,options.signal]):timeout});
+  const {timeoutMs = 10000, ...init} = options;
+  const timeout=AbortSignal.timeout(timeoutMs);
+  const response = await fetch(path, {...init, signal:init.signal?AbortSignal.any([timeout,init.signal]):timeout});
   if (response.status === 304) return null;
   const type = response.headers.get('content-type') || '';
   const data = type.includes('json') ? await response.json() : {error: `Request failed (${response.status})`};
@@ -17,6 +19,19 @@ async function api(path, options = {}) {
   return data;
 }
 const post = (path, data) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+
+// A run's artifact route, one URL builder and one reader. `strict` is the caller's decision: a file a reader opened
+// must say why it is missing, while a file a panel asks beside an index that already answered is simply absent.
+const artifactUrl = (jobId, path) => `/api/jobs/${encodeURIComponent(jobId)}/artifacts/`
+  + String(path).split('/').map(encodeURIComponent).join('/') + '?inline=1';
+async function artifactText(jobId, path, {strict = false} = {}) {
+  const response = await fetch(artifactUrl(jobId, path));
+  if (!response.ok) {
+    if (strict) throw new Error(`${path} could not be read (${response.status})`);
+    return null;
+  }
+  return response.text();
+}
 
 // Catalogue lists (molecules, mappings, CG models, references) change only through an action that calls
 // `invalidateResource`, so a revisit may reuse them for minutes rather than seconds. Run state, a queue answer and a
@@ -81,4 +96,4 @@ const panelIds = () => {
 };
 
 export { loadOnce, cachedApi, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, liveVisible, whenLive, liveApi,
-         $,  $$, storage, setText, notice, api, post, panelIds };
+         $,  $$, storage, setText, notice, api, post, plural, artifactUrl, artifactText, panelIds };

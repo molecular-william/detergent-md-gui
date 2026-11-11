@@ -34,26 +34,7 @@ PANELS = {
     'runs': ('Runs', '☰'),
     'run-view': ('Run view', '⬓'),
     'new-run': ('New run', '▶'),
-    'initial-state': ('Initial state', '⬢'),
 }
-
-#: What each workspace is for, one line per sub-panel, for the overview to list. Kept beside the panels rather than
-#: in the template so the overview cannot describe a panel that does not exist -- and so the description of a panel
-#: is written where the panel is registered.
-PANEL_BLURBS = {
-    'runs': 'every run in this workspace, with what it draws on and what uses it',
-    'run-view': 'one run, its structures, its frames and its figures',
-    'new-run': 'a run, with a snapshot of the box before it starts',
-    'initial-state': 'the micelle builder',
-}
-
-#: Panels that are named but not built. The overview lists them as planned rather than hiding them, so the section's
-#: shape accounts for work that is coming.
-PLANNED = {
-    'initial-state': 'the micelle builder is paused, and is not a validated model',
-    'detergent-design': 'not built yet; named so the shape accounts for it',
-}
-
 
 #: The DOM id each panel's section already carries. A slug is what a URL says; this is what the template and the
 #: panel JavaScript have always called it, and the two are kept deliberately separate.
@@ -66,7 +47,6 @@ TAB_IDS = {
     'runs': 'runs',
     'run-view': 'runview',
     'new-run': 'new',
-    'initial-state': 'initial-state',
 }
 
 #: The workspace the engine registers when no distribution supplied one. A core-only install still gets a working
@@ -81,10 +61,10 @@ DEFAULT_SECTION = ('core', {
 })
 
 
-def register(section, *, panels=(), blurbs=(), tab_ids=(), owner=None) -> None:
+def register(section, *, panels=(), tab_ids=(), owner=None) -> None:
     """Add one feature's workspace and panels to the registry.
 
-    The four dicts below are the objects routes and the template read, and `routes/runs.py` imported them by name, so
+    The three dicts below are the objects routes and the template read, and `routes/runs.py` imported them by name, so
     a feature is added by **mutating** them: rebinding a name would leave every earlier importer looking at the old
     registry. A duplicate name raises, because two features claiming one workspace is a registry error, not a merge.
 
@@ -96,7 +76,6 @@ def register(section, *, panels=(), blurbs=(), tab_ids=(), owner=None) -> None:
         raise ValueError(f'workspace {name!r} is already registered')
     SECTIONS[name] = {**record, 'owner': owner} if owner else record
     PANELS.update(panels)
-    PANEL_BLURBS.update(blurbs)
     TAB_IDS.update(tab_ids)
 
 
@@ -212,15 +191,6 @@ def validate_tabs():
         visible(section)
 
 
-def section_for(name):
-    """The section `name`, or `None`.
-
-    A route turns `None` into a 404 rather than choosing a section for the caller: the whole point of naming a
-    workspace in a URL is that the name is checked, and a silent default is how a wrong guess becomes a wrong page.
-    """
-    return SECTIONS.get(name)
-
-
 def section_by_slug(slug, chosen=None):
     """The section whose URL segment is `slug`, or `None`; a hidden workspace is not found.
 
@@ -231,52 +201,6 @@ def section_by_slug(slug, chosen=None):
         if section['slug'] == slug:
             return section
     return None
-
-
-def tabs_for(name):
-    """The sub-panels a section renders, in the order it renders them."""
-    section = SECTIONS.get(name)
-    return tuple(section['tabs']) if section else ()
-
-
-def panel_label(slug, section=None):
-    """A sub-panel's display name in one workspace, or its rail label when no workspace is named.
-
-    Without `section` this is the rail's own word for the panel: short, and the same in both workspaces -- both
-    call this panel "New run". With a workspace's **slug** it is the heading the panel carries *there*, which is
-    where a workspace says what it actually runs: "Single Molecule Simulations" under validation against
-    "Protein-Detergent Simulations" under simulations. Headings are registered per workspace because the registry
-    was keyed by panel slug alone, so `simulations.new-run` had no way to differ from `validation.new-run`.
-
-    Raises rather than defaulting: a panel with no label is a registry error, and returning the slug would ship a
-    page showing `new-run` where a person expects "New run". A workspace this registry does not have also raises,
-    for the same reason a route 404s on an unknown slug -- a heading resolved from an unknown workspace would be a
-    guess.
-    """
-    if slug not in PANELS:
-        raise KeyError(f'no label registered for panel {slug!r}')
-    if section is None:
-        return PANELS[slug][0]
-    for name, record in SECTIONS.items():
-        if section in (name, record['slug']):
-            return record.get('panel_labels', {}).get(slug) or PANELS[slug][0]
-    raise KeyError(f'no workspace has the slug or name {section!r}')
-
-
-def panel_glyph(slug):
-    """A sub-panel's rail glyph, or an empty string for a panel registered without one."""
-    return PANELS.get(slug, ('', ''))[1]
-
-
-def tab_id(slug):
-    """The DOM id a panel's section carries, for the template to write and the JavaScript to resolve.
-
-    Raises rather than defaulting, for the same reason `panel_label` does: a panel whose id is guessed renders a tab
-    that toggles nothing at all, and nothing would report it.
-    """
-    if slug not in TAB_IDS:
-        raise KeyError(f'no DOM id registered for panel {slug!r}')
-    return TAB_IDS[slug]
 
 
 def run_types_for(section):

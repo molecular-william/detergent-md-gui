@@ -26,11 +26,7 @@ CATALOG = {
 
 
 def serve(page):
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'),
-               lambda route: route.fulfill(json={'molecule': 'DDM', 'models': []}))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG)
     page.route(re.compile(r'/encapsulation'),
                lambda route: route.fulfill(status=400, json={'error': 'sizing is not exercised here'}))
 

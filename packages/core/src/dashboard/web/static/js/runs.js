@@ -365,7 +365,7 @@ export function createRuns({ onClone, onDeleted }) {
     } catch(error) { if(card.recordsPending===key)setText($('.job-command',card),error.message); }
     finally { if(card.recordsPending===key)card.recordsPending=null; }
   }
-  let runPage = 1, jobsGeneration = 0, jobsEtag = '', pollDelay = pollMilliseconds();
+  let runPage = 1, jobsEtag = '', pollDelay = pollMilliseconds();
   async function refreshArtifactViews(card,job) {
     if(!$('.job-artifacts',card).open) return;
     const generation = (card.artifactGeneration || 0)+1; card.artifactGeneration = generation;

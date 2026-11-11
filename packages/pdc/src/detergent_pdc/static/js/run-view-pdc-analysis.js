@@ -8,7 +8,7 @@
 // Four states, drawn differently: nothing computed yet (a 404 from the route), published, a run with no protein
 // (the protein–detergent interface is null, never a zero), and a run whose production leg is the fallback
 // assessment leg. An empty state is not a failure and nothing here is called validated.
-import { api } from '/static/js/shared.js';
+import { api, plural } from '/static/js/shared.js';
 import { registerRunViewAnalysisSection } from '/static/js/run-view.js';
 
 const KIND = 'pdc-structure';
@@ -29,7 +29,6 @@ const thousands = (value) => {
   const parsed = number(value);
   return parsed === null ? '—' : String(parsed).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
-const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 const extensionLeg = (body) => /^(?:08_extension|4_extension)$/.test(String(body?.leg?.stage_directory || ''));
 
 async function load(host, job, isCurrent) {

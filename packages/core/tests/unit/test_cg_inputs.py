@@ -16,7 +16,6 @@ one entry the coordinator uses -- and then ask the record to verify itself, beca
 check is a reference the run does not really have. The AA reference resolution and the tool report are stubbed: neither
 decides what is referenced.
 """
-import copy
 import json
 import subprocess
 import sys
@@ -27,12 +26,10 @@ from dashboard import martini3
 from dashboard.execution import run_inputs
 from dashboard.execution.adapters import cg
 from dashboard.execution.protocol import adapter_for
-from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
-from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.harness.support import PACKAGE, PROJECT_ROOT
+from tests.harness.support import PACKAGE, PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 REFERENCE = {'source_run_id': '111111111111', 'sha256': {}}
@@ -53,13 +50,6 @@ NOT_COPIED = ('3_initial_CG/martini_v3.0.0.itp',
               '4_CG_sim/inputs/martini_v3.0.0_ions_v1.itp',
               '4_CG_sim/inputs/water.gro',
               '6_SASA/AA/vdwradii.dat')
-
-
-def ddm_mapping():
-    context = build_context(MOLECULES, 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), 'DDM')
-    candidate.update(schema_version=3, molecule_id='DDM', molecule_snapshot=copy.deepcopy(context['snapshot']))
-    return candidate
 
 
 def fitted(candidate, files=('1_B01_1_B02_distances_distr.dat', 'B01_B02_B05_angles_distr.dat',
@@ -97,7 +87,7 @@ def prepare(run, monkeypatch, mapping_candidate):
 @pytest.fixture
 def fitted_run(tmp_path, monkeypatch):
     """A prepared run that fits its own bonded terms; a ringed mapping, so the sugar reference is named too."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     candidate['rings'][0]['scale'] = 1.2
     return prepare(tmp_path / 'run', monkeypatch, candidate)
 
@@ -105,7 +95,7 @@ def fitted_run(tmp_path, monkeypatch):
 @pytest.fixture
 def consuming_run(tmp_path, monkeypatch):
     """A prepared run that consumes its model's current parameterization, whose revision recorded histograms."""
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     fitted(candidate)
     return prepare(tmp_path / 'run', monkeypatch, candidate)
 
@@ -211,7 +201,7 @@ def test_the_record_verifies_and_a_changed_installed_file_refuses_it(tmp_path, m
     guard exists to detect, not something a test may do.
     """
     monkeypatch.setenv(martini3.ENVIRONMENT_VARIABLE, str(tmp_path / 'martini3'))
-    candidate = ddm_mapping()
+    candidate = saved_mapping()
     candidate['rings'][0]['scale'] = 1.2
     run, manifest = prepare(tmp_path / 'run', monkeypatch, candidate)
 

@@ -68,10 +68,7 @@ def serve(page, body, catalog=None):
     `body` handles every encapsulation request, so a case can answer 200, answer a refusal, or hold the request and
     fulfil it later in an order of its own choosing.
     """
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=catalog or CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=catalog or CATALOG, models=MODELS)
     page.route(re.compile(r'/encapsulation'), body)
 
 

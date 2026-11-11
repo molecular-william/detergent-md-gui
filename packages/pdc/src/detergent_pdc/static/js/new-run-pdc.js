@@ -355,9 +355,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // from runs becomes selectable immediately, and when the detergent changes because it is stored per residue.
   async function loadShapeRuns() {
     try {
-      const response = await fetch('/api/pdc/conformations/runs');
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `status ${response.status}`);
+      const body = await api('/api/pdc/conformations/runs');
       shapeRuns = Array.isArray(body.runs) ? body.runs : [];
       const available = new Set(shapeRuns.filter(run => run.eligible).map(run => run.id));
       // A first answer selects every eligible run; a later one keeps what the reader ticked and drops what is gone.
@@ -376,9 +374,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const residue = shapeResidue();
     const query = residue ? `?residue=${encodeURIComponent(residue)}` : '';
     try {
-      const response = await fetch(`/api/pdc/conformations/libraries${query}`);
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `status ${response.status}`);
+      const body = await api(`/api/pdc/conformations/libraries${query}`);
       shapeLibraries = Array.isArray(body.libraries) ? body.libraries : [];
       if (!shapeLibraries.some(library => library.key === shapeLibraryKey)) {
         shapeLibraryKey = shapeLibraries[0]?.key || '';
@@ -659,25 +655,23 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // is also the only spelling that answers directly -- a percent-encoded leading slash decodes to `//` in the
     // path, and the server answers that with a redirect rather than the estimate.
     const entry_id = String(entry).replace(/^\/+/, '');
-    let response, body = {};
+    let body;
     try {
-      response = await fetch(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/encapsulation?${query}`);
-      body = await response.json().catch(() => ({}));
+      body = await api(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/encapsulation?${query}`);
     } catch (error) {
       if (mine !== estimateRequest) return;
-      estimateState = {kind: 'refused', summary: 'estimate unavailable', body: null,
-                       reason: 'The estimate could not be read: the coordinator did not answer.'};
+      const refused = error.status !== undefined;
+      const reason = !refused
+        ? 'The estimate could not be read: the coordinator did not answer.'
+        : (error.message === `Request failed (${error.status})`
+          ? `the estimate was refused (status ${error.status})` : error.message);
+      estimateState = {kind: 'refused', summary: refused ? reason : 'estimate unavailable', body: null, reason};
       renderEstimate(); syncSummary();
       return;
     }
     if (mine !== estimateRequest) return;
-    if (!response.ok) {
-      const reason = body.error || `the estimate was refused (status ${response.status})`;
-      estimateState = {kind: 'refused', summary: reason, body: null, reason};
-    } else {
-      estimateState = {kind: 'answer', body,
-                       summary: `about ${Math.round(Number(body.fraction) * 100)}% of the apolar slab`, reason: ''};
-    }
+    estimateState = {kind: 'answer', body,
+                     summary: `about ${Math.round(Number(body.fraction) * 100)}% of the apolar slab`, reason: ''};
     renderEstimate(); syncSummary();
   }
 
@@ -752,18 +746,21 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (!pdbid) return;
     if (button) button.disabled = true;
     say('.new-pdc-import-status', `Fetching ${pdbid} from OPM…`);
-    let response, body = {};
+    let body;
     try {
-      response = await fetch('/api/pdc/proteins/import', {method: 'POST',
+      body = await api('/api/pdc/proteins/import', {method: 'POST',
         headers: {'Content-Type': 'application/json'}, body: JSON.stringify({pdbid})});
-      body = await response.json().catch(() => ({}));
     } catch (error) {
       if (button) button.disabled = false;
-      say('.new-pdc-import-status', 'The import could not be read: the coordinator did not answer.');
+      if (error.status === undefined) {
+        say('.new-pdc-import-status', 'The import could not be read: the coordinator did not answer.');
+        return;
+      }
+      const reason = error.message === `Request failed (${error.status})` ? error.status : error.message;
+      say('.new-pdc-import-status', `That import was refused: ${reason}`);
       return;
     }
     if (button) button.disabled = false;
-    if (!response.ok) { say('.new-pdc-import-status', `That import was refused: ${body.error || response.status}`); return; }
     invalidateResource('/api/pdc/catalog');
     catalogue = null;
     await loadCatalogue();

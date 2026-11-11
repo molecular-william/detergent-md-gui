@@ -13,13 +13,6 @@ from detergent_pdc.execution.adapters import pdc
 
 from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of
 
-TEMPLATE = {
-    'name': 'DDM',
-    'residue': 'DDM',
-    'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp',
-    'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}],
-}
 EXTENSION = 'CG extension MD'
 
 

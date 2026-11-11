@@ -404,7 +404,7 @@ def normalize_settings(settings=None, profile='standard'):
     return cg_settings | aa_settings
 
 
-def stage_mapping(directory: Path, data, *, names) -> None:
+def stage_mapping(directory: Path, data) -> None:
     """Write `2_mapping/`: the export, the one mapper, and nothing that is a run's own.
 
     One definition for the two callers that need it -- a run's `prepare` and the panel's fit job --
@@ -572,7 +572,7 @@ def shared_inputs(*, data):
     return references
 
 
-def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM', profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None, revision=None, starting_coordinates=None):
+def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candidate=None, shared_reference=None, reference_root=None, molecule_snapshot=None, molecule_root=None, revision=None, starting_coordinates=None):
     """Prepare one AA-to-CG run's stage directory.
 
     What this run type stages, it stages for every AA-to-CG run: the mapping export, the seeded
@@ -624,7 +624,7 @@ def prepare(run_dir: Path, structure: Path | None = None, detergent: str = 'DDM'
     # not among them -- see `shared_inputs`). The generated topologies below include these by a path relative to
     # themselves.
     references = shared_inputs(data=data)
-    stage_mapping(run_dir / '2_mapping', data, names=names)
+    stage_mapping(run_dir / '2_mapping', data)
     (run_dir / '2_mapping/draft-source.json').write_text(json.dumps(data, indent=2))
     if chosen is not None and starting_coordinates == 'stored':
         # The frame the fit measured, copied out of the immutable revision into the run's generated inputs. Stage 2
@@ -1075,7 +1075,7 @@ def _protocol_prepare(run_dir, metadata):
     makes `adapter_for('aa_cg').prepare(run_dir, metadata)` mean the same thing as it does for every other run type:
     a run directory in, a prepared run out.
     """
-    keys = ('structure', 'detergent', 'profile', 'settings', 'mapping_candidate',
+    keys = ('profile', 'settings', 'mapping_candidate',
             'shared_reference', 'reference_root', 'molecule_snapshot', 'molecule_root')
     values = {key: metadata[key] for key in keys if key in metadata}
     # The chosen model: which revision, and whether stage 2 starts from the frame stored with it or re-maps the AA

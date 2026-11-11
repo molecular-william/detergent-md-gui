@@ -166,10 +166,7 @@ def serve(page, body, requests=None, structure=None):
     routed at all when it is `None`, because a card whose basis names no structure must not ask -- and a test that
     routes a file nobody should fetch would hide exactly that.
     """
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
 
     def route_preview(route):
         if requests is not None:
@@ -194,10 +191,7 @@ def serve_raw(page, body):
     defect this file's last two tests are about cannot be reproduced at all: the body has to be the bytes Python's
     own JSON writer produced, bare `NaN` token and all.
     """
-    page.route(re.compile(r'/api/pdc/catalog'), lambda route: route.fulfill(json=CATALOG))
-    page.route(re.compile(r'/api/pdc/models\?'), lambda route: route.fulfill(json=MODELS))
-    page.route(re.compile(r'/api/readiness\?'),
-               lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
     page.route(re.compile(r'/api/pdc/preview/placement'),
                lambda route: route.fulfill(status=200, content_type='application/json', body=body))
 

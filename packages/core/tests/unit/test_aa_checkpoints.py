@@ -14,7 +14,7 @@ import subprocess
 
 import pytest
 from dashboard import features, paths
-from dashboard.execution import devices, environment, forcefields, run_scripts
+from dashboard.execution import environment, forcefields, run_scripts
 from dashboard.execution.adapters import aa, cg
 from dashboard.execution.environment import ROOT
 from dashboard.execution.stages import Stage
@@ -24,15 +24,7 @@ from detergent_validation.execution.adapters import osmotic
 
 from tests.harness import support
 
-
-@pytest.fixture(autouse=True)
-def gpu_host(monkeypatch):
-    """These commands are the ones a GPU host produces; the no-GPU case is pinned where the decision lives."""
-    devices.clear_cache()
-    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
-    yield
-    devices.clear_cache()
-
+pytestmark = pytest.mark.usefixtures('gpu_host')
 
 #: The stages whose mdrun writes a checkpoint, and the file each writes. A minimisation writes none, which is why it
 #: is named as an exception rather than inferred: GROMACS itself is the authority on that, and this table is it.

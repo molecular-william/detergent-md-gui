@@ -10,22 +10,11 @@ import json
 
 from playwright.sync_api import expect
 
+from tests.harness import browser
 from tests.harness.validation_fixtures import publish, publish_cross_check, publish_mapping, publish_overlap, publish_surfaces
 
 CARD = '#run-view-analysis-A'
 SECOND = '#run-view-analysis-B'
-
-
-def open_section(page, live_page, jid, section, card=CARD):
-    """Open the Run view on one run and one analysis section, and return that section's pane."""
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run={jid}')
-    root = page.locator(card)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator(f'.analysis-views button[data-section="{section}"]').click()
-    pane = root.locator(f'.analysis-pane[data-section="{section}"]')
-    expect(pane).to_be_visible()
-    return pane
-
 
 
 DIHEDRAL_FIT = {
@@ -130,7 +119,7 @@ def test_the_section_tabs_are_the_registered_sections_in_order(dashboard, live_p
 def test_geometry_shows_the_published_pairs_and_the_per_bead_chart(dashboard, live_page):
     publish(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-geometry')
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-geometry')
 
     expect(pane.locator('.rvm-measure')).to_have_count(2)
     second = pane.locator('.rvm-measure').nth(1).text_content()
@@ -140,10 +129,7 @@ def test_geometry_shows_the_published_pairs_and_the_per_bead_chart(dashboard, li
     assert '(-16.0% context)' in second, second
     expect(pane.locator('.rvm-badge').filter(has_text='0 of 2 pairs outside the AA observed range')).to_have_count(1)
 
-    page.wait_for_function(
-        "() => { const host = document.querySelector('#run-view-analysis-A "
-        ".analysis-pane[data-section=\"mapping-geometry\"] .rvm-chart');"
-        " return host && host.data && host.data.length === 1; }", timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-geometry"] .rvm-chart', 1)
     chart = page.evaluate("""() => { const host = document.querySelector(
       '#run-view-analysis-A .analysis-pane[data-section="mapping-geometry"] .rvm-chart');
       return {y: host.data[0].y, x: host.data[0].x, colors: host.data[0].marker.color}; }""")
@@ -159,7 +145,7 @@ def test_a_run_with_no_published_comparison_says_so_in_every_mapping_section(das
     publish(dashboard, 'dd44ee55ff66')
     (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
     page, errors = live_page
-    pane = open_section(page, live_page, 'dd44ee55ff66', 'mapping-geometry')
+    pane = browser.open_run_section(page, live_page.base_url, 'dd44ee55ff66', 'mapping-geometry')
 
     expect(pane.locator('.hint').first).to_contain_text('No AA vs CG comparison', timeout=30000)
     assert page.evaluate("() => !document.querySelector('#run-view-analysis-A "
@@ -184,7 +170,7 @@ def test_the_missing_comparison_offers_a_button_that_queues_it(dashboard, live_p
             route.continue_()
 
     page.route('**/api/jobs/dd44ee55ff66/mapping-consistency', hold)
-    pane = open_section(page, live_page, 'dd44ee55ff66', 'mapping-geometry')
+    pane = browser.open_run_section(page, live_page.base_url, 'dd44ee55ff66', 'mapping-geometry')
 
     button = pane.get_by_role('button', name='Calculate the comparison')
     expect(button).to_be_visible(timeout=30000)
@@ -217,7 +203,7 @@ def test_bonded_terms_and_the_two_cross_checks_render(dashboard, live_page):
     publish_cross_check(dashboard, 'bb22cc33dd44')
     publish_dihedral_fit(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-bonded')
 
     # Bonds and Angles are one disclosure each, both closed by default, and the Bonded pane counts both.
     bonds = pane.locator('details.rvm-term-group', has_text='Bonds (1)')
@@ -269,7 +255,7 @@ def test_angle_rows_collapse_and_are_present_when_reopened(dashboard, live_page)
     """
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-bonded')
 
     bonds = pane.locator('details.rvm-term-group', has_text='Bonds (1)')
     group = pane.locator('details.rvm-term-group', has_text='Angles (1)')
@@ -320,7 +306,7 @@ def test_a_focused_angle_opens_its_collapsed_group(dashboard, live_page):
 def test_a_run_with_no_cross_check_or_dihedral_fit_says_so_and_lists_nothing(dashboard, live_page):
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-bonded')
 
     subs = pane.locator('.rvm-sub')
     expect(subs.nth(0).locator('.rvm-measure')).to_have_count(0)
@@ -335,7 +321,7 @@ def test_clicking_a_bonded_term_shows_its_ff_distribution_and_both_metrics(dashb
     publish_mapping(dashboard, 'aa11bb22cc33')
     publish_ff(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-bonded')
 
     # Bonds start closed, so the reader opens the group before selecting one of its rows.
     pane.locator('details.rvm-term-group', has_text='Bonds (1)').locator('summary').click()
@@ -349,10 +335,7 @@ def test_clicking_a_bonded_term_shows_its_ff_distribution_and_both_metrics(dashb
     expect(panel).to_contain_text('0.820')
     expect(panel).to_contain_text('consumed · parameterization store')
     expect(row).to_have_attribute('aria-selected', 'true')
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 2);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-bonded"] .rvm-ff-chart', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-bonded"] .rvm-ff-chart', 2)
     names = panel.locator('.rvm-ff-chart').evaluate('el => el.data.map(trace => trace.name)')
     assert names == ['reference', 'simulated'], names
     # The two metrics are named separately; neither is presented as the other.
@@ -387,7 +370,7 @@ def test_a_term_without_a_published_ff_record_says_so(dashboard, live_page):
     publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
     publish_mapping(dashboard, 'aa11bb22cc33')
     page, errors = live_page
-    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-bonded')
 
     panel = pane.locator('[data-ff-panel]')
     expect(panel).to_contain_text('No Fast-Forward interaction record has been published', timeout=30000)
@@ -406,7 +389,7 @@ def test_a_term_with_no_reference_side_names_the_absent_side(dashboard, live_pag
     publish_mapping(dashboard, 'aa11bb22cc33')
     publish_ff(dashboard, 'aa11bb22cc33', record)
     page, errors = live_page
-    pane = open_section(page, live_page, 'aa11bb22cc33', 'mapping-bonded')
+    pane = browser.open_run_section(page, live_page.base_url, 'aa11bb22cc33', 'mapping-bonded')
 
     pane.locator('details.rvm-term-group', has_text='Bonds (1)').locator('summary').click()
     pane.locator('[data-item="term:0"]').click()
@@ -423,7 +406,7 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     publish(dashboard, 'bb22cc33dd44')
     publish_surfaces(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     envelope = pane.locator('[data-shape="surfaces"]')
     # Three columns, not five: frames and duration belong to the trajectory, and the probe is in the note above.
@@ -438,10 +421,7 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     expect(envelope.locator('.rvm-surface-plot')).to_have_count(1)
     expect(envelope.locator('.rvm-checks input')).to_have_count(2)
     assert envelope.locator('.rvm-checks input').evaluate_all('els => els.map(el => el.checked)') == [True, True]
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 4);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', 4)
     traces = envelope.locator('.rvm-surface-plot').evaluate(
         'el => el.data.map(trace => ({type: trace.type, x: trace.x, y: trace.y}))')
     assert [trace['type'] for trace in traces] == ['mesh3d', 'scatter3d', 'mesh3d', 'scatter3d'], traces
@@ -452,10 +432,7 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     assert traces[3]['x'] == [0.06, 0.12] and traces[3]['y'] == [0.03, 0.04], traces[3]
 
     # The 2D series reads the two sasa.xvg files the analysis recorded: both models, one point per frame.
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', 2)
     traces = envelope.locator('.rvm-sasa-chart').evaluate(
         'el => el.data.map(trace => ({name: trace.name, x: trace.x, y: trace.y}))')
     assert [trace['name'] for trace in traces] == ['AA', 'Simulated CG'], traces
@@ -478,7 +455,7 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
     publish(dashboard, 'bb22cc33dd44')
     publish_surfaces(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     envelope = pane.locator('[data-shape="surfaces"]')
     block = envelope.locator('.rvm-models')
@@ -529,10 +506,7 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
     # The block is presentation only: the AA-vs-CG pair scene still draws from the published pair JSON.
     expect(envelope.locator('.rvm-surface-plot')).to_have_count(1)
     expect(envelope.locator('.rvm-checks input')).to_have_count(2)
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 4);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-surface-plot', 4)
     assert envelope.locator('.rvm-surface-plot').evaluate(
         'el => el.data.map(trace => trace.type)') == ['mesh3d', 'scatter3d', 'mesh3d', 'scatter3d']
     assert errors == []
@@ -541,7 +515,7 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
 def test_a_run_with_no_envelope_analysis_says_so_and_frames_nothing(dashboard, live_page):
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     envelope = pane.locator('[data-shape="surfaces"]')
     expect(envelope.locator('.hint').nth(0)).to_contain_text('queued by hand', timeout=30000)
@@ -569,17 +543,14 @@ def test_an_older_surfaces_attempt_without_the_pair_falls_back_to_its_figure(das
     metadata_path.write_text(json.dumps(metadata))
     (attempt / 'output/abc123/analysis/surfaces/surface-comparison-aa-cg.json').unlink()
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     envelope = pane.locator('[data-shape="surfaces"]')
     expect(envelope.locator('iframe')).to_have_count(1, timeout=30000)
     assert 'surface-comparison.html' in envelope.locator('iframe').get_attribute('src')
     assert 'predates the AA vs Simulated CG pair' in envelope.text_content()
     expect(envelope.get_by_role('button', name='Recalculate surfaces')).to_be_visible()
-    page.wait_for_function("""selector => {
-      const el = document.querySelector(selector);
-      return Boolean(el && el.data && el.data.length === 2);
-    }""", arg=f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', timeout=30000)
+    browser.wait_for_traces(page, f'{CARD} .analysis-pane[data-section="mapping-shape"] .rvm-sasa-chart', 2)
     assert errors == []
 
 
@@ -587,7 +558,7 @@ def test_the_bead_overlap_analysis_is_drawn_with_its_numbers_and_its_own_figure(
     publish(dashboard, 'bb22cc33dd44')
     publish_overlap(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     overlap = pane.locator('.rvm-sub').nth(1)
     expect(overlap.locator('iframe')).to_have_count(1, timeout=30000)
@@ -607,7 +578,7 @@ def test_the_bead_overlap_analysis_is_drawn_with_its_numbers_and_its_own_figure(
 def test_a_run_with_no_bead_overlap_analysis_says_so_and_frames_nothing(dashboard, live_page):
     publish(dashboard, 'bb22cc33dd44')
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     overlap = pane.locator('.rvm-sub').nth(1)
     expect(overlap.locator('.hint').nth(0)).to_contain_text('queued by hand', timeout=30000)
@@ -622,7 +593,7 @@ def test_a_published_analysis_whose_figure_is_gone_still_states_its_numbers(dash
     attempt = publish_overlap(dashboard, 'bb22cc33dd44')
     (attempt / 'output/abc123/overlap.html').unlink()
     page, errors = live_page
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
 
     overlap = pane.locator('.rvm-sub').nth(1)
     expect(overlap.locator('.hint').nth(0)).to_contain_text('no longer on disk', timeout=30000)
@@ -1026,7 +997,7 @@ def test_the_shape_section_queues_its_two_missing_analyses(dashboard, live_page)
 
     page.route('**/api/jobs/bb22cc33dd44/surfaces', hold)
     page.route('**/api/jobs/bb22cc33dd44/overlap', hold)
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
     surfaces = pane.locator('.rvm-sub').nth(0)
     overlap = pane.locator('.rvm-sub').nth(1)
     surfaces_button = surfaces.get_by_role('button', name='Calculate surfaces')
@@ -1059,7 +1030,7 @@ def test_a_shape_queue_press_disables_both_buttons_until_the_card_answers(dashbo
 
     page.route('**/api/jobs/bb22cc33dd44/surfaces', hold)
     page.route('**/api/jobs/bb22cc33dd44/overlap', hold)
-    pane = open_section(page, live_page, 'bb22cc33dd44', 'mapping-shape')
+    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
     surfaces = pane.locator('.rvm-sub').nth(0)
     overlap = pane.locator('.rvm-sub').nth(1)
     surfaces_button = surfaces.get_by_role('button', name='Calculate surfaces')

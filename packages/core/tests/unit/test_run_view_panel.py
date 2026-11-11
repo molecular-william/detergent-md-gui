@@ -18,7 +18,7 @@ second place for a run type to go missing -- and because which runs a workspace 
 
 import pytest
 from dashboard.execution import protocol
-from dashboard.web.sections import PANEL_BLURBS, PANELS, TAB_IDS, panel_glyph, panel_label, run_types_for, tabs_for
+from dashboard.web.sections import PANELS, SECTIONS, TAB_IDS, run_types_for
 
 from tests.harness.support import PACKAGE
 
@@ -29,15 +29,13 @@ MODULE = PACKAGE / 'web/static/js/run-view.js'
 def test_both_workspaces_offer_the_run_view_panel():
     """One component, two registrations: the panel is how a run is read in either workspace."""
     for name in ('validation', 'simulations'):
-        assert 'run-view' in tabs_for(name), f'{name} does not offer the Run view panel'
+        assert 'run-view' in SECTIONS[name]['tabs'], f'{name} does not offer the Run view panel'
 
 
 def test_the_run_view_panel_resolves_to_a_label_glyph_and_dom_id():
-    assert panel_label('run-view') == 'Run view'
-    assert panel_glyph('run-view') == '⬓'
-    assert TAB_IDS['run-view'] == 'runview'
     assert PANELS['run-view'][0] == 'Run view'
-    assert PANEL_BLURBS['run-view'], 'a registered panel must carry its one-line description'
+    assert PANELS['run-view'][1] == '⬓'
+    assert TAB_IDS['run-view'] == 'runview'
 
 
 def test_each_workspace_scopes_the_run_view_to_its_own_run_types():

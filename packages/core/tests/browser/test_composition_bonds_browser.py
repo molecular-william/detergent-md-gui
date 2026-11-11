@@ -26,6 +26,7 @@ panel's own seam (`compositionStages`).
 """
 import json
 
+from tests.harness import browser
 from tests.harness.bond_fixtures import atom_count, model_pairs, regrouped
 
 HOST = '#compositions'
@@ -64,13 +65,12 @@ def _mounted(page):
         arg=HOST, timeout=30000)
 
 
-def _drawn(page, key, tries=24, pause_ms=250):
-    for _ in range(tries):
-        value = page.locator(HOST).evaluate(BONDS, key)
-        if value:
-            return value
-        page.wait_for_timeout(pause_ms)
-    raise AssertionError('the viewer never held the joined structure to read bonds from')
+def _drawn(page, key):
+    """Read the drawn bonds once the viewer holds them; `update()` clears the components before it rebuilds them."""
+    try:
+        return browser.read_when(page, HOST, f'(el) => ({BONDS})(el, {key!r})', timeout=6000)
+    except AssertionError:
+        raise AssertionError('the viewer never held the joined structure to read bonds from') from None
 
 
 def _open_with_transform(page, live_page, transform):
@@ -85,7 +85,7 @@ def _open_with_transform(page, live_page, transform):
                       body=json.dumps(dict(body, pdb=transform(body['pdb']))))
 
     page.route('**/api/compositions/preview', capture)
-    page.goto(f'{live_page.base_url}/detergent-validation/combinations')
+    browser.open_compositions(page, live_page.base_url)
     _preview(page)
     _mounted(page)
 

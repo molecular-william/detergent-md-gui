@@ -36,7 +36,6 @@ def fake_feature(monkeypatch):
         section=('fake-section', {'slug': 'fake', 'label': 'Fake section', 'blurb': 'a fake',
                                   'tabs': ('fake-panel',), 'run_types': ()}),
         panels=(('fake-panel', ('Fake panel', '*')),),
-        blurbs=(('fake-panel', 'nothing runs here'),),
         tab_ids=(('fake-panel', 'fake-panel-id'),),
     )
     monkeypatch.setattr(features, 'installed', lambda: [feature])
@@ -50,8 +49,6 @@ def fake_feature(monkeypatch):
     sections.SECTIONS.pop(feature.section[0], None)
     for slug, _ in feature.panels:
         sections.PANELS.pop(slug, None)
-    for slug, _ in feature.blurbs:
-        sections.PANEL_BLURBS.pop(slug, None)
     for slug, _ in feature.tab_ids:
         sections.TAB_IDS.pop(slug, None)
 
@@ -175,9 +172,9 @@ def test_register_adds_every_part_the_feature_contributes(fake_feature):
     features.register(app)
     assert 'fake-run' in protocol.RUN_TYPES, 'a feature run type is published with the engine ones'
     assert kinds.known('fake-kind'), 'a feature kind is reachable through the table the worker reads'
-    assert sections.section_for('fake-section')['slug'] == 'fake'
-    assert sections.tabs_for('fake-section') == ('fake-panel',)
-    assert sections.tab_id('fake-panel') == 'fake-panel-id'
+    assert sections.SECTIONS['fake-section']['slug'] == 'fake'
+    assert sections.SECTIONS['fake-section']['tabs'] == ('fake-panel',)
+    assert sections.TAB_IDS['fake-panel'] == 'fake-panel-id'
     assert any(rule.rule == '/fake' for rule in app.url_map.iter_rules()), 'its blueprint is served'
 
 

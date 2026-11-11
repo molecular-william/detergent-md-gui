@@ -20,10 +20,6 @@ from tests.harness.support import PROJECT_ROOT
 
 BACKMAP = 'Back-mapping (CG2AT2)'
 TOOL = PROJECT_ROOT / 'tools' / 'cg2at' / 'cg2at'
-TEMPLATE = {
-    'name': 'DDM', 'residue': 'DDM', 'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp', 'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'}],
-}
 
 
 def prepared(tmp_path: Path, **settings) -> Path:

@@ -14,9 +14,9 @@ if the view never draws within the tier's own 30 s.
 The candidate is created through the panel's own route into the fixture's workspace, so nothing here touches a
 developer's data and the fixture runs the current code.
 """
-import time
-
 from playwright.sync_api import expect
+
+from tests.harness import browser
 
 OVERLAY = '#mapping-editor-overlay3d'
 MOLECULE = 'Maltose'
@@ -85,7 +85,7 @@ CLICK_EVIDENCE = """(el) => {
 }"""
 
 
-def _drawn(page, expression, ready=lambda value: bool(value), deadline_s=30.0, pause_ms=250):
+def _drawn(page, expression, ready=lambda value: bool(value)):
     """Read the viewer once it is holding what the read needs.
 
     `update()` rebuilds the components on every assignment change: it clears them first, so a read inside that window
@@ -94,16 +94,11 @@ def _drawn(page, expression, ready=lambda value: bool(value), deadline_s=30.0, p
     is the tier's own 30 s rather than a fixed number of tries: at sixteen workers a WebGL rebuild can outlast six
     seconds while the panel is fine.
     """
-    deadline = time.monotonic() + deadline_s
-    while True:
-        value = page.locator(OVERLAY).evaluate(expression)
-        if ready(value):
-            return value
-        if time.monotonic() >= deadline:
-            status = page.locator(OVERLAY).evaluate("el => el.dataset.overlayStatus || ''")
-            raise AssertionError(f'the viewer never held what this read needs: {expression.strip()[:70]};'
-                                 f' it held {repr(value)[:400]}; overlay said {status!r}')
-        page.wait_for_timeout(pause_ms)
+    try:
+        return browser.read_when(page, OVERLAY, expression, ready=ready)
+    except AssertionError as failure:
+        status = page.locator(OVERLAY).evaluate("el => el.dataset.overlayStatus || ''")
+        raise AssertionError(f'{failure}; overlay said {status!r}') from None
 
 
 def _open_editor(page, live_page):

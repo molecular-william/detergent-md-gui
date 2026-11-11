@@ -12,19 +12,12 @@ from __future__ import annotations
 import json
 
 import pytest
-from dashboard.execution import devices, protocol
+from dashboard.execution import protocol
 from detergent_pdc.execution.adapters import pdc
 
 from tests.harness.pdc_fixtures import molecule_tree
 
-
-@pytest.fixture(autouse=True)
-def gpu_host(monkeypatch):
-    """The published table is the adapter's whole table on a host with a GPU; the no-GPU half has its own test."""
-    devices.clear_cache()
-    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [{'index': 0, 'name': 'GPU'}])
-    yield
-    devices.clear_cache()
+pytestmark = pytest.mark.usefixtures('gpu_host')
 
 TEMPLATE = {
     'name': 'DDM',

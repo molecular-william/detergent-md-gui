@@ -9,16 +9,7 @@ import pytest
 from dashboard.execution import devices
 from dashboard.execution.coordination import errors
 
-GPU = {'index': 0, 'name': 'NVIDIA GeForce RTX 4090'}
-
-
-@pytest.fixture(autouse=True)
-def gpu_host(monkeypatch):
-    """The coordinator asks `devices.present()` when it words a refusal, so the host is stated, never probed."""
-    devices.clear_cache()
-    monkeypatch.setattr(devices, 'detect', lambda *arguments, **keywords: [dict(GPU)])
-    yield
-    devices.clear_cache()
+pytestmark = pytest.mark.usefixtures('gpu_host')
 
 
 def record(owner, jid, gpu):

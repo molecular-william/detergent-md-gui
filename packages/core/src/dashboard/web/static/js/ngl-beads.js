@@ -52,10 +52,6 @@ export function beadFamily(type) {
   return family in BEAD_FAMILY_COLOURS && family !== 'unstated' ? family : 'unstated';
 }
 
-export function beadFamilyCode(type) {
-  return BEAD_FAMILY_ORDER.indexOf(beadFamily(type));
-}
-
 export function renderBeadLegend(host) {
   // The legend and the colouring are one table: the swatch a reader decodes a bead with is the colour the
   // representation above it resolved, because both come from `BEAD_FAMILY_COLOURS` and neither is written out by
