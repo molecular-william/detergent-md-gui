@@ -110,6 +110,13 @@
     </div>
     <p id="storage-report" class="hint" role="status"></p><button class="secondary" id="refresh-storage">Refresh storage report</button>
   </div>
+  {# A run is a directory and a job row. A directory copied in by hand (`cp -r runs/<id> ...`) has no row, so the
+     table cannot list it; this banner is the one place a reader learns that, and its dialog registers selected
+     directories through POST /api/runs/adopt. Hidden unless GET /api/runs/unregistered returns something. #}
+  <div id="adopt-runs-banner" class="adopt-banner" hidden>
+    <p id="adopt-runs-summary"></p>
+    <button class="secondary" id="adopt-runs" type="button">Register copied runs…</button>
+  </div>
   <div class="run-table-scroll" tabindex="0" aria-label="Run table; scroll horizontally on smaller screens">
     <table id="jobs" class="run-table"><caption class="sr-only">Simulation runs and their resources</caption><colgroup><col class="col-identity"><col class="col-status"><col class="col-molecule"><col class="col-method"><col class="col-created"><col class="col-duration"><col class="col-actions"></colgroup><thead><tr><th scope="col">Run / progress</th><th scope="col">Status</th><th scope="col">Molecule</th><th scope="col">Method</th><th scope="col">Created</th><th scope="col">Duration</th><th scope="col">Actions</th></tr></thead><tbody id="empty-jobs"><tr><td colspan="7">Loading runs…</td></tr></tbody></table>
   </div>
@@ -121,6 +128,20 @@
     <p class="hint">Showing up to 256 KB. Scroll up to read; return to the bottom to follow new output. Pausing affects this display only.</p>
   </section>
   </div>
+  <dialog id="adopt-runs-dialog" class="adopt-dialog" aria-label="Register copied runs">
+    <form id="adopt-runs-form">
+      <h3>Register copied runs</h3>
+      <p class="hint">These directories are under <code>runs/</code> with no job row. Registering rebuilds the row
+        from the manifest, verifies the copy's inputs against this checkout, and rebuilds its analyses. Nothing is
+        moved or deleted. An AA-only run is listed first: a <code>cg</code> run needs the AA source it consumes.</p>
+      <div id="adopt-runs-list" class="adopt-list"></div>
+      <p id="adopt-runs-status" class="hint" role="status"></p>
+      <div class="toolbar">
+        <button type="button" class="secondary" id="adopt-runs-cancel">Cancel</button>
+        <button type="submit" id="adopt-runs-confirm">Register selected</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 {# The Run view panel. One section, rendered in both workspaces and hidden unless this workspace opened it;
    the run types it offers arrive from the registry (`run_view_scope`), so the module never has to work out

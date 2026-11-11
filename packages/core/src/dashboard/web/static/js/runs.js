@@ -429,14 +429,106 @@ export function createRuns({ onClone, onDeleted }) {
       const mirror = $('#new-storage'); if (mirror) setText(mirror, text);
     } catch(error) { setText($('#storage-report'),error.message); }
   }
-  $('#refresh-storage').onclick=()=>refreshStorage(true);
+  $('#refresh-storage').onclick=()=>{refreshStorage(true);refreshUnregistered();};
 
+  // --- copied-in run directories ----------------------------------------------------------------------------------
+  // A run is a directory and a job row, and the table reads the row. A directory copied in by hand has no row, so it
+  // is invisible until `POST /api/runs/adopt` rebuilds one from its manifest. The banner says that once; its dialog
+  // registers the ticked directories. The list is read on mount, on a storage refresh and after an adoption -- not
+  // on the poll, because a directory appears only when someone copies one in.
+  let unregistered = [];
+  const adoptionOrder = run => ({aa_only: 0, osmotic: 1, pdc: 2, cg: 3}[run.run_type] ?? 9);
+  const sortUnregistered = () => unregistered.sort((a, b) =>
+    adoptionOrder(a) - adoptionOrder(b) || String(a.id).localeCompare(String(b.id)));
 
+  function renderAdoption() {
+    const banner = $('#adopt-runs-banner');
+    banner.hidden = !unregistered.length;
+    if (!unregistered.length) return;
+    setText($('#adopt-runs-summary'), `${unregistered.length} run director${unregistered.length === 1 ? 'y is' : 'ies are'}`
+      + ' in runs/ but not listed — a run is a directory and a row.');
+    $('#adopt-runs').textContent = unregistered.length === 1 ? 'Register copied run…' : 'Register copied runs…';
+  }
 
-  return { refreshJobs, refreshConsole: consoleViewer.refresh, refreshStorage,
+  async function refreshUnregistered() {
+    try {
+      const answer = await api('/api/runs/unregistered');
+      unregistered = Array.isArray(answer.runs) ? answer.runs : [];
+      sortUnregistered();
+    } catch (error) {
+      unregistered = [];
+    }
+    renderAdoption();
+  }
+
+  function adoptList() {
+    const list = $('#adopt-runs-list');
+    list.replaceChildren();
+    const head = text => { const node = document.createElement('div'); node.className = 'adopt-head'; node.textContent = text; return node; };
+    list.append(document.createElement('div'), head('Run'), head('Type'), head('Molecule'), head('Status'));
+    for (const run of unregistered) {
+      const tick = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.name = 'adopt-run'; input.value = run.id; input.checked = true;
+      tick.append(input);
+      const identity = document.createElement('div');
+      const id = document.createElement('b'); id.className = 'adopt-id'; id.textContent = run.id;
+      const note = document.createElement('span');
+      note.className = 'adopt-sub'; note.dataset.status = run.id;
+      note.textContent = run.label || run.status || '';
+      identity.append(id, document.createElement('br'), note);
+      const type = document.createElement('div'); type.textContent = run.run_type || '—';
+      const molecule = document.createElement('div'); molecule.textContent = run.molecule_id || '—';
+      const status = document.createElement('div'); status.textContent = run.status || '—';
+      list.append(tick, identity, type, molecule, status);
+    }
+  }
+
+  $('#adopt-runs').onclick = () => {
+    setText($('#adopt-runs-status'), '');
+    $('#adopt-runs-confirm').disabled = false;
+    adoptList();
+    $('#adopt-runs-dialog').showModal();
+  };
+  $('#adopt-runs-cancel').onclick = () => $('#adopt-runs-dialog').close();
+  $('#adopt-runs-form').onsubmit = async event => {
+    event.preventDefault();
+    const chosen = $$('#adopt-runs-list input[name="adopt-run"]:checked').map(input => input.value);
+    const status = $('#adopt-runs-status'), confirm = $('#adopt-runs-confirm');
+    if (!chosen.length) { setText(status, 'Tick at least one run.'); return; }
+    confirm.disabled = true;
+    let registered = 0; const failed = [];
+    for (const id of chosen) {
+      const row = document.querySelector(`[data-status="${id}"]`);
+      if (row) { row.classList.remove('failed'); row.textContent = 'verifying…'; }
+      try {
+        await post('/api/runs/adopt', {run: id});
+        registered += 1;
+        unregistered = unregistered.filter(run => run.id !== id);
+        if (row) { row.textContent = 'registered'; row.classList.remove('failed'); }
+        const tick = document.querySelector(`#adopt-runs-list input[value="${id}"]`);
+        if (tick) { tick.checked = false; tick.disabled = true; }
+      } catch (error) {
+        failed.push(`${id}: ${error.message}`);
+        if (row) { row.textContent = error.message; row.classList.add('failed'); }
+      }
+    }
+    confirm.disabled = false;
+    jobsEtag = '';
+    await refreshJobs().catch(error => notice(error.message));
+    await refreshUnregistered();
+    if (failed.length) {
+      setText(status, `Registered ${registered} of ${chosen.length}. ${failed[0]}`);
+    } else {
+      $('#adopt-runs-dialog').close();
+      notice(`Registered ${registered} run${registered === 1 ? '' : 's'}. They are in the table now.`);
+    }
+  };
+
+  return { refreshJobs, refreshConsole: consoleViewer.refresh, refreshStorage, refreshUnregistered,
     // The panel's own first read, returned so the mount's busy state lasts until the table is filled: a mount that
     // resolves before `/api/jobs` answers would clear the loading line in the same tick it appeared. The filter
     // vocabulary is read first because the boxes are drawn from it, so the first table is already the one the saved
     // boxes ask for.
-    async mount() { await loadVocabulary(); return Promise.all([poll(), refreshStorage()]); }, start() {} };
+    async mount() { await loadVocabulary(); return Promise.all([poll(), refreshStorage(), refreshUnregistered()]); }, start() {} };
 }

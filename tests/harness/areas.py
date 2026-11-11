@@ -101,6 +101,7 @@ AREAS = {
         'unit/test_cg_adapter_molecule_scoped.py', 'unit/test_cg_run_type_staging.py', 'unit/test_cg_inputs.py',
         'integration/test_cg_prepare_contract.py',
         'browser/test_runs_table_browser.py', 'browser/test_run_resume_controls_browser.py',
+        'browser/test_runs_adopt_browser.py',
         'browser/test_run_view_*', 'browser/test_new_run_*',
     ),
     'infra': (

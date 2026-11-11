@@ -80,3 +80,17 @@
 .run-resources > details > .resource-content { padding:12px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; }
 .run-resources #console-panel { margin:0; padding:0; }
 .run-resources #console-panel .toolbar { margin-top:0; }
+
+/* A directory copied into runs/ has no job row, so the table cannot list it. The banner says so once and its
+   dialog registers selected directories; it is hidden entirely when there is nothing to register. */
+.adopt-banner { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; margin:0 0 12px; padding:10px 14px; border:1px solid #bcd0f5; border-radius:10px; background:#eef4ff; }
+.adopt-banner p { margin:0; flex:1 1 320px; font-size:13px; }
+.adopt-dialog { border:0; border-radius:12px; padding:0; width:min(720px,92vw); box-shadow:0 18px 60px #141e2e47; }
+.adopt-dialog::backdrop { background:#141e2e59; }
+.adopt-dialog form { padding:18px 20px 16px; }
+.adopt-list { display:grid; grid-template-columns:26px minmax(180px,1fr) 96px 120px 92px; gap:8px 10px; align-items:start; margin:12px 0; font-size:13px; }
+.adopt-list .adopt-head { font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); font-weight:700; }
+.adopt-list .adopt-id { font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
+.adopt-list .adopt-sub { font-size:12px; color:var(--muted); }
+.adopt-list .adopt-sub.failed { color:var(--danger); }
+
