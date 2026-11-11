@@ -9,8 +9,7 @@ Two workspaces, one for the model and one for the protein:
 
 * **Detergent validation** (`/detergent-validation`) — build a bead assignment, fit and inspect its bonded terms,
   simulate it, read the results. Panels: Runs, Run view, New run (Single Molecule Simulations), CG Bead Assignment,
-  CG Bond Interactions, Combinations, Mapping validation, Osmotic Series. Run types: `aa_only`, `aa_cg`,
-  `cg_composition`, `osmotic`.
+  CG Bond Interactions, Combinations, Mapping validation, Osmotic Series. Run types: `aa_only`, `cg`, `osmotic`.
 * **Protein-detergent simulations** (`/protein-detergent`) — set up a protein with its detergent, run the complex, read
   it. Panels: Runs, Run view, New run (Protein-Detergent Simulations), Complexes. Run type: `pdc`.
 
@@ -91,21 +90,6 @@ mkdir -p tools
 git clone https://github.com/owenvickery/cg2at tools/cg2at
 ```
 
-The Martini 3 set needs no download: `references/M3-Lipid-Parameters/` (commit `2121527`, Apache-2.0, the upstream
-`LICENSE.txt` and `README.md` beside it) and the sugar reference `references/martini_v3.0.0_sugars_v2.itp` with its
-`source.json` are part of the clone. The first CG reader installs them into `workspace/dashboard/martini3/` and records
-the upstream commit and a digest per file. To take a newer upstream release, replace that directory from a fresh
-checkout, update the commit in `dashboard/martini3.py` (`SOURCE`) if it moved, and refresh the workspace install; a
-run never takes new force-field bytes on its own.
-
-A CUDA GPU is optional: the AA and CG defaults offload nonbonded work to device 0, so on a CPU-only machine set
-`mdrun_nb` and `mdrun_pme` to `cpu` in the run's settings. The code asks `gmx` whether it is an MPI or a thread-MPI
-build and passes only the thread flags that build accepts.
-
-The checkout's `references/` also holds optional upstream trees: `M3-Small-Molecules` and `M3-Bible` widen the
-mapping-suggestion index, and the reference PDFs are reading material, not inputs. The unmodified upstream benchmark
-material and property workbook are deliberately not in git.
-
 PLUMED is needed only for the `osmotic` series, and the GROMACS build must have PLUMED support: `gmx mdrun -plumed`
 loads a kernel at run time, and the code sets `PLUMED_KERNEL` from the `lib/` directory beside the declared `plumed`.
 
@@ -171,18 +155,70 @@ above say what each needs. Nothing is downloaded or installed by a run.
 2. **Its parameterization** — revisions of bonds, angles and dihedrals fitted to an AA reference by Fast-Forward
    (`ff_inter`) or BARTENDER (`-refit -owntraj` against our own mapped trajectory). Revisions are keyed by content hash,
    one is current, and the record lists the mappings that claimed it (`owners`). Producing one makes no MD.
-3. **A run** — the AA half, then the mapping, then the CG half. An `aa_cg` run whose mapping carries a current revision
-   consumes it and records that it did not fit; otherwise the run fits its own terms and says so in its artefacts.
+3. **A run** — for a `cg` run over a mapping's revision: the AA half, then the mapping, then the CG half. Such a run
+   consumes its mapping's current revision and records that it did not fit; a mapping without one makes the run fit
+   its own terms and say so in its artefacts. A published sugar reference and a composed CG model are the other two
+   `cg` parameterization kinds: they carry their own coordinates and topology, so they have no AA half.
 
 ## Run types
 
 | Run type | What it does |
 | --- | --- |
 | `aa_only` | Solvation, neutralisation, minimisation, NVT, NPT, production, reference publication. 2 fs. |
-| `aa_cg` | AA reference → trajectory mapping → CG parameterization → CG simulation → assessment → SASA. 20 fs production, 5 fs equilibration. |
-| `cg_composition` | CG simulation, assessment and SASA from an immutable composition: no AA half, no settable settings. |
+| `cg` | One CG run over three parameterization kinds: a saved mapping's revision (AA reference → trajectory mapping → CG parameterization → CG simulation → assessment → SASA), a published Martini 3 sugar reference, or a composed CG model (CG simulation, assessment and SASA from an immutable composition; no AA half, no settable settings). 20 fs production, 5 fs equilibration. |
 | `pdc` | Protein preparation (PDB2PQR rebuild and protonation, on by default, skipped when the tool is absent), system preparation, minimisation/NVT/NPT, CG assessment MD, micelle assessment, extension MD, final assessment, optional CG2AT2 back-mapping. |
 | `osmotic` | One run owning N concentrations: each has its own directory and checkpoint and is resumable. Sugars only. |
+
+## Moving a run between workspaces
+
+A run is two things: `workspace/dashboard/runs/<id>/` (manifest, stage files, logs) and a row in
+`workspace/dashboard/jobs.sqlite3`. The dashboard reads the row — the Runs list pages the store, and every panel
+resolves a run through it — so a directory copied in by hand is invisible until it is registered. The 12-character
+run id is the identity mappings pin an AA source by (`aa_reference.run_id`), so a copy keeps it.
+
+**Both workspaces at hand.** `detergent-import-run` copies the directory and the row together, and re-verifies the
+copy against the receiving checkout before it is listed:
+
+```bash
+.venv/bin/detergent-import-run --run <id> \
+  --from-workspace /path/to/sender/workspace/dashboard \
+  --to-workspace   /path/to/receiver/workspace/dashboard      # dry run; add --apply to move
+```
+
+**Only the directory arrived** — `cp -r`, a zip, a colleague's checkout. Register it in place; the job row is
+rebuilt from the manifest the run already carries. The Runs panel shows a banner above the table while `runs/` holds
+directories with no row, and **Register copied runs…** lists them (AA-only first) and registers the ticked ones. The
+same two steps are a route and a command:
+
+```bash
+.venv/bin/detergent-import-run --adopt --workspace /path/to/receiver/workspace/dashboard --run <id>   # dry run
+.venv/bin/detergent-import-run --adopt --workspace /path/to/receiver/workspace/dashboard --run <id> --apply
+
+curl -s http://127.0.0.1:5000/api/runs/unregistered                 # directories with no row
+curl -s -X POST http://127.0.0.1:5000/api/runs/adopt \
+  -H 'Content-Type: application/json' -d '{"run": "<id>"}'          # register one
+```
+
+Adoption verifies the copy's recorded inputs (`inputs/inputs.json`) against the receiving checkout, rebuilds the
+run's analysis attempts from `analyses/*/*/*/manifest.json`, marks the row `adopted_at`, and derives the display
+fields a manifest never carried (`label`, `created`, `method`, `profile`). It refuses a directory whose manifest still
+says `running`, a copy whose recorded inputs do not match this checkout, and a `cg` run whose AA source is not
+registered — adopt the source first. A `cg` run of the `revision` kind records the AA source it consumes; copy that
+run too, or the run cannot resolve its reference.
+
+**AA references travel, too.** A completed `aa_only` run is what Bond Interactions fits against, and its
+`stages/07_reference/reference.json` records the force-field tree and molecule files it was built from, by digest.
+Newer records name each source by a portable locator (`repo`/`workspace` + relative path), so they verify on any
+checkout holding the same files; an older record's absolute path may not exist there, which is reported as a
+provenance warning, not a failure — the run's own artifacts are still hashed and are what the trajectory is read
+through. The Bond Interactions card states "provenance not re-checked here: N sources not on this machine" when that
+happens, and a source that is present and has changed is still refused.
+
+**What it needs, and what does not travel.** The receiving clone needs the same tracked inputs (`molecules/`,
+`resources/templates/`, `config/`) at a compatible commit; it needs no sender database, and reading a completed run
+needs no GROMACS. A run still marked running is not adoptable. The sender's display label and created date are not in
+a manifest, so adoption derives them; analyses are rebuilt from their attempt records, and an attempt the sender left
+running is adopted as failed because no worker here owns it.
 
 ## Repository layout
 
