@@ -30,6 +30,12 @@ from .. import bonded
 from ..bonded import PARAMETER_RANGES
 from . import derived_parameterization, get, term_counts
 
+#: The bond force constant the CG composition stage will actually simulate. `cg_simulation.sh` clamps a `[ bonds ]`
+#: force above this before the short draft run (unless a `ring_targets.json` opts out, which a composition never
+#: writes), so the store refuses a saved value above it: the revision states the number the run uses, not one the
+#: script would silently replace. Bond force only; the script caps no other section.
+BOND_FORCE_CAP = 50000.0
+
 #: The one engine a saved edit names. It is not a fit: the terms are a reader's numbers applied to the derived
 #: topology, so the record says `composition-edit` rather than borrowing an engine name from the fitting store.
 ENGINE = 'composition-edit'
@@ -144,6 +150,10 @@ def _apply(record, derived, overrides):
     # restates none of them. It also collapses a multi-line interaction to one term, which is why an override of a
     # multi-term topology refuses below rather than rewriting each line.
     bonded.validate(data)
+    for item in overrides:
+        if item['section'] == 'bonds' and float(item['parameters'][1]) > BOND_FORCE_CAP:
+            raise ValueError(f"A composition's bond force constant is capped at {BOND_FORCE_CAP:g} by the CG stage; "
+                             f"{item['parameters'][1]} would be simulated as {BOND_FORCE_CAP:g}")
     return bonded.refine(derived['topology'], data, None, REFINE_TEMPERATURE)[0]
 
 
@@ -254,5 +264,8 @@ def view(composition_id) -> dict:
                                          'seed': current.get('base')},
             'revisions': list((document or {}).get('revisions') or []),
             'terms': _term_rows(current),
-            # The one range table, from the module that owns it; the panel restates no number.
-            'ranges': PARAMETER_RANGES}
+            # The one range table, from the module that owns it; the panel restates no number. The bond force cap is
+            # the CG stage's own number, so the input offers exactly what the run will simulate.
+            'ranges': {**PARAMETER_RANGES,
+                       'bonds': {1: [{**bound, 'max': BOND_FORCE_CAP} if index == 1 else bound
+                                    for index, bound in enumerate(PARAMETER_RANGES['bonds'][1])]}}}

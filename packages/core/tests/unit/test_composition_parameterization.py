@@ -99,6 +99,8 @@ def test_an_edit_appends_a_revision_seeded_from_the_derived_model():
     assert view['current'] == 0 and view['edited'] is False
     assert view['current_parameterization']['revision'] == 0
     assert view['ranges']['bonds'][1][1]['label'] == 'force (kJ mol^-1 nm^-2)'
+    # The CG stage's own clamp, not the mapping editor's 100000: the input and the simulated number are one.
+    assert view['ranges']['bonds'][1][1]['max'] == parameterizations.BOND_FORCE_CAP
 
     item = _save(saved, OVERRIDE)
     assert item['revision'] == 1 and item['base'] == 'derived-revision-0'
@@ -144,6 +146,8 @@ def test_constraints_virtual_sites_and_unknown_terms_are_refused():
              'Override does not match'),
             ([{'section': 'bonds', 'beads': ['C', 'C01'], 'function': 1, 'parameters': [0.47, 300000]}],
              'must be between 0 and 100000'),
+            ([{'section': 'bonds', 'beads': ['C', 'C01'], 'function': 1, 'parameters': [0.47, 60000]}],
+             'capped at 50000'),
             ([{'section': 'constraints', 'beads': ['A', 'C'], 'function': 1, 'parameters': [0.47]}],
              'massive beads')):
         with pytest.raises(ValueError, match=message):
