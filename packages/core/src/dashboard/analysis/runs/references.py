@@ -52,20 +52,60 @@ def counts(topology,context):
     return payload
 
 
+def _locator(path):
+    """Where a shared source lives, in a spelling that still resolves in another checkout.
+
+    A published reference travels: the run directory is copied to another workspace, a colleague's checkout or a
+    machine whose repository lives at a different absolute path. An absolute `path` published here would then name
+    a directory that only this machine has. A source under the checkout is recorded as `repo`/`workspace` plus a
+    relative path, which `_source_path` resolves against whichever checkout reads the record. A source outside the
+    checkout (a force field installed under `/opt`, a molecule in `/data`) keeps its absolute path: there is no
+    portable spelling for it, and `_verify_referenced` treats its absence as provenance it cannot re-check rather
+    than as corruption.
+    """
+    resolved=Path(path).resolve()
+    try:
+        from ... import paths as path_config
+    except ImportError:
+        return {'root':'absolute','path':str(resolved)}
+    selected=path_config.current()
+    for root,base in (('repo',selected.project_root),('workspace',selected.workspace)):
+        try: relative=resolved.relative_to(Path(base).resolve())
+        except ValueError: continue
+        return {'root':root,'path':relative.as_posix()}
+    return {'root':'absolute','path':str(resolved)}
+
+
+def _source_path(entry):
+    """The filesystem path a recorded source names, resolved through this checkout when it was recorded relative."""
+    path=Path(entry.get('path') or '')
+    root=entry.get('root') or None
+    if root is None or root=='absolute' or path.is_absolute():
+        return path
+    try:
+        from ... import paths as path_config
+        selected=path_config.current()
+    except ImportError:raise ValueError('AA reference source is relative but this reader has no project root') from None
+    base={'repo':selected.project_root,'workspace':selected.workspace}.get(root)
+    if base is None:raise ValueError(f'AA reference source has an unknown root: {root!r}')
+    return Path(base)/path
+
+
 def referenced_sources(context):
     """The files this run read rather than wrote: where prepare found them, and the digest it recorded.
 
     A run no longer carries the force-field tree or the molecule's own files, so a publication hashes them at the
-    absolute paths prepare resolved -- this module runs as a copy inside the run and has no project root to resolve
-    against. The record is also what `verify` re-hashes: a shared input changed after prepare is refused rather than
-    silently published under a digest it no longer has.
+    paths prepare resolved. Each source is recorded with a locator (`_locator`) rather than only an absolute path,
+    so the record still verifies after the run directory travels to another checkout. The record is also what
+    `verify` re-hashes: a shared input changed after prepare is refused rather than silently published under a
+    digest it no longer has.
     """
     sources=[]
     tree=context.get('force_field_path')
     if tree:
         tree=Path(tree);measured=files.hashes(tree)
         if measured!=context.get('force_field_sha256'):raise ValueError('Force-field tree changed since this run was prepared: '+str(tree))
-        sources.append({'role':'force_field','label':tree.name,'kind':'directory','path':str(tree.resolve()),
+        sources.append({'role':'force_field','label':tree.name,'kind':'directory',**_locator(tree),
                         'sha256':files.json_sha256(measured),'files':len(measured)})
     folder=context.get('molecule_directory');snapshot=context.get('molecule_snapshot') or {}
     if folder:
@@ -75,21 +115,33 @@ def referenced_sources(context):
             if path.is_symlink() or not path.is_file():raise ValueError('Molecule file is missing: '+str(path))
             measured=files.sha256(path)
             if measured!=digest:raise ValueError('Molecule file changed since this run was prepared: '+relative)
-            sources.append({'role':'molecule','label':relative,'kind':'file','path':str(path.resolve()),
+            sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
                             'sha256':measured,'bytes':path.stat().st_size})
     return sources
 
 
 def _verify_referenced(entry):
-    """Re-hash one source `referenced_sources` recorded, refusing a changed or missing one by name."""
-    path=Path(entry.get('path') or '')
+    """Re-hash one source `referenced_sources` recorded, refusing a changed one by name.
+
+    A source that is not on this machine is a warning, not a refusal: the run directory carries its own artifacts
+    and hashes them in `verify`'s run-relative map, so a foreign checkout cannot corrupt the trajectory. What this
+    re-hash proves is provenance -- that the force field and molecule files this reference was built from are still
+    the ones the record names. That claim cannot be checked where those files do not exist, and pretending
+    otherwise would drop an otherwise intact run from every picker.
+    """
+    path=_source_path(entry)
+    if not path.exists():
+        return {'role':entry.get('role'),'label':entry.get('label'),'path':str(path),
+                'reason':'this source is not present on this host; its provenance was not re-checked'}
+    if path.is_symlink():raise ValueError('AA reference source symlinks are not allowed: '+str(path))
     if entry.get('kind')=='directory':
-        if path.is_symlink() or not path.is_dir():raise ValueError('AA reference source is missing: '+str(path))
+        if not path.is_dir():raise ValueError('AA reference source is not a directory: '+str(path))
         measured=files.json_sha256(files.hashes(path))
     else:
-        if path.is_symlink() or not path.is_file():raise ValueError('AA reference source is missing: '+str(path))
+        if not path.is_file():raise ValueError('AA reference source is not a file: '+str(path))
         measured=files.sha256(path)
     if measured!=entry.get('sha256'):raise ValueError(f'AA reference {entry.get("role")} source changed since publication: {path}')
+    return None
 
 
 def publish(stages):
@@ -134,7 +186,9 @@ def publish(stages):
             hashed.update({f'stages/{relative}/{key}':value for key,value in files.hashes(stages/relative).items()})
     for relative in ('common/context.json','common/solute.ndx','02_ions/composition.json','06_production/run.gro','06_production/run.tpr','06_production/run.xtc','06_production/run.cpt','06_production/run.edr','06_production/run.log','06_production/system.top','06_production/run.mdp'):
         hashed['stages/'+relative]=files.sha256(stages/relative)
-    result={'schema_version':1,'reference_eligible':True,'scientifically_validated':False,
+    #: Schema 2 records each referenced source with a portable locator (`root` + relative `path`); schema 1 records
+    #: predate that and carry an absolute path, which `_source_path` still resolves when it exists on this host.
+    result={'schema_version':2,'reference_eligible':True,'scientifically_validated':False,
             'molecule_identity':identity(snapshot),'molecule_snapshot':snapshot,'protocol_version':context['protocol_version'],
             'settings':context['settings'],'force_field_sha256':context['force_field_sha256'],
             'artifacts':artifacts,'sha256':hashed,'referenced_sources':referenced,'frames':{'count':len(times),'atoms':len(original),'times_ps':times,'start_ps':times[0],'end_ps':times[-1]},
@@ -160,7 +214,10 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
         if any(p.is_symlink() for p in (target,*target.parents) if p==run_dir or p.is_relative_to(run_dir)):
             raise ValueError('Reference artifact symlinks are not allowed')
     files.verify(run_dir,hashes)
-    for entry in data.get('referenced_sources') or []:_verify_referenced(entry)
+    warnings=[]
+    for entry in data.get('referenced_sources') or []:
+        warning=_verify_referenced(entry)
+        if warning:warnings.append(warning)
     if molecule_snapshot is not None and identity(molecule_snapshot)!=data['molecule_identity']:raise ValueError('AA reference molecule/topology does not match')
     if settings:
         for key,value in data['settings'].items():
@@ -170,7 +227,7 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
             try:same=abs(float(settings[key])-float(value))<=1e-6
             except (TypeError,ValueError):same=str(settings[key])==str(value)
             if not same:raise ValueError('AA protocol settings must match the shared reference: '+key)
-    return dict(data,sha256=hashes)
+    return dict(data,sha256=hashes,warnings=warnings)
 
 
 def resolve(runs_root,source_id,expected=None,molecule_snapshot=None,settings=None):

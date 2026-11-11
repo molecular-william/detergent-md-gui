@@ -163,6 +163,9 @@ export function setupParameterization({host, onTerms, onRecord}) {
   let enginesError = '';
   let references = [];
   let referencesError = '';
+  //: Completed AA-only runs the route refused to offer, with the reason. Named rather than hidden: a copied-in run
+  //: that fails verification is the case this exists for, and an empty list alone says nothing about it.
+  let unavailableReferences = [];
   let job = null;
   let busy = false;
   //: A published reference is shown, never parameterized: it states its own ITP and carries no revision.
@@ -327,7 +330,10 @@ export function setupParameterization({host, onTerms, onRecord}) {
     const chosen = aaSelect.value;
     aaSelect.replaceChildren();
     if (!references.length) {
-      aaSelect.append(new Option(referencesError ? 'the reference list could not be read' : 'no completed AA-only run', ''));
+      const why = referencesError ? 'the reference list could not be read'
+        : unavailableReferences.length ? `no usable AA reference — ${unavailableReferences[0].reason}`
+        : 'no completed AA-only run';
+      aaSelect.append(new Option(why, ''));
     } else {
       aaSelect.append(new Option('Choose an AA reference…', ''));
       for (const reference of references) {
@@ -350,7 +356,11 @@ export function setupParameterization({host, onTerms, onRecord}) {
     if (settings.temperature_k != null) parts.push(`${settings.temperature_k} K`);
     if (settings.aa_production_ps != null) parts.push(`${number(Number(settings.aa_production_ps) / 1000)} ns of production`);
     if (chosen.frames != null) parts.push(`${number(chosen.frames)} frames`);
-    setText(aaFacts, `${chosen.id} · completed AA-only run${parts.length ? ' · ' + parts.join(' · ') : ''}`);
+    const warnings = chosen.warnings || [];
+    const provenance = warnings.length
+      ? ` · provenance not re-checked here: ${warnings.length} source${warnings.length === 1 ? '' : 's'} not on this machine`
+      : '';
+    setText(aaFacts, `${chosen.id} · completed AA-only run${parts.length ? ' · ' + parts.join(' · ') : ''}${provenance}`);
   }
 
   function updateFit() {
@@ -737,10 +747,12 @@ export function setupParameterization({host, onTerms, onRecord}) {
       const answer = await cachedApi('/api/references' + query, {maxAge: 10000});
       if (token !== generation) return;
       references = (answer && answer.references) || [];
+      unavailableReferences = (answer && answer.unavailable) || [];
       referencesError = '';
     } catch (error) {
       if (token !== generation) return;
       references = [];
+      unavailableReferences = [];
       referencesError = error.message;
     }
     renderReferences();

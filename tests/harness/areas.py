@@ -90,6 +90,7 @@ AREAS = {
     ),
     'runs': (
         'unit/test_import_run.py',
+        'integration/test_adopt_run_api.py',
         'unit/test_run_*', 'unit/test_stage_*', 'unit/test_progress_reading.py', 'unit/test_attempt.py',
         'unit/test_store.py',
         'unit/test_candidate_verdict.py', 'unit/test_workflow_plan_pairs.py', 'unit/test_coordinator_surface.py',

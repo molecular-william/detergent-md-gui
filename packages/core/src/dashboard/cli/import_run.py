@@ -5,6 +5,10 @@ shows either a row with nothing behind it or a directory nobody can reach. This 
 pin an AA source by `aa_reference.run_id`), and re-verifies the copied run against the receiving workspace before it
 is committed to.
 
+A directory that was copied by hand (`cp -r`, a zip, a colleague's checkout) has no row to import. `--adopt
+--workspace <ws>` registers it in place from the manifest the run carries; the row is rebuilt and verified by
+`execution.adoption`, and the dry run reports what it would insert.
+
 Dry run by default: it reports what would move, refuses a collision by name, and verifies the source record.
 """
 from __future__ import annotations
@@ -15,7 +19,7 @@ import shutil
 from pathlib import Path
 
 from .. import paths
-from ..execution import run_inputs
+from ..execution import adoption, run_inputs
 from ..store import Store
 
 
@@ -66,11 +70,21 @@ def import_run(source, target, run_id, *, apply=False):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='detergent-import-run')
     parser.add_argument('--run', required=True, help='the 12-character run id')
-    parser.add_argument('--from-workspace', required=True)
-    parser.add_argument('--to-workspace', required=True)
-    parser.add_argument('--apply', action='store_true', help='copy; without it, report what would move')
+    parser.add_argument('--from-workspace', help='the workspace holding the run and its row')
+    parser.add_argument('--to-workspace', help='the workspace to copy the run and its row into')
+    parser.add_argument('--adopt', action='store_true',
+                        help='register a directory already present in --workspace, building its row from the manifest')
+    parser.add_argument('--workspace', help='the workspace whose runs/<id>/ is already present (with --adopt)')
+    parser.add_argument('--apply', action='store_true', help='copy or register; without it, report what would happen')
     arguments = parser.parse_args(argv)
-    report = import_run(arguments.from_workspace, arguments.to_workspace, arguments.run, apply=arguments.apply)
+    if arguments.adopt:
+        if not arguments.workspace:
+            parser.error('--adopt needs --workspace')
+        report = adoption.adopt(paths.Paths(workspace=Path(arguments.workspace)), arguments.run, apply=arguments.apply)
+    else:
+        if not arguments.from_workspace or not arguments.to_workspace:
+            parser.error('an import needs --from-workspace and --to-workspace (or --adopt with --workspace)')
+        report = import_run(arguments.from_workspace, arguments.to_workspace, arguments.run, apply=arguments.apply)
     print(json.dumps(report, indent=2))
 
 

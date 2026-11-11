@@ -144,20 +144,34 @@ def import_molecule_api():
 
 @blueprint.get('/api/references')
 def references_api():
+    """The completed AA-only runs that may be fitted against, and why a candidate is not one of them.
+
+    A run is offered only when `verify` proves its own artifacts; `warnings` carries provenance this machine could
+    not re-check (a reference published from another checkout records its sources by locator, and an old record's
+    absolute path may not exist here). A run that fails verification is named in `unavailable` with the reason
+    instead of being dropped silently: an empty list with no explanation is what made a copied run look absent.
+    """
     c = coordinator()
     references = []
+    unavailable = []
+    molecule_id = request.args.get('molecule_id')
     for job in c.database().all():
-        if job.get('status') != 'completed' or job.get('run_type')!='aa_only' or not job.get('reference_eligible'):
+        if job.get('status') != 'completed' or job.get('run_type') != 'aa_only' or not job.get('reference_eligible'):
             continue
-        molecule_id=request.args.get('molecule_id')
-        if molecule_id and job.get('molecule_id')!=molecule_id:continue
+        if molecule_id and job.get('molecule_id') != molecule_id:
+            continue
         try:
-            selected=aa_molecules.selection(c.ROOT/'molecules',molecule_id,run_type='aa_only') if molecule_id else None
-            data=aa_references.verify(c.run_path(job),molecule_snapshot=selected)
-        except (OSError, ValueError, json.JSONDecodeError):
+            selected = aa_molecules.selection(c.ROOT / 'molecules', molecule_id, run_type='aa_only') if molecule_id else None
+            data = aa_references.verify(c.run_path(job), molecule_snapshot=selected)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+            unavailable.append({'id': job['id'], 'label': job.get('label') or job['id'], 'reason': str(error)})
             continue
-        references.append({'id': job['id'], 'label': job.get('label') or job['id'], 'created': job.get('created'), 'run_type':'aa_only','settings':data['settings'],'protocol_version':data['protocol_version'],'frames':data['frames'],'scientifically_validated':False,'reference_eligible':True})
-    return jsonify(references=references)
+        references.append({'id': job['id'], 'label': job.get('label') or job['id'], 'created': job.get('created'),
+                           'run_type': 'aa_only', 'settings': data.get('settings') or {},
+                           'protocol_version': data.get('protocol_version'), 'frames': data.get('frames'),
+                           'scientifically_validated': False, 'reference_eligible': True,
+                           'warnings': list(data.get('warnings') or [])})
+    return jsonify(references=references, unavailable=unavailable)
 
 
 @blueprint.get('/api/molecules')

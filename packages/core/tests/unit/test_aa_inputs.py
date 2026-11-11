@@ -149,9 +149,44 @@ def test_the_reference_publishes_and_rehashes_the_referenced_sources(repo, prepa
     with pytest.raises(ValueError, match='molecule source changed since publication'):
         references.verify(prepared)
     stored.write_text(original)
-    tree = Path(next(entry['path'] for entry in data['referenced_sources'] if entry['role'] == 'force_field'))
+    # The force-field source travels as a locator, not as this machine's absolute path: another checkout resolves
+    # the same relative path through its own project root.
+    entry = next(entry for entry in data['referenced_sources'] if entry['role'] == 'force_field')
+    assert entry['root'] == 'repo' and not Path(entry['path']).is_absolute()
+    tree = repo / entry['path']
     next(tree.rglob('*.itp')).write_text('changed after publication\n')
     with pytest.raises(ValueError, match='force_field source changed since publication'):
+        references.verify(prepared)
+
+
+def test_a_source_absent_on_this_host_is_a_provenance_warning(repo, prepared):
+    """A reference record published elsewhere names sources this checkout may not hold.
+
+    A schema-1 record carries an absolute path from the publishing machine, so on another checkout the source is not
+    there. The run's own artifacts are still hashed run-relative and are what the trajectory is read through, so the
+    record is offered with a warning instead of being dropped -- an empty reference list was the failure this exists
+    to stop. A source that *is* here and no longer matches is still refused.
+    """
+    manifest = manifest_of(prepared)
+    manifest['status'] = 'completed'
+    files.atomic_json(prepared / 'manifest.json', manifest)
+    output = prepared / 'stages/07_reference'
+    output.mkdir(parents=True, exist_ok=True)
+    record = {'schema_version': 1, 'reference_eligible': True, 'sha256': {},
+              'referenced_sources': [{'role': 'molecule', 'kind': 'file', 'label': 'MMFF/lig1.itp',
+                                      'path': '/nonexistent/other-checkout/molecules/Fixture/MMFF/lig1.itp',
+                                      'sha256': '0' * 64}]}
+    files.atomic_json(output / 'reference.json', record)
+
+    data = references.verify(prepared)
+    assert [warning['role'] for warning in data['warnings']] == ['molecule']
+    assert 'not present on this host' in data['warnings'][0]['reason']
+
+    record['referenced_sources'] = [{'role': 'molecule', 'kind': 'file', 'label': 'molecule.itp',
+                                     'root': 'repo', 'path': 'molecules/Fixture/molecule.itp',
+                                     'sha256': '0' * 64}]
+    files.atomic_json(output / 'reference.json', record)
+    with pytest.raises(ValueError, match='molecule source changed since publication'):
         references.verify(prepared)
 
 

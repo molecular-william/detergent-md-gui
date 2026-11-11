@@ -342,6 +342,27 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     assert errors == [], errors
 
 
+def test_a_reference_whose_sources_are_not_on_this_machine_says_so(dashboard, live_page):
+    """A reference published from another checkout: its own artifacts verify, its provenance sources may not be here.
+
+    The route lists it (the run's own hashes are run-relative) with `warnings`; the card must state that the
+    provenance could not be re-checked rather than presenting a copied-in run as fully verified here. This is the
+    sentence a reader sees when an AA run was pasted in from another workspace.
+    """
+    saved, content, candidate = save(dashboard)
+    warned = ({**REFERENCES[0], 'warnings': [
+        {'role': 'molecule', 'label': 'MMFF/lig1.itp', 'path': '/nonexistent/other-checkout/molecule.itp',
+         'reason': 'this source is not present on this host; its provenance was not re-checked'}]},)
+    page, errors = live_page
+    stub(page, answer(), references=warned)
+    open_panel(page, live_page, saved['file'])
+
+    expect(page.locator('#bonded-aa-reference')).to_have_value(AA_RUN)
+    expect(page.locator('#bonded-aa-facts')).to_contain_text('provenance not re-checked here')
+    expect(page.locator('#bonded-aa-facts')).to_contain_text('1 source not on this machine')
+    assert errors == [], errors
+
+
 def test_the_fit_button_posts_the_models_snapshot_and_the_options_the_panel_shows(dashboard, live_page):
     """D2's request, exactly: the saved candidate, the engine, the reference, and the four values on screen.
 

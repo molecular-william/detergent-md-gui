@@ -14,7 +14,7 @@ from flask import Blueprint, Response, abort, current_app, jsonify, redirect, re
 from ... import features
 from ...analysis.runs import layout, structures
 from ...analysis.runs.figures import current_figures
-from ...execution import devices, protocol
+from ...execution import adoption, devices, protocol
 from ...execution.coordination import admission
 from ...models.molecules import aa as aa_molecules
 from .. import views
@@ -166,6 +166,34 @@ def run_filters_api():
     ordered = [name for name in METHOD_LABELS if name in recorded] + sorted(recorded - set(METHOD_LABELS))
     return jsonify({'types': [{'name': name, 'label': labels.get(name, name)} for name in protocol.RUN_TYPES],
                     'methods': [{'name': name, 'label': METHOD_LABELS.get(name, name)} for name in ordered]})
+
+
+@blueprint.get('/api/runs/unregistered')
+def unregistered_runs_api():
+    """Run directories this workspace holds that no job row lists.
+
+    The Runs list pages the store, so a directory copied in by hand (`cp -r runs/<id> ...`) is invisible until a
+    row is registered for it. This is what lets a reader see such a directory before adopting it; a directory whose
+    manifest is unreadable or still names a running run is not listed.
+    """
+    return jsonify(runs=adoption.unregistered(current_app.config['PATHS']))
+
+
+@blueprint.post('/api/runs/adopt')
+def adopt_run_api():
+    """Register one directory already under `runs/`, building its job row from the manifest it carries.
+
+    The dry-run report `execution.adoption` produces is what a caller sees without `apply`; this route always
+    applies, because a POST that only planned would be a second, hidden way to ask the read-only question. The
+    copy is verified against this checkout before the row is inserted -- a run whose recorded inputs are not here
+    is refused by name, and a `cg` run whose AA source row is missing says so rather than half-registering.
+    """
+    data = json_object()
+    run_id = data.get('run')
+    if not run_id:
+        abort(400, 'run is required: the 12-character id of a directory under runs/')
+    report = adoption.adopt(current_app.config['PATHS'], run_id, apply=True)
+    return jsonify(report), 201
 
 
 @blueprint.get('/api/run/devices')
