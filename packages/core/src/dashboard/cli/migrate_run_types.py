@@ -114,12 +114,19 @@ def _rewrite(entry, workspace):
 
 def apply(entries, workspace):
     """Perform the planned migrations; unchanged and refused entries are left alone."""
-    return [_rewrite(entry, workspace) for entry in entries if entry['status'] == 'planned']
+    done = []
+    for entry in entries:
+        if entry['status'] != 'planned':
+            continue
+        done.append(_rewrite(entry, workspace))
+        entry['applied'] = True
+    return done
 
 
 def _line(entry):
     if entry['status'] == 'planned':
-        return (f'{entry["id"]}  would migrate  {entry["from"]} -> cg ({entry["kind"]}), '
+        verb = 'migrated    ' if entry.get('applied') else 'would migrate'
+        return (f'{entry["id"]}  {verb}  {entry["from"]} -> cg ({entry["kind"]}), '
                 f'stage plan kept ({len((entry.get("manifest") or {}).get("stage_plan") or [])} stages)')
     if entry['status'] == 'unchanged':
         return f'{entry["id"]}  unchanged      {entry.get("why") or ""}'
