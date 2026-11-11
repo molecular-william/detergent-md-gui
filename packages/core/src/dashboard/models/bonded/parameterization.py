@@ -59,7 +59,7 @@ TORSION_MODELS = ('legacy', 'circular-harmonic')
 #: run here passes. shaker defaults to 25000, and the difference is not cosmetic: DDM's inter-ring
 #: link fitted near 12965, so the same fit is a rigid constraint under one and a spring under the
 #: other. It is recorded with every revision because it decides what the model *is*.
-DEFAULT_CONSTRAINTS = 10000.0
+DEFAULT_CONSTRAINTS = 10000
 
 DEFAULT_TEMPERATURE = 300.0
 
@@ -253,7 +253,10 @@ def normalise_options(mapping, options=None) -> dict:
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError(f'{key} must be a finite number')
-        values[key] = float(value)
+        # `ff_inter` declares `-constraints` an int, so this option is a whole number: a decimal in it
+        # made the fit die in the tool's parser (`invalid int value: '10000.0'`). Rounding here keeps the
+        # recorded option, the revision's note and the argument the engine was given one number.
+        values[key] = round(float(value)) if key == 'constraints_threshold' else float(value)
     if values['constraints_threshold'] <= 0:
         raise ValueError('The constraint threshold must be positive')
     if not 0 < values['temperature_k'] <= 1000:

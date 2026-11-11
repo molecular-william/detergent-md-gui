@@ -168,9 +168,19 @@ def test_the_fit_forwards_its_constraint_threshold_to_the_engine(candidate):
     record = run_job(candidate, recorder, options={'constraints_threshold': 12500})
 
     assert record['status'] == 'completed'
-    assert recorder.fitters[0]['env']['RUN_SETTING_CONSTRAINTS_THRESHOLD'] == '12500.0'
+    # `ff_inter`'s parser declares `-constraints` an int: `12500.0` there dies with
+    # `invalid int value: '12500.0'` before a single frame is fitted.
+    assert recorder.fitters[0]['env']['RUN_SETTING_CONSTRAINTS_THRESHOLD'] == '12500'
     revision = parameterization.current(candidate)
-    assert revision['options']['constraints_threshold'] == 12500.0
+    assert revision['options']['constraints_threshold'] == 12500
+    assert isinstance(revision['options']['constraints_threshold'], int)
+
+
+def test_a_fractional_constraint_threshold_becomes_a_whole_number():
+    """The panel's input takes a decimal (`step="any"`); `ff_inter`'s `-constraints` takes none."""
+    options = parameterization.normalise_options(saved_mapping(), {'constraints_threshold': 12500.6})
+
+    assert options['constraints_threshold'] == 12501
 
 
 def test_the_job_prepares_the_same_stage_three_directory_a_run_prepares(candidate):
