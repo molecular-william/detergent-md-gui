@@ -1,0 +1,5 @@
+# Minified third-party bundles are navigation noise: ngl.js alone contributes the graph's top hub
+# (`__`, 688 edges) and a dozen single-letter nodes, so god nodes stop naming the codebase. Excluded
+# here rather than in .gitignore because the file is tracked and shipped, and the graph is the only
+# reader this exclusion is for.
+packages/core/src/dashboard/web/static/vendor/
