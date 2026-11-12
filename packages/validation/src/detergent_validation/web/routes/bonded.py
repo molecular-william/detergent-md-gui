@@ -125,9 +125,17 @@ def parameterization_list():
     # provenance) and applies its limit after it.
     # Each revision carries the digest the panel must send back to save it: an in-place write keeps the revision
     # number, so the digest -- not the number -- is what detects a revision that changed since this read. It is
-    # computed here and never stored, or it would include itself.
-    revisions = [{**item, 'sha256': parameterization.revision_sha256(item)}
-                 for item in (record.get('revisions') or []) if isinstance(item, dict)]
+    # computed here and never stored, or it would include itself. The gate is read-time too: `edit_gate` answers
+    # whether the table may edit this revision and whether Save in place may write it, so it never enters a digest.
+    revisions = []
+    for item in record.get('revisions') or []:
+        if not isinstance(item, dict):
+            continue
+        gate = parameterization.edit_gate(item)
+        revisions.append({**item, 'sha256': parameterization.revision_sha256(item),
+                          'parameters_editable': gate['editable'],
+                          'save_in_place': gate['save_in_place'],
+                          'save_in_place_reason': gate['reason']})
     return jsonify(summary=parameterization.view(record),
                    revisions=revisions,
                    jobs=bonded_fitting.jobs(
@@ -229,24 +237,26 @@ def parameterization_current(content_hash):
 
 @blueprint.post('/api/bonded-parameterizations/<content_hash>/terms')
 def parameterization_terms(content_hash):
-    """Edit a stored revision's bonded parameters, or seed a revision from the published reference.
+    """Edit a stored revision's bonded parameters.
 
     `mode='in_place'` rewrites the revision the panel shows and is accepted only while it is the record's current
-    revision; `mode='new'` appends a clone of the shown revision and makes it current; `from_reference=true` (new
-    only) seeds the saved mapping from its molecule's published Martini 3 entry. The route is a thin shell over
-    `parameterization.save_terms`: the checks that need the record are the model's, and the statuses here name them.
+    revision and `parameterization.edit_gate` allows saving it (a fresh fit's first edit is Save as new, and a
+    transcription is read-only); `mode='new'` appends a clone of the shown revision and makes it current. The route is
+    a thin shell over `parameterization.save_terms`: the checks that need the record are the model's, and the
+    statuses here name them.
     """
     payload = json_object()
+    # The published Martini 3 reference is display-only now: a CG run consumes it directly, so there is no revision
+    # to seed and the seed's request is refused before any stored record is read.
+    if payload.get('from_reference') is True:
+        abort(400, 'The published Martini 3 reference is read-only; a CG run consumes it directly.')
     mode = payload.get('mode')
     if mode not in ('in_place', 'new'):
         abort(400, 'mode must be "in_place" or "new"')
     if mode == 'in_place' and payload.get('confirm') is not True:
         abort(400, 'Saving terms in place requires confirmation')
-    from_reference = payload.get('from_reference') is True
-    if from_reference and mode != 'new':
-        abort(409, 'A published Martini 3 reference is never edited in place')
     revision = payload.get('revision')
-    if not from_reference and (isinstance(revision, bool) or not isinstance(revision, int)):
+    if isinstance(revision, bool) or not isinstance(revision, int):
         abort(400, 'A revision number is required')
     expected = payload.get('expected_revision')
     if isinstance(expected, bool) or not isinstance(expected, int) or expected < 0:
@@ -254,20 +264,16 @@ def parameterization_terms(content_hash):
     terms = payload.get('terms')
     if not isinstance(terms, list) or len(terms) > 300:
         abort(400, 'terms must be a list of at most 300 edits')
-    if from_reference:
-        expected_sha256 = None
-    else:
-        expected_sha256 = payload.get('expected_sha256')
-        if expected_sha256 is None:
-            abort(400, 'expected_sha256 is required to save a stored revision')
-        if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
-            abort(400, 'expected_sha256 must be a revision digest')
+    expected_sha256 = payload.get('expected_sha256')
+    if expected_sha256 is None:
+        abort(400, 'expected_sha256 is required to save a stored revision')
+    if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
+        abort(400, 'expected_sha256 must be a revision digest')
     mapping = _parameterization_mapping(content_hash)
     try:
         record = parameterization.save_terms(
-            mapping, mode=mode, edits=terms, revision=None if from_reference else revision,
-            expected_revision=expected, expected_sha256=expected_sha256,
-            from_reference=from_reference, molecule_root=coordinator().ROOT / 'molecules')
+            mapping, mode=mode, edits=terms, revision=revision,
+            expected_revision=expected, expected_sha256=expected_sha256)
     except parameterization.StaleRevision as exc:
         abort(409, _message(exc))
     except parameterization.Refused as exc:

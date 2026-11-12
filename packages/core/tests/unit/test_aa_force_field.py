@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from dashboard import files
 from dashboard.execution import forcefields
-from dashboard.execution.adapters import aa
+from dashboard.execution.adapters import aa, aa_box
 from dashboard.models.molecules import aa as aa_molecules
 
 from tests.harness import support
@@ -110,12 +110,11 @@ def test_the_mdp_fits_inside_the_protocols_small_box(prepare):
     assert 'rlist = 1.2' in text
 
 
-def test_the_box_shape_reaches_the_editconf_command(prepare):
+def test_every_box_shape_reaches_the_editconf_command(prepare):
     """The shape is a setting, so it must change the command rather than be recorded and ignored."""
-    script = (prepare({'box_shape': 'dodecahedron'}) / 'stages/01_solvation/run.sh').read_text()
-    assert '-bt dodecahedron -d 1.25' in script, 'the governing half-width must be asked for directly'
-    cubic = (prepare({'box_shape': 'cubic'}, 'cube-run') / 'stages/01_solvation/run.sh').read_text()
-    assert '-box 2.5 2.5 2.5' in cubic and 'dodecahedron' not in cubic
+    for shape in aa_box.SHAPES:
+        script = (prepare({'box_shape': shape}, f'{shape}-run') / 'stages/01_solvation/run.sh').read_text()
+        assert aa_box.editconf_arguments(2.5, shape) in script, shape
 
 
 def test_a_solutes_caveats_travel_with_the_run_and_are_stated_in_readiness(molecule_root, prepare):

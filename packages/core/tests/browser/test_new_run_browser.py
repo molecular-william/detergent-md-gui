@@ -21,6 +21,13 @@ COMPOSITION = {'head_fragment_id': 'builtin:martini-sugars-v2:GLC', 'tail_recipe
                'molecule_name': 'GLC-C12', 'head_molecule_id': 'Glucose'}
 
 
+def open_stage(page, name):
+    """Open an AA stage editor; a closed `<details>` keeps its inputs out of Playwright's reach."""
+    editor = page.locator(f'#stage-aa-{name}')
+    if editor.evaluate('(el) => el.open') is False:
+        editor.locator('> summary').click()
+
+
 def test_the_workflow_is_named_for_single_molecules(dashboard, live_page):
     """The tab and the panel heading say which workflow this is, now that there are two."""
     page, errors = live_page
@@ -211,6 +218,7 @@ def test_the_label_is_suggested_until_edited_and_suggest_restores_it(dashboard, 
     page.locator('#run-type').select_option('aa_only')
     expect(label).to_have_value(re.compile(r'^DDM-AA-11\.1ns-\d{8}$'), timeout=SERVER_WAIT)
     label.fill('My own label')
+    open_stage(page, 'production')
     page.locator('[name=aa_production_ps]').fill('20000')
     expect(label).to_have_value('My own label')
     page.locator('#suggest-label').click()
@@ -225,18 +233,21 @@ def test_a_preset_is_saved_loaded_made_default_and_deleted(dashboard, live_page)
     page.goto(f'{live_page.base_url}/detergent-validation/new-run')
     page.get_by_role('tab', name='New run', exact=True).click()
     page.locator('#run-type').select_option('aa_only')
+    open_stage(page, 'production')
     page.locator('[name=aa_production_ps]').fill('4321')
     page.once('dialog', lambda dialog: dialog.accept('Browser preset'))
     page.locator('#preset-save').click()
     select = page.locator('#preset-select')
     expect(select.locator('option')).to_have_count(2, timeout=SERVER_WAIT)
     assert select.locator('option').nth(1).text_content() == 'Browser preset'
+    open_stage(page, 'production')
     page.locator('[name=aa_production_ps]').fill('100')
     page.locator('#preset-load').click()
     expect(page.locator('[name=aa_production_ps]')).to_have_value('4321')
     page.locator('#preset-default').click()
     expect(select.locator('option').nth(1)).to_have_text('Browser preset · default', timeout=SERVER_WAIT)
     # The default is what the form opens on, so a reload lands on the preset's numbers, not the profile's.
+    open_stage(page, 'production')
     page.locator('[name=aa_production_ps]').fill('100')
     page.reload()
     page.get_by_role('tab', name='New run', exact=True).click()

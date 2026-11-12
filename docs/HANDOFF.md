@@ -6,6 +6,41 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-12 Bond Interactions is two comparison panes, and New run stages are editable.** The panel now renders
+one Jinja macro twice: pane A keeps every bare id the browser tier addresses, pane B carries the same ids with a
+`-B` suffix and a **Minimize** header control remembered in `ddm.bonded.state`; each pane has its own model select,
+parameterization select, facts, table, Plotly scene (own `uirevision`) and saves. The old model card merged into one
+**Model and fit** card above the panes with its own **Molecule** and **Mapping to fit** selects; the torsion explainer
+is an **(i)** beside Torsion stiffness scale. Editing is now the store's `edit_gate`: a fit's own revision is editable
+but **Save in place is unavailable until it carries hand edits** (its first edit is Save as new, whose clone then
+allows in place); a `martini-reference` transcription is read-only in the table and both modes; a published Martini 3
+reference is display-only (no inputs, neither save) and **the seed/transcription path is gone** — a CG run consumes it
+directly. `GET /api/bonded-parameterizations` publishes `parameters_editable`, `save_in_place` and
+`save_in_place_reason` per revision and on `summary`, and the client renders them rather than re-deriving the rule.
+New run's AA stage settings are three minimisable `<details>` editors (NVT open; summary facts like
+`100 ps · 2 fs · 50 000 steps · nstlist 20`) with per-stage `aa_<stage>_dt_fs` (2 fs, 0.5–4),
+`aa_<stage>_nstlist` (20, 1–10000) and `aa_<stage>_verlet_buffer_tolerance` (-1 off, -1–0.1, **0 refused by name**);
+the timestep changes the step count, not the duration. `box_nm` is now the **minimum image distance d** for four
+GROMACS cells — cube, rhombic dodecahedron (xy-square, `-bt dodecahedron -box d`), the same in xy-hexagon
+(`-bt triclinic -box d d d -angles 60 60 60`) and truncated octahedron (`-bt octahedron -box d`) — with volumes
+1.000/0.707/0.707/0.770 d³, so the existing `Rc < d/2` checks still hold. The CG production tolerance bound became
+0.001–0.1 because grompp refuses exactly 0. Defaults render the AA MDPs byte-identically; the old dodecahedron size
+(clearance) changed, and no live run had recorded a box shape. Checks: fast **2704 passed / 1 xfailed**, browser
+**369 passed**, slow **24 passed**, ruff clean. Live, after restart: two panes render and B minimises/expands;
+`#bonded-fit-molecule` lists the AA molecules and hides the mapping select when one mapping; a published reference
+shows 0 inputs and both saves disabled with its sentence; a fresh bartender revision's Save in place is disabled with
+`fitted by bartender; Save as new to edit it`; the stage editors show the facts and hide on a CG run. Timed AA
+`draft-smoke` run `717414831e06` (DDM, 1 fs, nstlist 10, hexagon d=4.0) **completed in ~45 s**; its NVT/NPT/production
+MDPs read `dt 0.001`, `nsteps 5000/5000/50000`, `nstlist 10`, and its box line is the manual's hexagon
+`4 3.46410 3.26599 0 0 2 0 2 1.15470`. The first attempt `d0e1eff3a258` failed at prepare because DDM spans 1.85 nm
+and the 2.5 nm default does not fit; the retry used `box_nm 4.0`. Left deliberately: the composition store keeps its
+own in-place save (Combinations owns those edits; Bond Interactions shows a composition's derived revision read-only);
+CG/pdc timesteps are not exposed (standing decisions); a positive AA tolerance can still make `rlist` exceed the box
+and grompp's refusal is shown in the stage console rather than pre-computed. Drafts:
+`docs/design/drafts/2026-11-12-{bond-interactions-two-panes,new-run-stage-settings}.html`; plans
+`docs/plans/2026-11-12-{bond-interactions-comparison-panes,new-run-stage-settings}.md` (local). Dashboard restarted
+on the new code (unit `detergent-dashboard`).
+
 **2026-11-12 a rigid constraint's length is editable.** Committed `c408966`. The interactions table offered no input on a constraint row because a constraint's length is the mapping's AA-derived ring target; it is now a parameter like a bond's. `PARAMETER_RANGES` carries `constraints` (function 1, length 0.01-2 nm), `rewrite_interactions`/`save_terms` accept the edit, and the row renders one input. The mapping's ring target stays the starting value; an edit overrides it in the revision, Source reads `manual` (checked before the ring-pair reading), and `edited_terms` keeps before/after. Save in place / Save as new and the Martini 3 reference rule are unchanged. A virtual site's parents remain a reading, and the composition store keeps constraints read-only because `bonded.refine` refuses to replace a ring constraint; `generation._validate_term` refuses a constraint by name rather than crashing on its arity. Checks: fast 2690 passed / 1 xfailed, browser 360 (one unrelated rescore-load flake, green on rerun), slow 24, ruff clean. **The dashboard needs a restart** for the table and hint changes; the live Glucose-0 work dir still holds its valid BARTENDER `gmx_out.itp`, so its next fit reuses it.
 
 **2026-11-12 BARTENDER's Glucose fit read the wrong path.** Live job `8ede5d9e0fc64915` ran the tool to completion (its log ends `Your Martini, Mr. Bond.`) and then failed with `BARTENDER did not write gmx_out.itp; there is no fit to store`: `_bartender` looked for the file in `3_initial_CG/`, while BARTENDER writes it in its own working directory, the fit's work root (where `1_AA-reference/` and `2_mapping/` live). Committed `c7e56f0`: the job reads `work/gmx_out.itp`, and the unit test's stand-in tool writes it there so the old guard path fails again. The failed job's work dir already holds the valid file (`[ bonds ]` + two ring constraints, merged cleanly from the live topology), so the next **Fit this model** on Glucose-0 reuses it and stores a revision without re-running BARTENDER. The dashboard was restarted on 2026-11-12 10:50 HKT. Remember the fitted revision carries BARTENDER's raw (unscaled) ring constraints.

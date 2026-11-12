@@ -74,7 +74,7 @@ def test_the_bonded_panel_fetches_plotly_once_and_draws(dashboard, live_page):
 
     page.locator('#tab-bonded').click()
     expect(page.locator('.bonded-mapping-select')).to_have_value(saved['file'])
-    expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
+    expect(page.locator('.bonded-column[data-side="A"] .bonded-plot .plotly')).to_be_visible(timeout=30000)
 
     assert len(bundle_requests(requests, src)) == 1, requests
     assert page.evaluate('!!window.Plotly') is True, 'the plot appeared without a Plotly global'
@@ -93,14 +93,14 @@ def test_the_bonded_panel_fetches_plotly_once_and_draws(dashboard, live_page):
     # effect. Emitting from inside the predicate is what re-entered the handler: a poll landing between the
     # handler's own state and the status text toggled the bead straight back off.
     page.wait_for_function(
-        "() => document.querySelector('.bonded-plot')?.dataset.clickReady === 'true'", timeout=30000)
+        "() => document.querySelector('.bonded-column[data-side=A] .bonded-plot')?.dataset.clickReady === 'true'", timeout=30000)
     page.evaluate("""() => {
-        const host = document.querySelector('.bonded-plot');
+        const host = document.querySelector('.bonded-column[data-side="A"] .bonded-plot');
         const bead = host.data.find(trace => trace.meta === 'bead');
         host.emit('plotly_click', {points: [{data: {meta: 'bead'}, customdata: [bead.text[0], 'R']}]});
     }""")
-    expect(page.locator('.bonded-selection-status')).to_contain_text('Selected beads:', timeout=30000)
-    expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
+    expect(page.locator('.bonded-column[data-side="A"] .bonded-selection-status')).to_contain_text('Selected beads:', timeout=30000)
+    expect(page.locator('.bonded-column[data-side="A"] .bonded-plot .plotly')).to_be_visible(timeout=30000)
     # That re-render asked for nothing further: one bundle, one script.
     assert len(bundle_requests(requests, src)) == 1, requests
     assert errors == []

@@ -1,10 +1,10 @@
 """The box a single-solute atomistic run is solvated in.
 
-The reference protocol this project reproduces puts one carbohydrate in a cube of **fixed edge** -- 2.4 nm --
-rather than growing a dodecahedron around whatever it found. A fixed edge is a stronger promise than it looks:
-the solute has to fit inside it with solvent to spare, and a box that cannot hold the solute must be **refused**,
-because a truncated solute is a different molecule, not a smaller box. One place decides the edge so the command
-that makes the box and the check that vets it cannot disagree.
+The reference protocol this project reproduces puts one carbohydrate in a box of **fixed size** rather than growing
+a box around whatever it found. A fixed size is a stronger promise than it looks: the solute has to fit inside it
+with solvent to spare, and a box that cannot hold the solute must be **refused**, because a truncated solute is a
+different molecule, not a smaller box. One number decides the box -- its minimum image distance d -- for every shape,
+so the command that makes the box and the check that vets it cannot disagree.
 """
 from pathlib import Path
 
@@ -19,32 +19,35 @@ from pathlib import Path
 DEFAULT_EDGE_NM = 2.5
 
 
-#: The unit cells a run may be solvated in.
+#: The unit cells a run may be solvated in, all sized by the same minimum image distance d (`box_nm`).
 #:
-#: The dodecahedron was added on the GROMACS manual's recommendation for an approximately spherical solute, and then
-#: measured on the real system rather than assumed. It loses: asked for the half-width a cube of the same edge
-#: gives -- which is the smallest a dodecahedron may be and still hold this protocol's 1.2 nm cut-off -- it holds
-#: **919 waters against the cube's 494** and runs 12% slower (1404 against 1589 ns/day, 500 ps each on this host).
-#: A dodecahedron's `-d` and a cube's half-edge are not the same quantity, and at this size there is no room to
-#: shrink `-d` far enough to pay for the difference. The shape stays available because the measurement is the
-#: reason it exists, but the cube is both the protocol's shape and the faster one here.
-SHAPES = ('cubic', 'dodecahedron')
+#: Every shape below has |a| = |b| = |c| = d, so the run's one number is the quantity the cut-off rule is stated in
+#: (`Rc < d/2`) and the shape is a choice of how much else the cell encloses. `editconf` is asked for the image
+#: distance it accepts for a named cell (`-box d`); the rhombic dodecahedron's xy-hexagon form has no `-bt` name and
+#: is the triclinic cell with the manual's 60-degree angles. Volumes from the GROMACS manual's "Some useful box types"
+#: table: cube d^3, both rhombic dodecahedra (sqrt(2)/2) d^3 = 0.707 d^3, truncated octahedron (4 sqrt(3)/9) d^3 =
+#: 0.770 d^3 -- the non-cubic cells are the same image distance with less solvent, which is the reason to offer them.
+SHAPES = ('cubic', 'dodecahedron', 'dodecahedron-hexagon', 'octahedron')
 DEFAULT_SHAPE = 'cubic'
 
 
 def editconf_arguments(box_nm, shape=DEFAULT_SHAPE):
-    """The `editconf` arguments that build `box_nm`'s clearance in the requested shape.
+    """The `editconf` arguments that build the cell whose minimum image distance is `box_nm`.
 
-    `box_nm` stays the cube's edge, which is the protocol's own currency and what every existing setting means. For
-    a dodecahedron the governing length is passed as `-d`, which is the same number's half -- measured, that is the
-    *smallest* a dodecahedron may be while still holding the cut-off, and it costs more water than the cube rather
-    than less (see SHAPES). The setting exists so the comparison can be made, not because it is the faster option.
+    `box_nm` is the minimum image distance for every shape, so all four cells have |a| = |b| = |c| = d and the same
+    cut-off arithmetic applies to each. `-box` takes the image distance for a named cell; the xy-hexagon rhombic
+    dodecahedron is written as the triclinic cell the manual's table names, because `editconf` has no `-bt` name for
+    it. Numbers are spelled with `:g`, so 2.5 stays "2.5" and 3 is "3".
     """
     if shape not in SHAPES:
         raise ValueError(f'unknown box shape {shape!r}; known: {", ".join(SHAPES)}')
     if shape == 'cubic':
         return f'-box {box_nm:g} {box_nm:g} {box_nm:g} -c'
-    return f'-bt dodecahedron -d {box_nm / 2:g} -c'
+    if shape == 'dodecahedron':
+        return f'-bt dodecahedron -box {box_nm:g} -c'
+    if shape == 'dodecahedron-hexagon':
+        return f'-bt triclinic -box {box_nm:g} {box_nm:g} {box_nm:g} -angles 60 60 60 -c'
+    return f'-bt octahedron -box {box_nm:g} -c'
 
 
 def read_coordinates(path):
@@ -93,12 +96,17 @@ def check_cutoffs(edge_nm, rlist_nm):
 
 
 def check_fit(name, coordinates, edge_nm):
-    """Refuse a cube the solute cannot sit inside with its own periodic images clear of it.
+    """Refuse a box the solute cannot sit inside with its own periodic images clear of it.
 
     With the solute centred, the gap to its image is ``edge - extent``, so the images touch once
     ``edge <= 2 * extent``: the solute has to stay inside **half** the edge. That is a geometric requirement
     rather than a preference, and it is checked here rather than assumed because the failure it prevents is
     silent -- a solute bigger than its box is not truncated cleanly, it interacts with itself.
+
+    Conservative for the tilted cells: the rule is the cube's, where the nearest image lies straight along an axis
+    and half the edge is the clearance. A dodecahedron's or truncated octahedron's nearest image lies along a diagonal
+    of the cell, where the solute is narrower, so a solute this rule refuses may still fit; it never accepts one that
+    would not. Keeping one rule for all four makes the refusal the same sentence whatever shape is chosen.
     """
     extent = max(extent_nm(coordinates))
     if extent * 2 > edge_nm:

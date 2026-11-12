@@ -175,3 +175,42 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
    is always a section's first child, so its margin stays small: a table or the analysis tab strip must not move. */
 .panel-loading{color:var(--muted);font-size:12px;margin:4px 0 8px}
 [aria-busy="true"]{opacity:.72;transition:opacity .15s ease}
+
+/* Bond Interactions as two comparison panes. The pane head is the only always-visible part of a minimised pane;
+   the grid falls back to one measure-wide column, so the expanded pane takes the full width and the minimised one
+   is a single header bar underneath. */
+.bonded-column { min-width: 0 }
+.bonded-column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: -2px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line) }
+.bonded-column-head .who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+.bonded-column-head .eyebrow { white-space: nowrap }
+.bonded-column[data-minimized="true"] > :not(.bonded-column-head) { display: none }
+.bonded-column[data-minimized="true"] > .bonded-column-head { margin-bottom: 0; border-bottom: 0; padding-bottom: 0 }
+.bonded-column .bonded-plot { height: 440px; min-height: 320px }
+.bonded-column .bonded-diagram { min-height: 440px }
+.bonded-column .bonded-interaction-table { max-height: 440px }
+.bonded-subhead { margin: 14px 0 4px }
+.bonded-columns.one-column > .bonded-column { grid-column: span 12 }
+@media (max-width: 700px) {
+  .bonded-column .bonded-plot, .bonded-column .bonded-diagram { height: 360px; min-height: 300px }
+}
+/* The torsion explainer's info control: the New run help pattern, scoped to this panel rather than `#run-form`. The
+   text is the approved explainer, written once in the template; the button toggles `.is-open` for touch and Escape. */
+.bonded-workspace .field-help { position: relative; display: inline-flex; margin-left: 4px; vertical-align: middle }
+.bonded-workspace .info-btn { width: 18px; height: 18px; min-width: 18px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: #eef2f8; color: #33506e; font: 700 11px/1 system-ui, sans-serif;
+  cursor: help }
+.bonded-workspace .info-btn:hover, .bonded-workspace .info-btn:focus-visible { background: #dfe9f6;
+  outline: 2px solid #8fb4da; outline-offset: 1px }
+.bonded-workspace .setting-tip { position: absolute; right: 0; top: 1.7em; z-index: 30;
+  width: min(30rem, 78vw); padding: 10px 12px; border-radius: 8px; background: #0f172a; color: #f8fafc;
+  font-size: 12px; line-height: 1.45; text-align: left; box-shadow: 0 8px 24px rgba(15, 23, 42, .28);
+  display: none }
+.bonded-workspace .field-help:hover .setting-tip, .bonded-workspace .field-help:focus-within .setting-tip,
+.bonded-workspace .setting-tip.is-open { display: block }
+.bonded-workspace .setting-tip dt { font-weight: 700; margin-top: 8px }
+.bonded-workspace .setting-tip dd { margin: 2px 0 0; color: #cbd5e1 }
+.bonded-workspace .setting-tip .caveat { display: block; margin-top: 8px; padding: 6px 8px; border-radius: 6px;
+  background: #3a2f12; color: #fde68a }
+.bonded-terms-status[data-state=warn] { color: #8a4a00 }
+.bonded-terms-status[data-state=error] { color: var(--danger); font-weight: 600 }

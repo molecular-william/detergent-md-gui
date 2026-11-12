@@ -1,7 +1,31 @@
-"""Saved clone state must not strand New run after a source is deleted."""
+"""Saved clone state must not strand New run after a source is deleted; a stage's numbers are form state too."""
 import json
 
 from playwright.sync_api import expect
+
+
+def test_a_changed_timestep_survives_a_reload(dashboard, live_page):
+    """The stage editor's timestep persists like every other setting, and its facts line follows it."""
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    # Seed once: an init script runs on every navigation, and a reload must keep what the form last saved.
+    page.add_init_script("""if (!sessionStorage.seeded) {
+        localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}));
+        sessionStorage.seeded = '1';
+    }""")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+
+    expect(page.locator('[name=aa_nvt_dt_fs]')).to_have_value('2', timeout=30000)
+    expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 2 fs · 50 000 steps · nstlist 20')
+    page.locator('[name=aa_nvt_dt_fs]').fill('1')
+    expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 1 fs · 100 000 steps · nstlist 20')
+
+    page.reload()
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('[name=aa_nvt_dt_fs]')).to_have_value('1', timeout=30000)
+    expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 1 fs · 100 000 steps · nstlist 20')
+    assert errors == []
 
 
 def test_new_run_recovers_deleted_clone_and_preserves_settings(dashboard, live_page):

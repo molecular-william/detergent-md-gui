@@ -53,6 +53,26 @@ def test_every_published_setting_declares_what_a_value_may_be(run_type):
         assert isinstance(spec[0], str) and spec[0], f'{run_type}: {key} has no label to render'
 
 
+def test_the_aa_stage_settings_are_published_with_their_bounds():
+    """Each dynamics stage's timestep, neighbour list and buffer tolerance is advertised, or the queue drops it.
+
+    The route keeps only advertised keys (AGENTS.md invariant), so an unadvertised stage setting would be silently
+    replaced by its default. These are the bounds the plan states: fs for the timestep, steps for nstlist, and a
+    tolerance whose -1 disables the buffer while 0 is refused by name (it is inside this range).
+    """
+    specs = protocol.adapter_for('aa_only').settings_specs()
+    expected = {}
+    for stage in ('nvt', 'npt', 'production'):
+        expected[f'aa_{stage}_dt_fs'] = (0.5, 4)
+        expected[f'aa_{stage}_nstlist'] = (1, 10000)
+        expected[f'aa_{stage}_verlet_buffer_tolerance'] = (-1, 0.1)
+    assert set(expected) <= set(specs)
+    for key, bounds in expected.items():
+        label, low, high = specs[key]
+        assert label, key
+        assert (low, high) == bounds, key
+
+
 def test_the_queue_routes_vocabulary_is_the_run_types_own():
     """The route used to merge dialects itself; one run type was answered wrongly by that merge.
 

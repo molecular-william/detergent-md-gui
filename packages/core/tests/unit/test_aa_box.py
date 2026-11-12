@@ -1,4 +1,4 @@
-"""The cube box: its arithmetic, the command that makes it, and the fit check that refuses rather than truncates.
+"""The box: its four shapes, the commands that make them, and the checks that refuse rather than truncate.
 
 A box that is too small is not a smaller experiment, it is a different one -- the solute interacts with its own
 periodic images -- so the rule is worth pinning as arithmetic rather than inspecting an mdrun log later.
@@ -38,20 +38,27 @@ def test_the_command_is_a_centred_cube_of_the_requested_edge():
     assert aa_box.editconf_arguments(3) == '-box 3 3 3 -c'
 
 
-def test_the_dodecahedron_is_asked_for_the_same_governing_half_width():
-    """One number, two shapes: `-d` is the half-width a cube gets from its edge, and both hold the same cut-off.
-
-    Measured, that is the *smallest* a dodecahedron may be with this protocol's cut-off -- and it still costs more
-    water than the cube (919 against 494) and runs slower. The test pins the equivalence the setting claims, not a
-    performance promise: the two commands differ only in the shape they ask for.
+def test_every_shape_is_asked_for_the_same_minimum_image_distance():
+    """One number, four cells: each command asks `editconf` for d as the image distance, so all four hold the same
+    cut-off. The xy-hexagon rhombic dodecahedron has no `-bt` name and is the manual's triclinic cell.
     """
-    assert aa_box.editconf_arguments(2.5, 'dodecahedron') == '-bt dodecahedron -d 1.25 -c'
+    assert aa_box.SHAPES == ('cubic', 'dodecahedron', 'dodecahedron-hexagon', 'octahedron')
     assert aa_box.DEFAULT_SHAPE == 'cubic'
+    assert aa_box.editconf_arguments(2.5, 'cubic') == '-box 2.5 2.5 2.5 -c'
+    assert aa_box.editconf_arguments(2.5, 'dodecahedron') == '-bt dodecahedron -box 2.5 -c'
+    assert aa_box.editconf_arguments(2.5, 'dodecahedron-hexagon') == (
+        '-bt triclinic -box 2.5 2.5 2.5 -angles 60 60 60 -c')
+    assert aa_box.editconf_arguments(2.5, 'octahedron') == '-bt octahedron -box 2.5 -c'
+
+
+def test_the_command_spells_numbers_with_g():
+    assert aa_box.editconf_arguments(3, 'cubic') == '-box 3 3 3 -c'
+    assert aa_box.editconf_arguments(3, 'octahedron') == '-bt octahedron -box 3 -c'
 
 
 def test_an_unknown_box_shape_is_refused_rather_than_defaulted():
     with pytest.raises(ValueError, match='unknown box shape'):
-        aa_box.editconf_arguments(2.5, 'octahedron')
+        aa_box.editconf_arguments(2.5, 'icosahedron')
 
 
 def test_the_extent_is_the_span_along_each_axis():

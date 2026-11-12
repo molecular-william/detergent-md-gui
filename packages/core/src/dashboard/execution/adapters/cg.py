@@ -266,7 +266,10 @@ SETTING_SPECS = {
     'xtc_precision': ('CG trajectory precision', 1, 1000000),
     'nstcomm': ('CG centre-of-mass removal (steps)', 1, 1000000),
     'nstlist': ('CG neighbour list rebuild (steps)', 1, 10000),
-    'verlet_buffer_tolerance': ('CG Verlet buffer tolerance', 0.0, 0.1),
+    # GROMACS refuses a tolerance of exactly 0 ("Can not have Verlet buffer tolerance of exactly 0"), and this file
+    # has no pinned `rlist` for -1 to fall back on, so the domain is positive only. The unit is the manual's: the
+    # maximum pair-interaction error in kJ mol^-1 ps^-1 per atom pair.
+    'verlet_buffer_tolerance': ('CG Verlet buffer tolerance (kJ mol^-1 ps^-1)', 0.001, 0.1),
     'rlist': ('CG neighbour cut-off (nm)', 0.1, 5.0),
     'rcoulomb': ('CG Coulomb cut-off (nm)', 0.1, 5.0),
     'rvdw': ('CG van der Waals cut-off (nm)', 0.1, 5.0),

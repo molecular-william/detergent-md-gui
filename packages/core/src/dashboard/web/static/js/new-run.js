@@ -53,6 +53,44 @@ export function writeReadiness(checks, blockers) {
   panel.append(list);
 }
 
+//: The AA run's three dynamics stages, in the order they run. Each has its own duration, timestep, neighbour-list
+//: rebuild cadence and Verlet buffer tolerance inside its own stage editor (`#stage-aa-<stage>`).
+const AA_STAGES = ['nvt', 'npt', 'production'];
+
+/** One stage control's number, or null when the control is absent or empty (the pdc form has none of these). */
+function stageNumber(form, name) {
+  const raw = form?.elements?.[name]?.value;
+  const text = String(raw ?? '').trim();
+  if (text === '') return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+/** A number grouped as the approved design prints it: thousands separated by a space (`50 000`). */
+const groupedNumber = number => number.toLocaleString('en-GB').replace(/,/g, ' ');
+
+/**
+ * Write each AA stage editor's facts line: its duration, timestep, the step count they imply and its neighbour-list
+ * cadence. A collapsed stage still says what it holds. A part whose control is empty is omitted, and a page with no
+ * AA stage elements (the pdc form) is answered without touching anything.
+ */
+function syncStageSummaries(form) {
+  if (!form) return;
+  for (const stage of AA_STAGES) {
+    const host = document.getElementById(`stage-aa-${stage}-facts`);
+    if (!host) continue;
+    const ps = stageNumber(form, `aa_${stage}_ps`);
+    const dt = stageNumber(form, `aa_${stage}_dt_fs`);
+    const nstlist = stageNumber(form, `aa_${stage}_nstlist`);
+    const parts = [];
+    if (ps !== null) parts.push(`${groupedNumber(ps)} ps`);
+    if (dt !== null) parts.push(`${groupedNumber(dt)} fs`);
+    if (ps !== null && dt !== null && dt > 0) parts.push(`${groupedNumber(Math.round(ps / (dt / 1000)))} steps`);
+    if (nstlist !== null) parts.push(`nstlist ${groupedNumber(nstlist)}`);
+    host.textContent = parts.join(' · ');
+  }
+}
+
 async function preselectBondedMapping(file) {
   if (!file) return false;
   // The list is a fetch away and the panel mounts on the tab switch; waiting for the option is what keeps this
@@ -111,7 +149,13 @@ export function createNewRun({ selectTab, refreshJobs, refreshStorage }) {
 function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // The atomistic half's fields. They travel in a CG run too -- the adapter mirrors a few into the CG dialect and
   // records the rest as the reference's provenance -- but only an AA run shows them.
-  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme','constraints'];
+  // Each stage's duration, timestep, neighbour-list rebuild cadence and Verlet buffer tolerance. The timestep changes
+  // the step count, not the duration; the stage editor's facts line states both.
+  const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps',
+    'aa_nvt_dt_fs','aa_npt_dt_fs','aa_production_dt_fs',
+    'aa_nvt_nstlist','aa_npt_nstlist','aa_production_nstlist',
+    'aa_nvt_verlet_buffer_tolerance','aa_npt_verlet_buffer_tolerance','aa_production_verlet_buffer_tolerance',
+    'temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme','constraints'];
   // The device and the checkpoint cadence are settings of *this host and run*, not of the AA reference a run
   // inherits: they travel with a clone and through a preset, and they are never inherited from a reference record.
   const GPU_FIELDS = ['mdrun_gpu','mdrun_cpt'];
@@ -138,7 +182,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   const REVISION_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, ...CG_FIELDS, 'force_field'];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
   // `fieldsFor` rather than by visibility -- because a preset and a clone must not lose a setting to a toggle.
-  const AA_SAMPLING = ['aa_nvt_ps','aa_npt_ps','aa_production_ps','constraints'];
+  const AA_SAMPLING = ['aa_nvt_ps','aa_npt_ps','aa_production_ps',
+    'aa_nvt_dt_fs','aa_npt_dt_fs','aa_production_dt_fs',
+    'aa_nvt_nstlist','aa_npt_nstlist','aa_production_nstlist',
+    'aa_nvt_verlet_buffer_tolerance','aa_npt_verlet_buffer_tolerance','aa_production_verlet_buffer_tolerance',
+    'constraints'];
   const AA_BUILD = ['pressure_bar','box_nm','box_shape','aa_seed'];
   const REFERENCE_HIDES = ['force_field','sasa_probe_nm'];
   const NO_STORED_COORDINATES = 'this parameterization records no starting coordinates; choose Re-map the AA reference';
@@ -598,6 +646,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const derived = reference || composition;
     $('#cg-inputs').classList.toggle('hidden', aaOnly);
     $$('.cg-setting').forEach(label => label.classList.toggle('hidden', aaOnly));
+    // The stage editors are the atomistic leg's own shells: a CG run consumes a reference that already ran and must
+    // not show three empty AA stages.
+    $$('.aa-setting').forEach(element => element.classList.toggle('hidden', !aaOnly));
     $$('.aa-cg-setting').forEach(section => section.classList.toggle('hidden', aaOnly || reference));
     const hidden = new Set();
     if (!aaOnly) AA_SAMPLING.forEach(name => hidden.add(name));
@@ -676,6 +727,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     syncVisibility();
     syncStartingCoordinates();
     syncRunSummary();
+    syncStageSummaries(form);
     storage.set('form', formValues());
     // A kind change is new defaults. The mount's own call covers the kind the form opened on, and an equal request
     // shares that fetch; gating on `mounted` instead lost the change of a molecule chosen while the panel was still
@@ -713,6 +765,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       if (input && (force || !input.value)) input.value = value;
     }
     setText($('#defaults-source'), 'Defaults from ' + Object.values(stageDefaults.sources).join(' · '));
+    syncStageSummaries(form);
     syncRunSummary();
     storage.set('form', formValues());
   }
@@ -791,6 +844,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     syncVisibility();
     syncStartingCoordinates();
     syncRunSummary();
+    syncStageSummaries(form);
     storage.set('form', formValues());
     // The reference kind is the published sugar run: its durations are that adapter's, so entering or leaving it
     // replaces the durations the form was showing. AA and CG share their own fields, so switching between them keeps
@@ -874,6 +928,14 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (savedForm[input.name] !== undefined) input.value = savedForm[input.name];
     input.addEventListener('input', () => storage.set('form', formValues()));
   }
+  // A collapsed stage still says what it holds: the facts line follows its duration, timestep and neighbour list,
+  // and the first paint states the restored numbers before `/api/defaults` answers.
+  for (const stage of AA_STAGES) {
+    for (const suffix of ['ps', 'dt_fs', 'nstlist']) {
+      form.elements[`aa_${stage}_${suffix}`]?.addEventListener('input', () => syncStageSummaries(form));
+    }
+  }
+  syncStageSummaries(form);
   // A form saved before the split names the retired `aa_cg` (or `sugar_cg`/`cg_composition`). The select has no such
   // option, so it reads ""; the CG run is the one that kept that workflow.
   if (![...form.elements.run_type.options].some(option => option.value === form.elements.run_type.value)) {
@@ -945,6 +1007,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if ([...select.options].some(option => option.value === preset.id)) select.value = preset.id;
     renderPresetMarker();
     gpuDevice.refresh();
+    syncStageSummaries(form);
     syncRunSummary();
     refreshReadiness();
     storage.set('form', formValues());
@@ -1006,6 +1069,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       const field = button.dataset.field;
       if (form.elements[field] && stageDefaults.values[field] !== undefined) form.elements[field].value = stageDefaults.values[field];
       gpuDevice.refresh();
+      syncStageSummaries(form);
       syncRunSummary(); refreshReadiness();
       storage.set('form', formValues());
     } catch (error) { notice(error.message); }

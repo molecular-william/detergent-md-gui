@@ -207,3 +207,30 @@ def test_every_prepared_mdp_is_its_recorded_profile_at_the_run_numbers(repo, pre
         expected = render(profile, aa.mdp_values(manifest['settings'], profile))
         assert (prepared / 'stages' / relative).read_text() == expected, relative
         assert (prepared / 'inputs' / relative).read_text() == expected, relative
+
+
+def test_a_run_with_non_default_stage_settings_renders_them(repo, tmp_path):
+    """A timestep, neighbour list and buffer tolerance the run names reach its own stage's MDP.
+
+    The prepare path is the one the form posts through, so the assertion is what the stage will read: half the
+    timestep doubles the step count for the same duration, and the other two values are the stage's own.
+    """
+    from dashboard.execution.mdp import render
+
+    run = tmp_path / 'run'
+    run.mkdir()
+    selected = aa_molecules.selection(_molecule_root(repo), 'Fixture', run_type='aa_only')
+    aa.prepare_run(run, _molecule_root(repo), selected,
+                   {'aa_production_ps': 2, 'output_interval_ps': 1, 'box_nm': 4.0,
+                    'aa_nvt_dt_fs': 1, 'aa_nvt_nstlist': 10,
+                    'aa_production_verlet_buffer_tolerance': 0.01})
+    manifest = manifest_of(run)
+    for relative, profile in manifest['mdp_profiles'].items():
+        expected = render(profile, aa.mdp_values(manifest['settings'], profile))
+        assert (run / 'stages' / relative).read_text() == expected, relative
+
+    nvt = (run / 'stages/04_nvt/run.mdp').read_text()
+    assert 'dt = 0.001' in nvt and 'nsteps = 100000' in nvt, "the duration converts at the run's own timestep"
+    assert 'nstlist = 10' in nvt
+    assert 'dt = 0.002' in (run / 'stages/05_npt/run.mdp').read_text(), 'a stage that named none keeps its default'
+    assert 'verlet-buffer-tolerance = 0.01' in (run / 'stages/06_production/run.mdp').read_text()

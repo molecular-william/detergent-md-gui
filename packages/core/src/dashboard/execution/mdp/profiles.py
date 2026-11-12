@@ -55,7 +55,10 @@ _AA_MINIMISATION_COMMENTS = {
     'emstep': 'initial steepest-descent step (nm)',
 }
 _AA_DYNAMICS_COMMENTS = {
-    'dt': '2 fs: the atomistic timestep of this protocol (the AA half integrates at 2 fs by standing decision)',
+    'dt': "2 fs by default: the atomistic timestep of this protocol; a run may name its own, in fs",
+    'nstlist': '20 steps by default, a floor with a Verlet buffer (mdrun may raise it); the stage may name its own',
+    'verlet-buffer-tolerance': '-1 by default: no automatic buffer in this box, keeping the pinned rlist; a stage may '
+                               'name a positive tolerance to have GROMACS size rlist',
     'nstxout-compressed': "one compressed frame per `output_interval_ps`, converted at this file's dt",
     'nstenergy': 'energies every min(interval steps, 500)',
     'nstlog': 'the log every min(interval steps, 500)',
@@ -68,14 +71,14 @@ _AA_DYNAMICS_COMMENTS = {
 }
 _AA_NVT_COMMENTS = {
     **_AA_PROTOCOL_COMMENTS, **_AA_DYNAMICS_COMMENTS,
-    'nsteps': "the run's NVT duration in steps at 2 fs",
+    'nsteps': "the run's NVT duration in steps at this file's own dt",
     'continuation': 'this leg starts the dynamics',
     'gen-vel': 'the first dynamics leg is where velocities are drawn',
     'pcoupl': 'this leg is NVT',
 }
 _AA_NPT_COMMENTS = {
     **_AA_PROTOCOL_COMMENTS, **_AA_DYNAMICS_COMMENTS,
-    'nsteps': "the run's NPT duration in steps at 2 fs",
+    'nsteps': "the run's NPT duration in steps at this file's own dt",
     'continuation': 'continues the NVT velocities',
     'gen-vel': 'the NVT leg already drew them',
     'pcoupl': 'C-rescale: the equilibration barostat',
@@ -86,7 +89,7 @@ _AA_NPT_COMMENTS = {
 }
 _AA_PRODUCTION_COMMENTS = {
     **_AA_PROTOCOL_COMMENTS, **_AA_DYNAMICS_COMMENTS,
-    'nsteps': "the run's production duration in steps at 2 fs",
+    'nsteps': "the run's production duration in steps at this file's own dt",
     'continuation': 'continues the NPT state',
     'gen-vel': 'the velocities come from the equilibration legs',
     'pcoupl': 'Parrinello-Rahman: the production barostat',
@@ -95,6 +98,11 @@ _AA_PRODUCTION_COMMENTS = {
     'ref-p': "the run's pressure (bar)",
     'compressibility': "4.5e-5: the papers' water compressibility (1/bar)",
 }
+
+#: The three dynamics stages' MDP options the New run form owns, one setting per stage. They keep the reviewed
+#: values below as their defaults -- an untouched run renders this file byte for byte -- and a run that names one
+#: replaces only that option; the reviewed physics of everything else is fixed.
+_AA_DYNAMICS_VARIABLE = ('dt', 'nstlist', 'verlet-buffer-tolerance')
 
 AA_PROFILES = (
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'steep', 'nsteps': 0, 'emtol': 1000, 'emstep': 0.01,
@@ -112,21 +120,24 @@ AA_PROFILES = (
                       'gen-temp': None, 'gen-seed': None, 'ld-seed': None, 'pcoupl': 'no',
                       'nstxout-compressed': None, 'nstenergy': None, 'nstlog': None},
             comments=_AA_NVT_COMMENTS,
-            source=_AA_SOURCE, version='aa-nvt-v1', force_field=True),
+            source=_AA_SOURCE, version='aa-nvt-v1', force_field=True,
+            variable=_AA_DYNAMICS_VARIABLE),
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'md', 'dt': 0.002, 'nsteps': None, 'continuation': 'yes',
                       'tcoupl': 'V-rescale', 'tc-grps': 'System', 'tau-t': 1, 'ref-t': None, 'gen-vel': 'no',
                       'gen-temp': None, 'gen-seed': None, 'ld-seed': None, 'pcoupl': 'C-rescale',
                       'nstxout-compressed': None, 'nstenergy': None, 'nstlog': None, 'pcoupltype': 'isotropic',
                       'tau-p': 5, 'ref-p': None, 'compressibility': '4.5e-5'},
             comments=_AA_NPT_COMMENTS,
-            source=_AA_SOURCE, version='aa-npt-v1', force_field=True),
+            source=_AA_SOURCE, version='aa-npt-v1', force_field=True,
+            variable=_AA_DYNAMICS_VARIABLE),
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'md', 'dt': 0.002, 'nsteps': None, 'continuation': 'yes',
                       'tcoupl': 'V-rescale', 'tc-grps': 'System', 'tau-t': 1, 'ref-t': None, 'gen-vel': 'no',
                       'gen-temp': None, 'gen-seed': None, 'ld-seed': None, 'pcoupl': 'Parrinello-Rahman',
                       'nstxout-compressed': None, 'nstenergy': None, 'nstlog': None, 'pcoupltype': 'isotropic',
                       'tau-p': 5, 'ref-p': None, 'compressibility': '4.5e-5'},
             comments=_AA_PRODUCTION_COMMENTS,
-            source=_AA_SOURCE, version='aa-production-v1', force_field=True),
+            source=_AA_SOURCE, version='aa-production-v1', force_field=True,
+            variable=_AA_DYNAMICS_VARIABLE),
 )
 
 # --------------------------------------------------------------------------------------------------------------------

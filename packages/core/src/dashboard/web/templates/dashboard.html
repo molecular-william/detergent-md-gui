@@ -237,15 +237,45 @@
         <span id="preset-marker" class="hint" role="status"></span>
       </div>
       <p class="hint">One molecule in water: minimization → NVT → NPT → NPT production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
+      {# The three AA stages are minimisable editors: a native <details> per stage, with the numbers a reader most
+         often changes inside and a facts line in the summary so a collapsed stage still says what it holds. They are
+         `aa-setting` because only an AA run has these stages; a CG run consumes a reference that already ran. #}
+      <h4 class="new-option-title">Stages</h4>
+      <p class="hint">Open a stage to change its duration, timestep and neighbour search. The timestep changes the
+        step count, not the duration: 100 ps at 1 fs is 100 000 steps.</p>
+      <details class="stage-editor aa-setting" id="stage-aa-nvt" name="aa-stages" open>
+        <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts" id="stage-aa-nvt-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_nvt_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_nvt_dt_fs">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_nvt_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_nvt_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_nvt_verlet_buffer_tolerance">Default</button></span></label>
+        </div></div>
+      </details>
+      <details class="stage-editor aa-setting" id="stage-aa-npt" name="aa-stages">
+        <summary><span class="stage-name">NPT equilibration</span><span class="stage-facts" id="stage-aa-npt-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_npt_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_npt_dt_fs">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_npt_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_npt_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_npt_verlet_buffer_tolerance">Default</button></span></label>
+        </div></div>
+      </details>
+      <details class="stage-editor aa-setting" id="stage-aa-production" name="aa-stages">
+        <summary><span class="stage-name">NPT production</span><span class="stage-facts" id="stage-aa-production-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_production_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_production_dt_fs">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_production_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_production_nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_production_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_production_verlet_buffer_tolerance">Default</button></span></label>
+        </div></div>
+      </details>
       <section class="new-option-group" aria-labelledby="new-sampling-title">
         <h4 id="new-sampling-title" class="new-option-title">Sampling</h4>
         <div class="settings-grid">
-          <label>AA NVT equilibration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
-          <label>AA NPT equilibration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
-          <label>AA production (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
+          <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
           <label class="cg-setting">CG equilibration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
           <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
-          <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
         </div>
       </section>
       <section class="new-option-group" aria-labelledby="new-ensemble-title">
@@ -253,9 +283,10 @@
         <div class="settings-grid">
           <label>Temperature (K)<span class="setting-control"><input name="temperature_k" type="number" min="200" max="500" step="0.01"><button type="button" class="secondary use-default" data-field="temperature_k">Default</button></span></label>
           <label>Pressure (bar)<span class="setting-control"><input name="pressure_bar" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="pressure_bar">Default</button></span></label>
-          <label>Box edge (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
-          <label>Box shape<span class="setting-control"><select name="box_shape"><option value="cubic">Cube · protocol default</option><option value="dodecahedron">Dodecahedron</option></select><button type="button" class="secondary use-default" data-field="box_shape">Default</button></span></label>
+          <label>Box edge d (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
+          <label>Box shape<span class="setting-control"><select name="box_shape"><option value="cubic">Cube · protocol default · 1.000 d³</option><option value="dodecahedron">Rhombic dodecahedron (xy-square) · 0.707 d³</option><option value="dodecahedron-hexagon">Rhombic dodecahedron (xy-hexagon) · 0.707 d³</option><option value="octahedron">Truncated octahedron · 0.770 d³</option></select><button type="button" class="secondary use-default" data-field="box_shape">Default</button></span></label>
         </div>
+        <p class="hint">AA runs only. <b>d</b> is the minimum image distance and is the same quantity for every shape: all three box vectors have length d, and the cut-off stays below d/2. A CG run's box is the one its AA reference already ran; pdc and osmotic derive or fix their own.</p>
       </section>
       <section class="new-option-group" aria-labelledby="new-seeds-title">
         <h4 id="new-seeds-title" class="new-option-title">Seeds</h4>
@@ -292,7 +323,7 @@
             <h4 id="new-neighbour-title" class="new-option-title">CG production neighbour search and cutoffs</h4>
             <div class="settings-grid">
               <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="nstlist">Default</button></span></label>
-              <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
+              <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0.001" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
               <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05" placeholder="GROMACS sizes it"></span></label>
               <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rcoulomb">Default</button></span></label>
               <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rvdw">Default</button></span></label>
@@ -468,97 +499,103 @@
     <p id="composition-terms-status" class="hint" role="status"></p>
   </section>
 </section>
-<section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
-  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Produce a CG model's parameterization — the bonded terms fitted to this mapping — from one of its AA references. A fit makes no MD, so nothing from this panel appears in Runs; a run consumes the revision this panel makes current and never re-fits it.</p></div></div>
-
-  {# The model card. Every reading here comes off `/api/bonded-parameterizations` and
-     `/api/bonded-parameterizations/engines`; the panel states nothing about a model it did not read. #}
-  <section class="card bonded-model" aria-labelledby="bonded-model-title">
-    <div class="section-heading">
-      <div><span class="eyebrow">Model</span><h3 id="bonded-model-title">What is being parameterized</h3>
-        <p class="hint" id="bonded-model-summary">Choose a mapping to read its revisions.</p></div>
-      <span class="badge" id="bonded-model-badge">no parameterization</span>
+{# The two comparison panes are one macro: the left pane keeps every bare id the browser tier addresses, the right
+   pane carries the same ids with a `-B` suffix. One definition means the panes cannot drift apart, and the hidden
+   `#bonded-mapping-select` bridge below still addresses pane A for the New run door. #}
+{% macro bonded_pane(side) -%}
+{%- set suffix = '' if side == 'A' else '-' ~ side -%}
+  <section class="card bonded-column" data-side="{{ side }}"{% if side == 'B' %} id="bonded-column-B"{% endif %} aria-label="Model {{ side }} workspace">
+    <div class="bonded-column-head">
+      <div class="who">
+        <span class="eyebrow">Model {{ side }}</span>
+        <span class="badge" id="bonded-model-badge{{ suffix }}">no parameterization</span>
+      </div>
+      {% if side == 'B' %}
+      <button type="button" class="secondary" id="bonded-minimize-B" aria-expanded="true"
+              aria-controls="bonded-column-B">Minimize</button>
+      {% endif %}
     </div>
-    <p class="hint" id="bonded-mapping-facts"></p>
-    {# The model card's one display control: the molecule, then the parameterization shown. Its options are the
-       molecule's saved mappings grouped by mapping -- each mapping's revisions, or its draft connectivity when it has
-       none -- and the published Martini 3 reference when the route offers one. Choosing an option changes only what
-       the table, the diagram and the result card draw. #}
+    <p class="hint" id="bonded-model-summary{{ suffix }}">Choose a mapping to read its revisions.</p>
+    {# The pane's one display control: the molecule, then the parameterization shown. Its options are the molecule's
+       saved mappings grouped by mapping -- each mapping's revisions, or its draft connectivity when it has none --
+       and the published Martini 3 reference when the route offers one. Choosing an option changes only what this
+       pane's table, diagram and result draw. #}
     <div class="form-grid">
-      <label>Molecule<select id="bonded-molecule-select" aria-describedby="bonded-mapping-facts"></select></label>
-      <label>Parameterization shown<select id="bonded-parameterization-display" aria-describedby="bonded-mapping-facts"></select></label>
+      <label>Molecule<select id="bonded-molecule-select{{ suffix }}" aria-describedby="bonded-mapping-facts{{ suffix }}"></select></label>
+      <label>Parameterization shown<select id="bonded-parameterization-display{{ suffix }}" aria-describedby="bonded-mapping-facts{{ suffix }}"></select></label>
     </div>
-    {# A hidden bridge for the New run door: `new-run.js` preselects a saved mapping by setting this select's value
-       and dispatching `change`. It is not part of the viewing path, which is `#bonded-parameterization-display`. #}
-    <select id="bonded-mapping-select" class="bonded-mapping-select" hidden aria-hidden="true" tabindex="-1"></select>
-    <p class="hint" id="bonded-shown-status" role="status"></p>
+    <p class="hint" id="bonded-mapping-facts{{ suffix }}"></p>
+    <p class="hint" id="bonded-shown-status{{ suffix }}" role="status"></p>
     <div class="toolbar">
-      <button type="button" class="secondary" id="bonded-make-current" disabled>Make current</button>
+      <button type="button" class="secondary" id="bonded-make-current{{ suffix }}" disabled>Make current</button>
       {# This control removes the selected model's *parameterization* -- its revisions, the fits that produced them, the
          frames those fits built and the reference histograms recorded with them. The saved mapping itself is not
-         touched: deleting a mapping is the editor's own button, and this panel only edits models. #}
-      <button type="button" class="secondary danger" id="bonded-delete-parameterization" disabled
+         touched: deleting a mapping is the editor's own button, and this pane only edits models. #}
+      <button type="button" class="secondary danger" id="bonded-delete-parameterization{{ suffix }}" disabled
               title="Choose a saved mapping first.">Delete this parameterization</button>
     </div>
+    <h3 class="bonded-subhead">Interactions</h3>
+    <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a <b>hand edit</b>, or geometry where the automatic draft had no reference. A bond's length and force, an angle's angle and force, a dihedral's phase, force and multiplicity, and a rigid constraint's length are editable here; the function form and a virtual site's parents are readings. Editing a constraint overrides the mapping's ring target and marks the term a hand edit. <b>Save in place</b> rewrites the current revision, and only when it carries hand edits; <b>Save as new</b> appends a revision cloned from the shown one and makes it current. A published Martini 3 reference is read-only and a run consumes it directly. Select a row to highlight it in the diagram.</p>
+    <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
+    <div class="toolbar bonded-terms-actions">
+      <button type="button" class="secondary" id="bonded-save-terms-inplace{{ suffix }}" disabled
+              aria-describedby="bonded-terms-status{{ suffix }}">Save in place</button>
+      <button type="button" id="bonded-save-terms-new{{ suffix }}" disabled
+              aria-describedby="bonded-terms-status{{ suffix }}">Save as new</button>
+    </div>
+    <p class="hint bonded-terms-status" id="bonded-terms-status{{ suffix }}" role="status">Choose a parameterization revision to edit its terms.</p>
+    <h3 class="bonded-subhead">Molecular connectivity</h3>
+    <p class="hint">Bead centres are measured on the molecule's current coordinates: a revision records terms, not a
+      frame, so the drawing can differ in detail from the frame the terms were fitted to.</p>
+    <p class="hint bonded-selection-status">Select a bead to read its name.</p>
+    <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
   </section>
+{%- endmacro %}
+<section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
+  <div class="section-heading"><div><h2>CG Bond Interactions</h2><p>Produce a CG model's parameterization — the bonded terms fitted to this mapping — from one of its AA references. A fit makes no MD, so nothing from this panel appears in Runs; a run consumes the revision this panel makes current and never re-fits it. The two panes are independent: compare a fitted revision against another molecule's or another revision of the same mapping.</p></div></div>
 
-  {# Fit a new revision, in a card of its own: these settings configure the next fit and never change what the model
-     card shows. Keeping them in the display grid made them read as a second way to choose the model. #}
+  {# The merged model-and-fit card. The model's own facts and actions live in each pane; this card chooses the fit
+     target and states the settings the next fit uses. Every reading here comes off `/api/bonded-parameterizations`
+     and `/api/bonded-parameterizations/engines`; the card states nothing about a model it did not read. #}
   <section class="card bonded-fit" aria-labelledby="bonded-fit-title">
     <div class="section-heading">
-      <div><span class="eyebrow">Fit</span><h3 id="bonded-fit-title">Fit a new revision</h3>
-        <p class="hint">These settings configure the next fit only. The table, the diagram and the result stay on the
-          parameterization shown above until a new revision is fitted or chosen.</p></div>
+      <div><span class="eyebrow">Fit</span><h3 id="bonded-fit-title">Model and fit</h3>
+        <p class="hint">Choose the molecule and mapping to fit. These settings configure the next fit only; the panes
+          below keep showing whichever revisions you choose for them, and the fitted revision becomes current when
+          the job completes.</p></div>
     </div>
-    {# The fields and the torsion fieldset are one body: the fieldset states a property of the same mapping, and it is
-       read beside the fields rather than stacked under them -- four rows of fields put the first button below the
-       fold. Three fields to a row, because six fields in two columns is the height this removes. #}
-    <div class="bonded-model-body">
-      <div class="form-grid bonded-model-fields">
-        <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
-        <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
-        <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
-        <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
-        <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
-          <option value="legacy">Legacy — periodic fit, as recorded</option>
-          <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
-        </select></label>
-        <label>Torsion stiffness scale<input id="bonded-torsion-scale" class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
-      </div>
-      <fieldset class="bonded-torsion">
-        <legend>Torsion refinement · a property of this mapping</legend>
-        {# Drawing B of the approved draft (docs/design/drafts/2026-11-09-torsion-refinement-explainer.html): the
-           reason and the caveat stay visible; the mechanism and what a run needs sit in one native <details> so the
-           fieldset shares its row with the seven fields without doubling its height. The copy is the draft's table,
-           including its corrections: the Fast-Forward fit measures the angles and the refinement reads them, and a
-           circular-harmonic fit replaces a torsion's periodic fit with one preferred angle and one stiffness
-           (k = kT / variance), scaled 0.1-3. #}
-        <dl class="torsion-blocks">
-          <dt>What it is for</dt>
-          <dd>In a CG (coarse-grained) model, each bead stands for a group of atoms. A torsion is the twist of four beads in a row. Bonds and angles hold a molecule's local shape; torsions decide how its chain bends and twists, and so which shapes it can take. A set that is too stiff or too soft changes packing and assembly even when every bond and angle is right. The choice is part of the model, not a detail.</dd>
-        </dl>
-        <details class="torsion-more">
-          <summary>How it works, and what a run needs</summary>
-          <dl class="torsion-blocks">
-            <dt>How it works</dt>
-            <dd>The Fast-Forward fit measures each torsion's angle in every mapped AA (all-atom) frame, and the refinement reads those angles. Angles repeat every full turn, so the circular-harmonic model averages them on a circle instead of a line, and writes one preferred angle and one stiffness. The stiffness is k = kT / variance: kT is the thermal energy at the fit temperature, and variance is how spread out the angles are, so a narrow spread gives a stiff torsion and a wide one gives a soft torsion. The stiffness scale (0.1–3) multiplies k for every torsion it writes, which softens or stiffens the whole set without editing terms by hand. Legacy changes nothing: the fitted periodic terms stay as recorded.</dd>
-            <dt>What a run needs</dt>
-            <dd>A mapping with beads and declared torsions — Save to mapping puts the pair in the mapping file, and a run is queued from that file. An AA reference run with mapped frames: the harmonic fit needs at least three sampled angles per torsion, and a spread with one clear peak — when the angles have no single preferred direction, the fit refuses by name instead of guessing. A Fast-Forward fitted topology that has torsions; a topology with none is refused.</dd>
-          </dl>
-        </details>
-        <div class="torsion-caveat"><b>Caveat.</b> A stiffness that looks right is not established by this panel. The dihedral-fit analysis checks a legacy fit; it has no circular-harmonic reading, so no independent check is claimed for this model. Nothing here is scientific validation: a model that runs is not a model that is correct.</div>
-        <div class="toolbar"><button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button></div>
-        <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
-      </fieldset>
+    <div class="form-grid bonded-model-fields">
+      <label>Molecule<select id="bonded-fit-molecule" aria-describedby="bonded-fit-mapping-note"></select></label>
+      <label>Mapping to fit<select id="bonded-fit-mapping" aria-describedby="bonded-fit-mapping-note"></select></label>
+      <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
+      <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
+      <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
+      <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
+      <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
+        <option value="legacy">Legacy — periodic fit, as recorded</option>
+        <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
+      </select></label>
+      <label>Torsion stiffness scale<span class="field-help bonded-torsion-help">
+        <button type="button" class="info-btn" id="bonded-torsion-info" aria-expanded="false"
+                aria-controls="bonded-torsion-tip" aria-label="About torsion refinement">i</button>
+        <span class="setting-tip" id="bonded-torsion-tip" role="tooltip">
+          <b>Torsion refinement · a property of this mapping</b><br>
+          <b>What it is for.</b> In a CG (coarse-grained) model, each bead stands for a group of atoms. A torsion is the twist of four beads in a row. Bonds and angles hold a molecule's local shape; torsions decide how its chain bends and twists, and so which shapes it can take. A set that is too stiff or too soft changes packing and assembly even when every bond and angle is right. The choice is part of the model, not a detail.<br><br>
+          <b>How it works.</b> The Fast-Forward fit measures each torsion's angle in every mapped AA (all-atom) frame, and the refinement reads those angles. Angles repeat every full turn, so the circular-harmonic model averages them on a circle instead of a line, and writes one preferred angle and one stiffness. The stiffness is k = kT / variance: kT is the thermal energy at the fit temperature, and variance is how spread out the angles are, so a narrow spread gives a stiff torsion and a wide one gives a soft torsion. The stiffness scale (0.1–3) multiplies k for every torsion it writes, which softens or stiffens the whole set without editing terms by hand. Legacy changes nothing: the fitted periodic terms stay as recorded.<br><br>
+          <b>What a run needs.</b> A mapping with beads and declared torsions — Save to mapping puts the pair in the mapping file, and a run is queued from that file. An AA reference run with mapped frames: the harmonic fit needs at least three sampled angles per torsion, and a spread with one clear peak — when the angles have no single preferred direction, the fit refuses by name instead of guessing. A Fast-Forward fitted topology that has torsions; a topology with none is refused.<br><br>
+          <span class="caveat"><b>Caveat.</b> A stiffness that looks right is not established by this panel. The dihedral-fit analysis checks a legacy fit; it has no circular-harmonic reading, so no independent check is claimed for this model. Nothing here is scientific validation: a model that runs is not a model that is correct.</span>
+        </span>
+      </span><input id="bonded-torsion-scale" class="bonded-torsion-scale" type="number" min="0.1" max="3" step="0.1" value="1" disabled></label>
     </div>
-    {# The two per-field notes stay outside both grids: in a cell they would hold a row open whenever they fill, and
-       in a track of their own they would take the fieldset's place beside the fields. #}
+    <p class="hint" id="bonded-fit-mapping-note"></p>
     <p class="hint" id="bonded-aa-facts"></p>
     <p class="hint" id="bonded-engine-note"></p>
     <div class="toolbar">
+      <button type="button" class="secondary bonded-save-torsion" id="bonded-save-torsion" disabled>Save to mapping</button>
       <button type="button" id="bonded-fit">Fit this model</button>
     </div>
     <p class="hint" id="bonded-fit-status" role="status"></p>
+    <p class="bonded-torsion-status hint" id="bonded-torsion-status" role="status">Choose a mapping to read its torsion model.</p>
     <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
   </section>
 
@@ -566,7 +603,6 @@
      empty -- stacked, they pushed the interactions table off screen for the minutes a fit runs. Both stay `hidden`
      until the panel has something to say, and a hidden card leaves no hole in the row. #}
   <div class="bonded-run-cards">
-    {# The job box: status, the log tail, and the one control that can stop it. #}
     <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
       <div class="section-heading">
         <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
@@ -574,15 +610,12 @@
         <span class="badge" id="bonded-job-status">queued</span>
       </div>
       <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
-      {# Built by the panel from the job record's own `steps`, so the four names here cannot drift from the job that runs
-         them; it is what makes a bar sitting at 25% read as "fit, in progress" rather than as a stalled job. #}
       <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
       <p class="hint" id="bonded-job-error" role="alert" hidden></p>
       <pre id="bonded-job-log" hidden></pre>
       <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
     </section>
 
-    {# The result card: the current revision's provenance and the two checks' own numbers. #}
     <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
       <div class="section-heading">
         <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
@@ -594,26 +627,13 @@
     </section>
   </div>
 
+  {# The New run door's hidden bridge: `new-run.js` preselects a saved mapping by setting this select's value and
+     dispatching `change`. It addresses pane A and carries no state of its own. #}
+  <select id="bonded-mapping-select" class="bonded-mapping-select" hidden aria-hidden="true" tabindex="-1"></select>
+
   <div class="bonded-columns">
-    <section class="card">
-      <h3>Interactions</h3>
-      <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a <b>hand edit</b>, or geometry where the automatic draft had no reference. A bond's length and force, an angle's angle and force, a dihedral's phase, force and multiplicity, and a rigid constraint's length are editable here; the function form and a virtual site's parents are readings and stay read-only. Editing a constraint overrides the mapping's ring target and marks the term a hand edit. <b>Save in place</b> rewrites the current revision (the one a run consumes); <b>Save as new</b> appends a revision cloned from the shown one and makes it current. A published Martini 3 reference is never saved in place: <b>Save as new</b> seeds a revision of the molecule's saved mapping. One Fast-Forward torsion is written as one line per harmonic, so each such row is one line and is edited on its own. Select a row to highlight it in the diagram.</p>
-      <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
-      <div class="toolbar bonded-terms-actions">
-        <button type="button" class="secondary" id="bonded-save-terms-inplace" disabled
-                aria-describedby="bonded-terms-status">Save in place</button>
-        <button type="button" id="bonded-save-terms-new" disabled
-                aria-describedby="bonded-terms-status">Save as new</button>
-      </div>
-      <p class="hint" id="bonded-terms-status" role="status">Choose a parameterization revision to edit its terms.</p>
-    </section>
-    <section class="card">
-      <h3>Molecular connectivity</h3>
-      <p class="hint">Bead centres are measured on the molecule's current coordinates: a revision records terms, not a
-        frame, so the drawing can differ in detail from the frame the terms were fitted to.</p>
-      <p class="hint bonded-selection-status">Select a bead to read its name.</p>
-      <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
-    </section>
+    {{ bonded_pane('A') }}
+    {{ bonded_pane('B') }}
   </div>
 
   <p class="bonded-panel-message hint" role="status"></p>

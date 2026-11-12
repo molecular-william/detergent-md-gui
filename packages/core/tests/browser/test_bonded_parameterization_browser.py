@@ -84,6 +84,17 @@ CHECKS = {'dihedral-fit': {'rows': [{'beads': ['B01', 'B02', 'B03', 'B04']}], 'd
                                  'disagreements': [['B01', 'B02']], 'frames_measured': 20001}}
 
 
+def gate_fields(record):
+    """`parameterization.edit_gate`, as the GET route carries it: read at read time, never stored in the digest."""
+    if record.get('engine') == 'martini-reference':
+        return {'parameters_editable': False, 'save_in_place': False,
+                'save_in_place_reason': 'a Martini 3 reference transcription is read-only'}
+    if record.get('edited_terms'):
+        return {'parameters_editable': True, 'save_in_place': True, 'save_in_place_reason': ''}
+    return {'parameters_editable': True, 'save_in_place': False,
+            'save_in_place_reason': f"fitted by {record.get('engine')}; Save as new to edit it"}
+
+
 def revision(number, *, engine='fast-forward', created_at='2026-10-16T14:30:00+00:00', sha256=None, **extra):
     record = {'revision': number, 'created_at': created_at, 'sha256': sha256 or f'{number:064x}',
               'mapping_hash': CANDIDATE_HASH, 'mapping_content_hash': CONTENT_HASH,
@@ -97,8 +108,11 @@ def revision(number, *, engine='fast-forward', created_at='2026-10-16T14:30:00+0
                                'temperature_k': 300.0, 'production_ns': 10.0},
               'topology': TOPOLOGY, 'terms': {'bonds': 1, 'angles': 1, 'dihedrals': 1, 'constraints': 1},
               'sources': list(SOURCES), 'refinement': None, 'diagnostics': [], 'checks': CHECKS,
-              'notes': [], 'scientifically_validated': False}
+              'notes': [], 'scientifically_validated': False, 'edited_terms': []}
     record.update(extra)
+    # The route answers the gate beside each revision; a fixture stands in for that answer, so it carries it too.
+    for key, value in gate_fields(record).items():
+        record.setdefault(key, value)
     return record
 
 
@@ -107,7 +121,9 @@ def summary(number, revisions, *, terms=12):
     if number is None:
         return {'parameterized': False, 'revision': None, 'engine': None, 'engine_label': None, 'terms': None,
                 'torsion_model': None, 'checks': [], 'aa_reference': None, 'revision_sha256': None,
-                'mapping_hash': CANDIDATE_HASH, 'mapping_content_hash': CONTENT_HASH, 'revisions': []}
+                'mapping_hash': CANDIDATE_HASH, 'mapping_content_hash': CONTENT_HASH,
+                'parameters_editable': False, 'save_in_place': False,
+                'save_in_place_reason': 'this model carries no parameterization', 'revisions': []}
     current = [item for item in revisions if item['revision'] == number][0]
     return {'parameterized': True, 'revision': number, 'engine': current['engine'],
             'engine_label': 'Fast-Forward fit (ff_inter)', 'terms': terms,
@@ -115,6 +131,9 @@ def summary(number, revisions, *, terms=12):
             'aa_reference': current['aa_reference'], 'revision_sha256': REVISION_HASH,
             'created_at': current['created_at'], 'mapping_hash': CANDIDATE_HASH,
             'mapping_content_hash': CONTENT_HASH,
+            'parameters_editable': current.get('parameters_editable', True),
+            'save_in_place': current.get('save_in_place', False),
+            'save_in_place_reason': current.get('save_in_place_reason', ''),
             'revisions': [item['revision'] for item in revisions]}
 
 
@@ -206,9 +225,10 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
 
 
 def mapping_option(page, file):
-    """The display option a saved mapping's current revision carries, or its draft option when it has none."""
+    """Pane A's display option for a saved mapping's current revision, or its draft option when it has none."""
     return page.evaluate("""(file) => {
-      const options = Array.from(document.querySelectorAll('#bonded-parameterization-display option'));
+      const options = Array.from(document.querySelectorAll(
+        '.bonded-column[data-side="A"] #bonded-parameterization-display option'));
       const current = options.find(option => option.value.startsWith(`revision:${file}:`)
         && option.textContent.includes('current'));
       const draft = options.find(option => option.value === `draft:${file}`);
@@ -220,21 +240,35 @@ def choose_mapping(page, file, molecule=None):
     """Select a mapping the way a reader does: its molecule first when the file is not already listed."""
     value = mapping_option(page, file)
     if molecule and not value:
-        page.locator('#bonded-molecule-select').select_option(molecule)
+        pane(page, 'A').locator('#bonded-molecule-select').select_option(molecule)
         page.wait_for_function(
-            """(file) => Array.from(document.querySelectorAll('#bonded-parameterization-display option'))
+            """(file) => Array.from(document.querySelectorAll(
+                '.bonded-column[data-side="A"] #bonded-parameterization-display option'))
               .some(option => option.value.startsWith(`revision:${file}:`) || option.value === `draft:${file}`)""",
             arg=file, timeout=30000)
         value = mapping_option(page, file)
     assert value, f'no option in the parameterization selector for {file}'
-    if page.locator('#bonded-parameterization-display').input_value() != value:
-        page.locator('#bonded-parameterization-display').select_option(value)
+    if pane(page, 'A').locator('#bonded-parameterization-display').input_value() != value:
+        pane(page, 'A').locator('#bonded-parameterization-display').select_option(value)
     return value
 
 
 def choose_revision(page, file, revision):
-    """Show one revision of a saved mapping, the way the display selector does."""
-    page.locator('#bonded-parameterization-display').select_option(f'revision:{file}:{revision}')
+    """Show one revision of a saved mapping in pane A, the way its display selector does."""
+    pane(page, 'A').locator('#bonded-parameterization-display').select_option(f'revision:{file}:{revision}')
+
+
+def choose_fit_target(page, file, molecule=None):
+    """Point the merged fit card at one mapping: its own molecule select, then its own mapping select."""
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-fit-molecule option').length > 0", timeout=30000)
+    if molecule:
+        page.locator('#bonded-fit-molecule').select_option(molecule)
+    page.wait_for_function(
+        """(file) => Array.from(document.querySelectorAll('#bonded-fit-mapping option'))
+          .some(option => option.value === file)""", arg=file, timeout=30000)
+    if page.locator('#bonded-fit-mapping').input_value() != file:
+        page.locator('#bonded-fit-mapping').select_option(file)
 
 
 def open_panel(page, live_page, file):
@@ -246,31 +280,45 @@ def open_panel(page, live_page, file):
     """
     def ready(page):
         page.wait_for_function(
-            "() => document.querySelectorAll('#bonded-molecule-select option').length > 0", timeout=30000)
+            "() => document.querySelectorAll('.bonded-column[data-side=\"A\"] #bonded-molecule-select option')"
+            ".length > 0", timeout=30000)
         page.wait_for_function(
-            "() => document.querySelectorAll('#bonded-parameterization-display option').length > 0", timeout=30000)
+            "() => document.querySelectorAll('.bonded-column[data-side=\"A\"] "
+            "#bonded-parameterization-display option').length > 0", timeout=30000)
         detail = page.request.get(f'{live_page.base_url}/api/mappings/{file}').json()
         choose_mapping(page, file, detail['molecule_id'])
+        # The fit card is one card for the panel: point it at the same mapping so the result/job tests read the
+        # record they mean.
+        choose_fit_target(page, file, detail.get('molecule_id'))
         # The selector shows the new model while its record is still in flight, so the value alone does not say the
-        # panel has loaded it: the panel's own busy state does, and it covers the whole switch.
-        expect(page.locator('.bonded-model')).to_have_attribute('aria-busy', 'false')
+        # pane has loaded it: the pane's own busy state does, and it covers the whole switch.
+        expect(pane(page, 'A')).to_have_attribute('aria-busy', 'false')
 
     return browser.open_panel(page, live_page.base_url, '/detergent-validation/bond-interactions', ready=ready)
 
 
+def pane(page, side='A'):
+    return page.locator(f'.bonded-column[data-side="{side}"]')
+
+
+def table(page, side='A'):
+    return pane(page, side).locator('.bonded-interaction-table')
+
+
 def cells(page, index):
-    return page.locator('.bonded-interaction-table tbody tr').nth(index).locator('td')
+    return table(page).locator('tbody tr').nth(index).locator('td')
 
 
 # -------------------------------------------------------------------------------------------- the model card
 
 
-def test_the_model_card_offers_the_engines_their_references_and_the_four_options(dashboard, live_page):
-    """D3/D4 as the panel renders them: which engines need a reference, and the four options with their units.
+def test_the_merged_fit_card_offers_its_target_the_engines_its_references_and_the_options(dashboard, live_page):
+    """The merged card: its own molecule/mapping pair, which engines need a reference, and the four options.
 
-    The threshold is the option whose value decides what the model *is* — above it a fitted pair is written as a
-    constraint and below it as a spring — so its unit and its default are on screen beside the field rather than
-    in a document, and the engine's own `needs_reference` decides whether the reference is required.
+    The threshold is the option whose value decides what the model *is* -- above it a fitted pair is written as a
+    constraint and below it as a spring -- so its unit and its default are on screen beside the field rather than in
+    a document, and the engine's own `needs_reference` decides whether the reference is required. The card is always
+    visible: there is no tab to open and no separate model card above it.
     """
     saved, content, candidate = save(dashboard)
     record = answer()
@@ -279,6 +327,16 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     page.on('request', lambda request: asked.append(request.url))
     stub(page, record)
     open_panel(page, live_page, saved['file'])
+
+    # The fit target is the card's own pair. With one saved mapping the Mapping label is hidden and the note states
+    # the mapping that will receive the fit.
+    expect(page.locator('#bonded-fit-title')).to_have_text('Model and fit')
+    expect(page.locator('#bonded-fit-molecule')).to_be_visible()
+    expect(page.locator('#bonded-fit-molecule')).to_have_value(candidate and saved['molecule_id'])
+    expect(page.locator('#bonded-fit-mapping')).to_have_value(saved['file'])
+    expect(page.locator('#bonded-fit-mapping').locator('xpath=..')).to_be_hidden()
+    expect(page.locator('#bonded-fit-mapping-note')).to_contain_text('Mapping to fit')
+    expect(page.locator('#bonded-fit-mapping-note')).to_contain_text(saved['name'])
 
     expect(page.locator('#bonded-engine option')).to_have_count(2)
     expect(page.locator('#bonded-engine option').nth(0)).to_contain_text('Fast-Forward fit (ff_inter)')
@@ -312,41 +370,31 @@ def test_the_model_card_offers_the_engines_their_references_and_the_four_options
     reads = [url for url in asked if '/api/bonded-parameterizations?' in url]
     assert reads, asked
     assert f'content_hash={content}' in reads[0] and f'mapping_hash={candidate}' in reads[0], reads[0]
-    expect(page.locator('#bonded-model-badge')).to_have_text('no parameterization')
+    expect(pane(page, 'A').locator('#bonded-model-badge')).to_have_text('no parameterization')
     expect(page.locator('#bonded-result')).to_be_hidden()
     expect(page.locator('#bonded-revisions')).to_have_count(0)
-    expect(page.locator('#bonded-parameterization-display option')).to_have_count(1)
+    expect(pane(page, 'A').locator('#bonded-parameterization-display option')).to_have_count(1)
     # And the table is the mapping's own draft, saying so in the source column.
     expect(cells(page, 0).last).to_have_text('mapping')
 
-    # The display selector carries the mapping's draft, because it has no parameterization yet, and the fit controls
-    # live in a card of their own below the model.
-    display = page.locator('#bonded-parameterization-display')
+    # The display selector carries the mapping's draft, because it has no parameterization yet.
+    display = pane(page, 'A').locator('#bonded-parameterization-display')
     expect(display.locator('option')).to_have_count(1)
     expect(display.locator('option').nth(0)).to_have_text('Draft mapping connectivity (no parameterization)')
-    expect(page.locator('#bonded-molecule-select')).to_be_visible()
+    expect(pane(page, 'A').locator('#bonded-molecule-select')).to_be_visible()
     expect(page.locator('#bonded-mapping-select')).to_be_hidden()
 
-    # The model card holds the two display fields; the six fit inputs are in the "Fit a new revision" card below it,
-    # with the torsion fieldset beside them rather than under them. Positions, because the markup alone would pass a
-    # card stacked the old way.
-    expect(page.locator('#bonded-fit-title')).to_have_text('Fit a new revision')
-    expect(page.locator('#bonded-fit-title').locator('xpath=..')).to_contain_text('configure the next fit')
+    # The merged card's fields: the fit target, then the reference, engine and the four options. Its labels are
+    # readable, and the card sits above both panes rather than inside one.
     labels = page.locator('.bonded-model-fields > label')
-    expect(labels).to_have_count(6)
-    expected_labels = ['AA reference', 'Fit with', 'Constraint threshold', 'Fit temperature', 'Torsion model',
-                       'Torsion stiffness scale']
+    expect(labels).to_have_count(8)
+    expected_labels = ['Molecule', 'Mapping to fit', 'AA reference', 'Fit with', 'Constraint threshold',
+                       'Fit temperature', 'Torsion model', 'Torsion stiffness scale']
     for index, label in enumerate(expected_labels):
-        expect(labels.nth(index)).to_contain_text(label)
-    model_card = page.locator('.bonded-model').bounding_box()
+        assert label in labels.nth(index).text_content(), (index, labels.nth(index).text_content())
     fit_card = page.locator('.bonded-fit').bounding_box()
-    assert fit_card['y'] > model_card['y'] + model_card['height'] - 1, (model_card, fit_card)
-    fields = page.locator('.bonded-model-fields').bounding_box()
-    torsion = page.locator('fieldset.bonded-torsion').bounding_box()
-    assert torsion['x'] > fields['x'] + fields['width'] - 1, (fields, torsion)
-    boxes = [labels.nth(index).bounding_box() for index in range(4)]
-    assert abs(boxes[0]['y'] - boxes[2]['y']) < 2, f'the first three fields are not one row: {boxes}'
-    assert boxes[3]['y'] > boxes[0]['y'] + 10, f'the fourth field did not start a row: {boxes}'
+    pane_a = pane(page, 'A').bounding_box()
+    assert fit_card['y'] + fit_card['height'] - 1 < pane_a['y'], (fit_card, pane_a)
     # The assertion that caught the `.hint` overflow on 2026-10-21: a card wider than the page scrolls it sideways.
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), \
         page.evaluate('document.documentElement.scrollWidth')
@@ -442,7 +490,8 @@ def test_a_running_job_shows_its_step_and_cancels_only_after_a_confirmation(dash
     expect(page.locator('.bonded-job-meter')).to_have_attribute('aria-valuetext', '1 of 4 · fit')
     # And the poll asks about *this job*, by the id it was handed when it queued it -- not about the mapping, whose
     # hash is a different question and answered nothing at all when the two disagreed.
-    for _ in range(30):
+    # Two Plotly scenes load beside this panel now, so the first poll can be a few seconds behind the paint.
+    for _ in range(80):
         polls = [url for url in asks if '/api/bonded-parameterizations/jobs?' in url]
         if polls:
             break
@@ -514,20 +563,21 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
                lambda route: route.fulfill(json=records[re.search(r'content_hash=([a-f0-9]+)', route.request.url).group(1)]))
     # The delay is in the page, on the first mapping's job reads only: a route handler that slept would block
     # the very click this test needs to make while the answer is outstanding.
-    page.add_init_script(f"""(() => {{
+    page.add_init_script("""(() => {
       const original = window.fetch;
-      window.fetch = async (url, options) => {{
+      window.fetch = async (url, options) => {
         const response = await original(url, options);
-        if (String(url).includes('/jobs?') && String(url).includes('{first_content}')) {{
+        if (String(url).includes('/jobs?')) {
           await new Promise(resolve => setTimeout(resolve, 900));
-        }}
+        }
         return response;
-      }};
-    }})()""")
+      };
+    })()""")
     open_panel(page, live_page, first['file'])
     expect(page.locator('#bonded-job-status')).to_have_text('running')
 
-    choose_mapping(page, second['file'], second['molecule_id'])
+    # The job belongs to the fit card's target, so the fit target is what the reader moves; the panes are unaffected.
+    choose_fit_target(page, second['file'], second['molecule_id'])
     # The second mapping has a revision and no job, so its own card is the thing that says the switch landed.
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     expect(page.locator('#bonded-job')).to_be_hidden()
@@ -536,7 +586,7 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     page.wait_for_timeout(1400)
     expect(page.locator('#bonded-job')).to_be_hidden()
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
-    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'revision:{second["file"]}:1')
+    expect(page.locator('#bonded-fit-mapping')).to_have_value(second['file'])
     assert errors == [], errors
 
 
@@ -671,10 +721,10 @@ def test_the_result_card_names_the_revisions_provenance_and_the_two_checks_numbe
 def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_screen(dashboard, live_page):
     """`fit()`'s own post-await race: an answer for a model the reader has left is dropped, not painted.
 
-    The queue request is delayed inside the page and the mapping is switched while it is outstanding. Without a
-    token re-checked after the await, the late answer opens the job box for the previous model's fit -- and that box
-    then polls *this* model's content hash for a job that is not its own. The `busy` flag belongs to the answer that
-    was dropped too: the panel the reader is looking at has to be usable afterwards.
+    The queue request is delayed inside the page and the fit target is switched while it is outstanding. Without a
+    token re-checked after the await, the late answer opens the job box for the previous target's fit -- and that box
+    then polls this target's record for a job that is not its own. The `busy` flag belongs to the answer that was
+    dropped too: the card the reader is looking at has to be usable afterwards.
     """
     first, first_content, _ = save(dashboard, 'First model')
     second, second_content, _ = save(dashboard, 'Second model', molecule='Sucrose')
@@ -713,8 +763,8 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
     expect(page.locator('#bonded-fit-status')).to_contain_text('Queueing a Fast-Forward')
     expect(page.locator('#bonded-fit')).to_be_disabled()
 
-    # The reader moves on while the queue answer is still outstanding.
-    choose_mapping(page, second['file'], second['molecule_id'])
+    # The reader moves on while the queue answer is still outstanding: the fit card's target is what a job belongs to.
+    choose_fit_target(page, second['file'], second['molecule_id'])
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     page.wait_for_timeout(1500)
 
@@ -744,10 +794,10 @@ def test_the_interactions_table_carries_a_source_column(dashboard, live_page):
     stub(page, answer([revision(1)]))
     open_panel(page, live_page, saved['file'])
 
-    header = page.locator('.bonded-interaction-table thead th')
+    header = table(page).locator('thead th')
     expect(header).to_have_count(5)
     expect(header.nth(4)).to_have_text('Source')
-    rows = page.locator('.bonded-interaction-table tbody tr')
+    rows = table(page).locator('tbody tr')
     expect(rows).to_have_count(4)
     assert cells(page, 0).nth(0).inner_text() == 'constraints'
     assert cells(page, 0).nth(1).inner_text() == 'B01 · B02'
@@ -778,7 +828,7 @@ def test_a_term_with_no_recorded_source_says_so_rather_than_borrowing_the_engine
     stub(page, answer([revision(1, sources=without_bond)]))
     open_panel(page, live_page, saved['file'])
 
-    expect(page.locator('.bonded-interaction-table tbody tr')).to_have_count(4)
+    expect(table(page).locator('tbody tr')).to_have_count(4)
     assert cells(page, 1).nth(0).inner_text() == 'bonds'
     assert cells(page, 1).last.inner_text() == 'unrecorded', cells(page, 1).last.inner_text()
     # The rows the store did answer for keep their own source: this is a gap, not a second answer for everything.
@@ -813,11 +863,12 @@ def earlier_revision():
 
 
 def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(dashboard, live_page):
-    """One display choice, read-only in its effect on runs: the table, the scene and the result read the shown revision.
+    """One pane's display choice is read-only in its effect on runs.
 
-    The earlier revision is deliberately a different model -- a bartender fit with one bond and its own options -- so a
-    panel that still read `summary.revision` would draw the later revision's four terms while the selector says
-    revision 1. No route may be written on a view: the PATCH list stays empty and the current marker stays on r2.
+    The earlier revision is deliberately a different model -- a bartender fit with one bond and its own options -- so
+    a pane that still read `summary.revision` would draw the later revision's terms while its selector says revision
+    1. No route may be written on a view, and the fit card's result (the fit target's current revision) does not move
+    because a pane looked at history.
     """
     saved, _, _ = save(dashboard)
     page, errors = live_page
@@ -826,33 +877,28 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     open_panel(page, live_page, saved['file'])
 
     # The default display choice is the revision a run consumes, and the table and the scene are that revision's.
-    expect(page.locator('#bonded-parameterization-display')).to_have_value(f'revision:{saved["file"]}:2')
-    expect(page.locator('#bonded-result-title')).to_have_text('Revision 2 · current')
+    expect(pane(page, 'A').locator('#bonded-parameterization-display')).to_have_value(f'revision:{saved["file"]}:2')
+    expect(pane(page, 'A').locator('#bonded-model-badge')).to_have_text('revision 2 · current')
     expect(page.locator('#bonded-revisions')).to_have_count(0)
-    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    labels = pane(page, 'A').locator('#bonded-parameterization-display option').all_inner_texts()
     assert any('Revision 2 · current' in label for label in labels), labels
     assert any('Revision 1 · earlier' in label for label in labels), labels
-    plot = page.locator('.bonded-plot')
+    plot = pane(page, 'A').locator('.bonded-plot')
     expect(plot.locator('.plotly')).to_be_visible(timeout=20000)
     page.wait_for_function(
-        "() => (document.querySelector('.bonded-plot').data || [])"
+        "() => (document.querySelector('.bonded-column[data-side=A] .bonded-plot').data || [])"
         ".some(trace => trace.meta === 'term' && trace.name.startsWith('dihedrals'))", timeout=20000)
 
     # An earlier revision is viewable without making it current, and nothing is written.
     choose_revision(page, saved['file'], 1)
-    expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · earlier, shown')
+    expect(pane(page, 'A').locator('#bonded-model-badge')).to_have_text('revision 1 · earlier')
     assert patches == [], patches
-    labels = page.locator('#bonded-parameterization-display option').all_inner_texts()
+    labels = pane(page, 'A').locator('#bonded-parameterization-display option').all_inner_texts()
     assert any('Revision 2 · current' in label for label in labels), 'viewing r1 does not move current'
-    assert page.locator('#bonded-parameterization-display').input_value() == f'revision:{saved["file"]}:1'
-    # The result card is the shown revision's own record, not the current one's.
-    provenance = page.locator('#bonded-result-provenance').inner_text()
-    for expected in ('BARTENDER', '12500 kJ mol', '310 K', 'legacy — the periodic fit as recorded'):
-        assert expected in provenance, f'{expected} is not in the shown revision card:\n{provenance}'
-    assert 'not carried for an earlier revision' in provenance, provenance
+    assert pane(page, 'A').locator('#bonded-parameterization-display').input_value() == f'revision:{saved["file"]}:1'
 
     # The table is the shown revision's: one bond at its own distance, and none of the later revision's kinds.
-    rows = page.locator('.bonded-interaction-table tbody tr')
+    rows = table(page).locator('tbody tr')
     expect(rows).to_have_count(1)
     expect(cells(page, 0).nth(0)).to_have_text('bonds')
     bond_inputs = cells(page, 0).nth(3).locator('input')
@@ -861,11 +907,13 @@ def test_showing_an_earlier_revision_changes_neither_current_nor_what_runs_use(d
     expect(cells(page, 0).last).to_have_text('bartender')
     # And so is the scene: the later revision's torsion is gone, because it is not part of this one.
     page.wait_for_function(
-        "() => (document.querySelector('.bonded-plot').data || [])"
+        "() => (document.querySelector('.bonded-column[data-side=A] .bonded-plot').data || [])"
         ".filter(trace => trace.meta === 'term').length === 1", timeout=20000)
-    kinds = page.locator('.bonded-plot').evaluate(
+    kinds = pane(page, 'A').locator('.bonded-plot').evaluate(
         "(el) => el.data.filter(trace => trace.meta === 'term').map(trace => trace.name.split(' · ')[0])")
     assert kinds == ['bonds'], kinds
+    # The fit card is the fit target's own record: a pane viewing history does not rewrite it.
+    expect(page.locator('#bonded-result-title')).to_have_text('Revision 2 · current')
     assert errors == [], errors
 
 
@@ -957,7 +1005,7 @@ def test_the_parameter_inputs_follow_the_function_and_a_constraint_is_editable(d
     stub(page, answer([revision(1)]))
     open_panel(page, live_page, saved['file'])
 
-    rows = page.locator('.bonded-interaction-table tbody tr')
+    rows = table(page).locator('tbody tr')
     expect(rows).to_have_count(4)
     constraint = rows.nth(0).locator('input')
     expect(constraint).to_have_count(1)
@@ -968,7 +1016,7 @@ def test_the_parameter_inputs_follow_the_function_and_a_constraint_is_editable(d
         expect(inputs).to_have_count(expected)
         expect(inputs.first).to_be_editable()
     # The function form is text everywhere: no select in the table.
-    expect(page.locator('.bonded-interaction-table select')).to_have_count(0)
+    expect(table(page).locator('select')).to_have_count(0)
     # The rows still select on click, including the constraint's.
     rows.nth(0).click()
     expect(rows.nth(0)).to_have_attribute('aria-selected', 'true')
@@ -984,7 +1032,8 @@ def test_saving_a_parameter_in_place_posts_the_current_revision_and_reloads_manu
     """
     saved, content, _ = save(dashboard)
     page, errors = live_page
-    record = answer([revision(1)])
+    # A revision with hand edits is the one the server's gate allows in place; a fresh fit's first edit is "new".
+    record = answer([revision(1, edited_terms=[{'id': 'bonds:1', 'parameters': [0.32, 5000]}])])
     saved_posts = []
 
     def apply(body):
@@ -994,7 +1043,7 @@ def test_saving_a_parameter_in_place_posts_the_current_revision_and_reloads_manu
     stub(page, record, terms=saved_posts, on_terms=apply)
     open_panel(page, live_page, saved['file'])
 
-    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs = table(page).locator('tbody tr').nth(1).locator('input')
     inputs.nth(0).fill('0.33')
     inputs.nth(1).fill('6000')
     expect(page.locator('#bonded-terms-status')).to_contain_text('1 parameter change')
@@ -1014,7 +1063,7 @@ def test_saving_a_parameter_in_place_posts_the_current_revision_and_reloads_manu
                     'expected_sha256': f'{1:064x}', 'confirm': True,
                     'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}, body
     # The re-read is the stored state: the edited cell's Source says manual, and the button is inert again.
-    cells = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('td')
+    cells = table(page).locator('tbody tr').nth(1).locator('td')
     expect(cells.last).to_have_text('manual')
     expect(page.locator('#bonded-save-terms-inplace')).to_be_disabled()
     assert errors == [], errors
@@ -1033,8 +1082,10 @@ def test_an_earlier_revision_disables_in_place_and_save_as_new_clones_it(dashboa
         base = next(row for row in record['revisions'] if row['revision'] == 1)
         detached = {**base, 'revision': 3, 'sha256': f'{3:064x}',
                     'topology': base['topology'].replace('2 3 1 0.32 5000', '2 3 1 0.33 6000'),
+                    'edited_terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}],
                     'sources': [dict(row, source='manual') if row['id'] == 'bonds:1' else row
                                 for row in base['sources']]}
+        detached.update(gate_fields(detached))
         record['revisions'].append(detached)
         record['summary'] = summary(3, record['revisions'])
         return 3
@@ -1049,7 +1100,7 @@ def test_an_earlier_revision_disables_in_place_and_save_as_new_clones_it(dashboa
     expect(page.locator('#bonded-terms-status')).to_contain_text('Save in place writes the revision a run consumes')
     expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
 
-    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs = table(page).locator('tbody tr').nth(1).locator('input')
     inputs.nth(0).fill('0.33')
     inputs.nth(1).fill('6000')
     page.locator('#bonded-save-terms-new').click()
@@ -1066,6 +1117,68 @@ def test_an_earlier_revision_disables_in_place_and_save_as_new_clones_it(dashboa
     assert errors == [], errors
 
 
+def test_a_fresh_fits_save_in_place_is_disabled_with_the_stores_reason_until_saved_as_new(
+        dashboard, live_page):
+    """The edit gate is the server's answer, quoted: a fit's own revision renders inputs but cannot write in place.
+
+    `edited_terms` is the one marker of hand edits. Save as new is the first edit of a fit revision, and the clone it
+    appends carries those edits -- so Save in place is available on it from then on. The panel never re-derives the
+    rule: the reason it shows is the one the record carries.
+    """
+    saved, content, _ = save(dashboard)
+    page, errors = live_page
+    record = answer([revision(1)])
+    saved_posts = []
+
+    def clone(body):
+        base = record['revisions'][0]
+        detached = {**base, 'revision': 2, 'sha256': f'{2:064x}',
+                    'created_at': '2026-10-16T15:00:00+00:00',
+                    'topology': base['topology'].replace('2 3 1 0.32 5000', '2 3 1 0.33 6000'),
+                    'edited_terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}],
+                    'sources': [dict(row, source='manual') if row['id'] == 'bonds:1' else row
+                                for row in base['sources']]}
+        detached.update(gate_fields(detached))
+        record['revisions'].append(detached)
+        record['summary'] = summary(2, record['revisions'])
+        return 2
+
+    stub(page, record, terms=saved_posts, on_terms=clone)
+    open_panel(page, live_page, saved['file'])
+
+    # The fit's own revision: the inputs exist, but in place stays inert with the server's sentence.
+    expect(table(page).locator('tbody tr').nth(1).locator('input')).to_have_count(2)
+    in_place = page.locator('#bonded-save-terms-inplace')
+    expect(in_place).to_be_disabled()
+    expect(in_place).to_have_attribute('title', 'fitted by fast-forward; Save as new to edit it')
+    expect(page.locator('#bonded-terms-status')).to_contain_text(
+        'fitted by fast-forward; Save as new to edit it')
+    expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
+
+    inputs = table(page).locator('tbody tr').nth(1).locator('input')
+    inputs.nth(0).fill('0.33')
+    inputs.nth(1).fill('6000')
+    page.locator('#bonded-save-terms-new').click()
+    page.wait_for_function(
+        """([file]) => document.querySelector('.bonded-column[data-side=A] #bonded-parameterization-display')
+          ?.value === `revision:${file}:2`""", arg=[saved['file']], timeout=30000)
+
+    assert len(saved_posts) == 1, saved_posts
+    body = saved_posts[0][2]
+    assert body == {'mode': 'new', 'revision': 1, 'expected_revision': 1,
+                    'expected_sha256': f'{1:064x}',
+                    'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}, body
+    assert 'from_reference' not in body, 'the reference seed path is gone'
+
+    # The reloaded clone carries the hand edit, so Save in place is available when there is something to write.
+    expect(in_place).to_be_disabled()
+    expect(in_place).to_have_attribute('title', 'No unsaved parameter changes.')
+    inputs.nth(0).fill('0.34')
+    expect(in_place).to_be_enabled()
+    expect(page.locator('#bonded-terms-status')).to_contain_text('1 parameter change')
+    assert errors == [], errors
+
+
 def test_a_selector_switch_discards_unsaved_values_and_says_so(dashboard, live_page):
     """No dialog: a switch loads the other model and the status line states that the typed values were discarded."""
     saved, _, _ = save(dashboard)
@@ -1074,14 +1187,16 @@ def test_a_selector_switch_discards_unsaved_values_and_says_so(dashboard, live_p
     stub(page, answer(history, current=2))
     open_panel(page, live_page, saved['file'])
 
-    inputs = page.locator('.bonded-interaction-table tbody tr').nth(1).locator('input')
+    inputs = table(page).locator('tbody tr').nth(1).locator('input')
     inputs.nth(0).fill('0.33')
-    expect(page.locator('#bonded-terms-status')).to_contain_text('1 parameter change')
+    # A fresh fit's revision is editable, but its first edit is Save as new: the status quotes the server's reason.
+    expect(page.locator('#bonded-terms-status')).to_contain_text('fitted by fast-forward; Save as new to edit it')
+    expect(page.locator('#bonded-save-terms-new')).to_be_enabled()
 
     choose_revision(page, saved['file'], 1)
     expect(page.locator('#bonded-terms-status')).to_contain_text('Unsaved parameter changes were discarded')
     # The earlier revision's own value is what the table now shows: the typed 0.33 did not travel with it.
-    expect(page.locator('.bonded-interaction-table tbody tr').nth(0).locator('input').nth(0)).to_have_value('0.4')
+    expect(table(page).locator('tbody tr').nth(0).locator('input').nth(0)).to_have_value('0.4')
     assert errors == [], errors
 
 
@@ -1108,7 +1223,7 @@ def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page
     expect(page.locator('#bonded-revisions')).to_have_count(0)
     # Every term's source is what the store computed from the revision rather than anything the fixture said: a
     # Fast-Forward revision's terms are the engine's, and the store is what stamps that name onto them.
-    sources = set(page.locator('.bonded-interaction-table tbody tr td:last-child').all_inner_texts())
+    sources = set(table(page).locator('tbody tr td:last-child').all_inner_texts())
     assert sources == {'ff_inter'}, sources
     assert errors == [], errors
 
@@ -1128,7 +1243,7 @@ def test_the_panel_fits_a_narrow_window_without_scrolling_sideways(dashboard, li
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), \
         page.evaluate('document.documentElement.scrollWidth')
     boxes = page.evaluate("""() => ['#bonded-model-summary', '#bonded-result-provenance',
-                                     '.bonded-interaction-table']
+                                     '.bonded-column[data-side="A"] .bonded-interaction-table']
       .map(selector => {
         const element = document.querySelector(selector);
         return element ? Math.round(element.getBoundingClientRect().right) : 0;
@@ -1290,10 +1405,23 @@ def test_each_kind_of_term_is_drawn_as_its_own_thing(dashboard, live_page):
       const second = read();
       const sites = host.data.filter(trace => trace.name === 'Virtual sites')
         .map(trace => ({symbol: trace.marker.symbol, text: [...trace.text], size: trace.marker.size}));
+      // `resize` is what the minimised second pane calls on expand: it measures a host with width, and does nothing
+      // (rather than throwing) for one still collapsed to zero width.
+      let resized = false;
+      try { plot.resize(); resized = true; } catch (error) { resized = String(error); }
+      const collapsed = document.createElement('div');
+      document.body.append(collapsed);
+      const empty = mountBondedPlot(collapsed, {});
+      let zeroWidth = false;
+      try { empty.resize(); zeroWidth = true; } catch (error) { zeroWidth = String(error); }
+      empty.destroy(); collapsed.remove();
       plot.destroy(); host.remove();
       const positions = Object.fromEntries(beads.map(bead => [bead.name, bead.position]));
-      return {first, second, sites, positions, diagonal: Math.hypot(0.5, 0.4, 0.4)};
+      return {first, second, sites, positions, diagonal: Math.hypot(0.5, 0.4, 0.4),
+              hasResize: typeof plot.resize, resized, zeroWidth};
     }""")
+    assert drawn['hasResize'] == 'function', drawn['hasResize']
+    assert drawn['resized'] is True and drawn['zeroWidth'] is True, (drawn['resized'], drawn['zeroWidth'])
     first, second, positions = drawn['first'], drawn['second'], drawn['positions']
     byId = {entry['id']: entry for entry in first}
     expected = {'bonds:1': ('solid', 'rgba(54,162,105,1)'),
@@ -1386,7 +1514,7 @@ def test_a_revisions_terms_reach_the_scene_through_the_export_names(dashboard, l
 
     page, errors = live_page
     open_panel(page, live_page, saved['file'])
-    plot = page.locator('.bonded-plot')
+    plot = pane(page, 'A').locator('.bonded-plot')
     # The bundle is several megabytes and the scene is WebGL: 5 s is enough alone and not enough with two
     # dozen workers loading it at once, which is what a bare `to_be_visible` answers here.
     expect(plot.locator('.plotly')).to_be_visible(timeout=20000)

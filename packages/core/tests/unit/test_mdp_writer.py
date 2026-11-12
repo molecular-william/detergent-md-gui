@@ -172,6 +172,43 @@ def test_aa_profiles_pin_the_reviewed_maps():
         assert_same(profile, AA_EXPECTED[profile], aa_values(profile, settings))
 
 
+def test_the_aa_stage_settings_reach_their_own_mdp():
+    """dt changes the step count, not the duration; nstlist and the buffer tolerance are each stage's own.
+
+    The defaults above are the reviewed numbers, so the parity maps stay untouched. This is the other half: a run
+    that names a stage's numbers writes them into that stage's file and doubles its step count at half the timestep.
+    """
+    changed = aa.normalize_settings({'aa_nvt_dt_fs': 1, 'aa_npt_dt_fs': 1, 'aa_production_dt_fs': 1,
+                                     'aa_nvt_nstlist': 10, 'aa_npt_nstlist': 40,
+                                     'aa_production_verlet_buffer_tolerance': 0.01})
+    default = aa.normalize_settings({})
+    nstlist = {'aa-nvt-v1': '10', 'aa-npt-v1': '40', 'aa-production-v1': '20'}
+    for profile in AA_DURATION:
+        before = parsed(render(profile, aa.mdp_values(default, profile)))
+        after = parsed(render(profile, aa.mdp_values(changed, profile)))
+        assert after['dt'] == '0.001', profile
+        assert int(after['nsteps']) == 2 * int(before['nsteps']), profile
+        assert int(after['nstxout-compressed']) == 2 * int(before['nstxout-compressed']), profile
+        assert after['nstenergy'] == after['nstlog'] == '500', profile
+        assert after['nstlist'] == nstlist[profile], profile
+        # A stage that named none keeps the reviewed buffer tolerance.
+        assert after['verlet-buffer-tolerance'] == (
+            '0.01' if profile == 'aa-production-v1' else '-1'), profile
+
+
+def test_an_aa_verlet_buffer_tolerance_of_exactly_zero_is_refused_by_name():
+    """GROMACS itself refuses it, so the run that would reach grompp with it is refused here, naming the setting."""
+    for stage in ('nvt', 'npt', 'production'):
+        with pytest.raises(ValueError, match=rf'aa_{stage}_verlet_buffer_tolerance.*exactly 0'):
+            aa.normalize_settings({f'aa_{stage}_verlet_buffer_tolerance': 0})
+
+
+def test_a_cg_verlet_buffer_tolerance_of_exactly_zero_is_refused():
+    """The CG production file has no pinned rlist for -1, so its domain starts above zero rather than at it."""
+    with pytest.raises(ValueError, match=r'CG Verlet buffer tolerance .* must be between 0.001 and 0.1'):
+        cg.normalize_settings({'verlet_buffer_tolerance': 0})
+
+
 # --------------------------------------------------------------------------------------------------------------------
 # CG half: `cg.prepare` patches the shipped templates.
 # --------------------------------------------------------------------------------------------------------------------

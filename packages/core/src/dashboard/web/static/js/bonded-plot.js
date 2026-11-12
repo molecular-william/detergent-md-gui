@@ -193,7 +193,8 @@ function termColour(value, alpha) {
   return /^\d{1,3},\d{1,3},\d{1,3}$/.test(value) ? ink(value, alpha) : value;
 }
 
-export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairSelection, onPlotError}) {
+export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairSelection, onPlotError,
+                                    uirevision = 'bonded-workspace'} = {}) {
   let selectedBeads = [];
   let clickHandler = null;
   //: Which render is the current one. Plotly arrives asynchronously, and the reader re-renders this module on
@@ -214,7 +215,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairS
   function render({beads = [], edges = [], terms = [], pairs = [], selectedBeads: selected = [],
                    selectedTermId = '', selectedPairId = '', beadAliases = new Map(),
                    beadColor = null, selection = '', height = 620,
-                   uirevision = 'bonded-workspace'} = {}) {
+                   uirevision: sceneRevision = uirevision} = {}) {
     selectedBeads = [...selected];
     if (!host) {
       // A missing host is a missing host: the bundle is not even asked for on this path, so blaming it
@@ -393,7 +394,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairS
     }
     const layout = {
       height, margin: {l: 0, r: 0, t: 16, b: 0}, showlegend: true,
-      legend: {orientation: 'h', y: 1.02, x: 0}, uirevision,
+      legend: {orientation: 'h', y: 1.02, x: 0}, uirevision: sceneRevision,
       scene: {
         xaxis: {title: 'x (nm)', showgrid: true, zeroline: false},
         yaxis: {title: 'y (nm)', showgrid: true, zeroline: false},
@@ -442,6 +443,12 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairS
     });
   }
 
+  /** Re-measure the scene after its host changed size -- the collapsed pane's host measured zero width. */
+  function resize() {
+    if (!host || !window.Plotly || !host.clientWidth) return;
+    window.Plotly.Plots.resize(host);
+  }
+
   function destroy() {
     // A bundle still in flight must not draw into a host this module no longer owns.
     generation += 1;
@@ -449,5 +456,5 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairS
     if (window.Plotly && host) window.Plotly.purge(host);
   }
 
-  return {render, destroy};
+  return {render, resize, destroy};
 }

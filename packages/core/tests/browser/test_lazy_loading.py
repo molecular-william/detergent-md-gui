@@ -78,7 +78,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     other = browser.new_page()
     other.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
     expect(other.locator('.bonded-mapping-select')).to_have_value(saved['file'])
-    expect(other.locator('.bonded-plot .plotly')).to_be_visible()
+    expect(other.locator('.bonded-column[data-side="A"] .bonded-plot .plotly')).to_be_visible()
     expect(other.locator('#mapping-bead-rows tr')).to_have_count(0)
 
 
@@ -105,7 +105,7 @@ def test_catalogue_prefetch_is_what_each_panel_reuses(dashboard, live_page):
     page.wait_for_function("() => document.querySelectorAll('#mapping-molecule option').length > 1",
                            timeout=30000)
     page.locator('#tab-bonded').click()
-    expect(page.locator('.bonded-plot .plotly')).to_be_visible(timeout=30000)
+    expect(page.locator('.bonded-column[data-side="A"] .bonded-plot .plotly')).to_be_visible(timeout=30000)
     assert asked.count('/api/molecules?') == 1, asked
     assert asked.count('/api/cg-models?view=summary') == 1, asked
     assert asked.count('/api/mappings?view=summary') == 1, asked

@@ -239,6 +239,13 @@ STAGES, REQUIRED_INPUTS, REQUIRED_OUTPUTS = stage_tables(STAGE_DEFS)
 
 
 DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
+              # Each dynamics stage has its own timestep, neighbour-list rebuild cadence and Verlet buffer tolerance.
+              # The defaults are the protocol's reviewed numbers, so an untouched run renders byte-identical MDPs;
+              # a run that names one replaces only that stage's number.
+              aa_nvt_dt_fs=2,aa_npt_dt_fs=2,aa_production_dt_fs=2,
+              aa_nvt_nstlist=20,aa_npt_nstlist=20,aa_production_nstlist=20,
+              aa_nvt_verlet_buffer_tolerance=-1,aa_npt_verlet_buffer_tolerance=-1,
+              aa_production_verlet_buffer_tolerance=-1,
               temperature_k=forcefields.entry().temperature_k,
               pressure_bar=1,output_interval_ps=10,box_nm=aa_box.DEFAULT_EDGE_NM,aa_seed=20260917,
               mdrun_ntomp=8,mdrun_ranks=1,mdrun_nb='auto',mdrun_pme='auto',mdrun_gpu=0,
@@ -264,9 +271,9 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               'mdrun_pmefft':('PME FFT scheme',('auto','cpu','gpu')),
               'mdrun_update':('Update and constraints',('auto','cpu','gpu')),
               'mdrun_tunepme':('PME load tuning',('auto','on','off')),
-              # The cube is the protocol's own shape and stays the default. The dodecahedron was added on the
-              # manual's recommendation for a spherical solute and measured: it holds this cut-off in more water,
-              # not less, and runs 12% slower here. Available because it was worth testing; not the faster option.
+              # Every shape is sized by the same minimum image distance d, so the choice is only how much solvent the
+              # cell encloses: the cube d^3 is the protocol's own, and the manual's dodecahedra (0.707 d^3) and
+              # truncated octahedron (0.770 d^3) hold the same cut-off in less water (aa_box.SHAPES).
               'box_shape':('Box shape',aa_box.SHAPES),
               'force_field':('Force field',forcefields.names()),
               # Which bonds GROMACS converts to constraints. The force fields here pin `all-bonds`, but the
@@ -277,6 +284,19 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
+               # The three dynamics stages' own timesteps. A femtosecond is the unit the form states and the MDP
+               # writes ps, so `mdp_values` divides by 1000. 2 fs is the protocol's step (standing decision).
+               'aa_nvt_dt_fs':('NVT timestep (fs)',.5,4),'aa_npt_dt_fs':('NPT timestep (fs)',.5,4),
+               'aa_production_dt_fs':('Production timestep (fs)',.5,4),
+               # With the Verlet scheme `nstlist` is a performance knob and a floor: mdrun may raise it.
+               'aa_nvt_nstlist':('NVT neighbour list rebuild (steps)',1,10000),
+               'aa_npt_nstlist':('NPT neighbour list rebuild (steps)',1,10000),
+               'aa_production_nstlist':('Production neighbour list rebuild (steps)',1,10000),
+               # -1 disables the automatic buffer and keeps the profile's pinned rlist; a positive value lets
+               # GROMACS size rlist. Exactly 0 is inside the bounds and is refused by `normalize_settings`.
+               'aa_nvt_verlet_buffer_tolerance':('NVT Verlet buffer tolerance',-1,.1),
+               'aa_npt_verlet_buffer_tolerance':('NPT Verlet buffer tolerance',-1,.1),
+               'aa_production_verlet_buffer_tolerance':('Production Verlet buffer tolerance',-1,.1),
                'mdrun_ntomp':('mdrun OpenMP threads per rank',1,72),
                'mdrun_ranks':('mdrun MPI ranks',1,72),
                # An index, not a list: one device per run, chosen from the ones the host reports. The upper bound
@@ -315,8 +335,18 @@ def normalize_settings(settings=None, profile='standard'):
         object_message='AA settings must be an object', unknown_prefix='Unknown AA setting: ',
         bool_message='AA settings must be numeric',
         integrals={'mdrun_gpu':'mdrun_gpu must be an integer', 'mdrun_cpt':'mdrun_cpt must be an integer',
-                   'aa_seed':'AA seed must be an integer'})
+                   'aa_seed':'AA seed must be an integer',
+                   'aa_nvt_nstlist':'aa_nvt_nstlist must be an integer',
+                   'aa_npt_nstlist':'aa_npt_nstlist must be an integer',
+                   'aa_production_nstlist':'aa_production_nstlist must be an integer'})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
+    # GROMACS refuses a Verlet buffer tolerance of exactly 0 outright ("Can not have Verlet buffer tolerance of
+    # exactly 0"), but 0 sits inside the published bounds, so it is refused here by name rather than at grompp.
+    for stage in ('nvt','npt','production'):
+        key=f'aa_{stage}_verlet_buffer_tolerance'
+        if result[key]==0:
+            raise ValueError(f'{key} must not be 0: GROMACS answers "Can not have Verlet buffer tolerance of exactly '
+                             '0"; use -1 for the pinned rlist or a positive tolerance to let GROMACS size it')
     # The temperature a run starts from belongs to the force field: each parameterisation assumes one, and the
     # reference protocol this project reproduces runs each force field at its own. A caller who names a
     # temperature still wins, because they may be testing the assumption.
@@ -368,15 +398,26 @@ def readiness(molecule_root,molecule_id):
 #: with the ions file, the ions stage writes it again after neutralising, and the four dynamics stages follow.
 MDP_PROFILES = ('aa-ions-v1', 'aa-ions-v1', 'aa-em-v1', 'aa-nvt-v1', 'aa-npt-v1', 'aa-production-v1')
 _DURATION_SETTING = {'aa-nvt-v1': 'aa_nvt_ps', 'aa-npt-v1': 'aa_npt_ps', 'aa-production-v1': 'aa_production_ps'}
+#: The stage name in each dynamics profile's own setting keys, so `mdp_values` reads that stage's dt, nstlist
+#: and buffer tolerance rather than borrowing one leg's numbers for another.
+_STAGE_SETTING = {'aa-nvt-v1': 'nvt', 'aa-npt-v1': 'npt', 'aa-production-v1': 'production'}
 
 
 def mdp_values(settings, profile):
-    """The numbers one profile leaves to the run, computed exactly as `mdp()` computes them."""
+    """The numbers one profile leaves to the run, computed exactly as `mdp()` computes them.
+
+    dt is the stage's own and is stored in femtoseconds, so the step count and the output stride convert it to ps
+    first: the duration does not change when the timestep does, only how many steps reach it.
+    """
     values = {'force_field': settings['force_field'], 'constraints': settings['constraints']}
     if profile in ('aa-ions-v1', 'aa-em-v1'):
         return values
-    interval = max(1, round(settings['output_interval_ps'] / 0.002))
-    values.update({'nsteps': round(settings[_DURATION_SETTING[profile]] / 0.002),
+    stage = _STAGE_SETTING[profile]
+    dt_ps = settings[f'aa_{stage}_dt_fs'] / 1000
+    interval = max(1, round(settings['output_interval_ps'] / dt_ps))
+    values.update({'dt': dt_ps, 'nstlist': settings[f'aa_{stage}_nstlist'],
+                   'verlet-buffer-tolerance': settings[f'aa_{stage}_verlet_buffer_tolerance'],
+                   'nsteps': round(settings[_DURATION_SETTING[profile]] / dt_ps),
                    'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
                    'gen-seed': settings['aa_seed'], 'ld-seed': settings['aa_seed'],
                    'nstxout-compressed': interval, 'nstenergy': min(interval, 500), 'nstlog': min(interval, 500)})

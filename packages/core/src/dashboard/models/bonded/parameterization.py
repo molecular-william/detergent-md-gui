@@ -37,9 +37,9 @@ from . import PARAMETER_RANGES, parse_interactions, rewrite_interactions, valida
 #: web layer so a new engine is one edit and the route cannot invent a fourth.
 ENGINES = ('fast-forward', 'bartender')
 
-#: A revision's source when it is a transcription of the published Martini 3 reference rather than a fit. It is a
-#: *revision source*, never a fitting engine: `published()` lists only ``ENGINES``, and the job/queue routes keep
-#: reading ``ENGINES``, so a reference can be seeded as an editable revision but can never be "fitted".
+#: A revision's source when it is a transcription of the published Martini 3 reference rather than a fit. The seed
+#: that produced one is gone (2026-11-12: the published reference is display-only, and a CG run consumes it directly),
+#: but ``validate``/``describe`` still read the records that carry it, and ``edit_gate`` keeps such a revision read-only.
 TRANSCRIPTION_SOURCE = 'martini-reference'
 
 #: What ``validate`` accepts on a stored revision: the two fit engines and the reference transcription.
@@ -61,7 +61,7 @@ class StaleRevision(ValueError):
 
 
 class Refused(ValueError):
-    """A write that this revision's state cannot accept (an earlier revision in place, a reference, a bad seed)."""
+    """A write that this revision's state cannot accept (an earlier revision in place, a read-only revision)."""
 
 #: The provenance of a term that came from the mapping rather than from an engine, and of one the
 #: automatic draft could not find a reference for. Both are named so a hand-edited row is visible.
@@ -668,7 +668,12 @@ def save(mapping, payload, *, expected_revision=None, work=None) -> dict:
     record = document(mapping)
     if expected_revision is not None and int(expected_revision) != record['revision']:
         raise ValueError('Parameterization changed; reload it before saving')
-    return _append_revision(record, mapping, validate(payload), work=work)
+    checked = validate(payload)
+    # `validate` still reads a stored transcription, because old records carry one; producing a new one here is the
+    # seed path that is gone -- a CG run consumes the published reference directly.
+    if checked['engine'] not in ENGINES:
+        raise ValueError('A stored revision is fitted; a Martini 3 reference transcription is read-only')
+    return _append_revision(record, mapping, checked, work=work)
 
 
 def _find_revision(record, revision):
@@ -726,76 +731,7 @@ def _merge_edits(existing, validated):
     return list(merged.values())
 
 
-def _partition(beads):
-    """The bead partition a published entry's term indices would land on: name, atoms, parents, order."""
-    rows = []
-    for bead in beads or []:
-        if not isinstance(bead, dict):
-            continue
-        virtual = bead.get('virtual_site')
-        parents = virtual.get('parents') if isinstance(virtual, dict) else None
-        rows.append((str(bead.get('name')), tuple(int(atom) for atom in bead.get('atoms') or []),
-                     tuple(sorted(str(parent) for parent in parents or [])), bool(virtual)))
-    return rows
-
-
-def _seed_from_reference(mapping, record, edits, molecule_root):
-    """The payload for a revision transcribed from the molecule's published Martini 3 entry.
-
-    The entry is re-derived from the saved mapping's own molecule, never from the request, and the saved mapping's
-    bead partition must equal the published candidate's: the published term indices are bead positions, so a
-    different partition would attach them to different beads. The AA reference of the mapping's current revision is
-    inherited for a run's source pin (a run must record its AA source) and the revision says it was not fitted
-    against it.
-    """
-    molecule_id = mapping.get('molecule_id')
-    if not molecule_id:
-        raise Refused('The saved mapping names no molecule, so it has no published entry to seed from')
-    from ..mappings import context as mapping_context
-    from ..sugars import reference as sugar_reference
-
-    entry = sugar_reference.PUBLISHED_FOR.get(molecule_id)
-    if entry is None:
-        raise Refused(f'{molecule_id} has no published Martini 3 sugar entry to seed from')
-    if not molecule_root:
-        raise ValueError('molecule_root is required to seed a published reference')
-    context = mapping_context.build_context(Path(molecule_root), molecule_id)
-    try:
-        model = sugar_reference.published_model(molecule_id, mapping_context.as_structure(context))
-    except sugar_reference.ReferenceRefused as exc:
-        raise Refused(str(exc)) from exc
-    if _partition(mapping.get('beads')) != _partition(model.get('beads')):
-        raise Refused("This mapping's beads differ from the published entry; a seed would attach the terms to "
-                      'different beads')
-    topology = sugar_reference.run_topology(entry)
-    validated = _validated_edits(topology, edits)
-    if validated:
-        topology = rewrite_interactions(topology, {term_id: edit['parameters']
-                                                   for term_id, edit in validated.items()})
-    current = record.get('current') if isinstance(record.get('current'), dict) else None
-    reference = current.get('aa_reference') if current else None
-    notes = [f'seeded from the published Martini 3 reference {entry}; not a fit']
-    if reference:
-        notes.append(f'AA reference inherited from revision {current["revision"]} for a run\'s source pin; '
-                     'these terms were not fitted against it.')
-    else:
-        notes.append('no AA reference: a CG run cannot pin its source until this mapping has a fitted revision')
-    provenance = model.get('reference') or {}
-    return validate({
-        'engine': TRANSCRIPTION_SOURCE, 'engine_default_source': TRANSCRIPTION_SOURCE,
-        'topology': topology, 'terms': term_counts({'topology': topology}),
-        'options': normalise_options(mapping),
-        'ensemble': {'frames': None, 'source': 'the published Martini 3 reference; no AA trajectory was read'},
-        'aa_reference': reference, 'checks': {}, 'edited_terms': _merge_edits(None, validated),
-        'notes': notes,
-        'transcription': {'molecule_id': molecule_id, 'entry': entry,
-                          'path': provenance.get('path'), 'sha256': provenance.get('sha256'),
-                          'paper_doi': provenance.get('paper_doi')},
-    })
-
-
-def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, expected_sha256=None,
-               from_reference=False, molecule_root=None) -> dict:
+def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, expected_sha256=None) -> dict:
     """Write edited terms into the mapping's parameterization record.
 
     ``mode='in_place'`` rewrites the *current* revision's topology and only that; the revision number and its fit
@@ -804,8 +740,8 @@ def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, e
     AA reference, options and coordinate/distribution records, replaces the topology, clears the checks, appends it
     and makes it current; the source revision is untouched.
 
-    ``from_reference`` is the seed: a new revision of the saved mapping transcribed from its molecule's published
-    Martini 3 entry (see ``_seed_from_reference``), never an in-place write. Returns the stored record.
+    Whether either write is allowed is ``edit_gate``'s answer: a fresh fit revision is editable but its first edit is
+    Save as new, and a ``martini-reference`` transcription is read-only. Returns the stored record.
     """
     if mode not in ('in_place', 'new'):
         raise ValueError('mode must be "in_place" or "new"')
@@ -814,11 +750,6 @@ def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, e
     record = document(mapping)
     if expected_revision != record['revision']:
         raise StaleRevision('This parameterization changed; reload it before saving')
-    if from_reference:
-        if mode != 'new':
-            raise Refused('A published Martini 3 reference is never edited in place')
-        _append_revision(record, mapping, _seed_from_reference(mapping, record, edits, molecule_root))
-        return record
     if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
         raise ValueError('expected_sha256 is required to save a stored revision')
     if isinstance(revision, bool) or not isinstance(revision, int):
@@ -826,11 +757,14 @@ def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, e
     item = _find_revision(record, revision)
     if revision_sha256(item) != expected_sha256:
         raise StaleRevision('This revision changed since it was read; reload it before saving')
+    gate = edit_gate(item)
     if mode == 'in_place':
         current = (record.get('current') or {}).get('revision')
         if revision != current:
             raise Refused(f'Revision {revision} is not the current revision; Save in place writes the revision a '
                           'run consumes')
+        if not gate['save_in_place']:
+            raise Refused(gate['reason'])
         validated = _validated_edits(item['topology'], edits)
         if not validated:
             raise ValueError('No parameter edits were given')
@@ -846,6 +780,8 @@ def save_terms(mapping, *, mode, edits, revision=None, expected_revision=None, e
         record['updated_at'] = files.now_iso()
         files.atomic_json(_path(mapping), record)
         return record
+    if not gate['editable']:
+        raise Refused(gate['reason'])
     validated = _validated_edits(item['topology'], edits)
     rewritten = (rewrite_interactions(item['topology'], {term_id: edit['parameters']
                                                         for term_id, edit in validated.items()})
@@ -967,6 +903,26 @@ def total_terms(revision) -> int:
     return sum(values for kind, values in counts.items() if kind != 'virtual_sitesn')
 
 
+def edit_gate(revision) -> dict:
+    """Whether a revision's terms may be edited, and whether Save in place may write it.
+
+    The one rule for bonded editability, derived from the stored revision at read time and never persisted, so a
+    revision's digest names its terms and not this answer. A fit's own revision (``fast-forward`` or ``bartender``)
+    is editable in the table, but its first edit is Save as new: Save in place rewrites the revision a run consumes,
+    and only hand edits say a person has looked at the fit. ``edited_terms`` is the one marker of hand edits -- a
+    mapping's ``bonded_overrides`` are the mapping's property, not this revision's. A ``martini-reference``
+    transcription is read-only whatever it carries, because nothing fitted it.
+    """
+    revision = revision or {}
+    if revision.get('engine') == TRANSCRIPTION_SOURCE:
+        return {'editable': False, 'save_in_place': False,
+                'reason': 'a Martini 3 reference transcription is read-only'}
+    if revision.get('edited_terms'):
+        return {'editable': True, 'save_in_place': True, 'reason': ''}
+    return {'editable': True, 'save_in_place': False,
+            'reason': f'fitted by {revision.get("engine")}; Save as new to edit it'}
+
+
 def view(record) -> dict:
     """The shape a panel renders about a stored record: one for both honest states (D5).
 
@@ -983,7 +939,9 @@ def view(record) -> dict:
                 'terms': None, 'torsion_model': None, 'checks': [], 'aa_reference': None,
                 'revision_sha256': None, 'mapping_hash': (record or {}).get('mapping_hash'),
                 'mapping_content_hash': (record or {}).get('mapping_content_hash'),
-                'revisions': []}
+                'parameters_editable': False, 'save_in_place': False,
+                'save_in_place_reason': 'this model carries no parameterization', 'revisions': []}
+    gate = edit_gate(revision)
     return {'parameterized': True, 'revision': revision['revision'], 'engine': revision['engine'],
             'engine_label': ENGINE_LABELS.get(revision['engine']), 'terms': total_terms(revision),
             'torsion_model': (revision.get('options') or {}).get('torsion_model'),
@@ -992,6 +950,8 @@ def view(record) -> dict:
             'created_at': revision.get('created_at'),
             'mapping_hash': revision.get('mapping_hash') or (record or {}).get('mapping_hash'),
             'mapping_content_hash': revision.get('mapping_content_hash') or (record or {}).get('mapping_content_hash'),
+            'parameters_editable': gate['editable'], 'save_in_place': gate['save_in_place'],
+            'save_in_place_reason': gate['reason'],
             'revisions': [item.get('revision') for item in record.get('revisions') or []]}
 
 

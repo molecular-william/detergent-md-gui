@@ -26,10 +26,14 @@ MDP_HELP = {
     'xtc_precision': 'precision with which to write to the compressed trajectory file; the manual spells this '
                      'option compressed-x-precision',
     'nstcomm': 'interval for center of mass motion removal',
+    'dt': 'the time step; the manual states dt (0.001) [ps]. The form names it in femtoseconds and the run writes '
+          'fs/1000: 2 fs is this protocol, and a longer step needs hydrogen-mass repartitioning, which this form '
+          'does not do',
     'nstlist': 'interval between steps that update the neighbor list; with dynamics and a Verlet buffer tolerance '
-               'this is a minimum value and gmx mdrun might increase it',
-    'verlet_buffer_tolerance': 'the maximum allowed error for pair interactions per particle caused by the Verlet '
-                               'buffer, which indirectly sets rlist',
+               'this is a minimum value and mdrun might increase it',
+    'verlet_buffer_tolerance': 'the maximum allowed error for pair interactions per atom pair caused by the Verlet '
+                               'buffer, in kJ mol^-1 ps^-1, which indirectly sets rlist; -1 uses the rlist the file '
+                               'pins and disables the automatic buffer',
     'rlist': 'cut-off distance for the short-range neighbor list; with dynamics this is by default set by the '
              'verlet-buffer-tolerance and the value of rlist is ignored',
     'rcoulomb': 'the distance for the Coulomb cut-off',
@@ -40,6 +44,13 @@ MDP_HELP = {
     'constraints': 'select which bonds to convert to constraints: none, h-bonds, all-bonds, h-angles, all-angles; '
                    "a topology's own [ constraints ] block is enforced whatever this says",
 }
+
+#: The three AA dynamics stages each carry their own copy of the same three MDP options, and the form asks for
+#: help by the setting name its input carries: one sentence per option, keyed by each stage's setting name.
+for _stage in ('nvt', 'npt', 'production'):
+    MDP_HELP.update({f'aa_{_stage}_dt_fs': MDP_HELP['dt'],
+                     f'aa_{_stage}_nstlist': MDP_HELP['nstlist'],
+                     f'aa_{_stage}_verlet_buffer_tolerance': MDP_HELP['verlet_buffer_tolerance']})
 
 #: Execution-flag meanings, quoted from `gmx mdrun -h` on the installed build.
 MDRUN_HELP = {
@@ -61,9 +72,11 @@ MDRUN_HELP = {
 PROJECT_HELP = {
     'cg_seed': 'The seed written into the CG MDPs as gen-seed and ld-seed (dashboard text, not GROMACS): the same '
                'number for the velocity draw and the stochastic term, so a run can be repeated.',
-    'box_shape': 'The unit cell the single-solute protocol builds (dashboard text, not GROMACS). The cube is the '
-                 'protocol shape and the measured faster one here; the dodecahedron holds this cut-off in more '
-                 'water and ran 12% slower.',
+    'box_shape': 'The unit cell the single-solute protocol builds (dashboard text, not GROMACS). Every shape is sized '
+                 'by the same minimum image distance d, so all four have |a|=|b|=|c|=d: the cube is d^3, both rhombic '
+                 'dodecahedra (xy-square and xy-hexagon) are 0.707 d^3, and the truncated octahedron is 0.770 d^3 -- '
+                 'the same image distance with less solvent. GROMACS editconf makes them with -box d, or with '
+                 '-bt triclinic -box d d d -angles 60 60 60 for the xy-hexagon cell.',
 }
 
 #: What the form renders: one map keyed by setting name, whichever source a sentence came from.

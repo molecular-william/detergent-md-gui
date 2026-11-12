@@ -91,3 +91,21 @@
    branches the detergent count is read in. */
 /* The chain as a diagram, inside a closed <details>: a reader who wants the shape can see it, and one who wants the
    form is not scrolled past a picture first. The SVG is inline, so it needs no request and prints with the page. */
+
+/* The AA stage editors: a native <details> per stage, collapsed by default except the first, with the numbers a
+   reader most often changes inside and a facts line in the summary. `name="aa-stages"` makes the trio an accordion
+   in current browsers; a browser that ignores it simply allows several open, which is harmless. */
+#run-form .stage-editor { border: 1px solid var(--line); border-radius: 10px; background: #f7f9fc; margin: 8px 0 }
+#run-form .stage-editor[open] { background: #fff }
+#run-form .stage-editor > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  cursor: pointer; padding: 9px 12px; list-style: none; background: #fff; border-radius: 10px }
+#run-form .stage-editor[open] > summary { border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0 }
+#run-form .stage-editor > summary::-webkit-details-marker { display: none }
+#run-form .stage-editor > summary::before { content: "▸"; color: var(--accent); font-size: 12px; margin-right: 2px }
+#run-form .stage-editor[open] > summary::before { content: "▾" }
+#run-form .stage-editor .stage-name { font-weight: 700; font-size: 13px; flex: 1 }
+#run-form .stage-editor .stage-facts { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+  white-space: nowrap }
+#run-form .stage-editor .stage-body { padding: 10px 12px 12px }
+#run-form .stage-editor .settings-grid { margin-top: 0 }
+@media (max-width: 700px) { #run-form .stage-editor > summary { flex-wrap: wrap } }

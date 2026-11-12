@@ -165,6 +165,43 @@ def test_queue_keeps_the_transferable_mdp_options_and_the_box_shape(dashboard, c
     assert settings['mdrun_tunepme'] == 'off'
 
 
+def test_the_queue_keeps_the_aa_stage_settings_the_form_offers(dashboard, created):
+    """The per-stage timestep, neighbour list and buffer tolerance are advertised, so the queue keeps them.
+
+    Each has a spec; a field without one is dropped silently and the run would use the default. Posting the three
+    families through the panel's own endpoint is what proves the values the form showed reach `create_job`.
+    """
+    response = dashboard.client.post('/', json={
+        'molecule_id': 'DDM', 'method': 'gromacs', 'run_type': 'aa_only',
+        'aa_nvt_dt_fs': 1, 'aa_npt_dt_fs': 3, 'aa_production_dt_fs': 4,
+        'aa_nvt_nstlist': 10, 'aa_npt_nstlist': 40, 'aa_production_nstlist': 100,
+        'aa_nvt_verlet_buffer_tolerance': 0.01, 'aa_npt_verlet_buffer_tolerance': 0.05,
+        'aa_production_verlet_buffer_tolerance': -1})
+
+    assert response.status_code == 201, response.data
+    settings = created[0]['settings']
+    assert (settings['aa_nvt_dt_fs'], settings['aa_npt_dt_fs'], settings['aa_production_dt_fs']) == (1, 3, 4)
+    assert (settings['aa_nvt_nstlist'], settings['aa_npt_nstlist'],
+            settings['aa_production_nstlist']) == (10, 40, 100)
+    assert (settings['aa_nvt_verlet_buffer_tolerance'], settings['aa_npt_verlet_buffer_tolerance'],
+            settings['aa_production_verlet_buffer_tolerance']) == (0.01, 0.05, -1)
+
+
+def test_a_cg_verlet_buffer_tolerance_of_zero_is_refused_through_the_route(dashboard):
+    """GROMACS refuses exactly 0, and the CG production domain now starts above it.
+
+    The refusal comes from the adapter's normalizer before a job record is written, so the route answers 400.
+    """
+    response = dashboard.client.post('/', json={
+        'run_type': 'cg', 'molecule_id': '0123456789abcdef', 'detergent': '0123456789abcdef',
+        'parameterization': {'kind': 'composition', 'composition_id': '0123456789abcdef',
+                             'composition_revision': 1},
+        'verlet_buffer_tolerance': 0})
+
+    assert response.status_code == 400, response.data
+    assert b'must be between 0.001 and 0.1' in response.data
+
+
 def test_the_queue_keeps_the_aa_constraint_set_the_form_offers(dashboard, created):
     """`constraints` is a choice spec, and the route keeps only advertised keys.
 
