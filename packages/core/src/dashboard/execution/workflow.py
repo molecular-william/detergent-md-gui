@@ -470,19 +470,20 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     fp.write(f'\n{name} failed: {record["error"]}\n'); fp.flush()
 
             # The mdrun budget and the scheme choices in one place: the manifest records what ran, and the CG
-            # stages get the flags as environment because their commands are shell scripts. A stage named for
-            # minimisation keeps PME on the CPU; every other stage may put it on the GPU.
+            # stages get the flags as environment because their commands are shell scripts.
             from . import devices
             from .adapters import aa as aa_adapter
             stage_settings = dict(initial.get('settings') or data.get('settings') or {})
-            # The CG launchers offload nonbonded work only -- PME stays on the CPU there, which the GPU launcher
-            # tests pin -- so they take the minimisation bracket. A stage setting that names a scheme still
-            # overrides it, because the bracket only fills the choices left on 'auto'.
+            # Three brackets, all from the one builder:
+            #   MDRUN_FLAGS_AUTO   minimisation -- every scheme at auto, no checkpoint flag;
+            #   MDRUN_FLAGS        equilibration and production for the CG-style scripts (the run's schemes, PME
+            #                      left on the CPU, which the GPU launcher tests pin);
+            #   MDRUN_FLAGS_PME    the AA reference's dynamics (the run's schemes and PME on the GPU).
+            # A script's minimisation line reads AUTO, so a scheme chosen for the dynamics cannot reach the first leg.
             gromacs_flavour = aa_adapter.gromacs_flavour()
-            mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour)
-            # The AA reference stage's own launcher runs dynamics as well as minimisation, and its dynamics put PME
-            # on the GPU -- the bracket that script has always asked for. Both brackets come from the one builder,
-            # so the device is decided once and stated twice rather than written into a script as a literal.
+            mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(
+                stage_settings, 'equilibration', gromacs_flavour)
+            _, mdrun_flags_auto = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour)
             _, mdrun_flags_dynamics = aa_adapter.mdrun_command_flags(stage_settings, 'production', gromacs_flavour)
             # The device this run uses, resolved once: every stage records the same index, and each stage measures
             # what is on it when the stage starts.
@@ -523,6 +524,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     if _value is not None and not isinstance(_value, (dict, list, tuple)):
                         stage_env[f'RUN_SETTING_{str(_key).upper()}'] = str(_value)
                 stage_env['MDRUN_LAUNCHER']=mdrun_launcher
+                stage_env['MDRUN_FLAGS_AUTO']=mdrun_flags_auto
                 stage_env['MDRUN_FLAGS']=mdrun_flags
                 stage_env['MDRUN_FLAGS_PME']=mdrun_flags_dynamics
                 # **`OMP_NUM_THREADS` and `-ntomp` have to agree, and GROMACS refuses to run when they do not:**
@@ -536,6 +538,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 if '-ntomp' in _flags and _flags.index('-ntomp') + 1 < len(_flags):
                     stage_env['OMP_NUM_THREADS'] = _flags[_flags.index('-ntomp') + 1]
                 entry['environment']['MDRUN_LAUNCHER']=mdrun_launcher
+                entry['environment']['MDRUN_FLAGS_AUTO']=mdrun_flags_auto
                 entry['environment']['MDRUN_FLAGS']=mdrun_flags
                 entry['environment']['MDRUN_FLAGS_PME']=mdrun_flags_dynamics
                 if stage_env.get('OMP_NUM_THREADS'):

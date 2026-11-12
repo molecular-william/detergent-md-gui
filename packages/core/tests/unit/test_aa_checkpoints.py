@@ -52,7 +52,8 @@ def test_the_untouched_command_is_byte_identical_and_the_cadence_only_appears_wh
     assert aa.mdrun_command_flags({}, 'production', 'mpi') == ('', untouched)
     assert aa.mdrun_command_flags({}, 'em', 'mpi')[1] == '-ntomp 8 -gpu_id 0 -nb gpu -pin on'
     assert aa.mdrun_command_flags({'mdrun_cpt': 20}, 'production', 'mpi')[1] == f'{untouched} -cpt 20'
-    assert aa.mdrun_command_flags({'mdrun_cpt': 1}, 'em', 'mpi')[1].endswith(' -cpt 1')
+    # A minimisation writes no checkpoint, so a cadence named for the run does not reach it.
+    assert '-cpt' not in aa.mdrun_command_flags({'mdrun_cpt': 1}, 'em', 'mpi')[1]
 
 
 def test_the_cadence_is_a_bounded_integer_setting():

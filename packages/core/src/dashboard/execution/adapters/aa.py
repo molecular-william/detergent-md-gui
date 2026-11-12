@@ -163,16 +163,26 @@ def mdrun_command_flags(settings, stage, flavour=None):
     leave GROMACS to use whichever came last, which would not be what the setting says. With every scheme on 'auto'
     the result is byte-for-byte the command these stages produced before the settings existed.
 
-    `mdrun_update`, `mdrun_pmefft` and `mdrun_tunepme` are the execution additions the New run form offers. 'auto'
-    for each emits nothing -- GROMACS' own default -- so an untouched run's command does not move; `tunepme` writes
-    `-tunepme` or `-notunepme` only when the run names one.
+    **A minimisation (`stage='em'`) ignores the scheme and checkpoint choices.** The New run form's Other run
+    options describe the equilibration and production legs; a minimisation runs with all five schemes on `auto` (the
+    profile's own bracket) and emits no `-cpt`, so a scheme chosen for dynamics cannot reach the first leg. The
+    thread, rank and device budget still applies -- that is how the leg executes, not what physics it runs.
+    `stage='equilibration'` is the same em bracket with the run's choices applied: the CG-style scripts run their
+    equilibration and production legs through it while leaving PME on the CPU.
     """
+    minimisation = stage == 'em'
+    if minimisation:
+        # Force the five choices to auto in one copy rather than testing for them in five places; `mdrun_gpu` is
+        # untouched, so the device bracket below still names the run's device.
+        settings = {**settings, 'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'mdrun_pmefft': 'auto',
+                    'mdrun_update': 'auto', 'mdrun_tunepme': 'auto'}
     launcher, thread_flags = mdrun_launch(settings, flavour)
     # The device is read here, from the setting, and nowhere else: the constants above are the default the
     # scripts' own fallbacks state, not a second opinion about which device this run uses. A host with no GPU
     # gets no device and no offload flag -- not even the PME pair the dynamics bracket has always added.
     device_flags = gpu_flags(settings)
-    bracket = device_flags if stage == 'em' or not device_flags else f'{device_flags} -pme gpu -pmefft gpu'
+    bracket = (device_flags if stage in ('em', 'equilibration') or not device_flags
+               else f'{device_flags} -pme gpu -pmefft gpu')
     tokens = bracket.split()
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         if str(settings.get(key) or 'auto') != 'auto':
@@ -200,7 +210,7 @@ def mdrun_command_flags(settings, stage, flavour=None):
     elif tunepme == 'off':
         flags += ' -notunepme'
     cpt = settings.get('mdrun_cpt')
-    if cpt is not None:
+    if cpt is not None and not minimisation:
         minutes = float(cpt)
         if minutes != int(minutes) or not 1 <= minutes <= 100000:
             raise ValueError('mdrun_cpt must be a whole number of minutes between 1 and 100000')

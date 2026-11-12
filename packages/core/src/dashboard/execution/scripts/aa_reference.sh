@@ -3,8 +3,9 @@ AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 # Run-local SwissParam/CHARMM reference; retain all logs and full-system outputs.
 #
 # The mdrun budget, the device and the scheme choices arrive as environment, from the one builder that reads
-# `mdrun_gpu` (`aa.mdrun_command_flags`): MDRUN_LAUNCHER is an mpirun prefix or empty, MDRUN_FLAGS the minimisation
-# bracket, MDRUN_FLAGS_PME the dynamics bracket (PME on the GPU, which this launcher has always asked for). The
+# `mdrun_gpu` (`aa.mdrun_command_flags`): MDRUN_LAUNCHER is an mpirun prefix or empty, MDRUN_FLAGS_AUTO the
+# minimisation bracket (schemes forced to auto), MDRUN_FLAGS the equilibration bracket, and MDRUN_FLAGS_PME the
+# dynamics bracket (PME on the GPU, which this launcher has always asked for). The
 # defaults are the case with no executor and no device named -- threads only -- because a device written here
 # would be a second opinion about which GPU the run used.
 #
@@ -22,10 +23,10 @@ fi
 cp system_EMPTY.top system.top
 gmx editconf -f molecule.pdb -d 1.5 -c -bt dodecahedron -o boxed.gro
 gmx grompp -f em.mdp -c boxed.gro -p system.top -o vacuum.tpr
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm vacuum ${MDRUN_FLAGS:--ntomp 8} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm vacuum ${MDRUN_FLAGS_AUTO:--ntomp 8} -v
 gmx solvate -cp vacuum.gro -cs spc216.gro -p system.top -o solvated.gro
 gmx grompp -f em.mdp -c solvated.gro -p system.top -o 1-em.tpr
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm 1-em ${MDRUN_FLAGS:--ntomp 8} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm 1-em ${MDRUN_FLAGS_AUTO:--ntomp 8} -v
 gmx grompp -f eq.mdp -c 1-em.gro -p system.top -o 2-eq.tpr
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm 2-eq ${MDRUN_FLAGS_PME:--ntomp 8} -v
 gmx grompp -f run.mdp -c 2-eq.gro -t 2-eq.cpt -p system.top -o 3-run.tpr

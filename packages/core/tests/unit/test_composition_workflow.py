@@ -127,7 +127,8 @@ def test_the_simulation_script_constructs_the_real_gromacs_commands(tmp_path, sa
     (fake / 'gmx').chmod(0o755)
     env = {**os.environ, 'PATH': f'{fake}{os.pathsep}{os.environ["PATH"]}',
            'PYTHON': sys.executable, 'PROJECT_ROOT': str(ROOT), 'GMX_LOG': str(log),
-           'MOLECULE_TYPE': 'GLC', 'FINAL_ITP': 'GLC.itp', 'MDRUN_FLAGS': '-ntomp 4'}
+           'MOLECULE_TYPE': 'GLC', 'FINAL_ITP': 'GLC.itp', 'MDRUN_FLAGS': '-ntomp 4',
+           'MDRUN_FLAGS_AUTO': '-ntomp 4'}
     stage = run / 'stages/4_CG_sim'
     completed = subprocess.run(['bash', str(run_scripts.code_path(composition.SIMULATION_SCRIPT, root=ROOT))],
                                cwd=stage, env=env, capture_output=True, text=True, check=False)

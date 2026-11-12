@@ -6,6 +6,24 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-12 a minimisation always runs the scheme choices at auto.** The New run form's Other run options
+(nonbonded/PME/PME-FFT/update/load-tuning schemes and the checkpoint cadence) now describe the equilibration and
+production legs only: `aa.mdrun_command_flags(stage='em')` forces those five choices to auto over a copy of the
+settings, keeps the device bracket, and emits no `-cpt`, so the first leg cannot inherit a scheme chosen for dynamics.
+`stage='equilibration'` is the same bracket with the run's choices (the CG-style scripts' dynamics), and
+`stage='production'` keeps the PME-on-GPU AA-reference bracket. `workflow.py` builds all three from the one builder and
+exports `MDRUN_FLAGS_AUTO`, `MDRUN_FLAGS` and `MDRUN_FLAGS_PME`; `cg_simulation.sh`, `sugar_cg_simulation.sh`,
+`aa_reference.sh`, `pdc_leg.sh` (by its stage directory) and the pdc extension plan read the auto bracket on their
+minimisation lines. The thread, rank and device budget still applies to every stage: it says how the leg executes, not
+what physics it runs. Help text and the form's Other run options hint state the rule. Checks: fast **2707 passed / 1
+xfailed**, browser **369 passed** (two unrelated load flakes failed on separate runs and passed on rerun; the third
+full run was green), slow **24 passed**, ruff clean. Live `a04732bc4b9e` (DDM, draft-smoke, mdrun_nb/pme/update=cpu,
+tunepme=off, cpt=1) completed in ~84 s: its minimisation command is `-ntomp 8 -gpu_id 0 -nb gpu -pin on` and its
+NVT/NPT/production commands are `-ntomp 8 -nb cpu -pme cpu -gpu_id 0 -pin on -update cpu -notunepme -cpt 1`; the
+stage environment carries `MDRUN_FLAGS_AUTO`. Dashboard restarted. Left deliberately: the minimisation bracket still
+names the run's device and its nonbonded offload (auto means the profile's bracket, not "no device"); only the
+explicit scheme/cadence choices are withheld.
+
 **2026-11-12 Bond Interactions is two comparison panes, and New run stages are editable.** The panel now renders
 one Jinja macro twice: pane A keeps every bare id the browser tier addresses, pane B carries the same ids with a
 `-B` suffix and a **Minimize** header control remembered in `ddm.bonded.state`; each pane has its own model select,

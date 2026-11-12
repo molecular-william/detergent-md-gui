@@ -197,6 +197,24 @@ def test_a_leg_that_has_work_runs_grompp_and_mdrun_without_asking_mdrun_for_thre
     assert '${MDRUN_LAUNCHER:-}' in script and '${MDRUN_FLAGS:-' in script
 
 
+def test_the_minimisation_leg_reads_the_auto_bracket_and_the_others_read_the_run_choices(tmp_path):
+    """The scheme choices describe equilibration and production; the minimisation leg runs them at auto. The script
+    serves all three legs, so the leg's own directory is what chooses which bracket it reads."""
+    run = prepared(tmp_path)
+    minimisation = stage_dir(run, 'Energy minimisation')
+    previous = run / pdc.STAGES_DIRECTORY / '02_system'
+    previous.mkdir(parents=True, exist_ok=True)
+    (previous / 'system.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')
+    (previous / 'system.top').write_text('[ molecules ]\n')
+
+    done = run_script(script_of('Energy minimisation'), minimisation,
+                      environment={'MDRUN_FLAGS': '-nb cpu', 'MDRUN_FLAGS_AUTO': '-nb auto'})
+
+    assert done.returncode == 0, done.stderr
+    assert '+ gmx mdrun -deffnm system -nb auto -v' in done.stderr
+    assert '-nb cpu' not in done.stderr
+
+
 def test_the_minimisation_leg_solvates_through_the_builder_rather_than_restating_it(tmp_path):
     run = prepared(tmp_path)
     script = script_of('Energy minimisation').read_text()

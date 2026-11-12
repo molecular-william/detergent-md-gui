@@ -193,11 +193,14 @@ def ramp_mdp(text: str, dt_ps: float = RAMP_DT_PS, ps: float = RAMP_PS) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def restart_plan(launcher: str = '', mdrun_flags: str = DEFAULT_MDRUN_FLAGS) -> list[list[str]]:
+def restart_plan(launcher: str = '', mdrun_flags: str = DEFAULT_MDRUN_FLAGS,
+                 min_mdrun_flags: str | None = None) -> list[list[str]]:
     """The commands that restart the phase, in order: minimise, equilibrate, ramp, produce.
 
     Each segment continues from the checkpoint of the one before it, which is what makes the ramp work at all -- the
-    velocities it hands the production are its own. `-t` is the checkpoint and `-c` the structure it must match.
+    velocities it hands the production are its own. `-t` is the checkpoint and `-c` the structure it must match. The
+    minimisation takes `min_mdrun_flags` (the auto bracket) when the caller supplies one; the other segments always
+    take the run's scheme choices.
     """
     def grompp(mdp: str, structure: str, tpr: str, checkpoint: str | None = None) -> list[str]:
         command = ['gmx', 'grompp', '-f', mdp, '-p', 'system.top', '-c', structure]
@@ -205,11 +208,11 @@ def restart_plan(launcher: str = '', mdrun_flags: str = DEFAULT_MDRUN_FLAGS) -> 
             command += ['-t', checkpoint]
         return command + ['-o', tpr, '-maxwarn', '1']
 
-    def mdrun(name: str) -> list[str]:
-        return [f'{launcher}gmx', 'mdrun', '-deffnm', name, *mdrun_flags.split(), '-v']
+    def mdrun(name: str, flags: str | None = None) -> list[str]:
+        return [f'{launcher}gmx', 'mdrun', '-deffnm', name, *(flags or mdrun_flags).split(), '-v']
 
     return [
-        grompp('minimization.mdp', 'system.gro', 'min.tpr'), mdrun('min'),
+        grompp('minimization.mdp', 'system.gro', 'min.tpr'), mdrun('min', min_mdrun_flags),
         grompp('equilibration.mdp', 'min.gro', 'eq.tpr'), mdrun('eq'),
         grompp(RAMP_MDP, 'eq.gro', 'ramp.tpr', 'eq.cpt'), mdrun('ramp'),
         grompp(RESTART_MDP, 'ramp.gro', 'prod/run.tpr', 'ramp.cpt'), mdrun('prod/run'),
@@ -226,6 +229,7 @@ def main(argv=None) -> int:
     stage, assessment, previous = Path(args.stage), Path(args.assessment), Path(args.assessment_stage)
     settings = json.loads(Path(args.settings).read_text())
     mdrun_flags = os.environ.get('MDRUN_FLAGS', DEFAULT_MDRUN_FLAGS)
+    min_mdrun_flags = os.environ.get('MDRUN_FLAGS_AUTO', mdrun_flags)
     launcher = os.environ.get('MDRUN_LAUNCHER', '')
     decision = json.loads((assessment / 'removed.json').read_text())
     removed = decision.get('removed') or []
@@ -295,7 +299,7 @@ def main(argv=None) -> int:
         (stage / RESTART_MDP).write_text(restart_mdp((stage / 'extension.mdp').read_text(), seed,
                                                      length_ps=extension_ps))
         (stage / RAMP_MDP).write_text(ramp_mdp((stage / RESTART_MDP).read_text()))
-        for command in restart_plan(launcher, mdrun_flags):
+        for command in restart_plan(launcher, mdrun_flags, min_mdrun_flags):
             run(command)
         record = {'attempt': len(history) + 1, 'removed': len(removed), 'mode': 'restarted',
                   'ramp': {'dt_ps': RAMP_DT_PS, 'ps': RAMP_PS},

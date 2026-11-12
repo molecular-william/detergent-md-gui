@@ -62,6 +62,25 @@ def test_the_chosen_device_reaches_the_command_in_both_brackets(flavour):
     assert '-gpu_id 0' not in minimization and '-gpu_id 0' not in dynamics
 
 
+def test_a_minimisation_ignores_the_runs_scheme_and_checkpoint_choices():
+    """The Other run options describe the equilibration and production legs. A minimisation runs the profile's
+    bracket with every scheme at auto and writes no checkpoint flag, so no choice made for dynamics reaches it."""
+    chosen = {'mdrun_nb': 'cpu', 'mdrun_pme': 'cpu', 'mdrun_pmefft': 'cpu', 'mdrun_update': 'cpu',
+              'mdrun_tunepme': 'off', 'mdrun_cpt': 5}
+    minimisation = aa.mdrun_command_flags(chosen, 'em', 'mpi')[1]
+    equilibration = aa.mdrun_command_flags(chosen, 'equilibration', 'mpi')[1]
+
+    assert '-nb cpu' not in minimisation and '-pme' not in minimisation
+    assert '-update' not in minimisation and 'tunepme' not in minimisation and '-cpt' not in minimisation
+    # Auto means the profile's bracket -- the device's own offload stays -- not "no device".
+    assert '-nb gpu' in minimisation and '-gpu_id 0' in minimisation
+
+    # The equilibration/production bracket takes every one of them, and keeps PME on the CPU for the CG scripts.
+    for flag in ('-nb cpu', '-pme cpu', '-pmefft cpu', '-update cpu', '-notunepme', '-cpt 5'):
+        assert flag in equilibration, flag
+    assert '-pme gpu' not in equilibration
+
+
 def test_the_device_travels_with_the_ranks_that_share_it():
     """Several ranks still name one device -- the panel says so, and the flag says so."""
     launcher, flags = aa.mdrun_command_flags({'mdrun_gpu': 1, 'mdrun_ranks': 3, 'mdrun_ntomp': 4}, 'production', 'mpi')

@@ -12,10 +12,19 @@
 # -ntomp is valid for every build.
 set -euxo pipefail
 
+STAGE=$(basename "$(pwd)")
+# The scheme choices describe the equilibration and production legs; the minimisation leg always runs them at auto.
+# This script serves 03_minimisation, 04_nvt and 05_npt, so the leg's own directory decides which bracket it reads.
+if [ "$STAGE" = "03_minimisation" ]; then
+  LEG_FLAGS="${MDRUN_FLAGS_AUTO:-${MDRUN_FLAGS:--ntomp 8}}"
+else
+  LEG_FLAGS="${MDRUN_FLAGS:--ntomp 8}"
+fi
+
 # A resumed stage names the checkpoint of this leg's own mdrun. The copy, the solvation and the grompp in front of it
 # already happened in this directory, so only the mdrun re-runs -- from that checkpoint, appending to its trajectory.
 if [ -n "${MDRUN_CONTINUE:-}" ]; then
-  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system -cpi "$MDRUN_CONTINUE" -append ${MDRUN_FLAGS:--ntomp 8} -v
+  ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system -cpi "$MDRUN_CONTINUE" -append ${LEG_FLAGS} -v
   exit 0
 fi
 
@@ -25,7 +34,6 @@ PYTHON="${PYTHON:-python}"
 REPO_ROOT="${PROJECT_ROOT:-$("$PYTHON" -c 'from dashboard import paths; print(paths.PROJECT_ROOT)')}"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-STAGE=$(basename "$(pwd)")
 LEG="../../inputs/${STAGE}.json"
 field() {
   "$PYTHON" -c 'import json,sys;value=json.load(open(sys.argv[1]))[sys.argv[2]];print("" if value is None else value)' \
@@ -65,4 +73,4 @@ if [ "$(field solvate)" = "True" ]; then
 fi
 
 gmx grompp -f "$MDP" -p system.top -c system.gro $CHECKPOINT -o system.tpr -maxwarn 1
-${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system ${MDRUN_FLAGS:--ntomp 8} -v
+${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system ${LEG_FLAGS} -v

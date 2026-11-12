@@ -48,22 +48,24 @@ def test_no_executed_launcher_states_a_gpu_device():
 
 def test_the_cg_launchers_take_the_executors_flags():
     """Nonbonded work may go to the GPU; PME stays on the CPU for the coarse-grained stages, and the executor's
-    minimisation bracket is what says so -- these three lines only read it. The resume line is the same leg
+    brackets are what say so -- these three lines only read them. The minimisation reads the auto bracket, so the
+    Other run options cannot reach it; the two dynamics legs read the run's choices. The resume line is the same leg
     continued, so it is checked where the continue contract is (`test_a_resumed_cg_simulation_...`)."""
     lines = [line for line in _mdrun_lines('cg_simulation.sh') if '-cpi' not in line]
     assert len(lines) == 3
     assert all('${MDRUN_LAUNCHER:-}gmx mdrun' in line for line in lines)
-    assert all('${MDRUN_FLAGS:-' in line for line in lines)
+    assert '${MDRUN_FLAGS_AUTO:-' in lines[0]
+    assert all('${MDRUN_FLAGS:-' in line for line in lines[1:])
     assert all('-pme' not in line for line in lines)
 
 
-def test_the_aa_reference_launcher_reads_both_brackets():
-    """Its minimisation keeps PME on the CPU and its dynamics put it on the GPU, so it reads both built brackets:
-    one builder decides the device, and the two brackets differ only in the scheme they add. The resume line is the
-    production leg continued, so it is excluded here."""
+def test_the_aa_reference_launcher_reads_all_three_brackets():
+    """Its two minimisations read the auto bracket and keep PME on the CPU; its equilibration and production put PME
+    on the GPU, so they read the dynamics bracket. One builder decides the device, and the brackets differ only in
+    the schemes they add. The resume line is the production leg continued, so it is excluded here."""
     lines = [line for line in _mdrun_lines('aa_reference.sh') if '-cpi' not in line]
     vacuum, solvated, equilibration, production = lines
-    assert '${MDRUN_FLAGS:-' in vacuum and '${MDRUN_FLAGS:-' in solvated
+    assert '${MDRUN_FLAGS_AUTO:-' in vacuum and '${MDRUN_FLAGS_AUTO:-' in solvated
     assert '-pme' not in vacuum and '-pme' not in solvated
     assert '${MDRUN_FLAGS_PME:-' in equilibration and '${MDRUN_FLAGS_PME:-' in production
     assert '${MDRUN_LAUNCHER:-}' in production, 'the ranks the builder decided reach this stage too'

@@ -58,13 +58,17 @@ MDRUN_HELP = {
     'mdrun_ranks': 'The MPI ranks are separate processes under mpirun, so this is the rank count; '
                    '`-ntmpi` is a thread-MPI option and this build was compiled without thread-MPI',
     'mdrun_gpu': 'List of unique GPU device IDs available to use; the index is the CUDA ordinal',
-    'mdrun_nb': 'Calculate non-bonded interactions on: auto, cpu, gpu',
-    'mdrun_pme': 'Perform PME calculations on: auto, cpu, gpu',
-    'mdrun_pmefft': 'Perform PME FFT calculations on: auto, cpu, gpu',
-    'mdrun_update': 'Perform update and constraints on: auto, cpu, gpu',
+    'mdrun_nb': 'Calculate non-bonded interactions on: auto, cpu, gpu. The energy-minimisation stage always uses '
+                'auto and emits no flag for it.',
+    'mdrun_pme': 'Perform PME calculations on: auto, cpu, gpu. The energy-minimisation stage always uses auto and '
+                 'emits no flag for it.',
+    'mdrun_pmefft': 'Perform PME FFT calculations on: auto, cpu, gpu. The energy-minimisation stage always uses '
+                    'auto and emits no flag for it.',
+    'mdrun_update': 'Perform update and constraints on: auto, cpu, gpu. The energy-minimisation stage always uses '
+                    'auto and emits no flag for it.',
     'mdrun_tunepme': 'Optimize PME load between PP/PME ranks or GPU/CPU; GROMACS defaults to on, so auto emits '
-                     'no flag',
-    'mdrun_cpt': 'Checkpoint interval (minutes)',
+                     'no flag. The energy-minimisation stage always uses auto.',
+    'mdrun_cpt': 'Checkpoint interval (minutes). The energy-minimisation stage writes no checkpoint flag.',
 }
 
 #: Settings GROMACS has no entry for: the seed the dashboard writes into the CG MDPs, and the unit cell the

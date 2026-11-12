@@ -62,6 +62,16 @@ def test_the_plan_ramps_between_the_equilibration_and_the_production():
     assert prod_grompp[3] == ext.RESTART_MDP
 
 
+def test_the_minimisation_leg_reads_the_auto_bracket():
+    """The scheme choices describe the equilibration and production legs; the restart's minimisation runs auto."""
+    plan = ext.restart_plan(mdrun_flags='-nb cpu', min_mdrun_flags='-nb auto')
+    legs = {command[3]: command for command in plan if command[1] == 'mdrun'}
+
+    minimisation, equilibration, production = (' '.join(legs[name]) for name in ('min', 'eq', 'prod/run'))
+    assert '-nb auto' in minimisation and '-nb cpu' not in minimisation
+    assert '-nb cpu' in equilibration and '-nb cpu' in production
+
+
 def test_each_mdrun_continues_the_tpr_its_own_grompp_wrote():
     plan = ext.restart_plan(launcher='mpirun -n 2 ')
 

@@ -117,8 +117,11 @@ def test_the_named_execution_additions_reach_the_command_once():
     # A CPU PME with a named CPU FFT scheme keeps the scheme it named rather than dropping it.
     cpu = mdrun_command_flags({'mdrun_pme': 'cpu', 'mdrun_pmefft': 'cpu'}, 'production', 'mpi')[1].split()
     assert cpu[cpu.index('-pmefft') + 1] == 'cpu'
-    on = mdrun_command_flags({'mdrun_tunepme': 'on'}, 'em', 'mpi')[1].split()
+    on = mdrun_command_flags({'mdrun_tunepme': 'on'}, 'production', 'mpi')[1].split()
     assert '-tunepme' in on and '-notunepme' not in on
+    # The minimisation leg ignores the choice: it always runs the profile's bracket.
+    minimisation = mdrun_command_flags({'mdrun_tunepme': 'on'}, 'em', 'mpi')[1].split()
+    assert 'tunepme' not in ' '.join(minimisation)
 
 
 def test_a_gpu_execution_scheme_is_refused_without_a_device(monkeypatch):

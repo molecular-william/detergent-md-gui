@@ -95,6 +95,10 @@ def test_each_stage_records_the_device_and_what_was_on_it(tmp_path, monkeypatch)
     assert '-gpu_id 1 ' in stage['environment']['MDRUN_FLAGS_PME'] + ' '
     assert '-pme gpu' in stage['environment']['MDRUN_FLAGS_PME']
     assert '-pme gpu' not in stage['environment']['MDRUN_FLAGS']
+    # The minimisation bracket is the auto one: the device still reaches it, the run's checkpoint cadence does not.
+    assert '-gpu_id 1 ' in stage['environment']['MDRUN_FLAGS_AUTO'] + ' '
+    assert '-pme' not in stage['environment']['MDRUN_FLAGS_AUTO']
+    assert '-cpt' not in stage['environment']['MDRUN_FLAGS_AUTO']
 
 
 def test_a_host_that_reports_nothing_records_the_index_and_no_name(tmp_path, monkeypatch):

@@ -255,7 +255,7 @@ Scripts live in dashboard/execution/scripts/. Scientific assets are read where t
 
 ### Stage settings
 
-The stage settings decide the `mdrun` budget and the nonbonded and PME schemes. One helper renders them for a generated AA stage command and for the CG stage scripts, which receive them as `MDRUN_LAUNCHER` and `MDRUN_FLAGS`, so a script and a generated command cannot disagree.
+The stage settings decide the `mdrun` budget and the nonbonded and PME schemes. One helper renders them for a generated AA stage command and for the CG stage scripts, which receive three brackets as environment -- `MDRUN_FLAGS_AUTO` (the minimisation), `MDRUN_FLAGS` (equilibration and production for the CG-style scripts) and `MDRUN_FLAGS_PME` (the AA reference's dynamics) -- with `MDRUN_LAUNCHER`, so a script and a generated command cannot disagree. **The scheme choices and the checkpoint cadence apply to the equilibration and production legs only: an energy minimisation always runs with all five schemes at auto and writes no checkpoint flag.** The thread, rank and device budget still applies to every stage, because it describes how the leg executes rather than what physics it runs.
 
 The CPU levers are `mdrun_ntomp` (OpenMP threads per rank) and `mdrun_ranks` (MPI ranks). On this host the ranks are separate processes under `mpirun`; a thread-MPI build would take them inside one process with `-ntmpi`, which is why the adapter asks the binary for its configuration instead of assuming, and records the answer as `resource_usage.gromacs_flavour` in the stage manifest. The product of ranks and threads is checked against the machine's cores before a stage is prepared.
 

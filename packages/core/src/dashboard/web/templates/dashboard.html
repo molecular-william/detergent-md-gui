@@ -353,7 +353,7 @@
             </div>
           </section>
         </div>
-        <p class="hint">The CG production options start on the reviewed profile's own numbers; changing one overrides it for this run and the manifest records what was used. The equilibration leg keeps its own reviewed cadence and couplings. An empty trajectory interval or neighbour cut-off means GROMACS' own rule (the ps interval above, and the Verlet buffer) rather than a pinned value. The info buttons beside a setting quote the GROMACS manual for MDP options and <code>gmx mdrun -h</code> for execution flags.</p>
+        <p class="hint">The CG production options start on the reviewed profile's own numbers; changing one overrides it for this run and the manifest records what was used. The equilibration leg keeps its own reviewed cadence and couplings. The scheme choices and the checkpoint cadence apply to the equilibration and production stages; an <b>energy minimisation always runs with them at auto</b> and writes no checkpoint flag. The thread, rank and device settings still apply to every stage, because they say how the leg executes, not what physics it runs. An empty trajectory interval or neighbour cut-off means GROMACS' own rule (the ps interval above, and the Verlet buffer) rather than a pinned value. The info buttons beside a setting quote the GROMACS manual for MDP options and <code>gmx mdrun -h</code> for execution flags.</p>
       </details>
       <p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
     </fieldset>

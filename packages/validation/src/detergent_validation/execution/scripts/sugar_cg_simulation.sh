@@ -8,6 +8,7 @@
 set -euxo pipefail
 PROJECT_ROOT="${PROJECT_ROOT:?PROJECT_ROOT must name the checkout}"
 WATER_BOX="$PROJECT_ROOT/resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro"
+# MDRUN_FLAGS is the equilibration/production bracket; MDRUN_FLAGS_AUTO is the minimisation one.
 
 # A resumed stage names production's own checkpoint; the build, the solvation and the two equilibration legs already
 # happened in this directory, so only the production leg re-runs, appending to the trajectory it was writing.
@@ -19,7 +20,7 @@ fi
 gmx editconf -f ../../inputs/sugar.gro -c -d 1.5 -bt dodecahedron -o boxed.gro
 gmx solvate -cp boxed.gro -cs "$WATER_BOX" -p ../../inputs/system.top -radius 0.21 -o solvated.gro
 gmx grompp -f ../../inputs/minimization.mdp -p ../../inputs/system.top -c solvated.gro -o min.tpr
-gmx mdrun -deffnm min ${MDRUN_FLAGS:--ntomp 8} -v
+gmx mdrun -deffnm min ${MDRUN_FLAGS_AUTO:--ntomp 8} -v
 gmx grompp -f ../../inputs/eq.mdp -p ../../inputs/system.top -c min.gro -o eq.tpr -maxwarn 1
 gmx mdrun -deffnm eq ${MDRUN_FLAGS:--ntomp 8} -v
 gmx grompp -f ../../inputs/md.mdp -p ../../inputs/system.top -c eq.gro -t eq.cpt -o md.tpr -maxwarn 1
