@@ -182,7 +182,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         (),
         trajectory_overview.run,
         "Trajectory overview",
-        "A first look at one segment: RMSD, radius of gyration, the largest detergent aggregate, and energy.",
+        "A first look at one segment: RMSD, radius of gyration, the largest aggregate and energy.",
         "nm and ns; the sampled series and their block-averaged means",
         source_hook=trajectory_overview.sources),
 )}

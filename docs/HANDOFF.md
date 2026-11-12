@@ -13,7 +13,8 @@ beside it, so the overview's energy panels said "no .edr is staged beside the tr
 (`_reference_leg_energy`), and `_energy` falls back to the one `.edr` in the staged tree because it need not sit beside
 the trajectory; the energy still comes from GROMACS' own `gmx energy` columns. The figure's titles are generic now --
 **RMSD**, **Radius of gyration**, **Largest aggregate**, and the Temperature/Pressure/Potential mean titles -- because
-the same figure is drawn for a protein, a micelle and a small molecule. A segment holding at most one non-water
+the same figure is drawn for a protein, a micelle and a small molecule; the kind's one-line Run view description is
+generic too. A segment holding at most one non-water
 molecule draws **five** panels (no aggregate panel: one molecule cannot aggregate, and the panel was a flat line at 1);
 a multi-molecule segment keeps it. The record's `subject` says `molecule` for that case and its note no longer says
 "detergent". Checks: fast **2714 passed / 1 xfailed**, browser **375 passed**, slow **24 passed**, ruff clean. Live
