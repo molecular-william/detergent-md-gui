@@ -65,13 +65,12 @@ def write_frames(directory, beads, frames=5):
 class Recorder:
     """The stand-in for a tool: it records the command and writes the artefact the job's guard wants."""
 
-    def __init__(self, *, topology=None, fail_fit=False, frames=5, bartender=False):
+    def __init__(self, *, topology=None, fail_fit=False, frames=5):
         self.calls = []
         self.topology = topology or ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM B01 1 0 72\n'
                                      '2 C1 1 DDM B02 2 0 72\n\n[ bonds ]\n1 2 1 0.31 5000\n')
         self.fail_fit = fail_fit
         self.frames = frames
-        self.bartender = bartender
 
     def __call__(self, command, cwd, *, env=None, timeout=None, job_id=None, log=None):
         cwd = Path(cwd)
@@ -227,22 +226,33 @@ def test_the_mapped_frames_are_built_once_for_a_pair_and_reused_afterwards(candi
     assert [item['revision'] for item in parameterization.revisions(candidate)] == [1, 2]
 
 
-def test_a_second_engine_against_the_same_reference_reuses_the_same_frames(candidate):
-    """The key is the pair and not the job or the engine: a BARTENDER fit of a model Fast-Forward has
-    already mapped must read the same trajectory, or the two engines are not comparable."""
+def test_a_bartender_fit_reads_the_terms_the_tool_wrote_in_its_own_work_root(candidate, monkeypatch):
+    """A second engine reuses the frames Fast-Forward already mapped, and the fit's file is read where BARTENDER
+    writes it: `gmx_out.itp` in the work root, never in `3_initial_CG/`. Reading the stage directory was why a
+    successful Glucose fit still failed with 'did not write gmx_out.itp'."""
+    from dashboard.analysis.runs import bartender_fit
+
     first = Recorder()
     run_job(candidate, first)
-    second = Recorder(bartender=True)
     work = fitting.work_dir(candidate, REFERENCE['run_id'])
-    (work / '3_initial_CG' / 'gmx_out.itp').write_text('[bonds]\n1 2 1 0.30 5000\n')
+    asked = []
+
+    def writes_the_terms(directory, payload=None, runner=None):
+        asked.append(Path(directory))
+        (Path(directory) / 'gmx_out.itp').write_text('[ bonds ]\n1 2 1 0.30 5000\n')
+
+    monkeypatch.setattr(bartender_fit, 'run', writes_the_terms)
+    second = Recorder()
     record = fitting.start(candidate, engine='bartender', reference=REFERENCE, molecule_root=MOLECULES,
                            background=False, runner=second)
 
     assert second.mappers == []
+    assert asked == [work], 'the tool runs in the work root, where its inputs are'
     assert record['status'] == 'completed'
     assert parameterization.current(candidate)['engine'] == 'bartender'
     assert parameterization.current(candidate)['ensemble']['trajectory'] == '1_AA-reference/prod/lig.xtc'
-    stage = fitting.work_dir(candidate, REFERENCE['run_id']) / '3_initial_CG'
+    stage = work / '3_initial_CG'
+    assert not (stage / 'gmx_out.itp').exists(), 'the tool never wrote one there'
     assert (stage / 'DDM_ff_inter.itp').is_file(), 'the model is written where the checks read it'
     assert (stage / 'DDM.itp').read_text() == (stage / 'DDM_ff_inter.itp').read_text()
 

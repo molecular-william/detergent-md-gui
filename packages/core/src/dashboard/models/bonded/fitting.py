@@ -658,7 +658,10 @@ def _bartender(loaded, names, record, call, timeout) -> dict:
     work = Path(record['work'])
     stage = work / '3_initial_CG'
     _ring_constraints(work, names, call)
-    fitted = stage / bartender_fit.FITTED
+    # BARTENDER writes `gmx_out.itp` in the directory it runs in, which is the fit's work root (it needs the
+    # `1_AA-reference/` and `2_mapping/` trees there). Reading it from `stage` was the reason a successful Glucose
+    # fit still failed with "did not write gmx_out.itp".
+    fitted = work / bartender_fit.FITTED
     if not fitted.is_file():
         # The tool's stdout/stderr and its input writer's go to the job's log through the same cancellable
         # runner every other command uses; `subprocess.run(capture_output=True)` is what dropped
