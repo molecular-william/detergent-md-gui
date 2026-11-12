@@ -137,6 +137,9 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     page.locator('#run-type').select_option('cg')
     for stage in ('nvt', 'npt', 'production'):
         expect(page.locator(f'#stage-aa-{stage}')).to_be_hidden()
+    # The stage group's heading, its blurb and the box-shape note go with the controls they describe.
+    expect(page.locator('h4.new-option-title.aa-setting')).to_be_hidden()
+    expect(page.locator('p.hint.aa-setting').first).to_be_hidden()
     assert not errors, errors
 
 

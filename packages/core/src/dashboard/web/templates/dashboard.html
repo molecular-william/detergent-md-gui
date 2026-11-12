@@ -240,9 +240,9 @@
       {# The three AA stages are minimisable editors: a native <details> per stage, with the numbers a reader most
          often changes inside and a facts line in the summary so a collapsed stage still says what it holds. They are
          `aa-setting` because only an AA run has these stages; a CG run consumes a reference that already ran. #}
-      <h4 class="new-option-title">Stages</h4>
-      <p class="hint">Open a stage to change its duration, timestep and neighbour search. The timestep changes the
-        step count, not the duration: 100 ps at 1 fs is 100 000 steps.</p>
+      <h4 class="new-option-title aa-setting">Stages</h4>
+      <p class="hint aa-setting">Open a stage to change its duration, timestep and neighbour search. The timestep
+        changes the step count, not the duration: 100 ps at 1 fs is 100 000 steps.</p>
       <details class="stage-editor aa-setting" id="stage-aa-nvt" name="aa-stages" open>
         <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts" id="stage-aa-nvt-facts"></span></summary>
         <div class="stage-body"><div class="settings-grid">
@@ -286,7 +286,7 @@
           <label>Box edge d (nm)<span class="setting-control"><input name="box_nm" type="number" min="1" max="20" step="0.1"><button type="button" class="secondary use-default" data-field="box_nm">Default</button></span></label>
           <label>Box shape<span class="setting-control"><select name="box_shape"><option value="cubic">Cube · protocol default · 1.000 d³</option><option value="dodecahedron">Rhombic dodecahedron (xy-square) · 0.707 d³</option><option value="dodecahedron-hexagon">Rhombic dodecahedron (xy-hexagon) · 0.707 d³</option><option value="octahedron">Truncated octahedron · 0.770 d³</option></select><button type="button" class="secondary use-default" data-field="box_shape">Default</button></span></label>
         </div>
-        <p class="hint">AA runs only. <b>d</b> is the minimum image distance and is the same quantity for every shape: all three box vectors have length d, and the cut-off stays below d/2. A CG run's box is the one its AA reference already ran; pdc and osmotic derive or fix their own.</p>
+        <p class="hint aa-setting">AA runs only. <b>d</b> is the minimum image distance and is the same quantity for every shape: all three box vectors have length d, and the cut-off stays below d/2. A CG run's box is the one its AA reference already ran; pdc and osmotic derive or fix their own.</p>
       </section>
       <section class="new-option-group" aria-labelledby="new-seeds-title">
         <h4 id="new-seeds-title" class="new-option-title">Seeds</h4>
