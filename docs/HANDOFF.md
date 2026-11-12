@@ -36,7 +36,9 @@ MDPs read `dt 0.001`, `nsteps 5000/5000/50000`, `nstlist 10`, and its box line i
 and the 2.5 nm default does not fit; the retry used `box_nm 4.0`. Left deliberately: the composition store keeps its
 own in-place save (Combinations owns those edits; Bond Interactions shows a composition's derived revision read-only);
 CG/pdc timesteps are not exposed (standing decisions); a positive AA tolerance can still make `rlist` exceed the box
-and grompp's refusal is shown in the stage console rather than pre-computed. Drafts:
+and grompp's refusal is shown in the stage console rather than pre-computed. Follow-up `fa102b5` hides the AA "Stages" heading, its blurb and the box-shape note on a CG run (they stayed
+visible with no controls under them) and pins that in the AA browser module; browser 369 re-run green after it.
+Drafts:
 `docs/design/drafts/2026-11-12-{bond-interactions-two-panes,new-run-stage-settings}.html`; plans
 `docs/plans/2026-11-12-{bond-interactions-comparison-panes,new-run-stage-settings}.md` (local). Dashboard restarted
 on the new code (unit `detergent-dashboard`).
