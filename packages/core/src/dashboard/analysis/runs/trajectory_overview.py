@@ -104,13 +104,26 @@ def _energy_beside(trajectory):
     return None
 
 
+def _reference_leg_energy(trajectory):
+    """The production leg's energy file for an AA reference publication, or `None`.
+
+    An AA-only run's reviewable trajectory is `07_reference/lig.xtc`, extracted from `06_production/run.xtc` by
+    `gmx trjconv`; the leg's energy stays in the production stage directory rather than beside the extracted solute.
+    Only that leg is considered: `05_npt/run.edr` and `04_nvt/run.edr` describe other segments of the run.
+    """
+    stage_root = Path(trajectory).parent.parent
+    candidate = stage_root / '06_production' / 'run.edr'
+    return candidate if candidate.is_file() else None
+
+
 def sources(run_dir, payload=None):
     """Stage the latest segment's trajectory, structure and its energy file; nothing else from the run.
 
     The producer finds the pair again by scanning the staged tree, so the hook and the producer cannot disagree
     about *which* segment this overview describes without disagreeing about the run itself: the staged tree holds
     exactly the one trajectory the hook chose. The energy file is the leg's own, found by `_energy_beside`: beside
-    the trajectory, or in the stage directory above it when the trajectory is an extracted solute.
+    the trajectory, or in the stage directory above it when the trajectory is an extracted solute. An AA-only run's
+    extracted reference has no sibling energy, so its production leg's `.edr` is staged instead.
     """
     run_dir = Path(run_dir)
     chosen = _segment(run_dir)
@@ -121,6 +134,8 @@ def sources(run_dir, payload=None):
     trajectory = segments.present(run_dir, chosen['trajectory'])
     if trajectory is not None:
         edr = _energy_beside(trajectory)
+        if edr is None and _run_type(run_dir) == 'aa_only':
+            edr = _reference_leg_energy(trajectory)
         if edr is not None and edr.is_relative_to(run_dir):
             entries[str(edr.relative_to(run_dir))] = edr
     return entries
@@ -277,8 +292,17 @@ def _xvg_columns(path):
 
 
 def _energy(work, trajectory):
-    """Temperature, pressure and potential from the leg's EDR, or None with the reason it is absent."""
+    """Temperature, pressure and potential from the leg's EDR, or None with the reason it is absent.
+
+    `sources` stages exactly one energy file, and it need not sit beside the trajectory: an AA reference
+    publication extracts `07_reference/lig.xtc` while its `06_production/run.edr` stays in the production stage
+    directory. So the staged tree is the fallback, and it is read only when it holds one `.edr` -- two would make
+    "which leg" a guess.
+    """
     edr = _energy_beside(trajectory)
+    if edr is None:
+        staged = sorted(path for path in Path(work).rglob('*.edr') if path.is_file())
+        edr = staged[0] if len(staged) == 1 else None
     if edr is None:
         return None, 'no .edr is staged beside the trajectory or its stage directory'
     gmx = tools.tool_path('gmx')
@@ -313,14 +337,26 @@ def _energy(work, trajectory):
     return {'source': edr.name, 'terms': series}, None
 
 
-def _draw(path, series, labels, energy, reason):
+def _draw(path, series, labels, energy, reason, *, aggregate=True):
+    """Draw the overview: shape, then energy. The aggregate panel is absent for a single-molecule run.
+
+    Titles are generic on purpose: the same figure is drawn for a protein, a micelle and a small molecule, so a
+    title that named a detergent would be wrong on most runs.
+    """
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 
     fig = Figure(figsize=(14, 8), layout='constrained')
     FigureCanvasAgg(fig)
-    axes = fig.subplots(2, 3)
-    (rmsd_axis, gyration_axis, cluster_axis), (temperature_axis, pressure_axis, potential_axis) = axes
+    rows = fig.subplots(2, 3)
+    rmsd_axis, gyration_axis, third = rows[0]
+    if aggregate:
+        energy_axes = list(rows[1])
+    else:
+        # No aggregate curve to draw: the first energy term takes its cell and the spare cell is removed, so the
+        # figure is five panels rather than a hole with nothing in it.
+        energy_axes = [third, rows[1][0], rows[1][1]]
+        fig.delaxes(rows[1][2])
 
     def line(axis, times, values, colour, title, ylabel):
         # The raw samples stay visible at low alpha; the moving average is the line a reader reads. Both are the
@@ -333,20 +369,12 @@ def _draw(path, series, labels, energy, reason):
         axis.legend(fontsize=7, frameon=False)
         axis.grid(alpha=.18)
 
-    line(rmsd_axis, series['times_ns'], series['rmsd_nm'], '#2455b0',
-         f"RMSD of the {labels['subject']} (fit on it)", 'RMSD (nm)')
-    line(gyration_axis, series['times_ns'], series['gyration_nm'], '#169186',
-         f"Radius of gyration of the {labels['subject']}", 'Rg (nm)')
-    if series['aggregate_largest']:
-        line(cluster_axis, series['times_ns'], series['aggregate_largest'], '#8a5a12',
-             f"Largest aggregate ({labels['detergent']} molecules)", 'molecules')
-    else:
-        cluster_axis.text(.5, .5, 'no detergent molecules in this segment', ha='center', va='center')
-        cluster_axis.grid(alpha=.18)
+    line(rmsd_axis, series['times_ns'], series['rmsd_nm'], '#2455b0', 'RMSD', 'RMSD (nm)')
+    line(gyration_axis, series['times_ns'], series['gyration_nm'], '#169186', 'Radius of gyration', 'Rg (nm)')
+    if aggregate:
+        line(third, series['times_ns'], series['aggregate_largest'], '#8a5a12', 'Largest aggregate', 'molecules')
 
-    for axis, term, colour in ((temperature_axis, 'Temperature', '#b03a48'),
-                               (pressure_axis, 'Pressure', '#6a4ea8'),
-                               (potential_axis, 'Potential', '#2f6b3a')):
+    for axis, term, colour in zip(energy_axes, ENERGY_TERMS, ('#b03a48', '#6a4ea8', '#2f6b3a')):
         entry = (energy or {}).get('terms', {}).get(term)
         if entry:
             line(axis, [t / 1000 for t in entry['time_ps']], entry['values'], colour,
@@ -396,7 +424,8 @@ def run(work, payload=None):
             raise ValueError('this segment holds detergent molecules but no aggregate to measure')
         groups = [molecules[index] for index in first[0]]
         selection = np.concatenate(groups)
-        subject = 'largest detergent aggregate'
+        # One molecule is its own subject; only a run holding several has an aggregate to name.
+        subject = 'molecule' if len(molecules) == 1 else 'largest detergent aggregate'
 
     reference = _unwrap(universe.atoms.positions, groups, box)[selection]
     times, rmsds, gyrations, largest, counts, free = [], [], [], [], [], []
@@ -431,16 +460,13 @@ def run(work, payload=None):
     series = {'times_ns': times, 'rmsd_nm': rmsds, 'gyration_nm': gyrations,
               'aggregate_largest': largest, 'aggregates': counts, 'aggregate_free': free}
     segment = _segment(work)
-    labels_for_figure = {'segment': segment['name'] if segment else trajectory.stem,
-                         'subject': subject,
-                         'detergent': _manifest(work).get('detergent')
-                                      or next((str(universe.residues[index].resname)
-                                               for index in range(len(universe.residues))
-                                               if str(universe.residues[index].resname).strip().upper()
-                                               not in structures.WATER_RESIDUES), 'detergent')}
+    labels_for_figure = {'segment': segment['name'] if segment else trajectory.stem}
+    # One molecule cannot aggregate: its largest aggregate is always itself, so that panel is left out rather than
+    # drawn as a flat line at 1. A protein-only segment likewise has no molecule to count.
+    aggregate = len(molecules) > 1
     figure = work / 'trajectory-overview.png'
     _draw(figure, series, labels_for_figure, energy,
-          (energy_reason if energy is None else '') or 'not available')
+          (energy_reason if energy is None else '') or 'not available', aggregate=aggregate)
 
     second_half = len(times) // 2
     record = {
@@ -471,8 +497,8 @@ def run(work, payload=None):
         'series': series,
         'scientifically_validated': False,
         'note': ('A first-look record of one sampled segment. Distances are minimum-image; the radius of gyration is '
-                 'the subject\'s (the aggregate in an empty micelle), not every detergent in the box. It measures the '
-                 'sampled frames and says nothing about convergence or model validity.'),
+                 'the subject\'s, not every molecule in the box. It measures the sampled frames and says nothing '
+                 'about convergence or model validity.'),
     }
     files.atomic_json(work / 'trajectory-overview.json', record)
     return {'files': ['trajectory-overview.png', 'trajectory-overview.json'],

@@ -422,9 +422,14 @@ bonds ]`/`[ constraints ]` written as CONECT (the topology located by
 The analysis subprocess reads a work directory holding only the patterns its kind declares (`kinds.py`), so a role the layout can resolve is still invisible there until the kind copies the files. A kind whose sources its request decides declares `Kind.source_hook` instead: `frame-series` stages the chosen trajectory and structure plus the writer's topology/mapping inputs, and the queue hashes them, so changed bytes are a new signature rather than a stale series. A kind that keeps one published series per run declares `Kind.stable_directory` instead (`frame-series`: `analyses/frame-series`): the coordinator gives it one record and that directory, a build replaces the pair in place through `files.atomic_copy` with `frames.json` last, and a failed build leaves the previous pair untouched.
 
 The on-demand **trajectory overview** (`analysis/runs/trajectory_overview.py`) samples the run's latest playable
-segment -- at most 200 frames in one sequential pass -- and publishes a 2×3 figure and a JSON record: RMSD and radius
-of gyration of the protein (the largest detergent aggregate when the run has none), the largest detergent aggregate
-under the run's `contact_nm`, and Temperature/Pressure/Potential read from the sibling EDR. Every inter-molecular
+segment -- at most 200 frames in one sequential pass -- and publishes a figure and a JSON record. The panels are
+labelled generically -- **RMSD**, **Radius of gyration**, **Largest aggregate**, **Temperature**, **Pressure**,
+**Potential** -- because the same figure is drawn for a protein, a micelle and a small molecule. RMSD and radius of
+gyration are measured on the protein, or the largest molecule aggregate when the run has no protein; the aggregate
+panel is drawn only when the segment holds more than one non-water molecule, since one molecule cannot aggregate.
+Temperature, pressure and potential come from the trajectory leg's own EDR, and an AA-only run's extracted
+`07_reference/lig.xtc` takes them from the production leg (`06_production/run.edr`) that wrote the source trajectory.
+Every inter-molecular
 distance is minimum-image: `whole.xtc` keeps molecules whole but does not cluster the micelle, so raw distances across
 a box face would report one micelle as fragments. The record states the box and the PBC treatment. Each panel keeps its raw samples
 faint and thin under a thick opaque moving average (5% of the plotted points, 2–25 samples, stated in the legend and

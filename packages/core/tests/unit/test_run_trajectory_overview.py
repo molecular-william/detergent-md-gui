@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import matplotlib.figure
 import MDAnalysis as mda
 import numpy as np
 import pytest
@@ -35,6 +36,35 @@ def write_run(root, *, frames=5, contact_nm=0.6, positions=None):
         'run_type': 'pdc', 'detergent': 'DDM', 'settings': {'contact_nm': contact_nm},
         'stages': [{'name': 'CG extension MD', 'status': 'completed'}]}))
     return stage
+
+
+def write_aa_run(root, *, frames=5):
+    """One AA-only molecule published under `07_reference/`, with its production leg's energy above it.
+
+    That is the live layout the overview was missing: the reference stage extracts `lig.xtc` from
+    `06_production/run.xtc`, so the leg's `run.edr` is not beside the trajectory the overview reads.
+    """
+    reference = Path(root) / 'stages' / '07_reference'
+    reference.mkdir(parents=True)
+    universe = mda.Universe.empty(2, n_residues=1, atom_resindex=[0, 0], trajectory=True)
+    universe.add_TopologyAttr('names', ['C1', 'C2'])
+    universe.add_TopologyAttr('resnames', ['DDM'])
+    universe.add_TopologyAttr('resids', [1])
+    with mda.Writer(str(reference / 'lig.xtc'), n_atoms=2) as writer:
+        for frame in range(frames):
+            universe.atoms.positions = np.array([[0, 0, 0], [0.3, 0, 0]]) + frame * 0.01
+            universe.dimensions = [100, 100, 100, 90, 90, 90]
+            universe.trajectory.ts.time = frame * 1000
+            if frame == 0:
+                universe.atoms.write(str(reference / 'lig.gro'))
+            writer.write(universe.atoms)
+    production = Path(root) / 'stages' / '06_production'
+    production.mkdir()
+    (production / 'run.edr').write_text('not really an edr; the reader is replaced in the tests')
+    (Path(root) / 'manifest.json').write_text(json.dumps({
+        'run_type': 'aa_only', 'detergent': 'DDM', 'settings': {'contact_nm': 0.6},
+        'stages': [{'name': 'AA reference publication', 'status': 'completed'}]}))
+    return reference
 
 
 def test_the_overview_measures_the_segment_and_records_its_own_limits(tmp_path):
@@ -158,3 +188,74 @@ def test_a_micelle_across_the_box_face_is_one_aggregate(tmp_path):
     assert record['aggregates']['largest_mean'] == 2, 'the raw distance across the face is ~9.8 nm'
     assert record['aggregates']['free_mean'] == 1
     assert record['gyration_nm']['mean'] < 0.5, 'the aggregate is compact once its two halves are one image'
+
+
+def spy_figures(monkeypatch):
+    """Record every Figure `_draw` makes, so a test reads the titles a reader sees."""
+    recorded = []
+
+    class Spy(matplotlib.figure.Figure):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            recorded.append(self)
+
+    monkeypatch.setattr(matplotlib.figure, 'Figure', Spy)
+    return recorded
+
+
+def fake_energy(monkeypatch, *, temperature=300.0):
+    """Replace `gmx energy` with one that writes the three terms in a different column order than requested."""
+    def run(command, **kwargs):
+        output = Path(command[command.index('-o') + 1])
+        output.write_text('# a fake gmx energy XVG\n'
+                          '@ s0 legend "Potential"\n@ s1 legend "Temperature"\n@ s2 legend "Pressure"\n'
+                          f'0 -190000 {temperature} 0.5\n1000 -191000 {temperature + 1} 1.5\n')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+    monkeypatch.setattr(trajectory_overview.subprocess, 'run', run)
+    monkeypatch.setattr(trajectory_overview.tools, 'tool_path', lambda *args, **kwargs: 'gmx')
+
+
+def test_an_aa_reference_stages_and_reads_its_production_energy(tmp_path, monkeypatch):
+    """An AA-only run's energy is the leg the reference was extracted from, not a sibling of `lig.xtc`."""
+    reference = write_aa_run(tmp_path)
+
+    entries = trajectory_overview.sources(tmp_path)
+
+    edr = tmp_path / 'stages/06_production/run.edr'
+    assert entries['stages/06_production/run.edr'] == edr
+    assert trajectory_overview._energy_beside(reference / 'lig.xtc') is None
+
+    fake_energy(monkeypatch)
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert record['energy']['terms']['Temperature']['mean'] == 300.5
+    assert record['energy_absent'] is None
+    assert record['subject'] == 'molecule', 'one molecule is not an aggregate'
+
+
+def test_a_single_molecule_figure_has_no_aggregate_panel(tmp_path, monkeypatch):
+    """A molecule cannot aggregate: the panel would be a flat line at 1, and its title would be wrong anyway."""
+    write_aa_run(tmp_path)
+    recorded = spy_figures(monkeypatch)
+    fake_energy(monkeypatch)
+
+    trajectory_overview.run(tmp_path)
+
+    axes = recorded[0].axes
+    titles = [axis.get_title() for axis in axes]
+    assert len(axes) == 5, 'RMSD, Rg and the three energy terms; no aggregate cell'
+    assert titles[:2] == ['RMSD', 'Radius of gyration']
+    assert titles[2].startswith('Temperature · mean')
+    assert not any('aggregate' in title.lower() for title in titles)
+
+
+def test_a_multi_molecule_figure_keeps_the_generic_aggregate_panel(tmp_path, monkeypatch):
+    """A micelle's aggregate curve stays; only its detergent-specific title goes."""
+    write_run(tmp_path)
+    recorded = spy_figures(monkeypatch)
+
+    trajectory_overview.run(tmp_path)
+
+    titles = [axis.get_title() for axis in recorded[0].axes]
+    assert titles[:3] == ['RMSD', 'Radius of gyration', 'Largest aggregate'], titles

@@ -6,6 +6,25 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-12 the trajectory overview reads an AA run's energy and loses its detergent wording.** An AA-only run's
+reviewable trajectory is `07_reference/lig.xtc`, extracted from `06_production/run.xtc`; its `run.edr` was never
+beside it, so the overview's energy panels said "no .edr is staged beside the trajectory or its stage directory".
+`sources()` now stages `06_production/run.edr` for an `aa_only` run when no sibling energy exists
+(`_reference_leg_energy`), and `_energy` falls back to the one `.edr` in the staged tree because it need not sit beside
+the trajectory; the energy still comes from GROMACS' own `gmx energy` columns. The figure's titles are generic now --
+**RMSD**, **Radius of gyration**, **Largest aggregate**, and the Temperature/Pressure/Potential mean titles -- because
+the same figure is drawn for a protein, a micelle and a small molecule. A segment holding at most one non-water
+molecule draws **five** panels (no aggregate panel: one molecule cannot aggregate, and the panel was a flat line at 1);
+a multi-molecule segment keeps it. The record's `subject` says `molecule` for that case and its note no longer says
+"detergent". Checks: fast **2714 passed / 1 xfailed**, browser **375 passed**, slow **24 passed**, ruff clean. Live
+`619ab118abd6` (AA, completed) ran its overview in **8.4 s** (07:51:50 → 07:51:58 UTC): `sources.json` names
+`stages/06_production/run.edr`, the record's energy has Temperature/Pressure/Potential (`run.edr`, Temperature mean
+303.178), and the figure shows RMSD / Radius of gyration / Temperature / Pressure / Potential with no aggregate cell.
+The recomputed attempt is under `analyses/trajectory-overview/4da8ef18…`; the Run view shows that figure on its next
+load. Dashboard restarted. Left deliberately: the overview still measures one sampled segment and says nothing about
+convergence; other legs' EDRs (NVT/NPT) are not plotted; `subject` for a single molecule is the molecule, while a
+protein run still reports `protein`.
+
 **2026-11-12 the run card states its throughput; New run and Bond Interactions widths.** The Runs card's identity line
 now ends with the run's **highest observed ns/day** (`id · GPU · size · 2124.7 ns/day`): `views.performance_ns_per_day`
 scans `<run>/logs/*.log` tails for GROMACS' `Performance:` line (first number), takes the maximum, and remembers each
