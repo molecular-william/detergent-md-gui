@@ -31,8 +31,9 @@ def published_vocabulary(adapter):
 def test_every_published_setting_declares_what_a_value_may_be(run_type):
     """A form renders one control per published key, so each has to say what a valid value looks like.
 
-    Two shapes and each has its own meaning. A bounded setting declares `(label, lo, hi)` and the range has to be
-    one. A choice declares `(label, options)`, and an *empty* options tuple is a declaration rather than a gap: it
+    Two shapes and each has its own meaning. A numeric setting declares `(label, lo, hi)`; `hi=None` states no upper
+    bound (the AA timestep, whose ceiling is the physics rather than the form) and any other range has to be one. A
+    choice declares `(label, options)`, and an *empty* options tuple is a declaration rather than a gap: it
     says the value is free text, which is how `osmotic` declares its series id and solute root -- strings with no
     enumerable domain. Its normalizer reads it that way (`if allowed and text not in allowed`), so a run type may
     publish a key it places no enumeration on.
@@ -48,24 +49,39 @@ def test_every_published_setting_declares_what_a_value_may_be(run_type):
             assert isinstance(spec[1], tuple), f'{run_type}: {key} declares options that are not a tuple'
         else:
             label, lo, hi = spec
-            assert lo < hi, f'{run_type}: {key} declares an empty range {lo}..{hi}'
-            assert isinstance(lo, (int, float)) and isinstance(hi, (int, float)), f'{run_type}: {key} bounds'
+            assert isinstance(lo, (int, float)), f'{run_type}: {key} lower bound'
+            assert hi is None or isinstance(hi, (int, float)), f'{run_type}: {key} upper bound'
+            assert hi is None or lo < hi, f'{run_type}: {key} declares an empty range {lo}..{hi}'
         assert isinstance(spec[0], str) and spec[0], f'{run_type}: {key} has no label to render'
 
 
 def test_the_aa_stage_settings_are_published_with_their_bounds():
-    """Each dynamics stage's timestep, neighbour list and buffer tolerance is advertised, or the queue drops it.
+    """Each dynamics stage's timestep, neighbour list, buffer tolerance and coupling are advertised, or the queue
+    drops them silently.
 
-    The route keeps only advertised keys (AGENTS.md invariant), so an unadvertised stage setting would be silently
-    replaced by its default. These are the bounds the plan states: fs for the timestep, steps for nstlist, and a
-    tolerance whose -1 disables the buffer while 0 is refused by name (it is inside this range).
+    The route keeps only advertised keys (AGENTS.md invariant), so an unadvertised stage setting would be replaced
+    by its default. The timestep has no upper bound -- a topology with repartitioned hydrogen masses is what lets a
+    run raise it, and GROMACS' stability is the real limit -- while the coupling times, the pressure kind and the
+    compressibility keep the ranges the profiles state. The hydrogen-mass factor is one run setting, not per stage,
+    and NVT carries no barostat because it fixes the box.
     """
-    specs = protocol.adapter_for('aa_only').settings_specs()
+    adapter = protocol.adapter_for('aa_only')
+    specs, choices = adapter.settings_specs(), adapter.choice_specs()
     expected = {}
     for stage in ('nvt', 'npt', 'production'):
-        expected[f'aa_{stage}_dt_fs'] = (0.5, 4)
+        expected[f'aa_{stage}_dt_fs'] = (0.5, None)
         expected[f'aa_{stage}_nstlist'] = (1, 10000)
         expected[f'aa_{stage}_verlet_buffer_tolerance'] = (-1, 0.1)
+        expected[f'aa_{stage}_tau_t'] = (0.01, 100)
+        assert f'aa_{stage}_tcoupl' in choices, stage
+        assert 'V-rescale' in choices[f'aa_{stage}_tcoupl'][1]
+        if stage != 'nvt':
+            expected[f'aa_{stage}_tau_p'] = (0.01, 100)
+            expected[f'aa_{stage}_compressibility'] = (0, 1)
+            assert 'C-rescale' in choices[f'aa_{stage}_pcoupl'][1]
+            assert choices[f'aa_{stage}_pcoupltype'][1][0] == 'isotropic'
+    assert 'aa_nvt_pcoupl' not in choices and 'aa_nvt_tau_p' not in specs
+    expected['mass_repartition_factor'] = (1, 10)
     assert set(expected) <= set(specs)
     for key, bounds in expected.items():
         label, low, high = specs[key]

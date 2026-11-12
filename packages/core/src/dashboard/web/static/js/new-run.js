@@ -150,11 +150,18 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // The atomistic half's fields. They travel in a CG run too -- the adapter mirrors a few into the CG dialect and
   // records the rest as the reference's provenance -- but only an AA run shows them.
   // Each stage's duration, timestep, neighbour-list rebuild cadence and Verlet buffer tolerance. The timestep changes
-  // the step count, not the duration; the stage editor's facts line states both.
+  // the step count, not the duration; the stage editor's facts line states both. The thermostat (every stage) and,
+  // where the stage couples pressure, the barostat are per stage; the hydrogen-mass factor is one for the whole run.
+  const AA_COUPLING_FIELDS = [
+    'aa_nvt_tcoupl','aa_nvt_tau_t',
+    'aa_npt_tcoupl','aa_npt_tau_t','aa_npt_pcoupl','aa_npt_pcoupltype','aa_npt_tau_p','aa_npt_compressibility',
+    'aa_production_tcoupl','aa_production_tau_t','aa_production_pcoupl','aa_production_pcoupltype',
+    'aa_production_tau_p','aa_production_compressibility'];
   const AA_FIELDS = ['aa_nvt_ps','aa_npt_ps','aa_production_ps',
     'aa_nvt_dt_fs','aa_npt_dt_fs','aa_production_dt_fs',
     'aa_nvt_nstlist','aa_npt_nstlist','aa_production_nstlist',
     'aa_nvt_verlet_buffer_tolerance','aa_npt_verlet_buffer_tolerance','aa_production_verlet_buffer_tolerance',
+    'mass_repartition_factor',...AA_COUPLING_FIELDS,
     'temperature_k','pressure_bar','output_interval_ps','box_nm','aa_seed','mdrun_ntomp','mdrun_ranks','mdrun_nb','mdrun_pme','constraints'];
   // The device and the checkpoint cadence are settings of *this host and run*, not of the AA reference a run
   // inherits: they travel with a clone and through a preset, and they are never inherited from a reference record.

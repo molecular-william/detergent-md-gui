@@ -27,8 +27,13 @@ MDP_HELP = {
                      'option compressed-x-precision',
     'nstcomm': 'interval for center of mass motion removal',
     'dt': 'the time step; the manual states dt (0.001) [ps]. The form names it in femtoseconds and the run writes '
-          'fs/1000: 2 fs is this protocol, and a longer step needs hydrogen-mass repartitioning, which this form '
-          'does not do',
+          'fs/1000: 2 fs is this protocol, and a longer step needs hydrogen masses large enough for it -- the '
+          'Hydrogen mass repartitioning field applies that to every dynamics leg',
+    'mass_repartition_factor': 'scales the masses of the lightest atoms (the hydrogens) to this factor of their mass '
+                               'and subtracts the difference from the atom each is bound to; the manual notes that '
+                               'with constraints=h-bonds a factor of 3 will usually enable a 4 fs time step. Blank '
+                               'writes no line, which is the manual default of 1 (no repartitioning); GROMACS '
+                               'refuses a factor its topology cannot take',
     'nstlist': 'interval between steps that update the neighbor list; with dynamics and a Verlet buffer tolerance '
                'this is a minimum value and mdrun might increase it',
     'verlet_buffer_tolerance': 'the maximum allowed error for pair interactions per atom pair caused by the Verlet '
@@ -38,19 +43,31 @@ MDP_HELP = {
              'verlet-buffer-tolerance and the value of rlist is ignored',
     'rcoulomb': 'the distance for the Coulomb cut-off',
     'rvdw': 'distance for the LJ or Buckingham cut-off',
-    'tau_t': 'time constant for coupling (one for each group in tc-grps); -1 means no temperature coupling',
+    'tcoupl': 'temperature coupling: V-rescale (velocity rescaling with a stochastic term, the reviewed thermostat '
+              'and a proper canonical ensemble), Nose-Hoover, Berendsen, or no',
+    'tau_t': 'time constant for temperature coupling (one for each group in tc-grps); -1 means no temperature '
+             'coupling',
+    'pcoupl': 'pressure coupling: C-rescale (stochastic volume relaxation, used for equilibration and production), '
+              'Parrinello-Rahman, Berendsen, or no (a fixed box); NVT fixes the box, so it has no barostat',
+    'pcoupltype': 'the kind of pressure coupling: isotropic (one value each for compressibility and ref-p), '
+                  'semiisotropic (two, x/y and z) or anisotropic (six, xx yy zz xy xz yz). The form states one '
+                  'compressibility and one pressure, so a larger kind repeats them for every direction',
     'tau_p': 'the time constant for pressure coupling (one value for all directions)',
     'compressibility': 'the compressibility, in bar^-1; for water at 1 atm and 300 K it is 4.5e-5 bar^-1',
     'constraints': 'select which bonds to convert to constraints: none, h-bonds, all-bonds, h-angles, all-angles; '
                    "a topology's own [ constraints ] block is enforced whatever this says",
 }
 
-#: The three AA dynamics stages each carry their own copy of the same three MDP options, and the form asks for
-#: help by the setting name its input carries: one sentence per option, keyed by each stage's setting name.
+#: The three AA dynamics stages each carry their own copy of the same MDP options, and the form asks for help by the
+#: setting name its input carries: one sentence per option, keyed by each stage's setting name. NVT has no barostat,
+#: because it fixes the box, so it carries the thermostat's keys only.
 for _stage in ('nvt', 'npt', 'production'):
-    MDP_HELP.update({f'aa_{_stage}_dt_fs': MDP_HELP['dt'],
-                     f'aa_{_stage}_nstlist': MDP_HELP['nstlist'],
-                     f'aa_{_stage}_verlet_buffer_tolerance': MDP_HELP['verlet_buffer_tolerance']})
+    _aliases = {'dt_fs': 'dt', 'nstlist': 'nstlist', 'verlet_buffer_tolerance': 'verlet_buffer_tolerance',
+                'tcoupl': 'tcoupl', 'tau_t': 'tau_t'}
+    if _stage != 'nvt':
+        _aliases.update({'pcoupl': 'pcoupl', 'pcoupltype': 'pcoupltype', 'tau_p': 'tau_p',
+                         'compressibility': 'compressibility'})
+    MDP_HELP.update({f'aa_{_stage}_{name}': MDP_HELP[source] for name, source in _aliases.items()})
 
 #: Execution-flag meanings, quoted from `gmx mdrun -h` on the installed build.
 MDRUN_HELP = {

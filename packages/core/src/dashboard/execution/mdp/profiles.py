@@ -63,6 +63,7 @@ _AA_DYNAMICS_COMMENTS = {
     'nstenergy': 'energies every min(interval steps, 500)',
     'nstlog': 'the log every min(interval steps, 500)',
     'tc-grps': 'one coupling group, the whole system',
+    'tcoupl': 'temperature coupling',
     'tau-t': 'coupling time (ps)',
     'ref-t': "the run's temperature (K)",
     'gen-temp': "the run's temperature (K), the velocity draw's target",
@@ -81,28 +82,30 @@ _AA_NPT_COMMENTS = {
     'nsteps': "the run's NPT duration in steps at this file's own dt",
     'continuation': 'continues the NVT velocities',
     'gen-vel': 'the NVT leg already drew them',
-    'pcoupl': 'C-rescale: the equilibration barostat',
-    'pcoupltype': 'isotropic pressure coupling',
-    'tau-p': '5 ps pressure-coupling time constant',
+    'pcoupl': 'the stage barostat; C-rescale is the reviewed equilibration choice',
+    'pcoupltype': 'the pressure coupling kind',
+    'tau-p': 'pressure-coupling time constant (ps)',
     'ref-p': "the run's pressure (bar)",
-    'compressibility': "4.5e-5: the papers' water compressibility (1/bar)",
+    'compressibility': "water compressibility (bar^-1); 4.5e-5 is the papers' value",
 }
 _AA_PRODUCTION_COMMENTS = {
     **_AA_PROTOCOL_COMMENTS, **_AA_DYNAMICS_COMMENTS,
     'nsteps': "the run's production duration in steps at this file's own dt",
     'continuation': 'continues the NPT state',
     'gen-vel': 'the velocities come from the equilibration legs',
-    'pcoupl': 'Parrinello-Rahman: the production barostat',
-    'pcoupltype': 'isotropic pressure coupling',
-    'tau-p': '5 ps pressure-coupling time constant',
+    'pcoupl': 'the stage barostat; Parrinello-Rahman is the reviewed production choice',
+    'pcoupltype': 'the pressure coupling kind',
+    'tau-p': 'pressure-coupling time constant (ps)',
     'ref-p': "the run's pressure (bar)",
-    'compressibility': "4.5e-5: the papers' water compressibility (1/bar)",
+    'compressibility': "water compressibility (bar^-1); 4.5e-5 is the papers' value",
 }
 
 #: The three dynamics stages' MDP options the New run form owns, one setting per stage. They keep the reviewed
 #: values below as their defaults -- an untouched run renders this file byte for byte -- and a run that names one
-#: replaces only that option; the reviewed physics of everything else is fixed.
-_AA_DYNAMICS_VARIABLE = ('dt', 'nstlist', 'verlet-buffer-tolerance')
+#: replaces only that option; the reviewed physics of everything else is fixed. `mass-repartition-factor` is absent
+#: from every profile, so a run that names none writes no line (its default is 1, i.e. no repartitioning).
+_AA_DYNAMICS_VARIABLE = ('dt', 'nstlist', 'verlet-buffer-tolerance', 'tcoupl', 'tau-t',
+                         'pcoupl', 'pcoupltype', 'tau-p', 'compressibility', 'mass-repartition-factor')
 
 AA_PROFILES = (
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'steep', 'nsteps': 0, 'emtol': 1000, 'emstep': 0.01,
@@ -162,6 +165,7 @@ _MARTINI_COMMENTS = {
     'vdw-modifier': 'Martini 3 shifts the potential to zero at the cut-off',
     'rvdw': 'van der Waals cut-off (nm)',
     'tc-grps': 'one coupling group, the whole system',
+    'tcoupl': 'temperature coupling',
     'tau-t': 'coupling time (ps)',
     'constraints': 'coarse-grained beads carry no distance constraints',
     'constraint-algorithm': 'LINCS, named as the templates name it, with nothing to solve',

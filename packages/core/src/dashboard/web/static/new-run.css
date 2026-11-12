@@ -5,9 +5,10 @@
 #run-form .run-settings{min-width:0;padding:14px}
 /* The stage settings are a form to scan, not a field to fill: tighter rows so the whole set reads as one block,
    and each cell stacks its caption above a control row of the input plus a compact Default button. Four columns at
-   a desktop width, the number of settings each AA stage editor holds; that needs a narrower control than the cell,
-   so the Default button keeps its place beside it. */
-#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:4px 10px}
+   a desktop width is the width a reader scans; a stage with more controls (the six or ten a coupling stage holds)
+   wraps onto the next row rather than squeezing a fifth into it. That needs a narrower control than the cell, so
+   the Default button keeps its place beside it. */
+#run-form .settings-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 10px}
 /* Each cell is two rows: the caption (with its info button beside it) and the control row. The grid keeps the info
    button on the caption's line at its right instead of giving it a line of its own, and `margin:0` matters: the global
    `label` margin would otherwise add 24 px around every cell and dominate the block's height. */
@@ -17,6 +18,9 @@
 #run-form .settings-grid > label > .field-help{grid-column:2;grid-row:1;justify-self:start;margin-left:0}
 #run-form .setting-control{min-width:0}
 #run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:9rem}
+/* The run label is free text, not one of the narrow numbers: it keeps the row's spare width so a descriptive label
+   is readable while it is typed. */
+#run-form .setting-control input[name=label]{max-width:none;flex:1 1 24rem}
 /* Run type and Force field read as one choice: what to run, and with what. The two-column row keeps Force field
    where the reader already looks for it when a reference run hides it. */
 #run-form .run-config-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}

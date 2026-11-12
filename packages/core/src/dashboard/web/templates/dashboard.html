@@ -241,33 +241,56 @@
          often changes inside and a facts line in the summary so a collapsed stage still says what it holds. They are
          `aa-setting` because only an AA run has these stages; a CG run consumes a reference that already ran. #}
       <h4 class="new-option-title aa-setting">Stages</h4>
-      <p class="hint aa-setting">Open a stage to change its duration, timestep and neighbour search. The timestep
-        changes the step count, not the duration: 100 ps at 1 fs is 100 000 steps.</p>
+      <p class="hint aa-setting">Open a stage to change its duration, timestep, neighbour search and coupling. The
+        timestep changes the step count, not the duration: 100 ps at 1 fs is 100 000 steps. A larger timestep needs
+        hydrogen masses large enough for it: set a repartitioning factor below, or GROMACS will refuse the step.</p>
+      {# One shared pair of coupling controls: the thermostat for every dynamics stage, and the barostat only where
+         the stage couples pressure (NPT equilibration and NPT production; NVT fixes the box). The option values are
+         GROMACS' own spellings, so the MDP writer can state them verbatim. #}
+      {% macro aa_coupling_fields(stage, pressure, production=false) -%}
+          <label>Thermostat<span class="setting-control"><select name="aa_{{ stage }}_tcoupl"><option value="V-rescale">V-rescale · velocity rescaling</option><option value="Nose-Hoover">Nose-Hoover</option><option value="Berendsen">Berendsen</option><option value="no">no · no temperature coupling</option></select><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_tcoupl">Default</button></span></label>
+          <label>Thermostat coupling (ps)<span class="setting-control"><input name="aa_{{ stage }}_tau_t" type="number" min="0.01" max="100" step="0.01"><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_tau_t">Default</button></span></label>
+          {% if pressure %}
+          <label>Barostat<span class="setting-control"><select name="aa_{{ stage }}_pcoupl">{% if production %}<option value="Parrinello-Rahman">Parrinello-Rahman</option><option value="C-rescale">C-rescale · stochastic volume</option>{% else %}<option value="C-rescale">C-rescale · stochastic volume</option><option value="Parrinello-Rahman">Parrinello-Rahman</option>{% endif %}<option value="Berendsen">Berendsen</option><option value="no">no · fixed box</option></select><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_pcoupl">Default</button></span></label>
+          <label>Pressure coupling type<span class="setting-control"><select name="aa_{{ stage }}_pcoupltype"><option value="isotropic">isotropic</option><option value="semiisotropic">semiisotropic</option><option value="anisotropic">anisotropic</option><option value="surface-tension">surface-tension</option></select><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_pcoupltype">Default</button></span></label>
+          <label>Barostat coupling (ps)<span class="setting-control"><input name="aa_{{ stage }}_tau_p" type="number" min="0.01" max="100" step="0.01"><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_tau_p">Default</button></span></label>
+          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="aa_{{ stage }}_compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="aa_{{ stage }}_compressibility">Default</button></span></label>
+          {% endif %}
+      {%- endmacro %}
+      {# Masses are the topology's, not a stage's, so this is one factor for the whole run: every dynamics leg states
+         the same masses, and a blank box writes no `mass-repartition-factor` line at all. #}
+      <label class="aa-setting stage-hmr">Hydrogen mass repartitioning factor <span class="hint">blank = off ·
+        applied to all three dynamics stages</span><span class="setting-control"><input name="mass_repartition_factor"
+        type="number" min="1" max="10" step="0.1" placeholder="off"><button type="button"
+        class="secondary use-default" data-field="mass_repartition_factor">Default</button></span></label>
       <details class="stage-editor aa-setting" id="stage-aa-nvt" name="aa-stages" open>
         <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts" id="stage-aa-nvt-facts"></span></summary>
         <div class="stage-body"><div class="settings-grid">
           <label>Duration (ps)<span class="setting-control"><input name="aa_nvt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_ps">Default</button></span></label>
-          <label>Timestep (fs)<span class="setting-control"><input name="aa_nvt_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_nvt_dt_fs">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_nvt_dt_fs" type="number" min="0.5" step="0.1"><button type="button" class="secondary use-default" data-field="aa_nvt_dt_fs">Default</button></span></label>
           <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_nvt_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_nvt_nstlist">Default</button></span></label>
           <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_nvt_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_nvt_verlet_buffer_tolerance">Default</button></span></label>
+          {{ aa_coupling_fields('nvt', false) }}
         </div></div>
       </details>
       <details class="stage-editor aa-setting" id="stage-aa-npt" name="aa-stages">
         <summary><span class="stage-name">NPT equilibration</span><span class="stage-facts" id="stage-aa-npt-facts"></span></summary>
         <div class="stage-body"><div class="settings-grid">
           <label>Duration (ps)<span class="setting-control"><input name="aa_npt_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_ps">Default</button></span></label>
-          <label>Timestep (fs)<span class="setting-control"><input name="aa_npt_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_npt_dt_fs">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_npt_dt_fs" type="number" min="0.5" step="0.1"><button type="button" class="secondary use-default" data-field="aa_npt_dt_fs">Default</button></span></label>
           <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_npt_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_npt_nstlist">Default</button></span></label>
           <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_npt_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_npt_verlet_buffer_tolerance">Default</button></span></label>
+          {{ aa_coupling_fields('npt', true) }}
         </div></div>
       </details>
       <details class="stage-editor aa-setting" id="stage-aa-production" name="aa-stages">
         <summary><span class="stage-name">NPT production</span><span class="stage-facts" id="stage-aa-production-facts"></span></summary>
         <div class="stage-body"><div class="settings-grid">
           <label>Duration (ps)<span class="setting-control"><input name="aa_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="aa_production_ps">Default</button></span></label>
-          <label>Timestep (fs)<span class="setting-control"><input name="aa_production_dt_fs" type="number" min="0.5" max="4" step="0.1"><button type="button" class="secondary use-default" data-field="aa_production_dt_fs">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="aa_production_dt_fs" type="number" min="0.5" step="0.1"><button type="button" class="secondary use-default" data-field="aa_production_dt_fs">Default</button></span></label>
           <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_production_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_production_nstlist">Default</button></span></label>
           <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_production_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_production_verlet_buffer_tolerance">Default</button></span></label>
+          {{ aa_coupling_fields('production', true, true) }}
         </div></div>
       </details>
       <section class="new-option-group" aria-labelledby="new-sampling-title">

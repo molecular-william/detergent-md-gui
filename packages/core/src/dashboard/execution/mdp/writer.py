@@ -54,7 +54,13 @@ class Profile:
 
 
 def formatted(value):
-    """One value in the form the current code writes it."""
+    """One value in the form the current code writes it.
+
+    A tuple is a per-direction value list (the pressure coupling's compressibility and reference pressure take one
+    value for an isotropic kind, two for semiisotropic and six for anisotropic), written space-separated.
+    """
+    if isinstance(value, (tuple, list)):
+        return ' '.join(formatted(item) for item in value)
     if isinstance(value, bool):
         return 'yes' if value else 'no'
     if isinstance(value, float):

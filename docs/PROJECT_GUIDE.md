@@ -262,15 +262,29 @@ The CPU levers are `mdrun_ntomp` (OpenMP threads per rank) and `mdrun_ranks` (MP
 Each AA dynamics stage — NVT, NPT and production — is a minimisable editor in the form: the summary keeps the
 stage's current facts (`100 ps · 2 fs · 50 000 steps · nstlist 20`) and the body holds that stage's **duration (ps)**,
 **timestep (fs)**, **neighbour-list rebuild (steps)** and **Verlet buffer tolerance** (`kJ mol⁻¹ ps⁻¹`; `-1` keeps the
-profile's pinned `rlist`). The settings column takes eight of the form's twelve columns at desktop width, so four
-settings share a row in narrow cells; `layout.css` scopes that split to the form with the stage editors, so the pdc
+profile's pinned `rlist`), plus its **thermostat** (`tcoupl`: V-rescale, Nose-Hoover, Berendsen or no) and
+**thermostat coupling time** (`tau-t`). NPT equilibration and production add, because they couple pressure,
+**barostat** (`pcoupl`: C-rescale, Parrinello-Rahman or no), **pressure coupling type** (`pcoupltype`: isotropic,
+semiisotropic or anisotropic), **barostat coupling time** (`tau-p`) and **compressibility**; NVT fixes its box, so it
+offers no barostat. A non-isotropic kind needs several values for `compressibility` and `ref-p`, so the form's one
+compressibility and one pressure are repeated for every direction it requires — the file stays valid, and equal
+values make the coupling isotropic in effect. The settings column takes eight of the form's twelve columns at desk
+width, four controls to a row; `layout.css` scopes that split to the form with the stage editors, so the pdc
 workspace's New run keeps its 6 + 6 halves. The timestep changes the step count, not the duration: `nsteps = round(ps / (fs/1000))` and
 the trajectory stride is recomputed the same way, so an untouched run is byte-identical to the reviewed profile.
 `nstlist` is a floor — `mdrun` may raise it — and exactly `0` for the tolerance is refused by name because GROMACS
-refuses it. A positive tolerance lets GROMACS size `rlist`; with the protocol's 2.5 nm box and 1.2 nm cut-offs it
-usually cannot fit, and `grompp`'s refusal is what the stage console then shows. CG, pdc and osmotic have no stage
-editors of this kind: their timesteps and boxes are the CG profiles' standing decisions, placement geometry, and the
-osmotic paper's fixed cell.
+refuses it. The timestep has a floor of 0.5 fs and **no upper bound**: a topology with larger hydrogen masses can step
+further, and GROMACS' stability is the real limit.
+
+**Hydrogen mass repartitioning** is one optional run setting (`mass_repartition_factor`, blank = off), because masses
+belong to the topology rather than to a stage: a named factor writes GROMACS' `mass-repartition-factor` into all
+three dynamics MDPs and no other stage, so every leg states the same masses. It has no default key — a blank field
+writes no line at all, which is GROMACS' own default of 1 — and GROMACS refuses a factor its topology cannot take (the
+bonded heavy atom would fall below the repartitioned light-atom mass); with the CHARMM36 topology here factor 3 passes
+and factor 4 does not. A positive tolerance lets GROMACS size `rlist`; with the protocol's 2.5 nm box and 1.2 nm
+cut-offs it usually cannot fit, and `grompp`'s refusal is what the stage console then shows. CG, pdc and osmotic have
+no stage editors of this kind: their timesteps and boxes are the CG profiles' standing decisions, placement geometry,
+and the osmotic paper's fixed cell.
 
 `box_shape` (AA runs only) offers the GROMACS manual's four useful cells — **Cube**, **rhombic dodecahedron
 (xy-square)**, **rhombic dodecahedron (xy-hexagon)** and **truncated octahedron** — all sized by the same **minimum

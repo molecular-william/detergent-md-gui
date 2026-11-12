@@ -295,9 +295,11 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
                # The three dynamics stages' own timesteps. A femtosecond is the unit the form states and the MDP
-               # writes ps, so `mdp_values` divides by 1000. 2 fs is the protocol's step (standing decision).
-               'aa_nvt_dt_fs':('NVT timestep (fs)',.5,4),'aa_npt_dt_fs':('NPT timestep (fs)',.5,4),
-               'aa_production_dt_fs':('Production timestep (fs)',.5,4),
+               # writes ps, so `mdp_values` divides by 1000. 2 fs is the protocol's step (standing decision); the
+               # floor stays at 0.5 fs, and there is no ceiling: a topology with repartitioned hydrogen masses is
+               # exactly what lets a run raise it, and GROMACS' own stability is the real limit.
+               'aa_nvt_dt_fs':('NVT timestep (fs)',.5,None),'aa_npt_dt_fs':('NPT timestep (fs)',.5,None),
+               'aa_production_dt_fs':('Production timestep (fs)',.5,None),
                # With the Verlet scheme `nstlist` is a performance knob and a floor: mdrun may raise it.
                'aa_nvt_nstlist':('NVT neighbour list rebuild (steps)',1,10000),
                'aa_npt_nstlist':('NPT neighbour list rebuild (steps)',1,10000),
@@ -319,6 +321,44 @@ SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT du
                'temperature_k':('Temperature',200,500),'pressure_bar':('Pressure',.1,100),
                'output_interval_ps':('Trajectory output interval',.002,100000),
                'box_nm':('Box edge',1.0,20),'aa_seed':('AA random seed',1,2147483646)}
+
+#: The thermostat and barostat choices each dynamics stage may override. The reviewed profile's own values are the
+#: defaults below, so an untouched run renders the reviewed file; only the option a run names changes. NVT has no
+#: barostat (its `pcoupl = no` is the nature of the stage), so it carries the two thermostat settings only.
+AA_THERMOSTATS = ('V-rescale', 'Nose-Hoover', 'Berendsen', 'no')
+AA_BAROSTATS = ('C-rescale', 'Parrinello-Rahman', 'Berendsen', 'no')
+#: The forms this protocol's box can take. Surface tension is for a slab, not a solvated molecule, so it is
+#: not offered; a non-isotropic kind takes per-direction values, and the form's single number is repeated for
+#: each direction (equal values, so the coupling is still isotropic in effect but its spelling is the one chosen).
+AA_PRESSURE_TYPES = ('isotropic', 'semiisotropic', 'anisotropic')
+_AA_COUPLING_DEFAULTS = {
+    'nvt': {'tcoupl': 'V-rescale', 'tau_t': 1},
+    'npt': {'tcoupl': 'V-rescale', 'tau_t': 1, 'pcoupl': 'C-rescale', 'pcoupltype': 'isotropic',
+            'tau_p': 5, 'compressibility': 4.5e-5},
+    'production': {'tcoupl': 'V-rescale', 'tau_t': 1, 'pcoupl': 'Parrinello-Rahman', 'pcoupltype': 'isotropic',
+                   'tau_p': 5, 'compressibility': 4.5e-5},
+}
+for _stage, _coupling in _AA_COUPLING_DEFAULTS.items():
+    for _suffix, _value in _coupling.items():
+        _key = f'aa_{_stage}_{_suffix}'
+        DEFAULTS[_key] = _value
+        if _suffix == 'tcoupl':
+            CHOICE_SPECS[_key] = (f'{_stage.upper()} thermostat', AA_THERMOSTATS)
+        elif _suffix == 'pcoupl':
+            CHOICE_SPECS[_key] = (f'{_stage.upper()} barostat', AA_BAROSTATS)
+        elif _suffix == 'pcoupltype':
+            CHOICE_SPECS[_key] = (f'{_stage.upper()} pressure coupling type', AA_PRESSURE_TYPES)
+        elif _suffix == 'tau_t':
+            SETTING_SPECS[_key] = (f'{_stage.upper()} temperature coupling time (ps)', .01, 100)
+        elif _suffix == 'tau_p':
+            SETTING_SPECS[_key] = (f'{_stage.upper()} pressure coupling time (ps)', .01, 100)
+        else:
+            SETTING_SPECS[_key] = (f'{_stage.upper()} compressibility (bar^-1)', 0, 1)
+#: Hydrogen mass repartitioning is one factor for the whole run -- masses belong to the topology, not to a stage --
+#: and it has no default key: absent means off, so an untouched run writes no `mass-repartition-factor` line and a
+#: clone or retry re-feeds no null into the normalizer. GROMACS itself refuses a factor its topology cannot take
+#: (the bonded heavy atom would fall below the repartitioned hydrogen mass).
+SETTING_SPECS['mass_repartition_factor'] = ('Hydrogen mass repartition factor', 1, 10)
 
 
 def stage_defaults(profile='standard'):
@@ -427,12 +467,25 @@ def mdp_values(settings, profile):
     interval = max(1, round(settings['output_interval_ps'] / dt_ps))
     values.update({'dt': dt_ps, 'nstlist': settings[f'aa_{stage}_nstlist'],
                    'verlet-buffer-tolerance': settings[f'aa_{stage}_verlet_buffer_tolerance'],
+                   'tcoupl': settings[f'aa_{stage}_tcoupl'], 'tau-t': settings[f'aa_{stage}_tau_t'],
                    'nsteps': round(settings[_DURATION_SETTING[profile]] / dt_ps),
                    'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
                    'gen-seed': settings['aa_seed'], 'ld-seed': settings['aa_seed'],
                    'nstxout-compressed': interval, 'nstenergy': min(interval, 500), 'nstlog': min(interval, 500)})
     if profile != 'aa-nvt-v1':
-        values['ref-p'] = settings['pressure_bar']
+        # Isotropic takes one value each; semiisotropic two (x/y and z) and anisotropic six. The form states one
+        # compressibility and one pressure, so a larger kind repeats them -- the run stays executable and the file
+        # states exactly the directions the chosen kind requires.
+        directions = {'isotropic': 1, 'semiisotropic': 2, 'anisotropic': 6}[settings[f'aa_{stage}_pcoupltype']]
+        compressibility = settings[f'aa_{stage}_compressibility']
+        pressure = settings['pressure_bar']
+        values.update({'ref-p': (pressure,) * directions if directions > 1 else pressure,
+                       'pcoupl': settings[f'aa_{stage}_pcoupl'],
+                       'pcoupltype': settings[f'aa_{stage}_pcoupltype'], 'tau-p': settings[f'aa_{stage}_tau_p'],
+                       'compressibility': (compressibility,) * directions if directions > 1 else compressibility})
+    # One factor for the whole run, so every dynamics leg states the same masses; absent writes no line at all.
+    if settings.get('mass_repartition_factor') is not None:
+        values['mass-repartition-factor'] = settings['mass_repartition_factor']
     return values
 
 

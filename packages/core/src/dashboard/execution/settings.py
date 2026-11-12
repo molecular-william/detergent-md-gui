@@ -17,7 +17,9 @@ def normalize(settings, defaults, *, specs, choices=None, aliases=None, ignore_u
     """Normalize one run type's payload against its own vocabulary.
 
     `specs` maps a key to `(label, low, high)`; the label is what a numeric refusal names when
-    `label_messages` is set (the CG half's spelling), otherwise the key is. `choices` maps a key to
+    `label_messages` is set (the CG half's spelling), otherwise the key is. `high=None` states no upper
+    bound -- a quantity whose ceiling is the physics, not the form (the AA timestep, which a run may raise
+    once its topology has the masses for it) -- and the refusal then names only the floor. `choices` maps a key to
     `(label, options)`, and empty options accept any value. `aliases` maps a spelling to the key it is
     stored under. `integrals` maps a count to the message its refusal carries. `bool_message` refuses a
     boolean where a number was asked for; an adapter that has always accepted one leaves it out.
@@ -58,7 +60,9 @@ def normalize(settings, defaults, *, specs, choices=None, aliases=None, ignore_u
         except (TypeError, ValueError) as exc:
             raise ValueError((label if label_messages else name) + ' must be numeric') from exc
         named = label if label_messages else name
-        if not math.isfinite(number) or not low <= number <= high:
+        if not math.isfinite(number) or number < low or (high is not None and number > high):
+            if high is None:
+                raise ValueError(f'{named} must be at least {low}')
             raise ValueError(f'{named} must be between {low} and {high}')
         if integral_in_loop and name in integrals:
             if number != int(number):

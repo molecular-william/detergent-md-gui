@@ -203,6 +203,59 @@ def test_an_aa_verlet_buffer_tolerance_of_exactly_zero_is_refused_by_name():
             aa.normalize_settings({f'aa_{stage}_verlet_buffer_tolerance': 0})
 
 
+def test_an_aa_timestep_has_no_upper_bound():
+    """Hydrogen mass repartitioning is what makes a longer step possible, so the form does not cap it at 4 fs."""
+    settings = aa.normalize_settings({'aa_nvt_dt_fs': 6, 'aa_npt_dt_fs': 6, 'aa_production_dt_fs': 6})
+
+    assert (settings['aa_nvt_dt_fs'], settings['aa_npt_dt_fs'], settings['aa_production_dt_fs']) == (6.0, 6.0, 6.0)
+    assert parsed(render('aa-nvt-v1', aa.mdp_values(settings, 'aa-nvt-v1')))['dt'] == '0.006'
+    with pytest.raises(ValueError, match=r'aa_nvt_dt_fs must be at least 0.5'):
+        aa.normalize_settings({'aa_nvt_dt_fs': 0.1})
+
+
+def test_each_dynamics_stage_carries_its_own_thermostat_and_barostat():
+    """The coupling a run names is written into that stage's file, and NVT has no barostat to name."""
+    settings = aa.normalize_settings({
+        'aa_nvt_tcoupl': 'Nose-Hoover', 'aa_nvt_tau_t': 2,
+        'aa_npt_tcoupl': 'Berendsen', 'aa_npt_tau_t': 3,
+        'aa_npt_pcoupl': 'C-rescale', 'aa_npt_pcoupltype': 'semiisotropic', 'aa_npt_tau_p': 4,
+        'aa_npt_compressibility': 2e-5,
+        'aa_production_tcoupl': 'V-rescale', 'aa_production_pcoupl': 'Parrinello-Rahman',
+    })
+
+    nvt = parsed(render('aa-nvt-v1', aa.mdp_values(settings, 'aa-nvt-v1')))
+    assert (nvt['tcoupl'], nvt['tau-t'], nvt['pcoupl']) == ('Nose-Hoover', '2', 'no')
+    npt = parsed(render('aa-npt-v1', aa.mdp_values(settings, 'aa-npt-v1')))
+    assert (npt['tcoupl'], npt['tau-t']) == ('Berendsen', '3')
+    assert (npt['pcoupl'], npt['pcoupltype'], npt['tau-p']) == ('C-rescale', 'semiisotropic', '4')
+    # Semiisotropic takes two values each (x/y and z); the form's one number is repeated for both directions.
+    assert npt['compressibility'] == f'{formatted(2e-5)} {formatted(2e-5)}'
+    assert npt['ref-p'] == f'{formatted(settings["pressure_bar"])} {formatted(settings["pressure_bar"])}'
+    production = parsed(render('aa-production-v1', aa.mdp_values(settings, 'aa-production-v1')))
+    assert (production['tcoupl'], production['pcoupl']) == ('V-rescale', 'Parrinello-Rahman')
+    # A choice outside the table is refused by name rather than reaching the MDP.
+    with pytest.raises(ValueError, match='aa_npt_tcoupl must be one of'):
+        aa.normalize_settings({'aa_npt_tcoupl': 'Langevin'})
+    with pytest.raises(ValueError, match='aa_npt_pcoupltype must be one of'):
+        aa.normalize_settings({'aa_npt_pcoupltype': 'rhombic'})
+
+
+def test_hydrogen_mass_repartitioning_is_one_run_factor_and_absent_by_default():
+    """Blank writes no line (the manual's default 1); a named factor reaches every dynamics leg and no other stage."""
+    default = aa.normalize_settings({})
+    for profile in AA_DURATION:
+        assert 'mass-repartition-factor' not in parsed(render(profile, aa.mdp_values(default, profile)))
+    for profile in ('aa-ions-v1', 'aa-em-v1'):
+        assert 'mass-repartition-factor' not in parsed(render(profile, aa.mdp_values(default, profile)))
+
+    settings = aa.normalize_settings({'mass_repartition_factor': 3})
+    assert settings['mass_repartition_factor'] == 3.0
+    for profile in AA_DURATION:
+        assert parsed(render(profile, aa.mdp_values(settings, profile)))['mass-repartition-factor'] == '3'
+    with pytest.raises(ValueError, match=r'mass_repartition_factor must be between 1 and 10'):
+        aa.normalize_settings({'mass_repartition_factor': 0.5})
+
+
 def test_a_cg_verlet_buffer_tolerance_of_exactly_zero_is_refused():
     """The CG production file has no pinned rlist for -1, so its domain starts above zero rather than at it."""
     with pytest.raises(ValueError, match=r'CG Verlet buffer tolerance .* must be between 0.001 and 0.1'):

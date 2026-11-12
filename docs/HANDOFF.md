@@ -6,6 +6,27 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-12 the AA stage editors carry the coupling, one HMR factor, and no timestep ceiling.** The timestep cap is
+gone (`SETTING_SPECS` now takes `high=None`; `execution/settings.py`'s normalizer names only the floor, 0.5 fs), because
+a topology with larger hydrogen masses may step further and GROMACS' stability is the real limit. Each dynamics stage
+now states its thermostat (`aa_<stage>_tcoupl`, V-rescale/Nose-Hoover/Berendsen/no) and `tau-t`; NPT equilibration and
+production also state `pcoupl` (C-rescale/Parrinello-Rahman/Berendsen/no), `pcoupltype`
+(isotropic/semiisotropic/anisotropic), `tau-p` and `compressibility`, while NVT has no barostat because it fixes the
+box. A non-isotropic kind repeats the form's one compressibility and one `ref-p` for each direction it requires (the
+MDP writer now formats a tuple space-separated), so every choice is executable; `surface-tension` is deliberately not
+offered (slab physics, not a solvated molecule). **Hydrogen mass repartitioning** is one optional run setting,
+`mass_repartition_factor` (blank = off), written as `mass-repartition-factor` into the three dynamics MDPs only; it has
+no default key, so a blank field writes no line and a clone/retry does not re-feed a null into the normalizer. Its
+GROMACS refusal for a topology whose heavy atom would fall below the light mass is stated in the field's help: with
+CHARMM36 here factor 3 passes and factor 4 does not. The Run label's input is exempt from the 9 rem numeric cap. Checks:
+fast **2717 passed / 1 xfailed**, browser **376 passed**, slow **24 passed**, ruff clean. Live `e9383ac781f3` (DDM,
+draft-smoke, HMR factor 2, box 4.0 nm) completed all seven stages in **49.5 s**: `04_nvt`, `05_npt` and `06_production`
+each carry `mass-repartition-factor = 2` plus their reviewed `tcoupl`/`tau-t` and (NPT legs) barostat lines, while the
+minimisation writes none. The first attempt (`d7f6b6793d9b`) was refused at input for the unchanged reason that DDM
+spans 1.85 nm and does not fit the 2.5 nm default box. Dashboard restarted. Left deliberately: the HMR form bound is
+1–10 and the topology check is GROMACS' (a run can still be prepared with a factor grompp then refuses); a non-isotropic
+`pcoupltype` repeats equal values rather than offering per-direction vectors; HMR is not written into minimisation.
+
 **2026-11-12 the trajectory overview reads an AA run's energy and loses its detergent wording.** An AA-only run's
 reviewable trajectory is `07_reference/lig.xtc`, extracted from `06_production/run.xtc`; its `run.edr` was never
 beside it, so the overview's energy panels said "no .edr is staged beside the trajectory or its stage directory".
