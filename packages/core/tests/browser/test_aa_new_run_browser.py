@@ -143,6 +143,41 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     assert not errors, errors
 
 
+def test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row(dashboard, live_page):
+    """The AA form's settings half is the wider one, and a stage editor's four settings share a row.
+
+    Only this form carries the stage editors, so `layout.css` widens the settings column on `:has(.stage-editor)`;
+    the pdc workspace's form keeps its 6 + 6 halves. Four settings per row is the outcome at the default viewport,
+    the page still fits the window, and below the breakpoint both halves take the full width and stack.
+    """
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    expect(page.locator('#stage-aa-nvt')).to_be_visible(timeout=30000)
+
+    cells = page.locator('#stage-aa-nvt .settings-grid > label').evaluate_all(
+        "els => els.map(el => { const box = el.getBoundingClientRect(); return {x: box.x, y: box.y} })")
+    assert len(cells) == 4, cells
+    assert max(cell['y'] for cell in cells) - min(cell['y'] for cell in cells) <= 4, cells
+    assert len({round(cell['x']) for cell in cells}) == 4, cells
+
+    inputs = page.locator('#run-form > .new-run-inputs').bounding_box()
+    settings = page.locator('#run-form > .new-run-settings').bounding_box()
+    assert settings['width'] > inputs['width'] + 40, (inputs, settings)
+    browser.assert_no_horizontal_scroll(page)
+
+    # Below the breakpoint the scoped spans must not beat the full-width rule: both halves stack.
+    page.set_viewport_size({'width': 1000, 'height': 900})
+    stacked = page.locator('#run-form > .new-run-inputs').bounding_box()
+    stacked_settings = page.locator('#run-form > .new-run-settings').bounding_box()
+    assert abs(stacked_settings['width'] - stacked['width']) <= 2, (stacked, stacked_settings)
+    assert stacked_settings['y'] >= stacked['y'] + stacked['height'] - 1, (stacked, stacked_settings)
+    browser.assert_no_horizontal_scroll(page)
+    assert not errors, errors
+
+
 def test_the_help_map_renders_accessible_info_buttons(dashboard, live_page):
     """The info icon is a real button whose text comes from the server's map, and Escape closes the click-opened tip.
 

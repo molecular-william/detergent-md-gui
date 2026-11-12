@@ -152,12 +152,15 @@ def test_the_validation_workspace_still_gets_the_single_molecule_panel(dashboard
     assert page.locator('#new-detergent').count() == 0, 'the pdc fieldset is rendered in the other workspace'
     assert page.locator('#new-import').count() == 0
 
-    # And its two halves are still side by side, which is the layout this panel always had.
+    # And its two halves are still side by side, with the stage-settings half the wider one: this is the AA form,
+    # whose settings sit four across (`layout.css` scopes that split to the form carrying the stage editors; the pdc
+    # form's own halves are measured 50/50 by the test above).
     form = page.locator('#run-form').bounding_box()
     inputs = page.locator('.new-run-inputs').bounding_box()
     settings = page.locator('.new-run-settings').bounding_box()
     assert settings['x'] >= inputs['x'] + inputs['width'] - 1, (inputs, settings)
-    assert abs(inputs['width'] - form['width'] / 2) <= 20
+    assert settings['width'] > inputs['width'] + 40, (inputs, settings)
+    assert settings['x'] + settings['width'] <= form['x'] + form['width'] + 1, 'the right half leaves the form'
     assert errors == [], errors
 
 

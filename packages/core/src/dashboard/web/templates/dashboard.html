@@ -534,6 +534,13 @@
       <button type="button" class="secondary danger" id="bonded-delete-parameterization{{ suffix }}" disabled
               title="Choose a saved mapping first.">Delete this parameterization</button>
     </div>
+    {# The drawing comes first: a reader recognises the molecule before reading its terms, and the table's rows
+       highlight in it. The two subheads keep the page's scan order, so a collapsed pane still reads top-down. #}
+    <h3 class="bonded-subhead">Molecular connectivity</h3>
+    <p class="hint">Bead centres are measured on the molecule's current coordinates: a revision records terms, not a
+      frame, so the drawing can differ in detail from the frame the terms were fitted to.</p>
+    <p class="hint bonded-selection-status">Select a bead to read its name.</p>
+    <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
     <h3 class="bonded-subhead">Interactions</h3>
     <p class="hint">The terms of the parameterization shown above, read from its own topology. <b>Source</b> says where each came from: the engine that fitted it, the mapping (a ring constraint or a virtual site), a <b>hand edit</b>, or geometry where the automatic draft had no reference. A bond's length and force, an angle's angle and force, a dihedral's phase, force and multiplicity, and a rigid constraint's length are editable here; the function form and a virtual site's parents are readings. Editing a constraint overrides the mapping's ring target and marks the term a hand edit. <b>Save in place</b> rewrites the current revision, and only when it carries hand edits; <b>Save as new</b> appends a revision cloned from the shown one and makes it current. A published Martini 3 reference is read-only and a run consumes it directly. Select a row to highlight it in the diagram.</p>
     <div class="bonded-interaction-table"><p class="hint">No bonded terms loaded.</p></div>
@@ -544,11 +551,6 @@
               aria-describedby="bonded-terms-status{{ suffix }}">Save as new</button>
     </div>
     <p class="hint bonded-terms-status" id="bonded-terms-status{{ suffix }}" role="status">Choose a parameterization revision to edit its terms.</p>
-    <h3 class="bonded-subhead">Molecular connectivity</h3>
-    <p class="hint">Bead centres are measured on the molecule's current coordinates: a revision records terms, not a
-      frame, so the drawing can differ in detail from the frame the terms were fitted to.</p>
-    <p class="hint bonded-selection-status">Select a bead to read its name.</p>
-    <div class="bonded-diagram" role="img" aria-label="Interactive three-dimensional CG bead connectivity diagram"><div class="bonded-plot"></div></div>
   </section>
 {%- endmacro %}
 <section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>
@@ -570,7 +572,7 @@
       <label>AA reference<select id="bonded-aa-reference" aria-describedby="bonded-aa-facts"></select></label>
       <label>Fit with<select id="bonded-engine" aria-describedby="bonded-engine-note"></select></label>
       <label>Constraint threshold <span class="hint">kJ mol⁻¹ nm⁻²</span><input id="bonded-constraints-threshold" type="number" min="1" step="any" value="10000" aria-describedby="bonded-constraints-note"><span class="hint" id="bonded-constraints-note"></span></label>
-      <label>Fit temperature <span class="hint">K · default 300</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
+      <label>Fit temperature <span class="hint">K · follows the reference</span><input id="bonded-temperature" type="number" min="1" max="1000" step="1" value="300"></label>
       <label>Torsion model<select id="bonded-torsion-model" class="bonded-torsion-model">
         <option value="legacy">Legacy — periodic fit, as recorded</option>
         <option value="circular-harmonic">Circular-harmonic — each torsion fitted to the AA distribution</option>
@@ -599,33 +601,32 @@
     <div class="notice bonded-help"><strong>What a fit is</strong><p>Fast-Forward and BARTENDER build the mapped trajectory from the AA reference first — minutes of CPU and no MD — then fit bonds, angles and dihedrals to it. Generated parameters are hypotheses, and a fit is not scientific approval: the checks below re-derive two of them and report the numbers.</p></div>
   </section>
 
-  {# Job and Result are one row: each is a badge, a line of detail and a few rows, and at full width they are mostly
-     empty -- stacked, they pushed the interactions table off screen for the minutes a fit runs. Both stay `hidden`
-     until the panel has something to say, and a hidden card leaves no hole in the row. #}
-  <div class="bonded-run-cards">
-    <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
-      <div class="section-heading">
-        <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
-          <p class="hint" id="bonded-job-detail"></p></div>
-        <span class="badge" id="bonded-job-status">queued</span>
-      </div>
-      <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
-      <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
-      <p class="hint" id="bonded-job-error" role="alert" hidden></p>
-      <pre id="bonded-job-log" hidden></pre>
-      <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
-    </section>
+  {# Fit and Result share a row, and Job takes the row under them at full width: the result is what a reader has
+     when the fit is over, while the job card is a progress meter whose log grows. Both stay `hidden` until the
+     panel has something to say, and a hidden card leaves no hole -- `dashboard.css` widens the fit card to the
+     measure while the result is hidden. #}
+  <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
+    <div class="section-heading">
+      <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
+        <p class="hint" id="bonded-result-summary"></p></div>
+      <span class="badge" id="bonded-result-badge">saved</span>
+    </div>
+    <dl class="review-grid bonded-provenance" id="bonded-result-provenance"></dl>
+    <div class="notice" id="bonded-result-checks"></div>
+  </section>
 
-    <section class="card bonded-result" id="bonded-result" aria-labelledby="bonded-result-title" hidden>
-      <div class="section-heading">
-        <div><span class="eyebrow">Result</span><h3 id="bonded-result-title">No revision yet</h3>
-          <p class="hint" id="bonded-result-summary"></p></div>
-        <span class="badge" id="bonded-result-badge">saved</span>
-      </div>
-      <dl class="review-grid bonded-provenance" id="bonded-result-provenance"></dl>
-      <div class="notice" id="bonded-result-checks"></div>
-    </section>
-  </div>
+  <section class="card bonded-job" id="bonded-job" aria-labelledby="bonded-job-title" hidden>
+    <div class="section-heading">
+      <div><span class="eyebrow">Job</span><h3 id="bonded-job-title">No fit queued</h3>
+        <p class="hint" id="bonded-job-detail"></p></div>
+      <span class="badge" id="bonded-job-status">queued</span>
+    </div>
+    <div class="bonded-job-meter" role="progressbar" aria-label="Fit progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><span id="bonded-job-bar"></span></div>
+    <ol class="bonded-job-steps" id="bonded-job-steps"></ol>
+    <p class="hint" id="bonded-job-error" role="alert" hidden></p>
+    <pre id="bonded-job-log" hidden></pre>
+    <div class="toolbar"><button type="button" class="secondary" id="bonded-job-cancel">Cancel this fit</button></div>
+  </section>
 
   {# The New run door's hidden bridge: `new-run.js` preselects a saved mapping by setting this select's value and
      dispatching `change`. It addresses pane A and carries no state of its own. #}

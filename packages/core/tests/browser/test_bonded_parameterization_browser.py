@@ -47,6 +47,12 @@ REFERENCES = (
      'run_type': 'aa_only', 'settings': {'temperature_k': 300, 'aa_production_ps': 20000}, 'frames': 40001},
 )
 
+
+def reference(run=AA_RUN, kelvin=300, *, label='Maltose AA reference'):
+    """One AA-only run as `/api/references` publishes it, at the temperature its own settings recorded."""
+    return {'id': run, 'label': label, 'created': '2026-10-01T10:00:00+00:00', 'run_type': 'aa_only',
+            'settings': {'temperature_k': kelvin, 'aa_production_ps': 10000}, 'frames': 20001}
+
 #: The revision's own topology: one constraint, one bond, one angle and one dihedral, over four named beads. Written
 #: as an ITP because that is what a stored revision carries, and the panel has to read it rather than be told.
 TOPOLOGY = """[ moleculetype ]
@@ -401,6 +407,84 @@ def test_the_merged_fit_card_offers_its_target_the_engines_its_references_and_th
     assert errors == [], errors
 
 
+def test_an_auto_selected_reference_sets_the_fit_temperature(dashboard, live_page):
+    """The only AA reference is chosen for the reader, so the temperature its run was at is the fit's.
+
+    A 310 K ensemble fitted at the 300 K default is a different fit from the one the reference supports, and the
+    card's own hint says the field defaults to the reference's temperature. The render states it as soon as the list
+    names the reference, rather than leaving the reader to copy the number out of the facts line.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer(), references=(reference(AA_RUN, 310),))
+    open_panel(page, live_page, saved['file'])
+
+    expect(page.locator('#bonded-aa-reference')).to_have_value(AA_RUN)
+    expect(page.locator('#bonded-aa-facts')).to_contain_text('310 K')
+    expect(page.locator('#bonded-temperature')).to_have_value('310')
+    assert errors == [], errors
+
+
+def test_changing_the_aa_reference_moves_the_fit_temperature(dashboard, live_page):
+    """More than one reference leaves the choice to the reader, and each choice states its own run's temperature."""
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer(), references=(reference(AA_RUN, 310), reference(OTHER_AA_RUN, 278)))
+    open_panel(page, live_page, saved['file'])
+
+    # Two references answer nothing by themselves: the default stands until the reader chooses one.
+    expect(page.locator('#bonded-aa-reference')).to_have_value('')
+    expect(page.locator('#bonded-temperature')).to_have_value('300')
+    page.locator('#bonded-aa-reference').select_option(AA_RUN)
+    expect(page.locator('#bonded-temperature')).to_have_value('310')
+    page.locator('#bonded-aa-reference').select_option(OTHER_AA_RUN)
+    expect(page.locator('#bonded-temperature')).to_have_value('278')
+    assert errors == [], errors
+
+
+def test_a_temperature_typed_before_the_reference_list_arrives_is_kept(dashboard, live_page):
+    """The initial render fills only a field still at the default; a value typed first is the reader's own.
+
+    The reference answer is held inside the page until the test has typed, because the rule is about the order of
+    two events and a sleep would be a test of the machine. A panel whose list is slow is exactly when a reader types
+    the temperature they mean, and overwriting it would silently change the fit they asked for.
+
+    The shell prefetches `/api/references` for the saved New run form's molecule, and a card asking for that same
+    molecule would take the cached answer rather than the held one -- so the form is pointed at a molecule that is not
+    the fit target, and the fit card's own read is the request this test holds.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer(), references=(reference(AA_RUN, 310),))
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({molecule_id: 'Trehalose'}))")
+    page.add_init_script("""(() => {
+      const original = window.fetch;
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      window.__releaseReferences = () => release();
+      window.fetch = async (url, options) => {
+        const response = await original(url, options);
+        if (String(url).includes('/api/references')) await gate;
+        return response;
+      };
+    })()""")
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-fit-molecule option').length > 0", timeout=30000)
+    assert page.locator('#bonded-fit-molecule').input_value() != 'Trehalose', \
+        'the catalogue made the fit target the prefetched molecule, so this test would hold nothing'
+    # The fit card's mapping has loaded, which is when its temperature is back at the default and the reference list
+    # has not rendered: the field is now the reader's to fill.
+    page.wait_for_function("() => !document.querySelector('#bonded-torsion-model').disabled", timeout=30000)
+    expect(page.locator('#bonded-temperature')).to_have_value('300')
+    page.locator('#bonded-temperature').fill('287')
+    page.evaluate('() => window.__releaseReferences()')
+
+    expect(page.locator('#bonded-aa-reference')).to_have_value(AA_RUN)
+    expect(page.locator('#bonded-temperature')).to_have_value('287')
+    assert errors == [], errors
+
+
 def test_a_reference_whose_sources_are_not_on_this_machine_says_so(dashboard, live_page):
     """A reference published from another checkout: its own artifacts verify, its provenance sources may not be here.
 
@@ -669,15 +753,17 @@ def test_the_default_cadence_polls_a_few_seconds_apart_and_stops_when_the_job_en
     # A finished job has nothing running: all four steps read done, and none claims to be current.
     expect(page.locator('#bonded-job-steps li[data-state=done]')).to_have_count(4)
     expect(page.locator('#bonded-job-steps li[aria-current=step]')).to_have_count(0)
-    # The two cards that describe this fit share one row at half width each. They are read together -- the job that
-    # finished and the revision it left -- and stacked at full width they pushed the interactions table off screen
-    # for the minutes the job ran, which is when a reader is watching both.
-    job_box = page.locator('#bonded-job').bounding_box()
+    # The three producing cards keep one reading order: the result sits beside the fit card, and the job -- whose log
+    # grows -- takes the row under both across the measure. (The old assertion here pinned the job and result side by
+    # side at half width, which is the layout this panel no longer uses.)
+    fit_box = page.locator('.bonded-fit').bounding_box()
     result_box = page.locator('#bonded-result').bounding_box()
-    assert abs(job_box['y'] - result_box['y']) < 2, f'the two cards sit in one row: {(job_box, result_box)}'
-    viewport = page.evaluate('innerWidth')
-    assert job_box['width'] < viewport * 0.5 and result_box['width'] < viewport * 0.5, \
-        f'each card is half width or less: {(job_box, result_box, viewport)}'
+    job_box = page.locator('#bonded-job').bounding_box()
+    assert min(fit_box['y'] + fit_box['height'], result_box['y'] + result_box['height']) \
+        - max(fit_box['y'], result_box['y']) > 0, f'the fit and result cards share one row: {(fit_box, result_box)}'
+    assert job_box['y'] >= fit_box['y'] + fit_box['height'] \
+        and job_box['y'] >= result_box['y'] + result_box['height'], \
+        f'the job card sits under both: {(fit_box, result_box, job_box)}'
     assert errors == [], errors
 
 
@@ -1225,6 +1311,74 @@ def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page
     # Fast-Forward revision's terms are the engine's, and the store is what stamps that name onto them.
     sources = set(table(page).locator('tbody tr td:last-child').all_inner_texts())
     assert sources == {'ff_inter'}, sources
+    assert errors == [], errors
+
+
+# ------------------------------------------------------------------------------------------------------- the layout
+
+
+def box(page, selector):
+    """The on-screen box of one element, as the four numbers a layout assertion compares."""
+    measured = page.evaluate("""selector => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return {x: rect.x, y: rect.y, width: rect.width, height: rect.height, bottom: rect.bottom};
+    }""", selector)
+    assert measured['width'] > 0 and measured['height'] > 0, (selector, measured)
+    return measured
+
+
+def test_the_fit_and_result_cards_share_a_row_and_the_job_spans_under_them(dashboard, live_page):
+    """Fit and Result are one row on the panel's twelve columns; Job is the next row across the measure.
+
+    Measured rather than assumed: a stacked layout renders all three cards too, so presence would pass on the
+    failure this exists to catch. A finished job is what makes the third row measurable, and with a revision the
+    result card is the visible half of the first row. The drawing-before-table order is the template's, checked here
+    because no stylesheet should be able to reverse what a reader scans top-down.
+    """
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer([revision(1)],
+                      jobs=[job('completed', revision=1, ended_at='2026-10-16T14:40:00+00:00')]))
+    open_panel(page, live_page, saved['file'])
+    expect(page.locator('#bonded-result')).to_be_visible()
+    expect(page.locator('#bonded-job')).to_be_visible()
+
+    panel_box, fit_box, result_box, job_box = (box(page, selector) for selector in (
+        '#bonded', '.bonded-fit', '#bonded-result', '#bonded-job'))
+    # Same row: their vertical extents meet, and Result is to the right of Fit rather than under it.
+    assert min(fit_box['bottom'], result_box['bottom']) - max(fit_box['y'], result_box['y']) > 0, (fit_box, result_box)
+    assert result_box['x'] >= fit_box['x'] + fit_box['width'] - 1, (fit_box, result_box)
+    assert fit_box['width'] > result_box['width'], (fit_box, result_box)   # seven columns against five
+    # Job is the next row, and it spans the panel's content width rather than a column of it.
+    assert job_box['y'] >= fit_box['bottom'] and job_box['y'] >= result_box['bottom'], (fit_box, result_box, job_box)
+    assert abs(job_box['x'] - panel_box['x']) <= 1 and abs(job_box['width'] - panel_box['width']) <= 1, (panel_box, job_box)
+
+    # Four settings to a row: the visible fields' first row holds four, whatever the hidden "Mapping to fit" label
+    # does when the molecule has one saved mapping.
+    tops = page.evaluate("""() => [...document.querySelectorAll('.bonded-model-fields > label')]
+      .filter(label => label.offsetParent !== null)
+      .map(label => Math.round(label.getBoundingClientRect().top))""")
+    assert len(tops) >= 4 and tops[0] == tops[3] and (len(tops) == 4 or tops[4] > tops[0]), tops
+
+    # In a pane the connectivity drawing is above the terms table, which is the order a reader scans in.
+    diagram = box(page, '.bonded-column[data-side="A"] .bonded-diagram')
+    terms = box(page, '.bonded-column[data-side="A"] .bonded-interaction-table')
+    assert diagram['bottom'] <= terms['y'] + 1, (diagram, terms)
+    browser.assert_no_horizontal_scroll(page)
+    assert errors == [], errors
+
+
+def test_the_fit_card_takes_the_whole_measure_while_no_result_is_shown(dashboard, live_page):
+    """No revision yet: the result card is hidden and leaves no hole, so the fit card takes the whole measure."""
+    saved, _, _ = save(dashboard)
+    page, errors = live_page
+    stub(page, answer())
+    open_panel(page, live_page, saved['file'])
+    expect(page.locator('#bonded-result')).to_be_hidden()
+
+    panel, fit = box(page, '#bonded'), box(page, '.bonded-fit')
+    assert abs(fit['x'] - panel['x']) <= 1 and abs(fit['width'] - panel['width']) <= 1, (panel, fit)
+    browser.assert_no_horizontal_scroll(page)
     assert errors == [], errors
 
 

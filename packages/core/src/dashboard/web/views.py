@@ -38,6 +38,14 @@ ANALYSIS_SUMMARY_FIELDS = frozenset((
 STAGE_SUMMARY_FIELDS = frozenset(('name','status','started_at','ended_at'))
 RUN_ID = re.compile(r'[a-f0-9]{12}')
 UNREPAIRABLE = 'Invalid persisted run ID; repair the metadata before using this record'
+# GROMACS prints `Performance: <ns/day> <ns/day/GPU?> <hours> <hours>` per mdrun leg; the first number is the leg's
+# throughput. The parser sees only a log's tail, so one match per file is enough, and the highest wins across legs.
+PERFORMANCE = re.compile(r'Performance:\s+([0-9]+(?:\.[0-9]+)?)')
+# A run's logs are immutable once it ends, and `/api/jobs` re-reads up to 100 runs every five seconds, so the tail of
+# each log is parsed once per (path, mtime, size). The cap bounds a long-lived dashboard's memory; clearing wholesale
+# is safe because every entry is a pure function of the file it names.
+PERFORMANCE_CACHE = {}
+PERFORMANCE_CACHE_MAX = 4096
 
 
 def usable_run_id(job) -> bool:
@@ -53,6 +61,37 @@ def tail(path, limit=65536) -> str:
     with path.open('rb') as fp:
         fp.seek(max(0, path.stat().st_size - limit))
         return fp.read(limit).decode('utf-8', errors='replace')
+
+
+def performance_ns_per_day(run_dir):
+    """The run's highest GROMACS throughput among its own stage logs, in ns/day, or None.
+
+    Read from the run's logs rather than its record: `Performance:` is what mdrun printed, and a multi-leg stage
+    states it once per leg, so the best leg is the number a reader compares. Logs can be large, so each file is read
+    only from its tail, and only once per (path, mtime, size) -- they do not change after a run ends.
+    """
+    logs = Path(run_dir) / 'logs'
+    try:
+        paths = sorted(logs.glob('*.log'))
+    except OSError:
+        return None
+    best = None
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+        if key in PERFORMANCE_CACHE:
+            found = PERFORMANCE_CACHE[key]
+        else:
+            found = max((float(match) for match in PERFORMANCE.findall(tail(path))), default=None)
+            if len(PERFORMANCE_CACHE) >= PERFORMANCE_CACHE_MAX:
+                PERFORMANCE_CACHE.clear()
+            PERFORMANCE_CACHE[key] = found
+        if found is not None and (best is None or found > best):
+            best = found
+    return best
 
 
 def parse_gromacs_eta(text) -> dict:
@@ -309,6 +348,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result.update(ownership or {})
     result['gpu_name'] = gpu_name(manifest, job)
     result['trajectory_bytes'] = layout.trajectory_bytes(run_dir)
+    result['ns_per_day'] = performance_ns_per_day(run_dir)
     result['analyses'] = analysis_view(job, summary)
     result['consistency'] = consistency_summary(job)
     if result.get('execution_kind') == 'screening-stub':

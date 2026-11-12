@@ -4,10 +4,10 @@
 #run-form .card{margin:0 0 16px}
 #run-form .run-settings{min-width:0;padding:14px}
 /* The stage settings are a form to scan, not a field to fill: tighter rows so the whole set reads as one block,
-   and each cell stacks its caption above a control row of the input plus a compact Default button. Two columns at
-   a desktop width rather than three: three gave every number field 115 px -- narrower than the eight-digit seed it
-   has to hold -- while the panel had width to spare. */
-#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(13.5rem,1fr));gap:4px 10px}
+   and each cell stacks its caption above a control row of the input plus a compact Default button. Four columns at
+   a desktop width, the number of settings each AA stage editor holds; that needs a narrower control than the cell,
+   so the Default button keeps its place beside it. */
+#run-form .settings-grid{grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:4px 10px}
 /* Each cell is two rows: the caption (with its info button beside it) and the control row. The grid keeps the info
    button on the caption's line at its right instead of giving it a line of its own, and `margin:0` matters: the global
    `label` margin would otherwise add 24 px around every cell and dominate the block's height. */
@@ -16,7 +16,7 @@
 #run-form .settings-grid > label > .setting-control{grid-column:1 / -1;grid-row:2}
 #run-form .settings-grid > label > .field-help{grid-column:2;grid-row:1;justify-self:start;margin-left:0}
 #run-form .setting-control{min-width:0}
-#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:12rem}
+#run-form .setting-control input,#run-form .setting-control select{min-width:0;width:100%;max-width:9rem}
 /* Run type and Force field read as one choice: what to run, and with what. The two-column row keeps Force field
    where the reader already looks for it when a reference run hides it. */
 #run-form .run-config-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px}

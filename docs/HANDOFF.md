@@ -6,6 +6,31 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-12 the run card states its throughput; New run and Bond Interactions widths.** The Runs card's identity line
+now ends with the run's **highest observed ns/day** (`id · GPU · size · 2124.7 ns/day`): `views.performance_ns_per_day`
+scans `<run>/logs/*.log` tails for GROMACS' `Performance:` line (first number), takes the maximum, and remembers each
+file's result per `(path, mtime_ns, size)` (cap 4096 entries) because `/api/jobs` polls 100 runs every five seconds; the
+view adds `ns_per_day` unconditionally, so the summary shape carries it, and `runs.js` omits the segment when absent. A
+run with no stating log shows no number. New run's **Stage settings** column is now 4 of the form's 12 columns and
+takes the settings half (8): `layout.css` scopes `4 + 8` with `@media (min-width: 1101px)` to `.new-run-layout:has(.stage-editor)`,
+so the pdc workspace's form keeps its 6 + 6 halves; `new-run.css` lays settings four across (`minmax(10rem, 1fr)`) with
+controls capped at 9 rem, so an AA stage editor's four fields share one row (measured: inputs 4x144 px, no sideways
+scroll at 1600). Bond Interactions: each pane draws the **connectivity plot above the interactions table**; the fit card
+and the Result card share the first row (Fit 7 columns, Result 5) while the Job card takes the full-width row below
+(`dashboard.css`, `:has` widens Fit back to 12 while Result is hidden); the fit card's fields sit four to a row in
+narrow cells; and the **fit temperature follows the chosen AA reference's `settings.temperature_k`** by default (on the
+auto-selected single reference, and on every explicit reference change; a value typed before the reference list arrives
+survives, and 300 K stands when the reference records none). Tests: unit `test_run_view.py` (max, tail window, none,
+summary), browser `test_runs_table_browser.py` (2124.7 ns/day), `test_aa_new_run_browser.py` (four-per-row + widths),
+`test_bonded_parameterization_browser.py` (three temperature tests, two layout tests, updated cadence layout claim),
+`test_workspace_navigation_browser.py` (new-run spans 4 + 8) and the pdc test that loads this form (now asserts the
+settings half is wider, its own form's 6 + 6 unchanged). Checks: fast **2711 passed / 1 xfailed**, browser **375 passed**,
+slow **24 passed**, ruff clean. Live: runs `fbb95f11e083 · … · 2124.7 ns/day`; fit 899 px + result 637 px on one row,
+job 1552 px below; diagram bottom above table top. Dashboard restarted. Left deliberately: throughput comes only from
+top-level `logs/*.log` (not resume attempt subdirectories or a legacy console log outside the run tree); the four-across
+grid is cramped between 1101 and ~1150 px (three across; it stacks at 1100); dead `.bonded-model-body`/`.bonded-torsion`
+CSS from the merged fit card is still in `dashboard.css`.
+
 **2026-11-12 a minimisation always runs the scheme choices at auto.** The New run form's Other run options
 (nonbonded/PME/PME-FFT/update/load-tuning schemes and the checkpoint cadence) now describe the equilibration and
 production legs only: `aa.mdrun_command_flags(stage='em')` forces those five choices to auto over a copy of the

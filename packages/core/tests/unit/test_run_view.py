@@ -205,6 +205,44 @@ def test_tail_returns_the_end_of_a_log_and_nothing_for_a_missing_one(tmp_path):
     assert views.tail(tmp_path / 'absent.log') == ''
 
 
+# The card states the run's own GROMACS throughput, so the view reads it from the stage logs the run wrote. A
+# multi-leg stage prints one `Performance:` per leg, and the best leg is the number a reader compares.
+
+def test_the_highest_throughput_among_the_stage_logs_is_the_one_stated(tmp_path):
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    (logs / '01_nvt.log').write_text('Performance:     1200.5        0.011        0.163            9.259\n')
+    (logs / '04_md.log').write_text('Performance:     2124.666        0.011        0.163            9.259\n')
+
+    assert views.performance_ns_per_day(tmp_path) == 2124.666
+
+
+def test_a_performance_line_after_the_tail_window_still_parses(tmp_path):
+    """A production log is large; its final leg's line is at the end, which is exactly what the tail covers."""
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    log = logs / 'md.log'
+    log.write_text('step 0  0.0  0.0\n' * 8192 + 'Performance:     2124.666        0.011        0.163            9.259\n')
+    assert log.stat().st_size > 65536
+
+    assert views.performance_ns_per_day(tmp_path) == 2124.666
+
+
+def test_a_run_whose_logs_state_no_throughput_reports_none(tmp_path):
+    assert views.performance_ns_per_day(tmp_path) is None
+    assert views.run_view(job(), run_dir=tmp_path, manifest={'stages': []})['ns_per_day'] is None
+
+
+def test_the_summary_view_carries_the_throughput(tmp_path):
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    (logs / '04_nvt.log').write_text('Performance:     2124.666        0.011        0.163            9.259\n')
+
+    view = views.run_view(job(), run_dir=tmp_path, manifest={'stages': []}, summary=True)
+
+    assert view['ns_per_day'] == 2124.666
+
+
 def test_a_screening_stub_says_so_in_the_view(tmp_path):
     """The Runs tab must not present a stub as a completed simulation."""
     from dashboard.web import views

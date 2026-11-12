@@ -137,7 +137,9 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
           return {gap: gap, track: (width - gap * 11) / 12,
                   kids: [...box.children].map(el => el.getBoundingClientRect().width)}; }""", selector)
 
-    cases = (('detergent-validation', 'new-run', '.new-run-layout', (6, 6)),
+    # The AA form's stage settings take eight of the twelve columns so four settings fit a row; the inputs half
+    # keeps four. `layout.css` scopes that only to the form with the stage editors.
+    cases = (('detergent-validation', 'new-run', '.new-run-layout', (4, 8)),
              ('detergent-validation', 'osmotic-pressure', '.osmotic-layout', (6, 6)),
              ('detergent-validation', 'bead-assignment', '.mapping-editor-layout', (7, 5)),
              ('detergent-validation', 'combinations', '.composition-workspace', (3, 9)),

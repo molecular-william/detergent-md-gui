@@ -673,6 +673,19 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
         + ' constraint, below it as a spring.');
   }
 
+  /**
+   * The AA reference's own temperature, when it recorded a usable one: a fit against a 310 K ensemble is a 310 K
+   * fit, so the field follows the reference rather than sitting at 300. A value the reader typed before the list
+   * arrived is theirs and is kept -- the initial render only fills a field still at `DEFAULT_TEMPERATURE`, while a
+   * reference the reader picks explicitly always syncs.
+   */
+  function syncTemperature(reference, {force = false} = {}) {
+    const kelvin = Number(((reference && reference.settings) || {}).temperature_k);
+    if (!Number.isFinite(kelvin) || kelvin <= 0) return;
+    if (!force && temperature.value !== String(DEFAULT_TEMPERATURE)) return;
+    temperature.value = String(kelvin);
+  }
+
   function renderReferences() {
     const chosen = aaSelect.value;
     aaSelect.replaceChildren();
@@ -691,6 +704,9 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
       aaSelect.value = references.some(item => item.id === chosen)
         ? chosen : (references.length === 1 ? references[0].id : '');
     }
+    // The reference this render chose without being asked (the only one) sets the temperature; one the reader had
+    // already chosen keeps whatever it did when it was chosen.
+    if (references.length === 1 && aaSelect.value === references[0].id) syncTemperature(references[0]);
     renderReferenceFacts();
   }
 
@@ -1104,7 +1120,11 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
   // --- wiring -----------------------------------------------------------------------------------------------------
 
   engineSelect.onchange = () => { renderEngineNote(); syncThreshold(); updateFit(); };
-  aaSelect.onchange = () => { renderReferenceFacts(); updateFit(); };
+  aaSelect.onchange = () => {
+    syncTemperature(references.find(reference => reference.id === aaSelect.value), {force: true});
+    renderReferenceFacts();
+    updateFit();
+  };
   torsionModel.onchange = () => updateTorsion();
   torsionScale.oninput = () => updateTorsion();
   torsionSave.onclick = () => saveTorsion();

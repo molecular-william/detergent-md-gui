@@ -256,12 +256,16 @@ def test_a_run_card_states_how_much_of_it_is_trajectory(dashboard, live_page):
     target.mkdir(parents=True)
     with open(target / 'run.xtc', 'wb') as handle:
         handle.truncate(int(2.5 * 1024 ** 3))
+    (runs / job_id / 'logs').mkdir()
+    (runs / job_id / 'logs/04_nvt.log').write_text(
+        'Performance:     2124.666        0.011        0.163            9.259\n')
 
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/runs')
 
     meta = page.locator(f'.job[data-id="{job_id}"] .job-meta')
     expect(meta).to_contain_text('2.5 GB of trajectories')
+    expect(meta).to_contain_text('2124.7 ns/day')
     assert errors == [], errors
 
 

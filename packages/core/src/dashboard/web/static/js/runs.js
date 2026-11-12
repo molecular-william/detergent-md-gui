@@ -15,6 +15,13 @@ function trajectorySize(bytes) {
   return `${gb.toFixed(digits)} GB of trajectories`;
 }
 
+// GROMACS' own throughput, read from the run's stage logs by the view: one decimal is the precision a reader compares.
+// Absent (no log stated it) is not zero, so it omits the segment instead of printing a number the run never made.
+function throughput(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return `${value.toFixed(1)} ns/day`;
+}
+
 //: How often the run list is re-read, and how long a hidden tab waits before looking again. `window.__runsPollMs` is
 //: the browser tier's seam, the same pattern the Run view's pollers use; production is five seconds.
 const pollMilliseconds = () => Number(window.__runsPollMs) || 5000;
@@ -242,11 +249,11 @@ export function createRuns({ onClone, onDeleted }) {
       card.job=job;
       if (previousCard.nextElementSibling !== card) previousCard.after(card); previousCard = card;
       setText($('.job-title', card), (job.label || `${job.detergent}${job.method ? ` · ${job.method}` : ''}`) + (job.profile === 'draft-smoke' ? ' · Draft smoke test' : ''));
-      // The run's identity line: its id, the mdrun device it recorded, and how much of it is trajectory. All three
-      // are the manifest's or the run directory's own facts -- from the view (`views.gpu_name`,
-      // `layout.trajectory_bytes`), never from the form that asked for a device.
+      // The run's identity line: its id, the mdrun device it recorded, how much of it is trajectory and how fast it
+      // ran. All four are the manifest's, the run directory's or the run's own logs' facts -- from the view
+      // (`views.gpu_name`, `views.performance_ns_per_day`, `layout.trajectory_bytes`), never from the form.
       const size = trajectorySize(job.trajectory_bytes);
-      setText($('.job-meta', card), [job.id, job.gpu_name ? `GPU ${job.gpu_name}` : null, size].filter(Boolean).join(' · '));
+      setText($('.job-meta', card), [job.id, job.gpu_name ? `GPU ${job.gpu_name}` : null, size, throughput(job.ns_per_day)].filter(Boolean).join(' · '));
       setText($('.job-molecule', card), job.molecule_name || job.detergent || '—');
       // The same label the filter box offers, from the same server answer: a card's method and the box that narrows
       // to it cannot spell it two ways. A method recorded after that answer arrived reads as its stored spelling
