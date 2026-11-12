@@ -705,8 +705,6 @@ def _validated_edits(topology, edits):
             raise ValueError(f'No editable term {term_id} in this revision')
         kind = row['kind']
         if kind not in PARAMETER_RANGES:
-            if kind == 'constraints':
-                raise ValueError("A constraint's length is the mapping's; it is not editable")
             if kind.startswith('virtual_sites'):
                 raise ValueError("A virtual site's parents are the mapping's; they are not editable")
             raise ValueError(f'{kind} terms are not editable')
@@ -939,10 +937,12 @@ def term_sources(revision, mapping) -> list:
         kind, beads = row['kind'], row['beads']
         if kind == 'virtual_sitesn':
             source = MAPPING_SOURCE
+        elif row['id'] in edited_ids:
+            # Before the ring check: a constraint's length is the mapping's *until* a reader edits it, and from then
+            # on the revision's hand edit is what the stored number came from.
+            source = MANUAL_SOURCE
         elif kind == 'constraints' and frozenset(beads) in ring_pairs:
             source = MAPPING_SOURCE
-        elif row['id'] in edited_ids:
-            source = MANUAL_SOURCE
         elif _canonical(kind, beads) in override_keys:
             source = MANUAL_SOURCE
         elif reported.get(_canonical(kind, beads)):

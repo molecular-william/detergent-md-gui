@@ -127,7 +127,7 @@ def test_two_molecule_blocks_keep_their_own_torsions(tmp_path):
 
 # --- editable terms: one range table, one writer --------------------------------------------------------------
 
-#: Four named beads, the flexible sections, and a constraint that must never be offered as an edit.
+#: Four named beads, the flexible sections, and a rigid constraint whose length is an editable parameter.
 EDITABLE_TOPOLOGY = """[ moleculetype ]
 MOL 1
 
@@ -156,19 +156,23 @@ def test_parameter_ranges_are_json_safe_and_name_their_fields():
     """Lane D publishes this table to the browser; it must survive json.dumps and carry the unit labels."""
     import json
     encoded = json.dumps(bonded.PARAMETER_RANGES)
-    assert set(bonded.PARAMETER_RANGES) == {'bonds', 'angles', 'dihedrals'}
+    assert set(bonded.PARAMETER_RANGES) == {'constraints', 'bonds', 'angles', 'dihedrals'}
     for kind, functions in bonded.PARAMETER_RANGES.items():
         for function, bounds in functions.items():
             assert len(bounds) == bonded.FUNCTIONS[kind][function]
             for bound in bounds:
                 assert set(bound) == {'min', 'max', 'integer', 'label'}
                 assert bound['min'] < bound['max']
+    assert bonded.PARAMETER_RANGES['constraints'][1] == [
+        {'min': 0.01, 'max': 2, 'integer': False, 'label': 'length (nm)'}]
     dihedral = bonded.PARAMETER_RANGES['dihedrals'][1]
     assert dihedral[2] == {'min': 1, 'max': 6, 'integer': True, 'label': 'multiplicity'}
     assert 'multiplicity' in encoded
 
 
 @pytest.mark.parametrize('kind, function, parameters', [
+    ('constraints', 1, [0.01]),
+    ('constraints', 1, [2]),
     ('bonds', 1, [0.01, 0]),
     ('bonds', 1, [2, 100000]),
     ('angles', 10, [0, 100000]),
@@ -181,6 +185,8 @@ def test_validate_term_accepts_the_edges_of_its_ranges(kind, function, parameter
 
 
 @pytest.mark.parametrize('kind, function, parameters, message', [
+    ('constraints', 1, [0.001], 'length'),
+    ('constraints', 1, [0.3, 5000], 'takes 1 parameters'),
     ('bonds', 1, [0.001, 5000], 'length'),
     ('bonds', 1, [0.3], 'takes 2 parameters'),
     ('bonds', 1, ['0.3', 5000], 'finite number'),
@@ -219,8 +225,9 @@ def test_rewrite_interactions_numbers_funct_nine_lines_independently():
     assert lines[1] == '1 2 3 4 9 10.0 2.0 1', 'an earlier harmonic moved'
 
 
-def test_rewrite_interactions_refuses_constraints_and_unknown_ids():
-    with pytest.raises(ValueError, match='No editable term constraints:1'):
-        bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'constraints:1': [0.3]})
+def test_rewrite_interactions_edits_a_constraint_and_refuses_unknown_ids():
+    """A constraint is a line like any other: its length is the one field after the two atom indices."""
+    rewritten = bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'constraints:1': [0.3]})
+    assert '1 2 1 0.3' in rewritten
     with pytest.raises(ValueError, match='No editable term bonds:9'):
         bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'bonds:9': [0.3, 5000]})

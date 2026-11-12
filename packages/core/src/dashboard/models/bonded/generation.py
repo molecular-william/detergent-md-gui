@@ -408,7 +408,11 @@ def _validate_term(term, physical):
     if kind not in FUNCTIONS:
         raise ValueError(f'Unsupported bonded section: {kind}')
     beads = term.get('beads')
-    arity = {'bonds': 2, 'angles': 3, 'dihedrals': 4}[kind]
+    # A constraint's length comes from the mapping's ring targets (or a revision's hand edit), never from a generated
+    # term list; it is in `FUNCTIONS` so the parameter table can edit it, not so a generator can emit one.
+    arity = {'bonds': 2, 'angles': 3, 'dihedrals': 4}.get(kind)
+    if arity is None:
+        raise ValueError(f'{kind} terms are not generated from a mapping draft')
     if not isinstance(beads, list) or len(beads) != arity or any(name not in physical for name in beads):
         raise ValueError(f'{kind} terms must name {arity} physical beads')
     if len(set(beads)) != len(beads):

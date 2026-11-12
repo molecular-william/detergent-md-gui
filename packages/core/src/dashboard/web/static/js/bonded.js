@@ -12,11 +12,11 @@
  * offers one. Choosing an option reads that mapping's parameterization and shows the chosen revision; it never
  * changes the revision a run consumes, which is the separate **Make current** action.
  *
- * The table edits *parameters*, not the model: the function form, a constraint's length and a virtual site's parents
- * are readings. A bond's length+force, an angle's angle+force and a dihedral's phase+force(+multiplicity) are inputs,
- * and **Save in place** (the current revision) or **Save as new** (a clone appended and made current) writes them
- * through `parameterization.saveTerms`. A published Martini 3 reference is never saved in place; its editable rows
- * only feed Save as new, which seeds a revision of the molecule's saved mapping. The `source` column stays the
+ * The table edits *parameters*, not the model: the function form and a virtual site's parents are readings. A bond's
+ * length+force, an angle's angle+force, a dihedral's phase+force(+multiplicity) and a rigid constraint's length are
+ * inputs, and **Save in place** (the current revision) or **Save as new** (a clone appended and made current) writes
+ * them through `parameterization.saveTerms`. A published Martini 3 reference is never saved in place; its editable
+ * rows only feed Save as new, which seeds a revision of the molecule's saved mapping. The `source` column stays the
  * store's reading -- an edited term reads `manual`.
  */
 import { $, setText, cachedApi, api, invalidateResource, CATALOGUE_MAX_AGE } from './shared.js';
@@ -24,6 +24,9 @@ import { mountBondedPlot } from './bonded-plot.js';
 import { setupParameterization, parseTopology } from './bonded-parameterization.js';
 
 const FUNCTION_OPTIONS = {
+  // A rigid constraint has a length and no potential; the row is editable so the length can be changed, and the
+  // store records that as a hand edit over the mapping's ring target.
+  constraints: {1: {description: 'Rigid constraint', labels: ['length (nm)']}},
   bonds: {1: {description: 'Harmonic', labels: ['length (nm)', 'force (kJ mol^-1 nm^-2)']}},
   angles: {
     1: {description: 'Harmonic', labels: ['angle (deg)', 'force (kJ mol^-1 rad^-2)']},
@@ -86,9 +89,10 @@ function normalizeTerm(term, fallbackId) {
 
 /** `Function 10 — Restricted bending`, or the section's own answer where it has no potential. */
 function functionSentence(term) {
+  // A constraint has a length but no potential; say so rather than printing the editable-row spec's name.
+  if (term.kind === 'constraints') return '1 — rigid constraint, no potential';
   const spec = FUNCTION_OPTIONS[term.kind]?.[term.function];
   if (spec) return `${term.function} — ${spec.description}`;
-  if (term.kind === 'constraints') return '1 — rigid constraint, no potential';
   if (term.kind === 'virtual_sitesn') return `${term.function} — virtual site`;
   return term.function || '—';
 }
@@ -554,7 +558,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       return;
     }
     const table = document.createElement('table');
-    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from. Editable parameters are inputs; a constraint\'s length and a virtual site\'s parents are readings, and the function form is never a draft. A Fast-Forward torsion is one line per harmonic, so each such row is one line.</caption>'
+    table.innerHTML = '<caption>Kind names the GROMACS topology section; function is its potential form; source is where the term came from. Editable parameters are inputs; a virtual site\'s parents are readings, and the function form is never a draft. A Fast-Forward torsion is one line per harmonic, so each such row is one line.</caption>'
       + '<thead><tr><th>Kind</th><th>Beads</th><th>Function</th><th>Parameters</th><th>Source</th></tr></thead>';
     const body = document.createElement('tbody');
     for (const term of terms) {
@@ -600,11 +604,9 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       } else {
         parameters.className = 'bonded-readonly-parameter';
         parameters.textContent = parameterSentence(term);
-        parameters.title = term.kind === 'constraints'
-          ? 'read-only: this constraint’s length is the mapping’s own ring target'
-          : term.kind === 'virtual_sitesn' || term.kind === 'virtual_sites3'
-            ? 'read-only: these parents are the mapping’s own beads'
-            : 'read-only: this term has no editable parameter list';
+        parameters.title = term.kind === 'virtual_sitesn' || term.kind === 'virtual_sites3'
+          ? 'read-only: these parents are the mapping’s own beads'
+          : 'read-only: this term has no editable parameter list';
       }
       const source = document.createElement('td');
       source.className = 'bonded-source';

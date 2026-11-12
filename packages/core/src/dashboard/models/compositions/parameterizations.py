@@ -233,8 +233,13 @@ def _term_rows(item) -> list:
     edited = {(term['section'], frozenset(term['beads'])) for term in item.get('overrides') or []}
     for row in rows:
         # A virtual site is not a flexible term: `parse_interactions` only tags the flexible sections, so the
-        # read-only defaults are stated here rather than left for the panel to guess.
-        row.setdefault('editable', False)
+        # read-only defaults are stated here rather than left for the panel to guess. A constraint is a mapping's
+        # ring target, and this store applies overrides through `bonded.refine`, which refuses to replace one -- so
+        # it stays a reading here even though the mapping editor can edit it.
+        if row['kind'] == 'constraints':
+            row['editable'] = False
+        else:
+            row.setdefault('editable', False)
         row.setdefault('function_options', [])
         row.setdefault('parameter_labels', [])
         row['source'] = 'manual' if (row['kind'], frozenset(row['beads'])) in edited else 'composition-derivation'

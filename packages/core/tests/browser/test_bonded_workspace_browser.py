@@ -112,13 +112,13 @@ def test_the_display_selector_is_the_only_history(dashboard, live_page):
     assert errors == []
 
 
-def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashboard, live_page):
-    """Spec `:108-110`: the read-only constraints and virtual-site parents stay as they were.
+def test_a_constraint_is_editable_and_virtual_site_parents_are_read_only(dashboard, live_page):
+    """A constraint's length is an input; a virtual site's parents are a reading.
 
-    These are the two kinds no engine fits -- a constraint's length is the mapping's own ring target and a virtual
-    site's parents are the mapping's beads -- so the table states both, marks the cell read-only, and offers no
-    control over either. The source column is compared against the store's own `term_sources` rather than restated
-    here, so a row's source cannot drift from the term it belongs to.
+    The constraint starts at the mapping's own ring target and can be overridden by a revision -- the source column
+    then reads `manual`. A virtual site's parents are the mapping's beads, not a parameter, so the cell stays a
+    reading. The source column is compared against the store's own `term_sources` rather than restated here, so a
+    row's source cannot drift from the term it belongs to.
     """
     saved = save_mapping(dashboard)
     mapping = mappings.get(saved['file'])
@@ -139,23 +139,24 @@ def test_constraints_and_virtual_site_parents_are_shown_and_stay_read_only(dashb
         read[(cells.nth(0).inner_text(), cells.nth(1).inner_text())] = cells.nth(4).inner_text()
     assert read == expected, read
 
-    # The constraint: its own length, in nanometres, and a rigid constraint rather than a potential.
+    # The constraint: its own length, in nanometres, as an editable input; a rigid constraint rather than a potential.
     constraint = rows.nth(0).locator('td')
     expect(constraint.nth(0)).to_have_text('constraints')
     expect(constraint.nth(2)).to_have_text('1 — rigid constraint, no potential')
-    expect(constraint.nth(3)).to_have_text('0.315 nm')
-    expect(constraint.nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
-    # The virtual site: its parents, by bead name.
+    length = constraint.nth(3).locator('input')
+    expect(length).to_have_count(1)
+    expect(length).to_have_value('0.315')
+    expect(length).to_be_editable()
+    # The virtual site: its parents, by bead name, still a reading.
     site = rows.nth(1).locator('td')
     expect(site.nth(0)).to_have_text('virtual_sitesn')
     expect(site.nth(2)).to_contain_text('virtual site')
     expect(site.nth(3)).to_have_text('parents B02 · B03')
     expect(site.nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
-    # Neither kind is a draft anyone can edit: the readings have no inputs, and the function form is never a select.
     table_rows = page.locator('.bonded-interaction-table tbody tr')
-    expect(table_rows.nth(0).locator('input')).to_have_count(0)
+    expect(table_rows.nth(0).locator('input')).to_have_count(1), 'the constraint length is editable'
     expect(table_rows.nth(1).locator('input')).to_have_count(0)
-    expect(table_rows.nth(2).locator('input')).to_have_count(2), 'the bond is the editable row'
+    expect(table_rows.nth(2).locator('input')).to_have_count(2), 'the bond is editable too'
     expect(page.locator('.bonded-interaction-table select')).to_have_count(0)
     assert errors == []
 

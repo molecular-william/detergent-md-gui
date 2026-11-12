@@ -377,13 +377,15 @@ def test_saving_terms_in_place_refuses_a_stale_number_digest_or_earlier_revision
 
 def test_saving_terms_in_place_validates_every_edit_against_the_stored_topology():
     candidate = mapping()
-    topology = TOPOLOGY.replace('[ bonds ]', '[ constraints ]\n1 2 1 0.31\n\n[ bonds ]')
+    topology = TOPOLOGY.replace(
+        '[ bonds ]', '[ virtual_sitesn ]\n4 1 1 2 3\n\n[ constraints ]\n1 2 1 0.31\n\n[ bonds ]')
     item = parameterization.save(candidate, revision(topology=topology))
     for edits, message in [
-        ([{'id': 'constraints:1', 'parameters': [0.3]}], 'not editable'),
+        ([{'id': 'virtual_sitesn:1', 'parameters': []}], "virtual site's parents"),
         ([{'id': 'bonds:9', 'parameters': [0.3, 5000]}], 'No editable term'),
         ([{'id': 'bonds:1', 'parameters': [0.3, 5000, 1]}], 'takes 2 parameters'),
         ([{'id': 'bonds:1', 'parameters': [9, 5000]}], 'between 0.01 and 2'),
+        ([{'id': 'constraints:1', 'parameters': [9]}], 'between 0.01 and 2'),
         ([], 'No parameter edits'),
     ]:
         with pytest.raises(ValueError, match=message):
@@ -391,6 +393,22 @@ def test_saving_terms_in_place_validates_every_edit_against_the_stored_topology(
                                         expected_sha256=_sha(item), edits=edits)
     # The stored terms are untouched by every refusal above.
     assert parameterization.get(candidate, 1)['topology'] == item['topology']
+
+
+def test_a_rigid_constraints_length_is_editable_and_reads_manual():
+    """The mapping's ring target is the starting value, not a lock; a revision may override it and says so."""
+    candidate = mapping()
+    topology = TOPOLOGY.replace('[ bonds ]', '[ constraints ]\n1 2 1 0.31\n\n[ bonds ]')
+    item = parameterization.save(candidate, revision(topology=topology))
+    record = parameterization.save_terms(
+        candidate, mode='in_place', revision=1, expected_revision=1, expected_sha256=_sha(item),
+        edits=[{'id': 'constraints:1', 'parameters': [0.33]}])
+
+    saved = record['current']
+    assert '1 2 1 0.33' in saved['topology']
+    assert saved['edited_terms'][0]['before'] == [0.31]
+    assert saved['edited_terms'][0]['after'] == [0.33]
+    assert {row['id']: row['source'] for row in saved['sources']}['constraints:1'] == 'manual'
 
 
 def test_saving_terms_as_new_clones_the_shown_revision_and_leaves_it_alone():

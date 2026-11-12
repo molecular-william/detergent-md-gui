@@ -756,8 +756,10 @@ def test_the_interactions_table_carries_a_source_column(dashboard, live_page):
     assert cells(page, 3).nth(0).inner_text() == 'dihedrals'
     assert cells(page, 3).nth(1).inner_text() == 'B01 · B02 · B03 · B04'
     assert cells(page, 3).last.inner_text() == 'geometry', "a fallback term is not the engine's"
-    # The parameters are in the units the section states, not a JSON dump.
-    assert cells(page, 0).nth(3).inner_text() == '0.315 nm'
+    # The constraint's length is a number in nanometres, as the section states it, and it is an editable input.
+    length = cells(page, 0).nth(3).locator('input')
+    expect(length).to_have_count(1)
+    expect(length).to_have_value('0.315')
     assert cells(page, 2).nth(2).inner_text() == '10 — Restricted bending'
     assert errors == [], errors
 
@@ -944,8 +946,8 @@ def edited_record(record, *, revision=1, old='2 3 1 0.32 5000', new='2 3 1 0.33 
     return item
 
 
-def test_the_parameter_inputs_follow_the_function_and_leave_readings_read_only(dashboard, live_page):
-    """Bonds/angles/dihedrals have one input per parameter; a constraint's length stays a reading.
+def test_the_parameter_inputs_follow_the_function_and_a_constraint_is_editable(dashboard, live_page):
+    """A bond/angle/dihedral has one input per parameter; a rigid constraint's length is the one input on its row.
 
     The fixture revision's dihedral is function 2 (phase + force), so the row has two inputs and no multiplicity. The
     function column is text on every row: changing the potential form is a different model, not a parameter edit.
@@ -957,15 +959,19 @@ def test_the_parameter_inputs_follow_the_function_and_leave_readings_read_only(d
 
     rows = page.locator('.bonded-interaction-table tbody tr')
     expect(rows).to_have_count(4)
-    expect(rows.nth(0).locator('input')).to_have_count(0)
-    expect(rows.nth(0).locator('td').nth(3)).to_have_class(re.compile('bonded-readonly-parameter'))
+    constraint = rows.nth(0).locator('input')
+    expect(constraint).to_have_count(1)
+    expect(constraint).to_have_value('0.315')
+    expect(constraint).to_be_editable()
     for index, expected in ((1, 2), (2, 2), (3, 2)):
         inputs = rows.nth(index).locator('input')
         expect(inputs).to_have_count(expected)
         expect(inputs.first).to_be_editable()
     # The function form is text everywhere: no select in the table.
     expect(page.locator('.bonded-interaction-table select')).to_have_count(0)
-    # The bold inputs belong to the flexible rows only, and the rows still select on click.
+    # The rows still select on click, including the constraint's.
+    rows.nth(0).click()
+    expect(rows.nth(0)).to_have_attribute('aria-selected', 'true')
     rows.nth(2).click()
     expect(rows.nth(2)).to_have_attribute('aria-selected', 'true')
     assert errors == [], errors

@@ -11,6 +11,10 @@ import numpy as np
 
 SECTION_WIDTHS = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
 FUNCTION_SPECS = {
+    'constraints': {
+        1: {'description': 'Rigid constraint',
+            'parameters': ['length (nm)']},
+    },
     'bonds': {
         1: {'description': 'Harmonic',
             'parameters': ['length (nm)', 'force (kJ mol^-1 nm^-2)']},
@@ -42,13 +46,15 @@ FUNCTIONS = {
 }
 
 #: The editable parameter ranges, one row per (kind, function) and one entry per parameter, in the function's own
-#: order. JSON-safe on purpose: lane D publishes it for the browser's parameter editor and ``validate_term`` reads the
-#: same table, so the panel cannot offer a range the store would refuse.
+#: order. JSON-safe on purpose: the composition panel publishes it for the browser's parameter editor and
+#: ``validate_term`` reads the same table, so the panel cannot offer a range the store would refuse.
 #:
 #: The bounds are the ones ``validate`` has always applied to a mapping override: a bond length and an angle in nm/deg,
-#: a dihedral phase in deg, every force constant 0-100000, and a periodic multiplicity an integer 1-6. Constraints and
-#: virtual sites are absent: their values are the mapping's readings, not a draft.
+#: a dihedral phase in deg, every force constant 0-100000, and a periodic multiplicity an integer 1-6. A rigid
+#: constraint's length is editable too -- it is the mapping's ring target until a reader changes it, and the revision
+#: records the change as a hand edit. A virtual site is still absent: its parents are the mapping's bead list.
 _RANGE_BOUNDS = {
+    'constraints': {1: [(0.01, 2, False)]},
     'bonds': {1: [(0.01, 2, False), (0, 100000, False)]},
     'angles': {
         1: [(0, 180, False), (0, 100000, False)],
@@ -77,8 +83,8 @@ def validate_term(kind, function, parameters):
 
     The single validator for a hand edit and for a mapping override: an unknown kind/function, a parameter count
     that does not belong to the function, a non-finite value, a value outside its range or a non-integer
-    multiplicity is a ``ValueError`` naming the field. A constraint or a virtual site is not in the table, so the
-    caller's own "not editable" sentence is the refusal it gets.
+    multiplicity is a ``ValueError`` naming the field. A constraint's length is editable here; a virtual site is not
+    in the table, so the caller's own "not editable" sentence is the refusal it gets.
     """
     try:
         function = int(function)
