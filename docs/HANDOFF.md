@@ -6,6 +6,16 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 hybrid GPU-update vsites were prototyped and rejected.** Removing the incompatible `virtual_sites4` and
+funct-4 three-atom rows from a pdb2gmx DDM topology and restoring those hydrogens as normal atoms fails `grompp`
+with `Cannot have constraint (3-39) with virtual site (3)`: the methyl carbon is itself a virtual site and its
+hydrogens are built with out-of-plane rows, so an H cannot be restored while its bonded carbon remains a vsite.
+Restoring a whole CH3 group means deleting its dummies and rebuilding the topology; a partial filter cannot do it.
+pdb2gmx's `-vsite hydrogens` is not selective, and the CH3/CH2/OH constructions it emits are the incompatible ones.
+GPU update therefore needs either an all-atom topology or a custom builder that emits only linear 2/3-atom sites
+(TIP4P-style); it is not a post-processing toggle on the current vsite path. The supported route remains GPU
+nonbonded/PME with CPU update (`mdrun_update=auto`/`cpu`), which `5179655` enforces.
+
 **2026-11-13 `Glucose-AA-fast1` could not start when a stale vsite was selected.** The preset predates the
 Topology choice and has no `vsite` key, so loading it left whatever the form last held -- in the reported case
 `hydrogens`. The preset also pins `mdrun_update=gpu`; a pdb2gmx vsite topology is built from `virtual_sites3`

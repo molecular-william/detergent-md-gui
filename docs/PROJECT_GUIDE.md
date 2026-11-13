@@ -527,6 +527,9 @@ CH2/CH/NH are not converted. A CG run consumes a reference that already ran, so 
 A preset saved before this choice existed does not carry a `vsite` key; loading it resets the control to
 `none` rather than inheriting an earlier build. An explicit `vsite` with `mdrun_update=gpu` is refused at
 queue time: GROMACS update groups cannot be combined with pdb2gmx's virtual-site types.
+pdb2gmx's `-vsite hydrogens` is not selective: it converts every hydrogen, and its CH3/CH2/OH constructions
+use out-of-plane or four-atom sites that update groups reject. A hybrid that keeps only linear sites would
+need a custom topology builder (the naive row-removal prototype breaks on the vsite methyl carbon's bonds).
 
 Inside the folded molecule input check, **Derive virtual sites** posts `/api/molecules/<id>/virtual-sites` and shows
 what MkVsites derives from the molecule's own topology: dummy atom types and masses, dummy--dummy and
