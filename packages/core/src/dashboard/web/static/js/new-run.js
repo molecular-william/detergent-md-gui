@@ -1153,7 +1153,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     gpuDevice.refresh();
     syncStageSummaries(form);
     syncRunSummary();
-    refreshReadiness();
+    // A preset changes stage settings, not the inputs readiness asks about (molecule, run type, tool availability),
+    // so re-asking would only disable Start for a round trip and swallow a click made while the preset was loading.
+    // The queue route validates the settings themselves, and the submit finally re-checks readiness.
     storage.set('form', formValues());
   }
   /** Apply the run type's default on mount and on a run-type change. A clone's own settings outrank it. */

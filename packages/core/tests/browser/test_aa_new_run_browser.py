@@ -6,6 +6,7 @@ intercepted: what this file reads is the payload the panel builds, not a run.
 """
 import json
 import re
+import time
 
 from playwright.sync_api import expect
 
@@ -350,3 +351,45 @@ def test_a_preset_saved_before_the_topology_choice_does_not_inherit_a_stale_vsit
     expect(page.locator('[name=vsite]')).to_have_value('none')
     expect(page.locator('[name=box_nm]')).to_have_value('3')
     assert errors == []
+
+
+def test_loading_a_preset_keeps_start_usable_while_readiness_is_slow(dashboard, live_page):
+    """A preset changes settings readiness does not read; re-asking must not disable Start and swallow the click.
+
+    The reported failure was exactly this: `Glucose-AA-VS-0` loads, Start appears disabled, and no request is made.
+    """
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    page.route('**/api/setting-presets?*', lambda route: route.fulfill(json={
+        'presets': [{'id': 'vs', 'name': 'Glucose-AA-VS-0', 'run_type': 'aa_only',
+                     'settings': {'box_nm': 3.0, 'vsite': 'hydrogens', 'mdrun_update': 'cpu'}}],
+        'default': None}))
+
+    def slow_readiness(route):
+        time.sleep(1)
+        route.fulfill(json={'ready': True, 'checks': [], 'blockers': []})
+
+    def queue(route):
+        if route.request.method != 'POST':
+            route.fallback()
+            return
+        route.fulfill(status=201, json={'id': '333333333333'})
+
+    page.route('**/api/readiness?*', slow_readiness)
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify("
+                         "{run_type:'aa_only',molecule_id:'DDM',vsite:'none',mdrun_update:'cpu'}))")
+    page.route(f'{live_page.base_url}/', queue)
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
+    expect(page.locator('#start-run')).to_be_enabled()
+    page.locator('#start-run').scroll_into_view_if_needed()
+    page.locator('#preset-select').select_option('vs')
+    page.locator('#preset-load').click()
+    # Click immediately, as a reader does after the preset bar: locator.click would wait for enabled and hide the bug.
+    page.locator('#start-run').scroll_into_view_if_needed()
+    box = page.locator('#start-run').bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert not errors, errors
