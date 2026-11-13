@@ -393,3 +393,52 @@ def test_loading_a_preset_keeps_start_usable_while_readiness_is_slow(dashboard, 
     page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
     expect(page.locator('#notice')).to_have_text('Run queued.')
     assert not errors, errors
+
+
+def test_a_hidden_out_of_range_setting_does_not_block_start(dashboard, live_page):
+    """Native validation used to inspect controls this run does not send; a hidden invalid CG value killed Start."""
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    submitted = []
+    page.route(f'{live_page.base_url}/', lambda route: (
+        submitted.append(route.request.post_data_json), route.fulfill(status=201, json={'id': '444444444444'}))[1]
+        if route.request.method == 'POST' else route.fallback())
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify("
+                         "{run_type:'aa_only',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
+    expect(page.locator('#start-run')).to_be_enabled()
+    # A CG value left out of range is hidden on an AA form, and its native bubble has nowhere to appear.
+    page.evaluate("document.querySelector('[name=cg_production_ps]').value = '0'")
+    assert page.evaluate("document.querySelector('#run-form').checkValidity()") is False
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert 'cg_production_ps' not in submitted[0]
+    assert not errors, errors
+
+
+def test_start_stays_usable_while_a_readiness_recheck_is_slow(dashboard, live_page):
+    """After a ready answer, a settings-triggered re-check must not disable Start and swallow the click."""
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    page.route('**/api/readiness?*', lambda route: (time.sleep(3), route.fulfill(
+        json={'ready': True, 'checks': [], 'blockers': []}))[1])
+    page.route(f'{live_page.base_url}/', lambda route: route.fulfill(status=201, json={'id': '555555555555'})
+               if route.request.method == 'POST' else route.fallback())
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify("
+                         "{run_type:'aa_only',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
+    expect(page.locator('#start-run')).to_be_enabled(timeout=15000)
+    page.locator('#start-run').scroll_into_view_if_needed()
+    # Changing a setting re-asks readiness; the button must stay usable while that answer is outstanding.
+    page.locator('[name=temperature_k]').fill('305')
+    assert page.locator('#start-run').is_enabled()
+    box = page.locator('#start-run').bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert not errors, errors

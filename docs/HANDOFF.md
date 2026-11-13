@@ -27,6 +27,16 @@ now refuses `vsite != none` with `mdrun_update=gpu` up front, naming update grou
 completed all seven stages, and the exact 200 ns probe was cancelled after it had started. Checks: fast **2805
 passed / 1 xfailed**, browser **383 passed**, slow **25 passed**, ruff clean.
 
+**2026-11-13 Start could also do nothing with no request, for two general reasons.** The browser's native
+constraint validation inspected controls the run does not send: an out-of-range CG value is hidden on an AA form,
+so its bubble has nowhere to appear and the click was simply dropped. The form is now `novalidate`; the queue
+route remains the validator for the values the payload carries and answers e.g. `aa_nvt_ps must be between 1 and
+1000000`. Separately, every readiness re-check disabled Start until its answer arrived, so a click during a
+settings- or molecule-triggered check was swallowed. Start is held only until the first answer; after a ready
+answer it stays usable while a re-check runs, and the queue route re-validates admission. Browser regressions set
+a hidden CG value out of range and click Start, and change a setting against a deliberately slow readiness answer.
+Checks: fast **2805 passed / 1 xfailed**, browser **386 passed**, slow **25 passed**, ruff clean.
+
 **2026-11-13 loading `Glucose-AA-VS-0` briefly disabled Start and swallowed the click.** `applyPreset` re-asked
 readiness, and `refreshReadiness` disables `#start-run` until that answer arrives. A preset changes only stage
 settings, none of which readiness reads (it asks about the molecule, run type, GROMACS and the declared tools), so

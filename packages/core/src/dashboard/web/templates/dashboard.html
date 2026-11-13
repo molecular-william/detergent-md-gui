@@ -179,7 +179,10 @@
 {% if workspace.form_fragment %}
   {% include workspace.form_fragment ignore missing %}
 {% else %}
-  <form id="run-form" class="new-run-layout">
+  {# Native constraint validation would also inspect controls this run type does not send: a CG value left
+     out of range is hidden on an AA form and its bubble has nowhere to appear, so Start looks dead. The queue
+     route is the validator for the values the payload actually carries. #}
+  <form id="run-form" class="new-run-layout" novalidate>
     <div class="new-run-inputs">
     <section class="card" id="molecule-panel" aria-labelledby="molecule-title">
       <span class="eyebrow">MOLECULE INPUTS</span><h3 id="molecule-title">Choose a molecule directory</h3>

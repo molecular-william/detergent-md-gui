@@ -909,7 +909,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // The molecule picker -----------------------------------------------------------------------------------------
   async function loadMolecules() {
     const select = form.elements.molecule_id;
-    ++readinessGeneration; $('#start-run').disabled = true;
+    ++readinessGeneration; if (lastReadiness !== true) $('#start-run').disabled = true;
     const chosen = select.value || savedForm?.molecule_id || savedForm?.detergent || 'DDM';
     const result = await guarded('molecules', () => cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE}));
     if (result === DROP) return;
@@ -1235,25 +1235,30 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
 
   // Readiness ---------------------------------------------------------------------------------------------------
   let readinessGeneration = 0, readinessTimer, readinessController;
+  //: The last answer, so a re-check does not disable a Start that was already usable. A settings or molecule change
+  //: can be re-checked while the reader clicks; the queue route re-validates every input and names the blocker.
+  let lastReadiness = null;
   function refreshReadiness() {
     ++readinessGeneration;
     clearTimeout(readinessTimer); readinessController?.abort();
     // Everything on screen is about the inputs as they were when the question was asked, and the question is about
-    // to be asked again. Until it answers there is no answer, so Start is held.
+    // to be asked again. Until the first answer there is no answer, so Start is held; after a ready answer, keep it
+    // usable while the re-check runs rather than swallow a click during the round trip.
     syncRunSummary();
-    $('#start-run').disabled = true;
+    if (lastReadiness !== true) $('#start-run').disabled = true;
     if ($('#' + panelIds()['new-run']).hidden || !mounted || mounting) return;
     readinessTimer = setTimeout(() => checkReadiness(readinessGeneration), 150);
   }
   async function checkReadiness(generation) {
     readinessController = new AbortController();
-    $('#start-run').disabled = true;
+    if (lastReadiness !== true) $('#start-run').disabled = true;
     const runType = form.elements.run_type.value;
     // A composition names its own molecule, which is not a directory: the row the catalogue listed is the check.
     const selectedMolecule = moleculeRecords.find(record => record.id === form.elements.molecule_id.value)
       || compositionFor(form.elements.molecule_id.value);
     syncRunSummary();
     if (!selectedMolecule) {
+      lastReadiness = false; $('#start-run').disabled = true;
       const message = 'Select an available molecule directory before starting.';
       setText($('#readiness'), message); setText($('#launch-blocker'), message);
       setText($('#review-status'), 'Action required'); $('#review-status').dataset.ready = 'false';
@@ -1272,9 +1277,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       setText($('#review-status'), ready.ready ? 'Inputs ready' : (ready.blockers?.length ? 'Action required' : 'Not ready'));
       $('#review-status').dataset.ready = String(!!ready.ready);
       setText($('#launch-blocker'), ready.ready ? '' : ready.blockers?.[0] || 'Inputs are not ready.');
+      lastReadiness = !!ready.ready;
       $('#start-run').disabled = !ready.ready;
     } catch (error) {
       if (generation !== readinessGeneration || error.name === 'AbortError') return;
+      lastReadiness = false; $('#start-run').disabled = true;
       setText($('#readiness'), error.message); setText($('#launch-blocker'), error.message);
       setText($('#review-status'), 'Readiness unavailable'); $('#review-status').dataset.ready = 'false';
     }
@@ -1336,7 +1343,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   async function mount() {
     if (mounting) return mounting;
     $('#' + panelIds()['new-run']).setAttribute('aria-busy', 'true');
-    $('#start-run').disabled = true;
+    if (lastReadiness !== true) $('#start-run').disabled = true;
     // A clone's record names the model it consumed, and the form must show it before the reader changes it.
     if (!pendingModel && !modelTouched) await validateCloneSource();
     mounting = (async () => {
