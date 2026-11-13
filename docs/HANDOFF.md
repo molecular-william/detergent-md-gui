@@ -6,6 +6,41 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 the trajectory overview records the full statistics, shape, RMSF and every EDR term.** The first batch
+of the richer overview landed. `analysis/runs/statistics.py` gains `series_summary` (20 keys: n, mean, sample std,
+naive SEM, block-averaged SEM, median, p05/p95, min/max, half means, OLS slope per ns + stderr + R² + RMS from fit,
+integrated autocorrelation time and effective samples); `block_summary` is unchanged. The overview now summarises
+`rmsd_nm`, `gyration_nm` and the aggregate largest/count/free series with it (keeping the legacy `mean`/`se`/
+`second_half_mean`/`*_mean` keys; `se` is the block SEM), and adds `shape` (Rg-tensor eigenvalues, asphericity,
+acylindricity, relative shape anisotropy), `rmsf_nm` (per-atom after the same Kabsch fit; per-atom list only at
+≤512 atoms), and `end_to_end_nm` (max pairwise distance per frame at ≤512 atoms, otherwise null plus
+`end_to_end_absent`). Energy now discovers the **whole** `gmx energy` menu on stderr, selects every 1-based index,
+and summarises all terms (45 on a live AA production EDR); only Temperature/Pressure/Potential keep `time_ps`/`values`
+(≤600 points), so the JSON stays bounded. `energy.components` (Angle, Proper-Dih., LJ-14, Coulomb-14, LJ-(SR),
+Coulomb-(SR), Coul.-recip., Potential, plus Bond/Improper when written), `energy.pressure_tensor` (Pres-*/Vir-*/surface
+tension), `energy.drift` (slopes of Total-Energy/Potential/Kinetic-En., `|total|/|potential|`, an `nve` flag and a
+basis sentence) and `energy.interactions` (terms containing ':') are added. Component/drift names match through a
+hyphen→space fold because XVG legends normalise `Total-Energy` → `Total Energy`, `LJ-(SR)` → `LJ (SR)` etc.; the
+menu's dashed rule sits before the rows and selection is 1-based. The XVG parser streams line by line into
+`array('d')` columns: on a 200k-row EDR this cut peak RSS from ~665 MB to ~263 MB at ~13 s (from ~15 s), against a
+116 MB XVG. `series_summary` uses the sampled ≤200-frame series for geometry and every EDR row for energy; the drift
+ratio is only conservation evidence when the leg has neither thermostat nor barostat, which the flag and basis say.
+
+**Energy groups were tried and reverted.** Adding `energygrps = non-Water Water` to the three AA dynamics profiles
+rendered, and `grompp` accepted it, but `mdrun` refuses energy groups with GPU nonbonded (`Multiple energy groups is
+not implemented for GPUs`), and these runs use `-nb gpu`; the live probe run `e37d1ee4523f` failed at NVT. The
+profiles change was reverted; the reader's `energy.interactions` remains ready for a CPU-only run or an `mdrun -rerun`
+with an energy-group tpr. The failed diagnostic run is still on disk (delete it from Runs if it is noise).
+
+Checks: fast **2738 passed / 1 xfailed**, browser **376 passed**, slow **24 passed**, ruff clean. Live run
+`5d7dae545905` (DDM draft-smoke, box 4.0 nm) completed all seven stages in ~50 s; its overview `a7a520f4b394`
+completed in **6 s** and its record has 45 energy terms, 8 components, 18 pressure-tensor terms, drift
+`total=-21631.71`, `potential=-15532.49`, ratio **1.39**, `nve=False` (V-rescale/Parrinello-Rahman recorded), 81-atom
+RMSF (mean 0.121 nm, max 0.274), Rg eigenvalues 0.370/0.060/0.016 nm, asphericity 0.332 and end-to-end 2.03 nm mean.
+`energy.interactions` is empty because this build's MDPs set no energy groups. Dashboard restarted. Left deliberately:
+the all-term XVG is ~116 MB on a long leg (peak ~263 MB, ~13 s, on-demand only); geometry is over the sampled series,
+not every frame; the pair quantities are capped at 512 atoms; the per-atom RMSF list is dropped above that cap.
+
 **2026-11-12 the AA stage editors carry the coupling, one HMR factor, and no timestep ceiling.** The timestep cap is
 gone (`SETTING_SPECS` now takes `high=None`; `execution/settings.py`'s normalizer names only the floor, 0.5 fs), because
 a topology with larger hydrogen masses may step further and GROMACS' stability is the real limit. Each dynamics stage

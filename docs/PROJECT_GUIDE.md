@@ -443,9 +443,30 @@ gyration are measured on the protein, or the largest molecule aggregate when the
 panel is drawn only when the segment holds more than one non-water molecule, since one molecule cannot aggregate.
 Temperature, pressure and potential come from the trajectory leg's own EDR, and an AA-only run's extracted
 `07_reference/lig.xtc` takes them from the production leg (`06_production/run.edr`) that wrote the source trajectory.
+`energy.components` carries the EDR's own component terms -- Angle, Proper-Dih., LJ-14, Coulomb-14, LJ-(SR),
+Coulomb-(SR), Coul.-recip. and Potential, plus Bond and Improper when the leg wrote them -- and
+`energy.pressure_tensor` carries the `Pres-*`/`Vir-*` terms when the leg wrote those, so the record can say which
+term moved rather than only the total. `energy.drift` fits OLS slopes of Total-Energy, Potential and Kinetic-En.,
+records their ratio |slope(total)|/|slope(potential)| and sets an `nve` flag; the flag is meaningful as energy
+conservation only when the leg has neither thermostat nor barostat, and otherwise the slopes are an energy-balance
+diagnostic. `energy.interactions` holds the terms whose names contain ':' (energy groups) when present; this build
+sets no `energygrps` in its MDPs, because GROMACS refuses multiple energy groups with GPU nonbonded (`Multiple energy
+groups is not implemented for GPUs`) and this protocol's dynamics run on the GPU. A CPU-only run, or an `mdrun -rerun`
+with an energy-group tpr over the production trajectory, remains the supported route to those cross terms.
 Every inter-molecular
 distance is minimum-image: `whole.xtc` keeps molecules whole but does not cluster the micelle, so raw distances across
-a box face would report one micelle as fragments. The record states the box and the PBC treatment. Each panel keeps its raw samples
+a box face would report one micelle as fragments. The record states the box and the PBC treatment.
+`rmsd_nm`, `gyration_nm`, the aggregate's largest/count/free series and every energy term the EDR holds each carry
+`n`, `mean`, `std` (sample standard deviation), `sem` (a naive standard error that treats the frames as independent)
+and `block_sem` (the standard error of five block means, the honest one for a correlated MD series), plus `median`,
+`p05`/`p95`, `min`/`max` and `first_half_mean`/`second_half_mean`; when the series carries times it also carries
+`slope_per_ns`, `slope_stderr`, `r2` and `rms_from_fit`, and a series of four or more points with spread carries
+`autocorr_time_samples` (the integrated autocorrelation time in frames) and `effective_samples`. `shape` summarises
+the subject's radius-of-gyration tensor with the same statistics -- its three eigenvalues, the asphericity, the
+acylindricity and the relative shape anisotropy -- and `rmsf_nm` adds per-atom RMSF after the same optimal rigid-body
+fit as RMSD, as mean and max, with the per-atom list published for small subjects. `end_to_end_nm` carries the
+maximum pairwise distance in each sampled frame, measured only for small subjects because it is O(N²) per frame.
+Each panel keeps its raw samples
 faint and thin under a thick opaque moving average (5% of the plotted points, 2–25 samples, stated in the legend and
 recorded under `smoothing` in the JSON). Its Run view Analysis card's button posts
 `/api/jobs/<id>/trajectory-overview`; a run holding no trajectory is answered by the producer's own skip.
