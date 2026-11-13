@@ -33,7 +33,9 @@ settings, none of which readiness reads (it asks about the molecule, run type, G
 the re-check was pure latency: a reader clicking Start after Load got no request at all. The re-ask is gone; the
 settings themselves are still validated by the queue route, and the submit's `finally` refreshes readiness. A browser
 regression test delays the readiness answer by 1 s and clicks Start immediately after Load; it fails on the old code
-with no queued run. Checks: fast **2805 passed / 1 xfailed**, browser **384 passed**, slow **25 passed**, ruff clean.
+with no queued run. Checks: fast **2805 passed / 1 xfailed**, browser **383 passed** with the known
+`test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row` load flake (passes solo), slow **25 passed**,
+ruff clean; mutation **9 caught, 1 control survived, 1 stale**.
 
 **2026-11-13 AA runs can build a pdb2gmx vsite topology (phase 2).** The AA form's **Topology** group now has
 `vsite` (`none`/`hydrogens`/`aromatics`). A vsite prepare writes an RTP residue from the stored ITP, builds a
