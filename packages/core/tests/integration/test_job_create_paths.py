@@ -165,6 +165,15 @@ def test_queue_keeps_the_transferable_mdp_options_and_the_box_shape(dashboard, c
     assert settings['mdrun_tunepme'] == 'off'
 
 
+def test_the_queue_keeps_the_aa_vsite_choice(dashboard, created):
+    """The topology choice is advertised as a choice; an unadvertised key would be dropped silently."""
+    response = dashboard.client.post('/', json={
+        'molecule_id': 'DDM', 'method': 'gromacs', 'run_type': 'aa_only', 'vsite': 'aromatics'})
+
+    assert response.status_code == 201, response.data
+    assert created[0]['settings']['vsite'] == 'aromatics'
+
+
 def test_the_queue_keeps_the_aa_stage_settings_the_form_offers(dashboard, created):
     """The per-stage timestep, neighbour list, buffer tolerance and coupling are advertised, so the queue keeps them.
 

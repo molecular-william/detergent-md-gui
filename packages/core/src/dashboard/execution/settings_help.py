@@ -117,6 +117,11 @@ MDRUN_HELP = {
 PROJECT_HELP = {
     'cg_seed': 'The seed written into the CG MDPs as gen-seed and ld-seed (dashboard text, not GROMACS): the same '
                'number for the velocity draw and the stochastic term, so a run can be repeated.',
+    'vsite': 'Builds the atomistic topology with gmx pdb2gmx -vsite (dashboard text, not GROMACS): an RTP residue '
+             'and force-field overlay are assembled from the molecule ITP and the parameters MkVsites derives, and '
+             'the generated topology is checked with grompp before the run starts. None consumes the stored ITP '
+             'unchanged. Aromatics is the GROMACS-deprecated choice and only the constructs present in the derived '
+             '.vsd file are converted.',
     'box_shape': 'The unit cell the single-solute protocol builds (dashboard text, not GROMACS). Every shape is sized '
                  'by the same minimum image distance d, so all four have |a|=|b|=|c|=d: the cube is d^3, both rhombic '
                  'dodecahedra (xy-square and xy-hexagon) are 0.707 d^3, and the truncated octahedron is 0.770 d^3 -- '

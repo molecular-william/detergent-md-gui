@@ -511,6 +511,19 @@ Exposes the AA and CG stage editors, temperature, trajectory output interval, an
 
 Visible **Constraints** is the AA half's only distance-constraint control: `constraints` is a `CHOICE_SPECS` entry (`none`, `h-bonds`, `all-bonds`) whose value goes into every AA MDP, defaulting to the force-field entry's own (`all-bonds`). A CG reference or composition run shows it disabled at `none`; the CG profiles state `none` themselves, so the control carries no CG value. It selects bond-to-constraint conversion only -- a topology's own `[ constraints ]` block is enforced by LINCS whatever it says.
 
+The AA leg's **Topology** group carries **Virtual sites** (`vsite`: `none`, `hydrogens`, `aromatics`). `none` consumes the
+stored ITP unchanged. A vsite run builds a pdb2gmx topology at prepare: an RTP residue is written from the ITP's own
+atoms and explicit bond/angle/dihedral rows, a temporary force-field overlay adds the ligand's atom types plus the
+MkVsites-derived dummy types, constraints and `.vsd` entries, and `gmx pdb2gmx -vsite <choice>` writes
+`molecule.itp`/`molecule.gro`. The generated moleculetype, coordinates, atom types and constraint types are written
+under `stages/common/molecule/`; `system.top` includes them before the molecule, and `solute.ndx` covers the
+generated atom count (the CH3 dummy masses make it larger than the stored coordinate file). `vsite.json` records the
+choice, the derivation report, the RTP digest, the command, the generated hashes and the mass/charge check; the
+stored ITP stays the provenance. A `grompp` run on the generated topology happens before the run is published, and
+its refusal is the prepare refusal -- there is no silent fallback to all-atom. `Aromatics` is GROMACS' deprecated
+choice and is limited to the `.vsd` constructs MkVsites derives (terminal CH3/NH3/NH2 and OH angle constraints);
+CH2/CH/NH are not converted. A CG run consumes a reference that already ran, so it does not offer this choice.
+
 Inside the folded molecule input check, **Derive virtual sites** posts `/api/molecules/<id>/virtual-sites` and shows
 what MkVsites derives from the molecule's own topology: dummy atom types and masses, dummy--dummy and
 dummy--anchor constraints, OH angle constraints, and the `.vsd` lines a force field needs. The report is

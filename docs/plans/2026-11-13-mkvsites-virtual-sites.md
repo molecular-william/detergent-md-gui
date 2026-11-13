@@ -1,6 +1,6 @@
 # Plan: MkVsites derivation and vsite-ready AA runs (2026-11-13)
 
-Status: **phase 1 built** (approved 2026-11-13); phase 2 follows. Draft:
+Status: **phases 1 and 2 built** (approved 2026-11-13). Draft:
 `docs/design/drafts/2026-11-13-molecule-virtual-sites.html`.
 
 ## What MkVsites is

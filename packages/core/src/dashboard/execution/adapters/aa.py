@@ -1,4 +1,5 @@
 """Versioned single-solute CHARMM AA protocol, independent of CG tooling."""
+import json
 import subprocess
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from ..environment import environment, probe_tool, recorded_environment
 from ..mdp import write_mdp
 from ..settings import normalize
 from ..stages import Stage, stage_tables
-from . import aa_box
+from . import aa_box, aa_vsites
 
 # The ruleset, not the force field: which force field a run used is recorded beside it, because two runs at one
 # ruleset with different force fields are exactly the comparison this version keeps straight.
@@ -268,7 +269,8 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               box_shape=aa_box.DEFAULT_SHAPE,
               force_field=forcefields.DEFAULT,
               # The force-field entry's own value: the paper's `all-bonds`, not the manual's `h-bonds`.
-              constraints=forcefields.entry().constraints)
+              constraints=forcefields.entry().constraints,
+              vsite='none')
 # Choices are a separate shape rather than a third element of the numeric tuple, which unpacks as (label, lo,
 # hi). 'auto' means the execution profile decides, which is what every run did before these settings existed.
 # The force field is a choice as well, and its options are the registry's entries: a name the registry does not
@@ -290,7 +292,8 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               # manual's `h-bonds` is a legitimate deviation to be able to run, so a run may name either -- or
               # none for a diagnostic. This selects bond conversion only: a topology's own `[ constraints ]`
               # block is enforced by LINCS whatever this says.
-              'constraints':('Constraints',('none','h-bonds','all-bonds'))}
+              'constraints':('Constraints',('none','h-bonds','all-bonds')),
+              'vsite':('Virtual sites',('none','hydrogens','aromatics'))}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
@@ -489,6 +492,36 @@ def mdp_values(settings, profile):
     return values
 
 
+def _validate_vsite_grompp(stage, coordinates, settings):
+    """Run grompp on the generated topology before the run is published; its refusal is the prepare refusal."""
+    gmx = tools.tool_path('gmx')
+    if gmx is None:
+        raise ValueError('virtual sites: gmx is not available to validate the generated topology')
+    mdp = stage / 'vsite-check.mdp'
+    tpr = stage / 'vsite-check.tpr'
+    boxed = stage / 'vsite-check.gro'
+    write_mdp('aa-em-v1', mdp, mdp_values(settings, 'aa-em-v1'))
+    try:
+        editconf = subprocess.run([gmx, 'editconf', '-f', str(Path(coordinates).resolve()), '-o', boxed.name,
+                                   *aa_box.editconf_arguments(settings['box_nm'], settings.get('box_shape', aa_box.DEFAULT_SHAPE)).split()],
+                                  cwd=stage, capture_output=True, text=True)
+        if editconf.returncode != 0:
+            raise ValueError('virtual sites: editconf refused the generated coordinates: '
+                             + ' / '.join(editconf.stderr.splitlines()[-4:]))
+        result = subprocess.run([gmx, 'grompp', '-f', mdp.name, '-c', boxed.name,
+                                 '-p', 'system.top', '-o', tpr.name],
+                                cwd=stage, capture_output=True, text=True)
+    finally:
+        mdp.unlink(missing_ok=True)
+        tpr.unlink(missing_ok=True)
+        boxed.unlink(missing_ok=True)
+        (stage / 'mdout.mdp').unlink(missing_ok=True)
+    if result.returncode != 0:
+        tail = [line for line in (result.stdout + result.stderr).splitlines()
+                if 'Authorization required' not in line and 'hwloc/' not in line]
+        raise ValueError('virtual sites: grompp refused the generated topology: ' + ' / '.join(tail[-30:]))
+
+
 def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     run_dir=Path(run_dir); settings=normalize_settings(settings)
     # The device is checked against the ones this host reports, before anything is written: a run that named a
@@ -527,6 +560,24 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     aa_box.check_cutoffs(settings['box_nm'], float(forcefields.entry(settings['force_field']).mdp['rlist']))
     ff=forcefields.entry(settings['force_field']); tree=ff.tree()
     if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
+    vsite_result = None
+    if settings.get('vsite', 'none') != 'none':
+        try:
+            vsite_result = aa_vsites.build(source_topology=stored_topology,
+                                           coordinates=molecule/'molecule.gro',
+                                           force_field=tree, water=Path(ff.water_file).stem,
+                                           residue=molecule_snapshot['metadata']['molecule_type'],
+                                           choice=settings['vsite'])
+            record = aa_vsites.write_artifacts(
+                vsite_result, molecule, source=str(stored_topology), settings=settings)
+        except aa_vsites.VsiteBuildError as exc:
+            raise ValueError(f'virtual sites ({settings["vsite"]}): {exc}') from exc
+        preparation['vsite'] = record
+        preparation['topology_include'] = 'generated by pdb2gmx -vsite'
+        preparation['vsite']['method'] = 'pdb2gmx + MkVsites'
+        preparation['prepared_gro_sha256'] = files.sha256(molecule/'molecule.gro')
+        aa_box.check_fit(molecule_snapshot['metadata']['name'], aa_box.read_coordinates(molecule/'molecule.gro'),
+                         settings['box_nm'])
     # What already existed when prepare ran is named, by path and digest, rather than copied: the force-field tree and
     # each molecule file. The molecule's repo root is the folder the store folder sits in, so a run prepared from
     # `molecules/<id>/` records `molecules/<id>/<file>` against the repository.
@@ -547,13 +598,20 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
              'molecule_directory':str(source),
              'force_field_sha256':files.hashes(tree),'scientifically_validated':False}
     files.atomic_json(common/'context.json',context)
-    n=molecule_snapshot['atom_count'];charge=round(molecule_snapshot['metadata']['net_charge'])
+    n = vsite_result.atom_count if vsite_result is not None else molecule_snapshot['atom_count']
+    charge = round(vsite_result.charge if vsite_result is not None else molecule_snapshot['metadata']['net_charge'])
     from ...analysis.runs.references import index_group
     (common/'solute.ndx').write_text(index_group('Solute',1,n+1))
     # The force field is referenced, never copied, and every later stage copies this topology forward into its own
     # directory -- so its includes are absolute. They keep resolving from any stage directory and from the mirrored
     # copy in `inputs/`. The molecule shim is run-local and stays relative; it is generated data like the rest.
-    top=(f'#include "{force_field_path / "forcefield.itp"}"\n#include "../common/molecule/molecule.itp"\n'
+    vsite_includes = ''.join(
+        f'#include "../common/molecule/{name}"\n' for name in ('atomtypes.itp', 'constrainttypes.itp')
+        if vsite_result is not None and (
+            (name == 'atomtypes.itp' and vsite_result.atomtypes_rows)
+            or (name == 'constrainttypes.itp' and vsite_result.constrainttypes_rows)))
+    top=(f'#include "{force_field_path / "forcefield.itp"}"\n{vsite_includes}'
+         f'#include "../common/molecule/molecule.itp"\n'
          f'#include "{force_field_path / ff.water_file}"\n#include "{force_field_path / "ions.itp"}"\n\n'
          f'[ system ]\nSingle solute in water\n[ molecules ]\n{molecule_snapshot["metadata"]["molecule_type"]} 1\n')
     scripts=[f'''gmx editconf -f ../common/molecule/molecule.gro {aa_box.editconf_arguments(settings['box_nm'], settings.get('box_shape', aa_box.DEFAULT_SHAPE))} -o boxed.gro
@@ -609,6 +667,13 @@ printf 'Temperature\\nPressure\\nDensity\\nPotential\\nTotal-Energy\\n0\\n' | gm
             write_mdp(profile,target.parent/'run.mdp',mdp_values(settings,profile))
             mdp_profiles[f'{target.parent.relative_to(stages).as_posix()}/run.mdp']=profile
     (stages/'01_solvation/system.top').write_text(top)
+    if vsite_result is not None:
+        _validate_vsite_grompp(stages/'01_solvation', molecule/'molecule.gro', settings)
+        record = json.loads((molecule/'vsite.json').read_text())
+        record['validation'] = {'grompp': 'ok'}
+        files.atomic_json(molecule/'vsite.json', record)
+        preparation['vsite']['validation'] = {'grompp': 'ok'}
+        files.atomic_json(common/'context.json', context)
     # `finish_prepared_run` mirrors the generated data into `inputs/` and writes the manifest naming the referenced
     # sources. What is copied is only what prepare synthesized: the tree and the molecule files stay where they live.
     # The helper modules are executed from the repository as package modules through `"$PYTHON" -m`, so the run records

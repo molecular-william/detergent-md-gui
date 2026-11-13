@@ -227,7 +227,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   const COMPOSITION_FIELDS = ['cg_equil_ps','cg_production_ps','cg_seed','temperature_k','output_interval_ps',
     'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme','mdrun_pmefft','mdrun_update',
     'mdrun_tunepme', ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
-  const AA_ONLY_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, 'force_field'];
+  // The topology choice is the AA leg's: a CG run consumes a reference that already ran.
+  const AA_TOPOLOGY_FIELDS = ['vsite'];
+  const AA_ONLY_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS];
   const REVISION_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, ...CG_FIELDS, 'force_field'];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
   // `fieldsFor` rather than by visibility -- because a preset and a clone must not lose a setting to a toggle.

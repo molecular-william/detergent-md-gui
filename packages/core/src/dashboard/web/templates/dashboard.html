@@ -365,6 +365,15 @@
           <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary" id="generate-cg-seed">Generate</button></span></label>
         </div>
       </section>
+      {# The topology builder is the AA leg's own choice: it decides whether pdb2gmx builds a vsite topology from
+         MkVsites-derived parameters or the stored ITP is consumed as-is. #}
+      <section class="new-option-group aa-setting" aria-labelledby="new-topology-title">
+        <h4 id="new-topology-title" class="new-option-title">Topology</h4>
+        <div class="settings-grid">
+          <label>Virtual sites<span class="setting-control"><select name="vsite"><option value="none">None · stored ITP</option><option value="hydrogens">Hydrogens · pdb2gmx</option><option value="aromatics">Aromatics · pdb2gmx</option></select><button type="button" class="secondary use-default" data-field="vsite">Default</button></span></label>
+        </div>
+        <p class="hint">A vsite run builds the topology with <code>gmx pdb2gmx -vsite</code> from this molecule's ITP, its own atom types and the parameters MkVsites derives; the generated topology is recorded and checked with <code>grompp</code> before the run starts. The stored ITP stays the provenance. <b>Aromatics</b> is the GROMACS-deprecated option and is limited to the constructs the derived <code>.vsd</code> supplies. A CG run consumes its AA reference and does not rebuild it here.</p>
+      </section>
       {# Distance constraints are the atomistic leg's own choice, so only an AA run shows this group; a CG run consumes
          a reference that already ran. The group stays in the document for the AA form's presets, hidden otherwise. #}
       <section class="new-option-group" id="new-constraints-group" aria-labelledby="new-constraints-title">

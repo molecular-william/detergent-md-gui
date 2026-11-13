@@ -15,7 +15,7 @@ DEFAULTS = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000, 'tem
             'pressure_bar': 1, 'output_interval_ps': 10, 'box_nm': 2.4, 'aa_seed': 12345,
             'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_gpu': 0, 'mdrun_cpt': 10,
             'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'constraints': 'all-bonds',
-            'force_field': 'charmm36-jul2022', 'cg_equil_ps': 10, 'cg_production_ps': 50,
+            'force_field': 'charmm36-jul2022', 'vsite': 'none', 'cg_equil_ps': 10, 'cg_production_ps': 50,
             'sasa_probe_nm': 0.191, 'cg_seed': 12345,
             # The three stages' own timesteps, neighbour-list cadence and Verlet buffer tolerance.
             'aa_nvt_dt_fs': 2, 'aa_npt_dt_fs': 2, 'aa_production_dt_fs': 2,
@@ -59,6 +59,9 @@ def test_an_aa_run_posts_only_its_own_vocabulary_and_says_this_run(dashboard, li
     expect(page.locator('[name=label]')).to_have_value(re.compile(r'^DDM-AA-11\.1ns-\d{8}$'), timeout=30000)
     # There is no AA-source picker any more: the AA run is its own source.
     assert page.locator('[name=reference_run_id]').count() == 0
+    # The topology choice is the AA leg's; a CG run does not rebuild the reference it consumes.
+    expect(page.locator('[name=vsite]')).to_be_visible()
+    page.locator('[name=vsite]').select_option('hydrogens')
     # The saved CG durations are kept for the CG form, not posted by this run.
     saved = json.loads(page.evaluate("localStorage.getItem('ddm.form')"))
     assert saved['cg_production_ps'] == '250'
@@ -78,12 +81,14 @@ def test_an_aa_run_posts_only_its_own_vocabulary_and_says_this_run(dashboard, li
     for retired in ('mapping_candidate', 'reference_run_id', 'parameterization', 'method', 'profile'):
         assert retired not in body, f'{retired} is still sent: {body}'
     assert 'cg_production_ps' not in body and 'cg_seed' not in body
+    assert body['vsite'] == 'hydrogens'
     # A blank hydrogen-mass box writes no setting at all: the run keeps GROMACS' own default (no repartitioning).
     assert 'mass_repartition_factor' not in body
     # The AA controls are the ones the run type executes; a CG run's are hidden again.
     page.locator('#tab-new').click()
     page.locator('#run-type').select_option('cg')
     expect(page.locator('#cg-inputs')).to_be_visible()
+    expect(page.locator('[name=vsite]')).to_be_hidden()
     expect(page.locator('[name=cg_production_ps]')).to_have_value('250')
     expect(page.locator('#run-aa-summary')).to_have_text('no parameterization selected')
     page.set_viewport_size({'width': 390, 'height': 844})

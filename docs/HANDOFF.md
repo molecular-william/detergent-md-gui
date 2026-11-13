@@ -6,6 +6,23 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 AA runs can build a pdb2gmx vsite topology (phase 2).** The AA form's **Topology** group now has
+`vsite` (`none`/`hydrogens`/`aromatics`). A vsite prepare writes an RTP residue from the stored ITP, builds a
+temporary force-field overlay (ligand atom types + MkVsites dummy types/constraints/`.vsd`), runs
+`gmx pdb2gmx -vsite <choice>`, writes the generated moleculetype/coordinates plus `atomtypes.itp` and
+`constrainttypes.itp`, and validates the result with `grompp` before publishing. The stored ITP remains provenance;
+`stages/common/molecule/vsite.json` records the choice, derivation report, RTP digest, command, generated hashes
+and mass/charge check. `solute.ndx` follows the generated atom count. pdb2gmx keeps every hydrogen as a zero-mass
+vsite atom and adds two dummies per CH3, so DDM's 81-atom ITP becomes 83 atoms; total mass (510.6208) and charge
+(0) are unchanged. A missing construct, an atom-type collision, a mass/charge change or a `grompp` refusal is a
+named prepare refusal, never a silent all-atom fallback. MkVsites' scope still limits this to terminal CH3/NH3/NH2
+and OH angle constraints; CH2/CH/NH are not converted, and `aromatics` is the deprecated GROMACS choice.
+Checks: fast **2804 passed / 1 xfailed**, browser **382 passed**, slow **25 passed**, ruff clean. Live AA
+`draft-smoke` run `33cdefb93ea8` (DDM, vsite hydrogens, box 4.0 nm) completed all seven stages in **60.2 s**;
+the manifest records 83 atoms, charge 0, mass 510.6208 and `grompp: ok`, and its `genion`/minimisation/NVT/NPT/
+production legs all ran. The RTP converter also refuses a topology whose terms are not 1/1/9/2 rather than
+reinterpreting them.
+
 **2026-11-13 MkVsites derivation lands as a read-only per-molecule report (phase 1).** MkVsites
 (github.com/ErikMarklund/mkvsites, commit 3878974, MIT; Larsson, Kneisz & Marklund, *J. Comput. Chem.* 41:1564-
 1569, 2020) derives missing vsite parameters from an ITP/RTP plus force-field data. Its own scope is terminal
