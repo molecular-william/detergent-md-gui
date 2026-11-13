@@ -28,7 +28,7 @@
 // which section is showing, hides it on Figures (that section is the figure viewer, not a perspective), refreshes
 // it when an analysis settles and resets it when the run changes. The engine passes the section names through
 // without knowing them: `setMode(name)` is the whole vocabulary it shares with the feature.
-import { $, api, post, liveVisible, whenLive, liveApi, panelIds, artifactUrl } from './shared.js';
+import { $, api, post, whenLive, liveApi, liveShown, pollMilliseconds, artifactUrl } from './shared.js';
 import { setPanelBusy } from './panel-busy.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
@@ -37,8 +37,6 @@ import { analysisMapFor, analysisNoticeFor, analysisSectionsFor } from './run-vi
 //: How long a queued or running analysis is left alone between asks. The Trajectory block's own seam, so a browser test
 //: sets one knob rather than two.
 const POLL_MS = 2000;
-
-const pollMilliseconds = () => Number(window.__runViewPollMs) || POLL_MS;
 
 //: The statuses a task can be in and still change without a request; anything else is settled.
 const UNSETTLED = ['queued', 'running', 'cancelling'];
@@ -105,14 +103,6 @@ export function createAnalysis({root, side}) {
   let mapMode = '';                     // the last section the map was asked to show
 
   const setNote = text => { note.textContent = text || ''; };
-
-  //: The run view section hiding the card is the same condition `run-view.js` reads; polling stops while the reader
-  //: is on another panel and the card comes back with an immediate read, not a lighter status-only one.
-  const shown = () => {
-    const section = $('#' + panelIds()['run-view']);
-    return !!section && !section.hidden;
-  };
-  const liveShown = () => liveVisible() && shown();
 
   // -------------------------------------------------------------------------------------------- the list and the figures
 
@@ -466,7 +456,7 @@ export function createAnalysis({root, side}) {
     timer = setTimeout(() => {
       timer = null;
       if (mine === token && liveShown()) reload().catch(() => {});
-    }, pollMilliseconds());
+    }, pollMilliseconds(POLL_MS));
   }
 
   //: Back on screen: the same `reload` the timer would run, so the task line and progress are overwritten from one

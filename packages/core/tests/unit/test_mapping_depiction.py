@@ -15,18 +15,6 @@ def test_empty_mapping_does_not_remove_structure(tmp_path):
     assert scene == depiction.build_scene(context)
 
 
-def test_context_render_has_interactive_atom_ids_and_overlay(tmp_path):
-    write_fixture(tmp_path)
-    context = build_context(tmp_path, "Fixture")
-    mapping = {"name": "Fixture draft", "beads": [
-        {"name": "B1", "size": "R", "type": "C1", "atoms": [1, 2, 3, 4]}
-    ]}
-    svg = depiction.render(mapping, context=context)
-    assert 'data-atom-id="1"' in svg
-    assert 'class="bead-overlays"' in svg
-    assert 'data-atoms="1 2 3 4"' in svg
-
-
 def test_long_straight_carbon_chain_uses_zigzag_layout():
     atoms = [
         {'id': index, 'name': f'C{index}', 'element': 'C', 'heavy': True,

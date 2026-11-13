@@ -244,11 +244,9 @@ def prepare(run_dir, metadata):
     else:
         (initial / names['final_itp']).write_text(item['topology'])
     (sim / 'system_EMPTY.top').write_text(
-        f'#include "{martini3.include(cg.MARTINI_FF, sim)}"\n'
-        f'#include "{martini3.include(cg.MARTINI_SOLVENTS, sim)}"\n'
-        f'#include "{names["final_itp"]}"\n'
-        f'[ system ]\n{names["residue_name"]} composition in Martini water\n'
-        f'[ molecules ]\n{names["residue_name"]} 1\n')
+        martini3.system_topology(sim, names['final_itp'], names['residue_name'],
+                                 f'{names["residue_name"]} composition in Martini water',
+                                 force_field=cg.MARTINI_FF, solvents=cg.MARTINI_SOLVENTS))
     write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp',
               cg.mdp_values(settings, 'cg-minimization-v1'))
     write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', cg.mdp_values(settings, 'cg-equilibration-v1'))
@@ -326,6 +324,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
     choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

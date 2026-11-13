@@ -6,10 +6,9 @@ from dashboard.execution import protocol
 
 from . import evidence as evidence_tables
 from . import kinds as kind_rows
-from . import sugar_layout
 from .execution.adapters import osmotic as osmotic_adapter
 from .web.routes import analyses as analyses_routes
-from .web.routes import bonded, osmotic, sugars, targets
+from .web.routes import bonded, osmotic, targets
 
 PACKAGE = Path(__file__).resolve().parent
 
@@ -81,17 +80,14 @@ def _mapping_payload(c, jid, body):
 
 FEATURE = features.Feature(
     name='validation',
-    blueprints=(bonded.blueprint, osmotic.blueprint, targets.blueprint,
-                analyses_routes.blueprint, sugars.blueprint),
+    blueprints=(bonded.blueprint, osmotic.blueprint, targets.blueprint, analyses_routes.blueprint),
     protocols={'osmotic': _osmotic_protocol},
     # What the Runs filter panel calls this feature's run types.
     run_type_labels={'osmotic': 'Osmotic series'},
     kinds=kind_rows.KINDS,
     code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
-    layout=(sugar_layout.register,),
     kind_payload={'carbohydrate-validation': analyses_routes.payload,
                   'mapping-consistency': _mapping_payload},
-    evidence_sections=evidence_tables.EVIDENCE_SECTIONS,
     molecule_profiles=evidence_tables.MOLECULE_PROFILES,
     section=('validation', {
         'slug': 'detergent-validation',
@@ -118,6 +114,6 @@ FEATURE = features.Feature(
     templates=PACKAGE / 'templates',
     static=PACKAGE / 'static',
     styles=('osmotic.css', 'run-view-mapping.css'),
-    extension_modules=('js/run-view-mapping.js', 'js/run-view-mapping-map.js', 'js/run-view-sugar.js'),
+    extension_modules=('js/run-view-mapping.js', 'js/run-view-mapping-map.js'),
     panel_modules={'osmotic-pressure': ('js/osmotic.js', 'createOsmoticSeries')},
 )

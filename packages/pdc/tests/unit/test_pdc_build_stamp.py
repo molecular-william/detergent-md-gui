@@ -18,7 +18,7 @@ import detergent_pdc
 import numpy as np
 import pytest
 from detergent_pdc.execution.adapters import pdc, pdc_placement
-from detergent_pdc.execution.scripts import pdc_build
+from detergent_pdc.execution.scripts import pdc_build, topology
 
 from tests.harness.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
 from tests.harness.support import PROJECT_ROOT
@@ -171,7 +171,7 @@ def test_a_molecule_the_tool_listed_without_its_itp_is_refused_rather_than_writt
 
 def test_a_topology_without_a_molecule_name_is_refused_rather_than_guessed():
     with pytest.raises(SystemExit, match='moleculetype'):
-        pdc_build.molecule_name('; a topology with nothing to name\n')
+        topology.molecule_name('; a topology with nothing to name\n')
 
 
 def test_the_stage_completes_when_the_run_was_prepared_with_a_detergent_mapping(tmp_path):

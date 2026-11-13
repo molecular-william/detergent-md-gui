@@ -168,19 +168,11 @@ def test_a_bond_to_a_missing_atom_is_refused(tmp_path):
         vsites.derive_from_itp(variant(tmp_path, text))
 
 
-def test_derive_text_hashes_the_text_and_matches_the_file_route():
-    text = ITP.read_text(encoding='utf-8')
-    result = vsites.derive_text(text)
+def test_derive_from_itp_hashes_the_file_bytes():
+    result = vsites.derive_from_itp(ITP)
 
-    assert result['source']['sha256'] == hashlib.sha256(text.encode('utf-8')).hexdigest()
+    assert result['source']['sha256'] == hashlib.sha256(ITP.read_bytes()).hexdigest()
     assert result['vsites'] == vsites.derive_from_itp(ITP)['vsites']
-
-
-def test_derive_file_infers_the_rtp_kind():
-    result = vsites.derive_file(RTP, force_field=FF, residue='LIG')
-
-    assert result['source']['kind'] == 'rtp'
-    assert result['vsites'][0]['name'] == 'MCH3_1'
 
 
 def test_rtp_reads_missing_terms_from_the_force_field():

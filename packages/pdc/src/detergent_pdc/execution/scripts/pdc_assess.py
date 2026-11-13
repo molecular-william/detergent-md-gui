@@ -19,6 +19,7 @@ from pathlib import Path
 from dashboard import files
 from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc.execution.adapters import pdc_assessment
+from detergent_pdc.execution.scripts import topology as topology_reader
 from micelle import output as micelle_output
 
 ASSESSMENT_NAME = 'assessment.json'
@@ -44,10 +45,6 @@ def system_structure(structure: Path, detergent_residue: str):
 
 def tail_positions(beads, tail_beads) -> list[list[float]]:
     return [bead['position'] for bead in beads if bead['name'] in tail_beads]
-
-
-def read_settings(path) -> dict:
-    return json.loads(Path(path).read_text())
 
 
 def resolved(settings: dict):
@@ -87,7 +84,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     stage = Path(args.stage)
 
-    settings = read_settings(args.settings)
+    settings = topology_reader.read_json(args.settings)
     structure = stage / args.structure
     judged = judge(structure, settings)
     verdict, protein, molecules = judged['verdict'], judged['protein'], judged['molecules']

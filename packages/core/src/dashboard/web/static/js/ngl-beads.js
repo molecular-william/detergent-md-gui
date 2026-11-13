@@ -44,14 +44,6 @@ export const BEAD_FAMILY_PALETTE = BEAD_FAMILY_ORDER.map(family => BEAD_FAMILY_C
 //: is the family's and never the frame's own spread of codes.
 export const BEAD_FAMILY_PARAMETERS = {colorScheme: 'bfactor', colorScale: BEAD_FAMILY_PALETTE, colorDomain: [0, 4]};
 
-export function beadFamily(type) {
-  // Leading `S`/`T` is the size class, not the family: `SP1r` is small *and* polar, `TC4` tiny *and* apolar.
-  const code = String(type || '').trim().toUpperCase();
-  const rest = /^[ST]/.test(code) ? code.slice(1) : code;
-  const family = rest.slice(0, 1);
-  return family in BEAD_FAMILY_COLOURS && family !== 'unstated' ? family : 'unstated';
-}
-
 export function renderBeadLegend(host) {
   // The legend and the colouring are one table: the swatch a reader decodes a bead with is the colour the
   // representation above it resolved, because both come from `BEAD_FAMILY_COLOURS` and neither is written out by

@@ -19,9 +19,9 @@ GROMACS, and a SASA implementation is never the thing being tested.
 from __future__ import annotations
 
 import math
-import re
 
 import numpy as np
+from dashboard.analysis.runs import structures
 from dashboard.analysis.runs.radii import AA_RADII, PROBE
 from dashboard.models.sugars import recognition
 
@@ -107,16 +107,15 @@ ESTIMATE_CAVEAT = (
 
 
 def element_of(atom_name):
-    """The element a PDB atom name names, the way `surfaces.py` reads one.
+    """The element a PDB atom name names, through the engine's one reader (`structures.atom_element`).
 
-    One rule for both surfaces: digits and punctuation are not part of an element, a two-letter element is title
-    case, and everything else is its first letter upper case. `CA` is the alpha carbon here, not calcium, which is
-    what a protein's own names mean.
+    The engine owns the rule -- digits and punctuation are not part of an element, two-letter halogens are title
+    case, everything else is its first letter -- so the two surfaces cannot read the same name two ways. `CA` is
+    the alpha carbon here, not calcium, which is what a protein's own names mean.
     """
-    letters = re.sub('[^A-Za-z]', '', str(atom_name))
-    if not letters:
+    if not any(character.isalpha() for character in str(atom_name)):
         raise ValueError(f'no element can be read from the atom name {atom_name!r}')
-    return letters[:2].title() if letters[:2].title() in ('Cl', 'Br') else letters[:1].upper()
+    return structures.atom_element(atom_name)
 
 
 def atom_radii_nm(atom_names):
@@ -253,10 +252,7 @@ def size_class(bead):
     records a type but no size.
     """
     recorded = str(bead.get('size') or '').strip().upper()
-    if recorded:
-        return recorded
-    prefix = str(bead.get('type') or '')[:1].upper()
-    return prefix if prefix in ('S', 'T') else 'R'
+    return recorded or structures.size_class(bead.get('type'))
 
 
 def size_radius_nm(size):

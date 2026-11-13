@@ -231,7 +231,7 @@ def test_the_family_codes_are_the_order_the_modules_own_table_states():
     """
     from dashboard.analysis.runs import structures as pdc_view
     assert list(pdc_view.BEAD_FAMILIES) == ['unstated', 'C', 'N', 'P', 'Q']
-    assert [pdc_view.bead_family_code(bead_type)
+    assert [pdc_view.BEAD_FAMILIES.index(pdc_view.bead_family(bead_type))
             for bead_type in ('C1', 'N1', 'P1', 'Q5', '', 'TC4')] == [1, 2, 3, 4, 0, 1]
     order = re.search(r'BEAD_FAMILY_ORDER\s*=\s*\[([^\]]*)\]', SOURCE.read_text())
     assert order, 'ngl-beads.js states no BEAD_FAMILY_ORDER'

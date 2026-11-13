@@ -21,7 +21,7 @@ def test_the_complex_tab_opens_a_panel_that_says_what_it_would_build(dashboard, 
     tab.click()
 
     expect(page.locator('#pdc')).to_be_visible()
-    for heading in ('Build a complex', 'System view', 'Status'):
+    for heading in ('Build a complex', 'System view'):
         expect(page.locator('#pdc h3', has_text=heading)).to_be_visible()
 
     # The panel repeats the catalogue's own limitation for the template it holds -- so a reader cannot mistake

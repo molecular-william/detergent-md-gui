@@ -155,10 +155,6 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, job_id=None, lim
     return records[:limit] if limit else records
 
 
-def latest(mapping):
-    found = jobs(mapping, limit=1)
-    return found[0] if found else None
-
 
 def work_dir(mapping, reference_run_id=None) -> Path:
     """The working directory of one (mapping, AA reference) pair.

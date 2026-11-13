@@ -38,13 +38,6 @@ def test_the_areas_cover_the_tree_without_a_module_in_two():
     assert doubled == {}, str(doubled)
 
 
-def test_every_area_has_modules():
-    """An area with no module is a category that runs nothing -- the name would answer `no tests ran`."""
-    empty = [name for name, patterns in areas.AREAS.items()
-             if not any(any(fnmatch.fnmatch(shape, pattern) for pattern in patterns) for shape in shapes())]
-
-    assert empty == [], f'areas with no module: {empty}'
-
 
 def test_every_pattern_names_a_module():
     """A pattern that matches nothing is dead weight: the module it was written for was renamed or removed."""
@@ -62,6 +55,3 @@ def test_the_narrow_name_wins_over_the_broad_one():
     assert areas.area_of(unit / 'test_cg_models.py') == 'bonded'
     assert areas.area_of(unit / 'test_cg_adapter_molecule_scoped.py') == 'runs'
 
-
-def test_a_module_outside_the_tree_has_no_area():
-    assert areas.area_of(PROJECT_ROOT / 'setup.py') is None

@@ -49,7 +49,7 @@ def generated_label(molecule, run_type, settings=None, profile='standard'):
     name = re.sub(r'\s+', '-', str(molecule or '').strip()) or 'run'
     tag = 'AA' if run_type == 'aa_only' else 'CG'
     try:
-        values = protocol.adapter_for(run_type or 'aa_cg').normalize_settings(settings, profile)
+        values = protocol.adapter_for(run_type).normalize_settings(settings, profile)
     except ValueError:
         # The run's own normalization refuses these settings a moment later; the label must not be the thing
         # that changes the refusal, so it is derived from what can be read and the length is left out.
@@ -422,7 +422,7 @@ class Coordinator:
                 if resuming:
                     readiness = {'ready': True}
                 else:
-                    readiness = protocol.adapter_for(job.get('run_type') or 'aa_cg').readiness({
+                    readiness = protocol.adapter_for(protocol.run_type_of(job)).readiness({
                         'molecule_id': job.get('molecule_id') or job.get('detergent'),
                         'molecule_root': self.ROOT / 'molecules', 'method': job.get('method'),
                         'profile': job.get('profile', 'standard'), 'mapping_candidate': job.get('mapping_snapshot'),
@@ -482,7 +482,7 @@ class Coordinator:
                     prepared.update(composition_id=job['composition_id'])
                     if job.get('composition_snapshot_sha256'):
                         prepared['composition_snapshot_sha256'] = job['composition_snapshot_sha256']
-                prepared.update(id=jid, status='running', started_at=self.now(),run_type=job.get('run_type','aa_cg'),workflow_version=job.get('workflow_version','aa-cg-v2'))
+                prepared.update(id=jid, status='running', started_at=self.now(),run_type=protocol.run_type_of(job),workflow_version=job.get('workflow_version','aa-cg-v2'))
                 if job.get('shared_reference'):prepared['settings']=job['settings']
                 files.atomic_json(work/'manifest.json', prepared)
                 def stage_changed(name, entry):
@@ -579,12 +579,12 @@ class Coordinator:
         # type rather than a per-run choice (D1), so nothing can be handed to a run any more and there is nothing
         # left to refuse. `models/bonded` keeps the states and their own compatibility checks untouched: they are
         # still fitted, edited and compared in the Bonded workspace.
-        adapter = protocol.adapter_for(run_type or 'aa_cg')
+        adapter = protocol.adapter_for(run_type)
         if run_type == 'cg':
             settings = adapter.normalize_settings(settings, profile, parameterization=parameterization)
         else:
             settings = adapter.normalize_settings(settings, profile)
-        tweak = features.create_settings_for(run_type or 'aa_cg')
+        tweak = features.create_settings_for(run_type)
         if tweak is not None:
             settings = tweak(settings, {'protein': protein, 'template': template,
                                         'mapping_snapshot': mapping_snapshot, 'settings': settings})
@@ -612,7 +612,7 @@ class Coordinator:
             except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
         elif reference_run_id:
             raise SourceUnavailable('CG runs require a shared AA reference')
-        question = features.readiness_for(run_type or 'aa_cg')
+        question = features.readiness_for(run_type)
         if question is not None:
             # A feature's run type is checked by its own adapter: asking the CG adapter about a protein-detergent
             # build is how a pdc job used to be refused.
@@ -638,7 +638,7 @@ class Coordinator:
         # The run type has to be on the record before the worker starts: everything downstream -- readiness, the
         # stage plan, which adapter writes the run -- is chosen by it, and a job that only carries a method is read
         # as a CG run by the adapter that answers about methods.
-        job['run_type'] = run_type or 'aa_cg'
+        job['run_type'] = run_type
         if run_type == 'cg':
             job['parameterization'] = parameterization
         if protein is not None:
@@ -713,20 +713,19 @@ class Coordinator:
 
 
     def automatic_analyses(self, jid):
-        """The kinds a run queues for itself when it stops: the universal ones, then its run type's own.
+        """The kinds a run queues for itself when it stops: its run type's own defaults.
 
-        The automatic kinds are a facet of the kind table rather than a list kept here -- `kinds.for_every_run()`
-        is the kind that runs for any run, and `kinds.default_for(run_type)` is the run type's own, which is where
-        an AA-to-CG run's `dihedral-fit` and `bonded-cross-check` come from (D5): they read stages 2 and 3 only, so
-        they are available the moment the fit is. A run type with no defaults of its own is not a special case --
-        the second list is empty and the answer is the first.
+        The list is a facet of the kind table rather than a list kept here. `kinds.default_for(run_type)` is the run
+        type's own, which is where an AA-to-CG run's `dihedral-fit` and `bonded-cross-check` come from (D5): they
+        read stages 2 and 3 only, so they are available the moment the fit is. A run type with no defaults of its
+        own still runs its stages; it simply owes no analysis.
 
-        A record that names no run type gets the universal kinds and nothing else: this run type's defaults are not
-        every run's, and a record that cannot say what it is does not get to claim them.
+        A record that names no run type gets nothing: this run type's defaults are not every run's, and a record
+        that cannot say what it is does not get to claim them.
         """
         job = self.lookup(jid)
         run_type = job.get('run_type')
-        return list(kinds.for_every_run()) + (list(kinds.default_for(run_type)) if run_type else [])
+        return list(kinds.default_for(run_type)) if run_type else []
 
 
 

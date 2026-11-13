@@ -44,6 +44,7 @@ from pathlib import Path
 from dashboard import files, martini3
 from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_import, pdc_placement, pdc_preparation, pdc_protein
 from detergent_pdc.execution.adapters.pdc import DETERGENT_GEOMETRY, DETERGENT_TOPOLOGY, REPORT_NAME, SETTINGS_NAME
+from detergent_pdc.execution.scripts import topology as topology_reader
 from micelle import frame as micelle_frame
 from micelle import output as micelle_output
 from micelle import registry as micelle_registry
@@ -59,13 +60,6 @@ LIMITATIONS = [
     'system.top lists the molecules grompp reads -- martinize2\'s own, and the detergent\'s -- but a build with no '
     'detergent model writes none: a molecule whose beads nothing knows cannot be listed',
 ]
-
-
-def read_settings(stage: Path) -> dict:
-    path = stage / SETTINGS_NAME
-    if not path.is_file():
-        raise SystemExit(f'{path} is missing: this stage reads its decisions from it')
-    return json.loads(path.read_text())
 
 
 def resolve(settings: dict, key: str, stage: Path) -> Path:
@@ -215,46 +209,6 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
 
 
 
-def molecule_name(topology_text: str) -> str:
-    """The molecule's name as a topology declares it, because `[ molecules ]` has to spell it exactly."""
-    lines = topology_text.splitlines()
-    for index, line in enumerate(lines):
-        stripped = line.split(';', 1)[0].strip()
-        if stripped.startswith('[') and stripped.lower().startswith('[ moleculetype'):
-            for following in lines[index + 1:]:
-                content = following.split(';', 1)[0].strip()
-                if content:
-                    return content.split()[0]
-    raise SystemExit('a topology without a [ moleculetype ] name cannot be listed in [ molecules ]')
-
-
-def molecule_rows(topology: Path) -> list[tuple[str, int]]:
-    """Every molecule a topology lists in its own `[ molecules ]`: names and counts, in its own order.
-
-    Read rather than assumed, because martinize2 emits **one molecule per chain**: 1AT9's chain A gives one and
-    4IAR's gives two, so neither the number of rows nor their counts is something this stage may decide. The run that
-    motivated this wrote only the first row, and the second molecule's beads then sat in `system.gro` with no
-    topology and no `[ molecules ]` row. A row this function cannot read is refused, not skipped: a topology it
-    half-understood would produce a system `grompp` refuses after a stage has already run.
-    """
-    rows, section = [], ''
-    for raw in Path(topology).read_text().splitlines():
-        line = raw.split(';', 1)[0].strip()
-        if line.startswith('['):
-            section = line.strip('[] \t').lower()
-            continue
-        if section != 'molecules' or not line:
-            continue
-        fields = line.split()
-        if len(fields) < 2 or not fields[1].lstrip('-').isdigit():
-            raise SystemExit(f'{Path(topology).name} lists a [ molecules ] row this stage cannot read: {line!r}')
-        rows.append((fields[0], int(fields[1])))
-    if not rows:
-        raise SystemExit(f'{Path(topology).name} lists no molecule in [ molecules ], so the system cannot be '
-                         'assembled')
-    return rows
-
-
 def protein_topology(topology: Path, stage: Path) -> tuple[list[tuple[str, int]], str, str]:
     """The protein's molecules, the `#include`s for them and its `[ molecules ]` rows, all from martinize2's topology.
 
@@ -272,7 +226,10 @@ def protein_topology(topology: Path, stage: Path) -> tuple[list[tuple[str, int]]
     "molecule_0.itp" not found` was.
     """
     includes, rows = [], []
-    molecules = molecule_rows(topology)
+    molecules = topology_reader.molecule_rows(Path(topology).read_text(), source=Path(topology).name, strict=True)
+    if not molecules:
+        raise SystemExit(f'{Path(topology).name} lists no molecule in [ molecules ], so the system cannot be '
+                         'assembled')
     for name, count in molecules:
         itp = Path(topology).parent / f'{name}.itp'
         if not itp.is_file():
@@ -316,7 +273,7 @@ def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_
             '[ system ]\nempty micelle, no protein\n\n[ molecules ]\n')
         if detergent_itp is None or not detergents:
             return {'protein_molecule': None}
-        detergent = molecule_name(detergent_itp.read_text())
+        detergent = topology_reader.molecule_name(detergent_itp.read_text())
         (stage / 'system.top').write_text(
             f'; the whole system, written by the system-preparation stage\n'
             f'{includes_text}\n[ system ]\nempty micelle, detergent only\n\n'
@@ -330,7 +287,7 @@ def write_topologies(stage: Path, protein_topology_path: Path | None, detergent_
     (stage / 'system_EMPTY.top').write_text(empty)
     if detergent_itp is None or not detergents:
         return record
-    detergent = molecule_name(detergent_itp.read_text())
+    detergent = topology_reader.molecule_name(detergent_itp.read_text())
     (stage / 'system.top').write_text(
         f'; the whole system, written by the system-preparation stage\n'
         f'{includes_text}{includes}\n[ system ]\n'
@@ -587,7 +544,7 @@ def prepared_protein(stage: Path) -> Path | None:
 
 
 def build(stage: Path) -> int:
-    settings = read_settings(stage)
+    settings = topology_reader.read_settings(stage / SETTINGS_NAME)
     # The CG protein's own directory, created for every build -- including one with no protein, which coarse-grains
     # nothing and includes nothing from it. Every leg declares this tree as an input and carries it whole
     # (`pdc.PROTEIN_TOPOLOGY_DIRECTORY`), so an empty tree is the protein-free answer, and the declaration is then one

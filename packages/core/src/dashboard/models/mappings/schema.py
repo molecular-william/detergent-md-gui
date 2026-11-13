@@ -5,8 +5,6 @@ graph-based validation in mapping_graph.py. automatic_candidate takes an
 explicit structure so no molecule is privileged. Candidate identity lives in
 ``identity.py``, which this module no longer restates.
 """
-from copy import deepcopy
-
 from .. import bonded
 
 SIZES = {'R': 4, 'S': 3, 'T': 2}
@@ -81,15 +79,6 @@ def check_schema(data, *, allow_empty=False, representation_mode=None):
                 or not RING_SCALES[0] <= scale <= RING_SCALES[1]:
             raise ValueError(f'A ring scale must be a number between {RING_SCALES[0]} and {RING_SCALES[1]}')
     bonded.validate(data)
-
-
-def new_draft(context, name='New mapping'):
-    """Create an empty molecule-bound editor document without persistence."""
-    return {'schema_version': 3, 'molecule_id': context['molecule_id'],
-            'molecule_snapshot': deepcopy(context['snapshot']), 'name': name,
-            'beads': [], 'rings': [], 'connections': [],
-            'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
-            'status': 'candidate-unvalidated', 'martini_version': '3'}
 
 
 def fragment_groups(structure):

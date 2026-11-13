@@ -16,9 +16,10 @@ from pathlib import Path
 
 from dashboard.models.bonded import parameterization
 from detergent_pdc.execution.adapters import pdc
-from detergent_pdc.execution.scripts import pdc_build
+from detergent_pdc.execution.scripts import topology as topology_reader
 from detergent_pdc.models.molecules import detergent_cg
 
+from tests.harness.pdc_fixtures import atom_rows
 from tests.harness.support import PROJECT_ROOT
 
 ROOT = PROJECT_ROOT
@@ -97,17 +98,6 @@ def limitations(run: Path) -> str:
     return ' '.join(json.loads((run / 'manifest.json').read_text())['limitations'])
 
 
-def atom_rows(text: str) -> list[list[str]]:
-    section, rows = '', []
-    for line in text.splitlines():
-        content = line.split(';', 1)[0].strip()
-        if content.startswith('[') and content.endswith(']'):
-            section = content[1:-1].strip().lower()
-        elif content and section == 'atoms':
-            rows.append(content.split())
-    return rows
-
-
 def test_a_fitted_mapping_is_simulated_on_its_own_terms(tmp_path):
     """The run's topology is the fit's, and its atoms are named the way the coordinates name them."""
     fit(revisions=2)
@@ -120,7 +110,7 @@ def test_a_fitted_mapping_is_simulated_on_its_own_terms(tmp_path):
     assert [row[1] for row in atom_rows(topology)] == ['C1', 'SN6'], 'the types are the fit\'s'
     assert '0.431 2690.007' in topology, 'the fit\'s bond, not a reference or a geometry fallback'
     assert topology.startswith('; This file was generated using the following command:')
-    assert pdc_build.molecule_name(topology) == 'DDM', 'the molecule `[ molecules ]` and the .gro residue both name'
+    assert topology_reader.molecule_name(topology) == 'DDM', 'the molecule `[ molecules ]` and the .gro residue both name'
 
 
 def test_the_manifest_names_the_revision_the_terms_came_from(tmp_path):

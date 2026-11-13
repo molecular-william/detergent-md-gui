@@ -745,10 +745,9 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     # are not copied at all: the topology includes the ITPs by a path relative to itself, and `cg_simulation.sh` reads
     # the published water box where it lives.
     (sim / 'system_EMPTY.top').write_text(
-        f'#include "{martini3.include(MARTINI_FF, sim)}"\n'
-        f'#include "{martini3.include(MARTINI_SOLVENTS, sim)}"\n'
-        f'#include "{names.final_itp}"\n[ system ]\n{names.residue_name} draft in pure water\n'
-        f'[ molecules ]\n{names.residue_name} 1\n')
+        martini3.system_topology(sim, names.final_itp, names.residue_name,
+                                 f'{names.residue_name} draft in pure water',
+                                 force_field=MARTINI_FF, solvents=MARTINI_SOLVENTS))
     sasa = run_dir / '6_SASA'
     (sasa / 'AA').mkdir(); (sasa / 'CG').mkdir()
     (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))
@@ -890,60 +889,6 @@ def _probe_tools(names):
             for (_, executable), (ready, detail) in zip(resolved, answers)]
 
 
-def readiness(molecule_id, method, profile='standard', mapping_candidate=None, molecule_root=None):
-    """Check AA inputs, CG tools, and mapping for any molecule id."""
-    aa.validate_profile(profile)
-    if method != 'fast_forward':
-        return {'ready': False, 'checks': [], 'blockers': ['This method is not connected to an executable workflow.']}
-    molecule_root = Path(molecule_root) if molecule_root is not None else ROOT / 'molecules'
-    checks = []
-    try:
-        molecule = aa_molecules.inspect(molecule_root, molecule_id)
-    except ValueError as exc:
-        return {'ready': False, 'checks': [], 'blockers': [str(exc)], 'profile': profile,
-                'scientific_gate': {'scientifically_validated': False, 'production_allowed': False,
-                                    'reason': 'No scientifically validated CG model is registered.'}}
-    checks.append({'label': 'Molecule',
-                   'path': molecule['path'],
-                   'ready': molecule['valid'],
-                   'detail': 'Input consistency checked' if molecule['valid'] else '; '.join(molecule['issues'])})
-    checks.append({'label': 'CG workflow support',
-                   'path': molecule.get('adapter', 'cg-fast-forward'),
-                   'ready': bool(molecule.get('executable')),
-                   'detail': ('Any valid AA molecule runs through the generic CG workflow; '
-                              'the AA stage is reused from an AA-only source.'
-                              if molecule.get('executable')
-                              else '; '.join(molecule.get('blockers') or molecule.get('issues') or []))})
-    checks.append({'label': 'Force field used by workflow',
-                   'path': str(FORCE_FIELD.relative_to(ROOT)),
-                   'ready': (FORCE_FIELD / 'forcefield.itp').is_file(),
-                   'detail': 'Referenced from the repository by path and digest'})
-    for tool, (executable, ok, detail) in zip(READINESS_TOOLS, _probe_tools(READINESS_TOOLS)):
-        checks.append({'label': tool, 'path': executable or tool, 'ready': ok, 'detail': detail})
-    if profile in ('draft-smoke','draft-smoke-reference'):
-        try:
-            draft_model.load(mapping_candidate, molecule_root=molecule_root)
-            detail, ok = 'Connected heavy-atom draft; bead types uncalibrated. Short execution test only.', True
-        except (ValueError, OSError) as exc:
-            detail, ok = ('Select a saved CG mapping before launching candidate screening'
-                          if mapping_candidate is None and isinstance(exc, FileNotFoundError)
-                          else str(exc)), False
-        checks.append({'label': 'CG mapping',
-                       'path': (mapping_candidate.get('file', 'selected snapshot')
-                                if mapping_candidate is not None else 'none selected'),
-                       'ready': ok, 'detail': detail})
-    blockers = [x['label'] + ': ' + x['detail'] for x in checks if not x['ready']]
-    # Tools a stage never invokes (bartender, xtb) are reported here, not turned into
-    # blockers: the blockers above already come from the commands this run type resolves.
-    declared_checks, _ = tools.declared_tool_checks()
-    checks.extend(declared_checks)
-    if profile == 'standard':
-        blockers.append('A reviewed CG model is required for standard parameterization. Choose candidate screening to test execution only.')
-    return {'ready': not blockers, 'checks': checks, 'blockers': blockers, 'profile': profile,
-            'scientific_gate': {'scientifically_validated': False, 'production_allowed': False,
-                                'reason': 'No scientifically validated CG model is registered; reviewer approval of a mapping alone cannot authorize production.'}}
-
-
 def _protocol_stage_contract(metadata):
     """Resolve a naming context from the metadata a caller holds."""
     return stage_contract_for(metadata, parameterized=consumes_parameterization(metadata))
@@ -952,52 +897,6 @@ def _protocol_stage_contract(metadata):
 def _protocol_stages(metadata):
     """Resolve the named stage declarations for the metadata's molecule."""
     return stages_for(metadata, parameterized=consumes_parameterization(metadata))
-
-
-def _protocol_readiness(metadata):
-    molecule_id = metadata.get('molecule_id')
-    if not molecule_id:
-        return protocol.blocked('molecule_id is required to check an AA to CG run')
-    if isinstance(metadata.get('parameterization'), dict):
-        # The `cg` run type: it always consumes a parameterization revision, and never builds or fits one. Its AA
-        # reference is the revision's own, verified here rather than auto-created.
-        return parameterization_readiness(metadata)
-    # This adapter *is* the AA-CG run type, so its own profile is the fallback rather than `standard`: the panel
-    # offers no profile choice for this run type and sends none, and a `standard` fallback silently skipped the
-    # mapping check below (`if profile in ('draft-smoke','draft-smoke-reference')`) while asking the readiness list
-    # about a profile no AA-CG run has ever run under.
-    ready = readiness(molecule_id, metadata.get('method') or 'gromacs',
-                      metadata.get('profile') or AA_CG_PROFILE,
-                      metadata.get('mapping_candidate'), metadata.get('molecule_root'))
-    # An AA-to-CG run needs everything the atomistic half needs, because its own reference is built from a molecule
-    # that has to be simulatable. The web route used to collect both answers and merge them by hand, which put a run
-    # type's prerequisites inside a page that happened to ask about it; the rule belongs with the run type, and the
-    # route now asks this one question like every other caller.
-    molecule_root = metadata.get('molecule_root')
-    try:
-        from ...analysis.runs import references as aa_references
-        from ...models.molecules import aa as aa_molecules
-        reference_run_id = metadata.get('reference_run_id')
-        if reference_run_id:
-            selection = aa_molecules.selection(molecule_root, molecule_id)
-            aa_references.resolve(metadata.get('runs_root'), reference_run_id, molecule_snapshot=selection)
-        else:
-            from . import aa
-            ready.setdefault('blockers', []).extend(aa.readiness(molecule_root, molecule_id)['blockers'])
-    except (OSError, ValueError) as exc:
-        ready.setdefault('blockers', []).append(str(exc))
-    # D5's read-only bonded step, published as the run type's own answer rather than assembled on the
-    # panel: the model either carries a parameterization this run will use and not re-fit, or it
-    # carries none and the run fits it in stage 3 and records that it did. A top-level key and not a
-    # `checks` entry, because neither state is a prerequisite -- but a record this run *cannot read* is
-    # one, because `prepare` would refuse it and saying "the run will fit it" would be a promise the
-    # run cannot keep.
-    state = _parameterization_state(metadata)
-    ready['parameterization'] = state
-    if state.get('error'):
-        ready.setdefault('blockers', []).append('CG parameterization: ' + state['error'])
-    ready['ready'] = ready.get('ready', False) and not ready.get('blockers')
-    return ready
 
 
 def parameterization_readiness(metadata) -> dict:
@@ -1185,14 +1084,15 @@ def protocol_settings_specs():
 
 PROTOCOL = protocol.Protocol(
     name='aa_cg',
+    # The aa_cg run type is retired (protocol.RETIRED_RUN_TYPES); cg_run reuses this Protocol for its settings,
+    # stages and prepare and never asks it for readiness, so the required field states the refusal.
+    readiness=lambda metadata: protocol.blocked('the aa_cg run type is retired'),
     stage_contract=_protocol_stage_contract,
     stages=_protocol_stages,
     settings_specs=protocol_settings_specs,
     stage_defaults=lambda: stage_defaults(),
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
-    readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
     # The AA half's choices travel with it: this run type accepts `force_field` and `mdrun_nb` because it prepares an
     # atomistic reference of its own, and `normalize_settings` takes them from the AA half.
     choice_specs=lambda: devices.published_choices(aa.CHOICE_SPECS),

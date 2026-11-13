@@ -14,7 +14,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     candidate = physical_mapping()
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     saved = mappings.save_draft(candidate)
-    monkeypatch.setattr(cg, 'readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
+    monkeypatch.setattr(cg, 'parameterization_readiness', lambda *a, **k: {'ready': False, 'checks': [], 'blockers': ['Test only']})
     owner = dashboard.coordinator
     owner.database().insert({'id':'123456abcdef','status':'completed','detergent':'DDM'})
     run = owner.RUNS/'123456abcdef'; run.mkdir(parents=True)

@@ -20,16 +20,21 @@ from dashboard import martini3
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.harness.pdc_fixtures import TEMPLATE_PATH, inputs_dir, molecule_tree, prepared_run, script_of, settings_of, stage_dir, system_stage, write_cg_pdb
+from tests.harness.pdc_fixtures import (
+    TEMPLATE,
+    TEMPLATE_PATH,
+    inputs_dir,
+    molecule_tree,
+    prepared_run,
+    script_of,
+    settings_of,
+    stage_dir,
+    system_stage,
+    write_cg_pdb,
+    write_gro,
+)
 from tests.harness.support import PROJECT_ROOT
 
-TEMPLATE = {
-    'name': 'DDM',
-    'residue': 'DDM',
-    'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp',
-    'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
 PROTEIN = 'molecules/DDM/protein.pdb'
 #: The stage these tests are about, by name: the plan's positions are data and the prepare step landed in front of
 #: this one, so a test that counted its way to `STAGES[0]` would now be describing a different stage.
@@ -39,18 +44,6 @@ GROMPP_STAGES = ('Energy minimisation', 'NVT equilibration', 'NPT equilibration'
                  'CG extension MD')
 #: A detergent topology as `prepare` writes one for a mapped build: one molecule type with one bead.
 DETERGENT_ITP = '[ moleculetype ]\nDDM_CG 1\n\n[ atoms ]\n1 C1 1 DDM_CG DDM 1 0 72\n'
-
-
-def gro_line(residue: str, name: str, number: int, xyz) -> str:
-    return f'{number:5d}{residue:<5}{name:>5}{number:5d}{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}'
-
-
-def write_gro(path: Path, atoms) -> Path:
-    """A CG structure for the stage to read, so no test needs martinize2 to exist."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [gro_line(residue, name, index + 1, xyz) for index, (residue, name, xyz) in enumerate(atoms)]
-    path.write_text('protein\n{0}\n{1}\n   4.00000   4.00000   4.00000\n'.format(len(lines), '\n'.join(lines)))
-    return path
 
 
 def prepared(tmp_path: Path, settings: dict | None = None, template: str = TEMPLATE_PATH):
@@ -281,7 +274,7 @@ def test_the_reader_the_stage_uses_returns_the_shape_the_stage_indexes(tmp_path)
     """`read_gro` documented tuples and returned dicts, which is how this stage first read 'position' as letters."""
     from dashboard.analysis.runs import structures as pdc_view
 
-    path = write_gro(tmp_path / 'protein.gro', [('PRO', 'B01', (0.0, 0.0, 0.0))])
+    path = write_gro(tmp_path / 'protein.gro', [(1, 'PRO', 'B01', (0.0, 0.0, 0.0))], box=(4.0, 4.0, 4.0))
     atoms = pdc_view.read_gro(path)
 
     assert [sorted(atom) for atom in atoms] == [['name', 'position', 'residue', 'residue_id']]

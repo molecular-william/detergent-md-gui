@@ -18,7 +18,6 @@ from pathlib import Path
 
 from ... import files, itp, paths
 from ..molecules import aa as aa_molecules
-from ..molecules import registry as model_registry
 from ..repository import JsonRepository
 from . import topology as composition_topology
 
@@ -279,40 +278,3 @@ def composition_detail(cid, project_root=None):
     return detail
 
 
-def validate(payload):
-    if not isinstance(payload, dict): raise ValueError('Composition must be an object')
-    fragments = payload.get('fragments')
-    if not isinstance(fragments, list) or not fragments: raise ValueError('Composition needs fragments')
-    ids = [f.get('id') if isinstance(f, dict) else f for f in fragments]
-    if len(set(ids)) != len(ids): raise ValueError('Composition cannot repeat a fragment')
-    records = {f['id']: f for f in model_registry.fragments()}
-    if any(i not in records for i in ids): raise ValueError('Composition references an unknown fragment')
-    attachments = payload.get('attachments', [])
-    if not isinstance(attachments, list): raise ValueError('attachments must be a list')
-    seen = set()
-    for item in attachments:
-        if not isinstance(item, dict): raise ValueError('Each attachment must be an object')
-        required = ('left_fragment','right_fragment','left_atom','right_atom')
-        if any(k not in item for k in required): raise ValueError('Attachment is missing fragment or atom ownership')
-        if item['left_fragment'] not in ids or item['right_fragment'] not in ids: raise ValueError('Attachment references an unselected fragment')
-        key = tuple(item[k] for k in required)
-        if key in seen: raise ValueError('Duplicate attachment')
-        seen.add(key)
-        if item['left_fragment'] == item['right_fragment']: raise ValueError('Attachment must connect distinct fragments')
-    return {'ok': True, 'fragment_ids': ids, 'attachment_count': len(attachments)}
-
-
-def create(payload):
-    """Write a composition record without artifacts; the root-free validation entry point.
-
-    Tests that exercise fragment and attachment validation use this, because they need no
-    molecule workspace. It writes a record with no composition.itp, composition.gro,
-    mapping.json or bonded-state.json, so nothing that resolves a composition's artifacts can
-    consume it: `create_composition` is the one the API and the catalog use, and the route
-    that called this was unreachable code until Task 6.6 deleted it.
-    """
-    validate(payload)
-    body = json.loads(json.dumps(payload, sort_keys=True))
-    record = {'id': _id(), 'kind': 'composition', 'created_at': files.now_iso(), 'snapshot_hash': files.json_sha256(body), 'validation': validate(body), 'snapshot': body}
-    _repository().write(record['id'], record)
-    return record

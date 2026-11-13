@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 from dashboard.execution import tools
 from dashboard.models import mappings, sugars
-from dashboard.models.mappings import depiction
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.molecules import draft as draft_model
 
@@ -85,7 +84,6 @@ def test_save_export_retains_architecture(tmp_path,monkeypatch):
     out=mappings.export_files(saved);model=json.loads(out['model.json'])
     assert model['rings']==c['rings'] and int(out['mapped.gro'].splitlines()[1])==11
     assert '[ B04 ]' not in out['mapping.ndx']
-    assert 'stroke-dasharray="5 3"' in depiction.render(saved)
 
 
 def test_surface_envelope_is_radius_and_probe_consistent():

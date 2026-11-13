@@ -57,8 +57,3 @@ def test_the_flat_bonded_state_surface_is_gone(dashboard):
                          ('delete', '/api/bonded-states/whatever')):
         assert getattr(dashboard.client, method)(path).status_code in (404, 405), (method, path)
 
-
-def test_the_micelle_route_rejects_a_non_object_body(dashboard):
-    response = dashboard.client.post('/api/micelle/build', json=[])
-    assert response.status_code == 400
-    assert response.json['error'] == 'Expected an object'

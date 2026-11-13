@@ -6,9 +6,8 @@ from flask import Blueprint, abort, jsonify, send_file
 from ...models import catalog as cg_models
 from ...models import compositions
 from ...models.compositions import parameterizations as composition_parameterizations
-from ...models.mappings import references as mapping_references
 from ...models.molecules import evidence
-from .common import coordinator, json_object
+from .common import json_object
 
 blueprint = Blueprint('catalog', __name__)
 
@@ -85,12 +84,6 @@ def cg_model_detail_api(kind, identifier):
         return jsonify(cg_models.get_model(kind, identifier))
     except (ValueError, KeyError, OSError, FileNotFoundError) as exc:
         abort(404, str(exc))
-
-
-@blueprint.get('/api/reference-index')
-def reference_index_api():
-    """Read-only view over the canonical reference tree for the mapping workspace."""
-    return jsonify(mapping_references.load_index(coordinator().ROOT))
 
 
 @blueprint.get('/api/assets/plotly.min.js')

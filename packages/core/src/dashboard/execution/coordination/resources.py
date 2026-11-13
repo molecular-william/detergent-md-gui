@@ -57,8 +57,7 @@ def report(root, jobs, limits):
         except (ValueError, TypeError): continue
         if age >= limits['retention_days'] and job.get('status') in ('completed','failed','cancelled'):
             candidates.append({'id': job['id'], 'age_days': int(age)})
-    return {'disk_free_bytes': disk.free, 'run_bytes': used, 'limits': limits, 'retention_candidates': candidates,
-            'retention_policy': 'Keep all data until explicitly deleted; age is a review suggestion.'}
+    return {'disk_free_bytes': disk.free, 'run_bytes': used, 'limits': limits, 'retention_candidates': candidates}
 
 
 def admit(report, reservations=0, required=None):

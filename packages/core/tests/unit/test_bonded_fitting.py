@@ -223,7 +223,7 @@ def test_the_mapped_frames_are_built_once_for_a_pair_and_reused_afterwards(candi
     assert second.mappers == [], 'the frames already exist and the mapper refuses to overwrite them'
     assert second.fitters, 'and the fit still runs'
     assert record['revision'] == 2
-    assert [item['revision'] for item in parameterization.revisions(candidate)] == [1, 2]
+    assert [item['revision'] for item in parameterization.document(candidate)['revisions']] == [1, 2]
 
 
 def test_a_bartender_fit_reads_the_terms_the_tool_wrote_in_its_own_work_root(candidate, monkeypatch):
@@ -409,7 +409,7 @@ def test_the_jobs_are_listed_for_the_mapping_that_owns_them(candidate):
 
     listed = [record['id'] for record in fitting.jobs(candidate)]
     assert set(listed) == {first['id'], second['id']}
-    assert fitting.latest(candidate)['id'] in (first['id'], second['id'])
+    assert fitting.jobs(candidate, limit=1)[0]['id'] in (first['id'], second['id'])
     renamed = saved_mapping(name='DDM · another')
     assert [record['id'] for record in fitting.jobs(renamed)] == listed, 'a rename is the same model'
     changed = copy.deepcopy(candidate)

@@ -21,7 +21,7 @@
 // The trap this block shares with the segment table is the token. A reader can pick another run, or another segment,
 // while a fetch is in flight; an answer that belongs to the row they left must write nothing. `runToken` separates
 // runs, `formToken` separates arguments, `loading` separates series files.
-import { liveVisible, whenLive, liveApi, panelIds, api } from './shared.js';
+import { whenLive, liveApi, liveShown, pollMilliseconds, api } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
 
 //: The eleven keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
@@ -45,8 +45,6 @@ const AUTO_MODELS = 120;
 //: Where a run's mapping states which beads make up which fragment. Read lazily, when the form is opened: a run with
 //: no mapping answers 404, and that is "no fragments to group on", not a failure of the panel.
 const MAPPING = 'stages/2_mapping/model.json';
-
-const pollMilliseconds = () => Number(window.__runViewPollMs) || POLL_MS;
 
 //: A build is queued under the job lock and the server fingerprints the chosen trajectory before it answers -- 5.8 s
 //: for a live 2.5 GB `.xtc`, measured, and worse on a cold cache. The shared `api()` client caps every request at ten
@@ -422,13 +420,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const setNote = text => { note.textContent = text || ''; };
   const setFormNote = text => { formNote.textContent = text || ''; };
 
-  //: The run view section hiding this block is the same condition `run-view.js` reads; the build poll stops while
-  //: the reader is on another panel and resumes with the same `/analyses` read.
-  const shown = () => {
-    const section = document.getElementById(panelIds()['run-view']);
-    return !!section && !section.hidden;
-  };
-  const liveShown = () => liveVisible() && shown();
   const buildInFlight = () => (tasks || []).some(task => task && task.kind === 'frame-series'
     && ['queued', 'running'].includes(task.status));
 
@@ -765,7 +756,7 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       timer = null;
       if (token !== runToken || !liveShown()) return;
       await loadTasks(token);
-    }, pollMilliseconds());
+    }, pollMilliseconds(POLL_MS));
   }
 
   async function loadTasks(token) {

@@ -1,5 +1,4 @@
 #!/bin/bash
-AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
 # The interpreter the application runs under, and the checkout it imports from: the mapper is a repository module
 # reached through `-m`, not a file beside the script.

@@ -30,7 +30,7 @@ from pathlib import Path
 
 from ... import files, paths
 from .. import mappings
-from . import PARAMETER_RANGES, parse_interactions, rewrite_interactions, validate_term
+from . import PARAMETER_RANGES, canonical_term, parse_interactions, rewrite_interactions, validate_term
 
 #: The engines a parameterization can be produced by (D3). Each names the ensemble it saw on its
 #: result, and each has one label published for the panel; the labels live here rather than in the
@@ -304,27 +304,6 @@ def owners(record) -> list:
 
 
 
-def claim(mapping) -> dict:
-    """Mark this mapping as one of the record's. Idempotent, and it does not touch the revisions.
-
-    Content identity is what addresses a parameterization, so two drafts that differ only in name are the same *model*
-    and one draft renamed is the same model too -- the store cannot tell those apart, and `claim` does not try to. What
-    it records is which saved mappings the content belongs to, which is what makes deletion a question with an answer
-    ("does any other mapping still carry this content?") instead of an assumption.
-    """
-    path = _path(mapping)
-    record = _read(path) if path.is_file() else {'mapping_hash': None, 'mapping_content_hash': content_identity(mapping),
-                                                'revision': 0, 'current': None, 'revisions': []}
-    entry = owner_entry(mapping)
-    listed = owners(record)
-    if any(item['mapping_hash'] == entry['mapping_hash'] for item in listed):
-        return record
-    # A legacy record named a mapping only through its revisions; the claim is the record's own list from here on.
-    record['owners'] = listed + [entry]
-    record['updated_at'] = files.now_iso()
-    files.atomic_json(path, record)
-    return record
-
 
 def release(content_hash, *, mapping=None, name=None) -> dict:
     """Drop one claim on a record. The revisions stay while another claim does; the last one going removes them.
@@ -543,10 +522,6 @@ def current(mapping):
     """
     return document(mapping).get('current')
 
-
-def revisions(mapping) -> list:
-    """Every stored revision, oldest first, each carrying its own `revision` number."""
-    return list(document(mapping).get('revisions') or [])
 
 
 def get(mapping, revision=None) -> dict:
@@ -827,17 +802,11 @@ def make_current(mapping, revision) -> dict:
 # --- reading a revision: the terms, their sources, and what a run panel prints ----------------------
 
 
-def _canonical(kind, beads):
-    values = tuple(beads)
-    ordered = tuple(sorted(values)) if kind == 'bonds' else min(values, tuple(reversed(values)))
-    return kind, ordered
-
-
 def _override_keys(mapping):
     keys = set()
     for term in mapping.get('bonded_overrides') or []:
         if isinstance(term, dict) and isinstance(term.get('beads'), list):
-            keys.add(_canonical(term.get('section'), term['beads']))
+            keys.add(canonical_term(term.get('section'), term['beads']))
     return keys
 
 
@@ -861,7 +830,7 @@ def term_sources(revision, mapping) -> list:
     for term in revision.get('engine_terms') or []:
         if isinstance(term, dict) and isinstance(term.get('beads'), list):
             provenance = term.get('provenance') or {}
-            reported[_canonical(term.get('kind'), term['beads'])] = bool(provenance.get('fallback'))
+            reported[canonical_term(term.get('kind'), term['beads'])] = bool(provenance.get('fallback'))
     # A hand-edited term is recorded by the revision itself, not by the mapping: the edit rewrote the stored
     # topology, so its ids are what the row is read from. This is checked before the mapping-override and geometry
     # fallbacks, because those describe where the *fitted* term came from, not the value now stored.
@@ -879,9 +848,9 @@ def term_sources(revision, mapping) -> list:
             source = MANUAL_SOURCE
         elif kind == 'constraints' and frozenset(beads) in ring_pairs:
             source = MAPPING_SOURCE
-        elif _canonical(kind, beads) in override_keys:
+        elif canonical_term(kind, beads) in override_keys:
             source = MANUAL_SOURCE
-        elif reported.get(_canonical(kind, beads)):
+        elif reported.get(canonical_term(kind, beads)):
             source = GEOMETRY_SOURCE
         else:
             source = fallback

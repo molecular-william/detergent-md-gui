@@ -723,6 +723,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
     choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

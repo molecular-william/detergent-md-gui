@@ -120,7 +120,6 @@ def test_the_fitted_terms_accumulate_because_bartender_writes_angles_twice():
 
     assert len(terms['angles']) == 1, 'the fitted angle survives its section being written twice'
     assert len(terms['bonds']) == 1 and len(terms['constraints']) == 1 and len(terms['dihedrals']) == 1
-    assert bartender_fit.ring_lengths(terms) == {'1-2': 0.310}
 
 
 def test_the_invocation_fits_from_the_runs_own_trajectory(tmp_path):

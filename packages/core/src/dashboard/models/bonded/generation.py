@@ -14,7 +14,6 @@ with it. That is a cost accepted here, not an oversight.
 
 from __future__ import annotations
 
-import hashlib
 import itertools
 import json
 import math
@@ -25,7 +24,7 @@ from pathlib import Path
 from ... import files
 from ..mappings.identity import canonical_sha256
 from ..sugars import angstrom_factor
-from . import FUNCTIONS
+from . import FLEXIBLE_WIDTHS, FUNCTIONS, canonical_term
 
 #: One-entry memo for reference_bond_index, keyed on the source stamp. See files.memo.
 _BOND_INDEX_CACHE = {}
@@ -34,10 +33,6 @@ _BOND_INDEX_CACHE = {}
 _MASSES = {'R': 72, 'S': 54, 'T': 36}
 _FALLBACK_BOND_FORCE = 5000.0
 _FALLBACK_ANGLE_FORCE = 25.0
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _format(value):
@@ -172,7 +167,7 @@ def _parse_reference(path: Path, root: Path, diagnostics: list[str]):
                 'source_rank': _source_rank(relative),
                 'path': relative,
                 'line': line_number,
-                'sha256': _sha256(path),
+                'sha256': files.sha256(path),
             })
     return rows
 
@@ -237,7 +232,7 @@ def _parse_named_defaults(path: Path, root: Path, diagnostics: list[str]) -> dic
         rows[kind][key].append({
             'macro': fields[0], 'context': context, 'function': function, 'parameters': parameters,
             'count': 1, 'source_rank': NAMED_DEFAULT_RANK,
-            'references': [{'path': relative, 'sha256': _sha256(path), 'line': number}],
+            'references': [{'path': relative, 'sha256': files.sha256(path), 'line': number}],
             'martini_versions': [],
         })
     return rows
@@ -275,7 +270,7 @@ def _build_bond_index(root: Path) -> dict:
     paths = _reference_paths(root)
     for path in paths:
         relative = path.relative_to(root).as_posix()
-        source_hash = _sha256(path)
+        source_hash = files.sha256(path)
         version = _reference_version(relative, path)
         sources.append({'path': relative, 'sha256': source_hash, 'rank': _source_rank(relative),
                         'martini_version': version})
@@ -410,7 +405,7 @@ def _validate_term(term, physical):
     beads = term.get('beads')
     # A constraint's length comes from the mapping's ring targets (or a revision's hand edit), never from a generated
     # term list; it is in `FUNCTIONS` so the parameter table can edit it, not so a generator can emit one.
-    arity = {'bonds': 2, 'angles': 3, 'dihedrals': 4}.get(kind)
+    arity = FLEXIBLE_WIDTHS.get(kind)
     if arity is None:
         raise ValueError(f'{kind} terms are not generated from a mapping draft')
     if not isinstance(beads, list) or len(beads) != arity or any(name not in physical for name in beads):
@@ -436,12 +431,6 @@ def _validate_term(term, physical):
     return kind, list(beads), function, values
 
 
-def _canonical_term_key(kind, beads):
-    forward = tuple(beads)
-    reverse = tuple(reversed(beads))
-    return kind, min(forward, reverse)
-
-
 def topology_from_terms(mapping: dict, structure: dict, terms: list[dict], *, title='Bonded draft') -> str:
     """Build a complete, mapping-bound topology from editable ordinary terms."""
     beads = mapping.get('beads', [])
@@ -450,7 +439,7 @@ def topology_from_terms(mapping: dict, structure: dict, terms: list[dict], *, ti
     seen = set()
     for term in terms:
         kind, names, function, parameters = _validate_term(term, physical)
-        key = _canonical_term_key(kind, names)
+        key = canonical_term(kind, names)
         if key in seen:
             raise ValueError('Duplicate bonded term')
         seen.add(key)
@@ -686,7 +675,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
             diagnostics.append(f'No exact reference bond for {first_type}|{second_type}; used geometry fallback for {first}-{second}.')
         terms.append({'kind': 'bonds', 'beads': [first, second], 'function': function,
                       'parameters': parameters, 'provenance': provenance})
-        term_keys.add(_canonical_term_key('bonds', [first, second]))
+        term_keys.add(canonical_term('bonds', [first, second]))
     adjacency = {name: set() for name in physical}
     for first, second in edges:
         adjacency[first].add(second)
@@ -716,7 +705,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
                     context=_term_context(physical, names),
                 )
                 diagnostics.append(f'No exact reference angle for {key}; used geometry fallback for {first}-{middle}-{last}.')
-            term_key = _canonical_term_key('angles', names)
+            term_key = canonical_term('angles', names)
             if term_key in term_keys:
                 continue
             terms.append({'kind': 'angles', 'beads': names, 'function': function,
@@ -741,7 +730,7 @@ def generate(mapping: dict, structure: dict, project_root: Path) -> dict:
                     martini_version)
                 if not selected:
                     continue
-                term_key = _canonical_term_key('dihedrals', names)
+                term_key = canonical_term('dihedrals', names)
                 if term_key in term_keys:
                     continue
                 if competing:

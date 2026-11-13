@@ -147,7 +147,7 @@ def test_every_panel_is_the_same_width_and_has_no_dead_space_beside_it(dashboard
              # monitors of equal width side by side. That claim is asserted where the panel's own layout is
              # (`test_run_view_browser.py`), and its children still span the measure at panel level, which the loop
              # above checks for every panel in both workspaces.
-             ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9, 12)),
+             ('protein-detergent', 'complexes', '.pdc-workspace', (3, 9)),
              ('detergent-validation', 'bond-interactions', '.bonded-columns', (6, 6)))
     for workspace, panel, layout, spans in cases:
         # `panel` is the URL *slug*, not the DOM id: the registry keeps those two vocabularies apart on purpose, and

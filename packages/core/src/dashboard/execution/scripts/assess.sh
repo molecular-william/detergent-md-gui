@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euxo pipefail
-AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 # The interpreter the application runs under, and the checkout it imports from. The two helpers this stage ends with
 # are repository modules reached through `-m`, not files copied beside a script.
 PYTHON="${PYTHON:-python}"

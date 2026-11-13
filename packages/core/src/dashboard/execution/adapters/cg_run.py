@@ -293,11 +293,6 @@ def prepare(run_dir, metadata):
     return record
 
 
-def tool_report():
-    """The tools the revision kind calls: it is the only kind that runs the CG pipeline's own scripts."""
-    return cg.tool_metadata()
-
-
 PROTOCOL = protocol.Protocol(
     name='cg',
     stage_contract=stage_contract,
@@ -307,6 +302,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=normalize_settings,
     readiness=readiness,
     prepare=prepare,
-    tool_report=tool_report,
     choice_specs=choice_specs,
 )

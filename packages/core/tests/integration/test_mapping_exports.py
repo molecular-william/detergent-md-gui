@@ -1,16 +1,10 @@
 """Checks against CGbuilder/FF formats, RDKit chemistry, and real grompp."""
 import importlib.util
-import io
-import json
 import unittest
-import xml.etree.ElementTree as ET
-import zipfile
 
 import numpy as np
 import pytest
 from dashboard.models import mappings
-from dashboard.models.mappings import depiction
-from rdkit import Chem
 
 from tests.harness.support import fast_forward_source, physical_mapping
 
@@ -60,31 +54,6 @@ class MappingExportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Repeated atom'):
             mappings.export_files(self.data)
 
-    def test_diagram_preserves_identity_and_has_one_circle_per_bead(self):
-        source = mappings.SOURCE/'results/MMFF'
-        _, positions, smiles = depiction._base((source/'lig1.mol2').read_text(), (source/'lig1.pdb').read_text(), (source/'lig1.itp').read_text())
-        identity = json.loads((mappings.SOURCE/'identity.json').read_text())
-        self.assertEqual(smiles, Chem.MolToSmiles(Chem.MolFromSmiles(identity['input_smiles'])))
-        self.assertEqual(set(positions), set(range(1,36)))
-        self.data['name'] = '<script>not markup</script>'
-        root = ET.fromstring(depiction.render(self.data))
-        overlay = root.find(f'{{{depiction.NS}}}g[@class="bead-overlays"]')
-        self.assertEqual(len(overlay), len(self.data['beads']))
-        self.assertEqual(overlay[0].get('data-atoms'), ' '.join(map(str,self.data['beads'][0]['atoms'])))
-        self.assertIsNone(root.find('.//script'))
-        self.assertIn('unvalidated', root.find(f'{{{depiction.NS}}}title').text)
-
-    def test_bundle_and_svg_endpoints(self):
-        with self.dashboard.client as client:
-            response = client.post('/api/mappings/export/bundle', json=self.data)
-            self.assertEqual(response.status_code, 200)
-            with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
-                self.assertEqual(set(archive.namelist()), {'mapping.ndx', 'mapping.map', 'mapped.gro', 'model.json', 'README.txt'})
-                self.assertEqual(json.loads(archive.read('model.json'))['status'], 'candidate-unvalidated')
-            response.close()
-            response = client.post('/api/mappings/diagram', json=self.data)
-            self.assertEqual(response.status_code, 200)
-            self.assertIn('bead-overlays', response.get_json()['svg'])
 
 
 if __name__ == '__main__':

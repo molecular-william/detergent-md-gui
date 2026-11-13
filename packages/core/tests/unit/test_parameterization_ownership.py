@@ -12,34 +12,8 @@ import pytest
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 
-TOPOLOGY = ('[ moleculetype ]\nMOL 1\n\n[ atoms ]\n'
-            '1 C1 1 MOL B01 1 0 72\n2 C1 1 MOL B02 2 0 72\n3 C1 1 MOL B03 3 0 72\n\n'
-            '[ bonds ]\n1 2 1 0.30 5000\n2 3 1 0.31 5000\n\n'
-            '[ angles ]\n1 2 3 1 120 25\n\n'
-            '[ dihedrals ]\n1 2 3 1 -102.273 36.636 2\n')
-
-
-def mapping(**overrides):
-    candidate = {'name': 'DDM', 'beads': [{'name': 'B01'}, {'name': 'B02'}, {'name': 'B03'}],
-                 'rings': [], 'connections': []}
-    candidate.update(overrides)
-    return candidate
-
-
-def revision(**overrides):
-    payload = {'engine': 'fast-forward', 'topology': TOPOLOGY,
-               'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
-                           'torsion_model': 'legacy', 'torsion_scale': 1.0},
-               'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
-                            'source': 'the mapped AA frames'},
-               'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32,
-                                'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
-                                'production_ns': 10.0},
-               'terms': {'bonds': 2, 'angles': 1, 'dihedrals': 1},
-               'engine_default_source': 'ff_inter',
-               'checks': {'dihedral-fit': {'rows': []}, 'bonded-cross-check': {'rows': []}}}
-    payload.update(overrides)
-    return payload
+from tests.harness.support import parameterization_mapping as mapping
+from tests.harness.support import parameterization_revision as revision
 
 
 @pytest.fixture
@@ -59,8 +33,7 @@ def test_a_save_claims_the_mapping_that_made_it(saved):
 
 def test_a_second_claim_on_the_same_content_is_recorded_once(saved):
     twin = mapping(name='DDM copy')          # same beads, same content, another saved name
-    parameterization.claim(saved)
-    parameterization.claim(twin)
+    parameterization.save(twin, revision())
 
     record = parameterization.document(saved)
     assert sorted(entry['name'] for entry in record['owners']) == ['DDM', 'DDM copy'], record['owners']
@@ -69,7 +42,7 @@ def test_a_second_claim_on_the_same_content_is_recorded_once(saved):
 
 def test_releasing_one_claim_keeps_the_revisions_for_the_other(saved):
     twin = mapping(name='DDM copy')
-    parameterization.claim(twin)
+    parameterization.save(twin, revision())
 
     outcome = parameterization.release(parameterization.content_identity(saved), name='DDM')
 
@@ -80,13 +53,13 @@ def test_releasing_one_claim_keeps_the_revisions_for_the_other(saved):
 
 def test_the_last_claim_going_takes_the_revisions_with_it(saved):
     twin = mapping(name='DDM copy')
-    parameterization.claim(twin)
+    parameterization.save(twin, revision())
     parameterization.release(parameterization.content_identity(saved), name='DDM')
 
     outcome = parameterization.release(parameterization.content_identity(saved), name='DDM copy')
 
     assert outcome['deleted'] is True, outcome
-    assert outcome['revisions'] == [1], outcome
+    assert outcome['revisions'] == [1, 2], outcome
     assert parameterization.current(twin) is None
 
 
@@ -113,9 +86,9 @@ def test_a_record_written_before_claims_existed_answers_why_rather_than_guessing
 
 def test_deleting_the_parameterization_outright_ignores_claims(saved):
     """The panel's own Delete removes the parameterization, not one mapping's claim on it."""
-    parameterization.claim(mapping(name='DDM copy'))
+    parameterization.save(mapping(name='DDM copy'), revision())
 
     outcome = parameterization.delete(parameterization.content_identity(saved))
 
-    assert outcome['deleted'] is True and outcome['revisions'] == [1], outcome
+    assert outcome['deleted'] is True and outcome['revisions'] == [1, 2], outcome
     assert parameterization.current(saved) is None

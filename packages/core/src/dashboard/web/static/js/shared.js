@@ -51,6 +51,23 @@ function loadOnce(key, loader, {maxAge=Infinity}={}) {
   return entry.promise;
 }
 function cachedApi(path, options={}) { return loadOnce(path,()=>api(path),options); }
+
+// The molecule select the two Bond Interactions panes share: every all-atom molecule the catalogue offers, in the
+// shell's cache window, plus the caller's own options last -- a composition is a CG model, a different kind of thing.
+// The previous choice survives a refill; otherwise `preferred` is chosen, and otherwise the first option.
+async function fillMoleculeOptions(select, {extra = [], preferred} = {}) {
+  let list = [];
+  try {
+    const answer = await cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE});
+    list = (answer.molecules || []).filter(record => record.kind !== 'cg');
+  } catch { list = []; }
+  const previous = select.value;
+  select.replaceChildren(...list.map(record => new Option(record.name || record.id, record.id)), ...extra);
+  const has = value => [...select.options].some(option => option.value === value);
+  if (has(previous)) select.value = previous;
+  else if (preferred && has(preferred)) select.value = preferred;
+  else if (select.options.length) select.selectedIndex = 0;
+}
 // Latest-wins loader: one generation per key. A superseded answer comes back as DROP rather
 // than as a never-settling promise, because callers await these loaders -- the poll loops and
 // the tests do -- and a promise that never settles hangs them. A superseded failure is
@@ -76,6 +93,13 @@ function invalidateResource(prefix) {
 // poller gates its timer on this and re-arms through `whenLive` when the reader comes back. A resumed poll runs
 // the panel's own read, so the progress line and its "Updated" stamp come from the same answer.
 const liveVisible = () => !document.hidden && navigator.onLine;
+// The Run view's own two blocks poll and resume together: one interval knob (`window.__runViewPollMs` is the browser
+// tier's seam) and one "is the run view on screen" answer, so the analysis card and the trajectory block cannot disagree.
+const pollMilliseconds = defaultMs => Number(window.__runViewPollMs) || defaultMs;
+function liveShown() {
+  const section = document.getElementById(panelIds()['run-view']);
+  return liveVisible() && !!section && !section.hidden;
+}
 const resumers = new Set();
 function whenLive(fn) { resumers.add(fn); return () => resumers.delete(fn); }
 for (const event of ['visibilitychange', 'online']) window.addEventListener(event, () => {
@@ -95,5 +119,5 @@ const panelIds = () => {
   try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
 };
 
-export { loadOnce, cachedApi, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, liveVisible, whenLive, liveApi,
+export { loadOnce, cachedApi, fillMoleculeOptions, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, liveVisible, whenLive, liveApi, pollMilliseconds, liveShown,
          $,  $$, storage, setText, notice, api, post, plural, artifactUrl, artifactText, panelIds };

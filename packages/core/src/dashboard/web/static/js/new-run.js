@@ -1,4 +1,4 @@
-import { $, $$, storage, setText, notice, api, post, cachedApi, CATALOGUE_MAX_AGE, invalidateResource, guarded, DROP, panelIds } from './shared.js';
+import { $, $$, storage, setText, notice, api, post, cachedApi, CATALOGUE_MAX_AGE, invalidateResource, guarded, DROP, panelIds, plural } from './shared.js';
 import { createGpuDevice } from './gpu-device.js';
 
 //: `{workspace slug: extension}` -- the panels installed features bring for their own workspaces.
@@ -370,7 +370,6 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (!host) return;
     host.replaceChildren();
     const vsites = report.vsites || [], angles = report.angle_constraints || [], diagnostics = report.diagnostics || [];
-    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     setText($('#vsite-status'), [
       plural(vsites.length, 'vsite type', 'vsite types'),
       plural(angles.length, 'OH angle constraint', 'OH angle constraints'),

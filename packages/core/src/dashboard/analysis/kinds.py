@@ -14,15 +14,12 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, observability, trajectory_overview
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, trajectory_overview
 
 
 def sources_only(function: Callable) -> Callable:
     """Adapt an analysis that reads only the sources it was handed to the `(work, payload)` shape of every row."""
     return lambda work, payload=None: function(work)
-
-
-_sources_only = sources_only
 
 
 @dataclass(frozen=True)
@@ -37,15 +34,10 @@ class Kind:
     units_or_direction: str
     #: The kind stages the shared AA reference's own trajectory as its atomistic source.
     reads_aa_reference: bool = False
-    #: Sources used instead when the run has neither a shared reference nor a staged trajectory -- the shape of a run
-    #: written before the reference/consumer split.
-    legacy_sources: tuple[str, ...] = ()
     #: The kind records the resolved GROMACS build in its versions, because it runs or reads gmx.
     records_gmx_version: bool = False
     #: The kind's request may name dependencies: already-published reports it is scored against.
     takes_dependencies: bool = False
-    #: The kind runs for a run without anyone asking, because the run itself owes it rather than a person.
-    runs_for_every_run: bool = False
     #: The run types that get this kind without anyone asking, because the run type itself owes it rather than a
     #: person. `aa_cg` fits its own bonded parameters before it simulates anything, so the two analyses that
     #: re-derive what the fit wrote -- `dihedral-fit` and `bonded-cross-check` -- are available the moment stage 3
@@ -60,8 +52,6 @@ class Kind:
     #: trajectory, which is why no run type defaults to it. A type that consumes a pre-parameterized molecule
     #: (`composition`, `pdc`) fits nothing, so it defaults to no kind at all.
     default_for_run_types: tuple[str, ...] = ()
-    #: The body keys this kind's queue route validates; empty when the route hands the body over untouched.
-    payload: tuple[str, ...] = ()
     #: Payload-driven sources the pattern list cannot name, validated and resolved against the run root.
     source_hook: Callable | None = None
     #: A kind that keeps one published series per run instead of one per attempt: the run-relative directory its
@@ -129,39 +119,6 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "For every proper dihedral the topology declares, the multiplicity and force constant an AIC/BIC-chosen cosine fit reads from the same frames, beside the ones the tool wrote. Where they disagree, the tool default is what is being questioned -- agreement is not evidence the tool chose well.",
         "degrees, kJ/mol, and a multiplicity",
         default_for_run_types=('cg',)),
-    # All three ensembles of one consumer run: its atomistic reference, the trajectory mapped onto
-    # the beads, and the simulated coarse-grained trajectory, plus the topology that names the
-    # beads.
-    Kind(
-        'observables',
-        ("2_mapping/mapped.gro", "2_mapping/mapped.xtc", "3_initial_CG/DDM_initial.itp"),
-        _sources_only(observability.unparameterized_observables),
-        "Interaction distributions",
-        "Bond, angle, and dihedral distributions should reproduce AA shapes and populations.",
-        "native observable units; mismatch is lower-is-better"),
-    # One condition's own files, all of them: the walls the run was built with (`plumed.dat` names
-    # the grouping, the box centre and KAPPA), the record that holds the dividing area, the structure
-    # the trajectory is read against, and the trajectory itself. The walls are staged deliberately
-    # rather than re-derived -- the analysis and the simulation disagreeing about what a molecule is
-    # would be invisible in the number.
-    # The model against the reference it was built from: both ensembles, and the model for the bead names.
-    # The *mapped* trajectory is deliberately not staged -- it is a third thing, and this analysis says
-    # nothing about it.
-    Kind(
-        'plots',
-        ("*SASA*/AA/*.xvg", "*SASA*/CG/*.xvg"),
-        _sources_only(observability.sasa_plot),
-        "SASA over time",
-        "AA and CG SASA should agree in mean and temporal variability; larger is not inherently better.",
-        "nm\u00b2; agreement of mean/SD is desired"),
-    Kind(
-        'stability',
-        ("*.log", "*.xtc"),
-        _sources_only(observability.numerical_stability),
-        "Numerical stability",
-        "No LINCS warnings and finite coordinates are required, but passing does not establish physical validity.",
-        "counts and diagnostic signals",
-        records_gmx_version=True),
     # On demand only: a series is a view a person asks for with arguments, not a cadence a run owes. Its sources are
     # the payload's own files -- a chosen segment and structure -- so the pattern list is empty and `source_hook`
     # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature. It is
@@ -206,24 +163,11 @@ def known(kind: str) -> bool:
     return kind in TABLE
 
 
-def for_every_run() -> tuple[str, ...]:
-    """The kinds a run runs for itself, in table order.
-
-    `analysis_coordinator` queues these for a run whose stages are finished, so a person does not have to know the
-    kind's name to get the artifact it publishes. It is a facet of the row -- the one place a kind is registered --
-    rather than a list kept beside the table, because a second list is a second thing to keep in step.
-    """
-    return tuple(name for name, row in TABLE.items() if row.runs_for_every_run)
-
-
 def default_for(run_type: str) -> list[str]:
     """The kinds a run of `run_type` gets without anyone asking, in table order.
 
-    `analysis_coordinator` queues these beside `for_every_run()` once a run's stages finish, so a run type's own
-    checks arrive without a person knowing their names. A run type nobody defaulted a kind for gets an empty list
-    rather than an error: "this run type asks for no analysis of its own" is a state, not a mistake.
-
-    `runs_for_every_run` is deliberately a separate facet and is not returned here -- those kinds are queued for
-    every run whatever its type, so a kind carrying both would be queued twice.
+    `analysis_coordinator` queues these once a run's stages finish, so a run type's own checks arrive without a
+    person knowing their names. A run type nobody defaulted a kind for gets an empty list rather than an error:
+    "this run type asks for no analysis of its own" is a state, not a mistake.
     """
     return [row.name for row in TABLE.values() if run_type in row.default_for_run_types]

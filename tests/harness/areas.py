@@ -22,11 +22,10 @@ AREAS = {
         # Back-mapping's fragment generator is pdc's own conversion science, named for the tool it feeds.
         'unit/test_cg2at_fragment.py',
         # The micelle builder is pdc's placement science; a change there is a change to a protein build.
-        'unit/test_micelle_*', 'integration/test_micelle_api.py',
-        'unit/test_conformations_*',
+        'unit/test_micelle_*', 'unit/test_conformations_*',
     ),
     'mapping': (
-        'unit/test_mapping_*', 'unit/test_draft_*', 'unit/test_screen_candidates.py', 'unit/test_ring_scale.py',
+        'unit/test_mapping_*', 'unit/test_draft_*', 'unit/test_ring_scale.py',
         'unit/test_ngl_beads.py', 'unit/test_cg_mapping_script.py', 'unit/test_cg_molecule_names.py',
         'unit/test_export_bundle_imports.py',
         'integration/test_mapping_*', 'integration/test_reference_models_api.py',
@@ -61,7 +60,7 @@ AREAS = {
         'integration/test_analysis_*', 'integration/test_assessment_rescore.py', 'integration/test_default_analyses.py',
         'integration/test_distance_diagnostics_api.py',
         'integration/test_transferability_api.py',
-        'browser/test_analyses_draft_browser.py', 'browser/test_assessment_rescore_browser.py',
+        'browser/test_assessment_rescore_browser.py',
         'browser/test_figure_viewer.py',
     ),
     'osmotic': (

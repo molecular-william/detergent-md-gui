@@ -5,11 +5,9 @@ the coordinator, the queue routes and these tests all ask the same questions
 and get the same shapes back. These tests pin the shapes, not the internals.
 """
 import importlib
-import subprocess
-from collections.abc import Mapping
 
 import pytest
-from dashboard.execution import devices, protocol, tools
+from dashboard.execution import devices, protocol
 
 pytestmark = pytest.mark.usefixtures('gpu_host')
 
@@ -154,33 +152,9 @@ def test_every_adapter_exposes_the_same_surface(run_type):
     specs = adapter.settings_specs()
     assert all(isinstance(bounds, tuple) and len(bounds) in (2, 3) for bounds in specs.values())
     assert set(adapter.readiness({})) >= {'ready', 'checks', 'blockers'}
-    assert callable(adapter.tool_report)
     assert isinstance(adapter.stage_defaults(), dict)
     assert callable(adapter.normalize_settings) and callable(adapter.prepare)
 
-
-@pytest.mark.slow
-@pytest.mark.parametrize('run_type', RUN_TYPES)
-def test_tool_report_returns_a_mapping_or_fails_loudly(run_type):
-    """A tool that cannot be reported must fail the report, not be left out of it.
-
-    Preparation records this mapping in the run manifest, so a partial answer
-    would let a run start on tools nobody verified. What is under test is that a
-    gap is loud rather than silent: `aa_cg` either returns a full mapping or
-    raises while naming the tool it could not report, whichever this machine's
-    environment supports.
-    """
-    adapter = protocol.adapter_for(run_type)
-    try:
-        report = adapter.tool_report()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        assert str(exc), 'the failure must name what could not be reported'
-    else:
-        assert isinstance(report, Mapping)
-        if run_type == 'cg' and tools.declared('fast_forward_source'):
-            # A version output says nothing about which source produced the tool.
-            provenance = report['fast_forward_source']
-            assert provenance['path'] and provenance['declared_commit'], provenance
 
 
 @pytest.mark.parametrize('run_type', RUN_TYPES)

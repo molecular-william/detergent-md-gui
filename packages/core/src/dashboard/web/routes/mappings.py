@@ -1,8 +1,5 @@
-"""Mapping workspace endpoints: candidates, drafts, review, exports, diagrams."""
-import io
-import zipfile
-
-from flask import Blueprint, Response, abort, jsonify, request, send_file
+"""Mapping workspace endpoints: candidates, drafts, review."""
+from flask import Blueprint, abort, jsonify, request
 
 from ...models import mappings
 from ...models.mappings import (
@@ -99,14 +96,6 @@ def mapping_overlay3d():
                    spheres=overlay3d.bead_spheres(context, beads or []))
 
 
-@blueprint.get('/api/mappings/representations')
-def mapping_representations():
-    return jsonify(representations=mappings.representation_modes(), tiers=[
-        {'id': 'setup', 'label': 'Setup check'},
-        {'id': 'evidence', 'label': 'Evidence run'},
-    ])
-
-
 @blueprint.get('/api/mappings/<name>')
 def mapping_api(name):
     context = query_context(request.args.get('molecule_id'))
@@ -181,30 +170,3 @@ def mapping_delete_draft(name):
     except ValueError:
         abort(400, 'Invalid draft candidate name')
 
-
-@blueprint.post('/api/mappings/diagram')
-def mapping_diagram():
-    payload = json_object()
-    context = payload_context(payload)
-    return jsonify(svg=depiction.render(payload, context=context))
-
-
-@blueprint.post('/api/mappings/export/<format>')
-def mapping_export(format):
-    if format not in {'ndx', 'map', 'gro', 'bundle'}:
-        abort(404, 'Unknown mapping export format')
-    payload = json_object()
-    context = payload_context(payload)
-    try:
-        files = mappings.export_files(payload, context=context)
-    except ValueError as exc:
-        abort(409, str(exc))
-    if format == 'bundle':
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
-            for name, content in files.items():
-                archive.writestr(name, content)
-        buffer.seek(0)
-        return send_file(buffer, mimetype='application/zip', as_attachment=True, download_name='ddm-mapping-candidate.zip')
-    name = {'ndx': 'mapping.ndx', 'map': 'mapping.map', 'gro': 'mapped.gro'}[format]
-    return Response(files[name], mimetype='text/plain', headers={'Content-Disposition': f'attachment; filename="{name}"'})

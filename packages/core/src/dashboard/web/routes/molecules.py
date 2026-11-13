@@ -324,7 +324,7 @@ def readiness_api():
     """Can this run start, asked of the run type rather than of each adapter in turn.
 
     This route used to reach past the protocol: `pdc.readiness(...)`, `composition.readiness(...)`,
-    `aa.readiness(...)`, `cg.readiness(...)`, and for `aa_cg` it collected two of those answers and merged them by
+    `aa.readiness(...)`, `cg.parameterization_readiness(...)`, and for `aa_cg` it collected two answers and merged them by
     hand. That put a run type's prerequisites in a page, and gave the same question two places to drift apart. Every
     branch now builds the metadata a run carries and asks the protocol once.
 

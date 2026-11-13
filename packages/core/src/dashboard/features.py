@@ -108,9 +108,6 @@ class Feature:
     #: engine panel (New run, Run view) by importing that module and calling its `register...Extension`. Imported after
     #: the engine modules and before any panel mounts, and only when this distribution is installed.
     extension_modules: tuple = ()
-    #: `{section id: (title, what it must show, units)}` for the evidence sections a feature's report is required to
-    #: carry. A section is report vocabulary, not an analysis kind; the engine merges the installed features' tables.
-    evidence_sections: Mapping[str, tuple] = field(default_factory=dict)
     #: `{profile name: tuple of section ids}` for a molecule evidence profile the feature owns. Core keeps the AA/CG
     #: profiles it always had; a feature adds the ones only its molecules use.
     molecule_profiles: Mapping[str, tuple] = field(default_factory=dict)
@@ -245,17 +242,6 @@ def legacy_stages(run_type=None):
 def browser_extensions():
     """`[(feature name, module under its static)]` the shell imports for their side effects, in registration order."""
     return [(feature.name, module) for feature in ensure() for module in feature.extension_modules]
-
-
-def evidence_sections():
-    """The evidence-section vocabulary, merged across the installed features; a duplicate title is an error."""
-    merged = {}
-    for feature in ensure():
-        for name, text in feature.evidence_sections.items():
-            if name in merged:
-                raise ValueError(f'evidence section {name!r} is claimed by two features')
-            merged[name] = text
-    return merged
 
 
 def molecule_profiles():

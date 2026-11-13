@@ -24,8 +24,7 @@ KINDS = (
         "Carbohydrate validation report",
         "Three independent evidence classes are required; setup checks remain diagnostic-only.",
         "status and native evidence units",
-        reads_aa_reference=True, records_gmx_version=True,
-        payload=('tier', 'representation_mode', 'mapping_snapshot', 'molecule_id', 'target_dataset_id')),
+        reads_aa_reference=True, records_gmx_version=True),
 
     Kind(
         'mapping-consistency',

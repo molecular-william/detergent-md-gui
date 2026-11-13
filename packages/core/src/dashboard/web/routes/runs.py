@@ -113,23 +113,6 @@ def panel_view(section, panel):
     return render_template('dashboard.html', **workspace_context(section, panel))
 
 
-def pages_of_runs(c, page, limit, statuses=(), search='', run_types=(), methods=()):
-    """One page of run records, optionally narrowed by status, run type and fitting method.
-
-    **The narrowing clauses live in `Store.page`.** That method decides the run list's ordering, its search clause and
-    its narrowing clauses in one query; this function passes the caller's groups through unchanged, so the filtered
-    answer is the unfiltered one narrowed (`test_jobs_run_type_filter.py`). It used to keep a private copy of the SQL
-    for the filtered case, which made the two implementations agree by hand; the one-filter case delegated and every
-    other case did not.
-
-    Each parameter is a sequence because the Runs panel offers checkboxes: several values in one group are an *or*
-    (an `IN` clause) and the groups are an *and*, with no value interpolated -- one placeholder per value. A group
-    with no values contributes no clause, which is why "no box ticked" is "everything". The caller (the route) is
-    what checks a run type against the registry.
-    """
-    return c.database().page(page, limit, statuses, search, run_types, methods)
-
-
 #: What a run's recorded `method` is called where a person reads it. The run cards and the filter box share this one
 #: map, so a card and the box that narrows to it cannot disagree. A method with no entry reads as its stored spelling.
 METHOD_LABELS = {'fast_forward': 'Fast_Forward', 'bartender': 'Bartender', 'gromacs': 'GROMACS'}
@@ -240,8 +223,12 @@ def jobs_api():
     for name in run_types:
         if name not in protocol.RUN_TYPES:
             abort(400, 'Unknown run type; one of: ' + ', '.join(protocol.RUN_TYPES))
-    rows, total = pages_of_runs(c, page, limit, _requested('status'), request.args.get('search', '')[:160],
-                                run_types, _requested('method'))
+    # The narrowing clauses live in `Store.page`: the caller's groups pass through unchanged, so the filtered answer is
+    # the unfiltered one narrowed. Each parameter is a sequence -- several values in one group are an *or* and the groups
+    # are an *and*, one placeholder per value -- and a group with no values contributes no clause. The route is what
+    # checks a run type against the registry.
+    rows, total = c.database().page(page, limit, _requested('status'), request.args.get('search', '')[:160],
+                                    run_types, _requested('method'))
     payload = {'jobs': [view_of(c, j, summary=summary) | {'revision': revision} for j, revision in rows],
                'total': total, 'page': page, 'limit': limit}
     etag = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()

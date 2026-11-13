@@ -267,48 +267,6 @@ def _bead_rows(candidate):
     return rows
 
 
-def preview(molecule_id, entry='SUCR', *, molecule_root):
-    """The New-run preview: the candidate, conformance, the published signature and the run's provenance."""
-    answer = assess(molecule_id, entry, molecule_root=molecule_root)
-    candidate = answer.get('candidate')
-    record = None
-    note = None
-    if entry in ENTRIES:
-        note = reference.layout_note(candidate or {}, entry)
-        try:
-            record = reference.signature(reference.entry(entry))
-        except (KeyError, OSError):
-            record = None
-    return {
-        'molecule_id': molecule_id,
-        'sugar_entry': entry,
-        'ready': answer['ready'],
-        'checks': answer['checks'],
-        'blockers': answer['blockers'],
-        'conforms': not answer['conformance']['issues'],
-        'conformance': answer['conformance'],
-        'beads': _bead_rows(candidate) if candidate else [],
-        'reference': answer['provenance'],
-        'signature': record,
-        'warnings': list((candidate or {}).get('warnings') or []),
-        'starting_structure': {
-            'source': 'mapped-AA',
-            'molecule_id': molecule_id,
-            'scaled': True,
-            'ring_scale': 1.15,
-            'statement': 'AA-mapped CG coordinates; published constraints pull the start onto published geometry.',
-        },
-        'topology_source': 'published-reference',
-        'limitations': [
-            'The topology is the published Martini 3 sugar entry; it is not a fit to this molecule\'s AA trajectory.',
-            'The start coordinates are the mapped AA geometry; adopting published constraints moves the start.',
-            'No atomistic reference, mapping comparison, overlap, surface or back-map exists in this run.',
-            'The reference is a published force-field entry, not an experimental measurement of these AA topologies.',
-        ] + ([note] if note else []),
-        'scientifically_validated': False,
-    }
-
-
 def _context(metadata):
     settings = metadata.get('settings') or {}
     entry = settings.get('sugar_entry') or metadata.get('sugar_entry') or DEFAULTS['sugar_entry']
@@ -457,6 +415,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=lambda settings=None, profile='sugar-cg-v1': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
     choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

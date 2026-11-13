@@ -14,40 +14,15 @@ import pytest
 from dashboard.models import mappings
 from dashboard.models.bonded import parameterization
 
-TOPOLOGY = ('[ moleculetype ]\nMOL 1\n\n[ atoms ]\n'
-            '1 C1 1 MOL B01 1 0 72\n2 C1 1 MOL B02 2 0 72\n3 C1 1 MOL B03 3 0 72\n\n'
-            '[ bonds ]\n1 2 1 0.30 5000\n2 3 1 0.31 5000\n\n'
-            '[ angles ]\n1 2 3 1 120 25\n\n'
-            '[ dihedrals ]\n1 2 3 1 -102.273 36.636 2\n')
-
-
-def mapping(**overrides):
-    candidate = {'name': 'DDM', 'beads': [{'name': 'B01'}, {'name': 'B02'}, {'name': 'B03'}],
-                 'rings': [], 'connections': []}
-    candidate.update(overrides)
-    return candidate
-
-
-def revision(**overrides):
-    payload = {'engine': 'fast-forward', 'topology': TOPOLOGY,
-               'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
-                           'torsion_model': 'legacy', 'torsion_scale': 1.0},
-               'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
-                            'source': 'the mapped AA frames'},
-               'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32,
-                                'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
-                                'production_ns': 10.0},
-               'terms': {'bonds': 2, 'angles': 1, 'dihedrals': 1},
-               'engine_default_source': 'ff_inter',
-               'checks': {'dihedral-fit': {'rows': []}, 'bonded-cross-check': {'rows': []}}}
-    payload.update(overrides)
-    return payload
+from tests.harness.support import PARAMETERIZATION_TOPOLOGY as TOPOLOGY
+from tests.harness.support import parameterization_mapping as mapping
+from tests.harness.support import parameterization_revision as revision
 
 
 def test_a_mapping_with_no_record_has_no_current_revision_and_that_is_a_state_not_a_fault():
     """D5's second honest state: the run fits the model and records that it did."""
     assert parameterization.current(mapping()) is None
-    assert parameterization.revisions(mapping()) == []
+    assert parameterization.document(mapping())['revisions'] == []
     assert parameterization.summary(mapping())['parameterized'] is False
     assert parameterization.summary(mapping())['revision'] is None
 
@@ -58,7 +33,7 @@ def test_revisions_accumulate_and_the_newest_is_current():
     second = parameterization.save(candidate, revision(engine='bartender'))
 
     assert (first['revision'], second['revision']) == (1, 2)
-    assert [item['revision'] for item in parameterization.revisions(candidate)] == [1, 2]
+    assert [item['revision'] for item in parameterization.document(candidate)['revisions']] == [1, 2]
     assert parameterization.current(candidate)['engine'] == 'bartender'
     assert parameterization.get(candidate, 1)['engine'] == 'fast-forward'
     assert parameterization.summary(candidate)['revision'] == 2
@@ -136,7 +111,7 @@ def test_an_earlier_revision_can_be_made_current_without_rewriting_history():
     parameterization.make_current(candidate, 1)
 
     assert parameterization.current(candidate)['revision'] == 1
-    assert [item['revision'] for item in parameterization.revisions(candidate)] == [1, 2]
+    assert [item['revision'] for item in parameterization.document(candidate)['revisions']] == [1, 2]
 
 
 def test_the_options_start_from_the_mappings_own_torsion_model():

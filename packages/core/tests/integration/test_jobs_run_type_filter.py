@@ -146,20 +146,18 @@ def test_the_etag_belongs_to_the_answer_the_caller_asked_for(dashboard):
 
 def test_the_osmotic_panel_can_ask_for_the_series_runs_alone(dashboard):
     """The run-view half of the filter: one request, one run type, and the count the caller asked for."""
-    from dashboard.web.routes import runs as runs_route
-
     _seed(dashboard.coordinator)
-    rows, total = runs_route.pages_of_runs(dashboard.coordinator, 1, 100, [], '', ['osmotic'])
+    body = _get(dashboard, '?limit=100&run_type=osmotic').get_json()
 
-    assert total == 2 and len(rows) == 2
-    assert all(job.get('run_type') == 'osmotic' for job, _ in rows)
+    assert body['total'] == 2 and len(body['jobs']) == 2
+    assert all(job.get('run_type') == 'osmotic' for job in body['jobs'])
     # The route has no SQL of its own: its filtered answer is the store's own page, row for row.
     stored, stored_total = dashboard.coordinator.database().page(1, 100, search='', run_types=['osmotic'])
-    assert [job['id'] for job, _ in rows] == [job['id'] for job, _ in stored]
-    assert total == stored_total
+    assert [job['id'] for job in body['jobs']] == [job['id'] for job, _ in stored]
+    assert body['total'] == stored_total
     # The unfiltered path is the store's own answer, unchanged: no clause, no narrowing, all five rows.
-    unfiltered, everyone = runs_route.pages_of_runs(dashboard.coordinator, 1, 100)
-    assert everyone == 5 and len(unfiltered) == 5
+    everything = _get(dashboard, '?limit=100').get_json()
+    assert everything['total'] == 5 and len(everything['jobs']) == 5
 
 
 # --- repeated values, which is what the panel's checkbox groups send ------------------------------------------

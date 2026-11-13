@@ -19,24 +19,16 @@ import subprocess
 from pathlib import Path
 
 from detergent_pdc.execution.adapters import pdc_solvation
+from detergent_pdc.execution.scripts import topology as topology_reader
 
 OUTPUT_NAME = 'solvation.json'
 
 
 def molecules(topology: Path) -> dict[str, int]:
-    """The `[ molecules ]` counts of a topology, in the order written."""
+    """The `[ molecules ]` counts of a topology, summed by name (genion may append its own row)."""
     counts: dict[str, int] = {}
-    section = ''
-    for raw in topology.read_text().splitlines():
-        line = raw.split(';', 1)[0].strip()
-        if line.startswith('[') and line.endswith(']'):
-            section = line[1:-1].strip().lower()
-            continue
-        if section != 'molecules' or not line:
-            continue
-        fields = line.split()
-        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit():
-            counts[fields[0]] = counts.get(fields[0], 0) + int(fields[-1])
+    for name, number in topology_reader.molecule_rows(topology.read_text()):
+        counts[name] = counts.get(name, 0) + number
     return counts
 
 

@@ -105,9 +105,6 @@ with source hashes.
   selected GPU in the recorded GROMACS log.
 - Start only one dashboard coordinator at `127.0.0.1:5000`. Check active jobs, leases and subprocesses before
   restart. Never reuse old PIDs or broadly kill Python processes.
-- Campaign runner: `-m dashboard.cli.screen_candidates <absolute-plan-path>`. Plans store labels, run IDs, seeds,
-  status/errors and support resumption; the runner is serial and stops on failure. Completed plans do not relaunch
-  MD; use a new plan for new variants.
 - Simulation evidence: `<workspace>/runs/<id>/manifest.json`, `inputs/`, `stages/`, `logs/`. SQLite is the only live
   job-status authority. See [project operations](PROJECT_GUIDE.md).
 - Ownership: `dashboard/models/bonded/` (interaction library in `__init__.py`, fitting/generation/parameterization),

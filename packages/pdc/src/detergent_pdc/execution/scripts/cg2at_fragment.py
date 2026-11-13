@@ -35,32 +35,17 @@ import re
 import sys
 from pathlib import Path
 
+from detergent_pdc.execution.scripts import topology as topology_reader
+
 MOLECULETYPE = re.compile(r'^(\s*\[\s*moleculetype\s*\])', re.IGNORECASE)
 SECTION = re.compile(r'^\s*\[\s*([A-Za-z_]+)\s*\]')
 ATOM_RECORD = ('ATOM', 'HETATM')
 
 
-def _sections(text: str) -> dict[str, list[str]]:
-    """Split an itp into its sections, keyed lower-case, comments and blanks kept."""
-    out: dict[str, list[str]] = {}
-    current = None
-    for line in text.splitlines():
-        found = SECTION.match(line)
-        if found:
-            current = found.group(1).lower()
-            out.setdefault(current, [])
-            continue
-        if current is not None:
-            out[current].append(line)
-    return out
-
-
 def topology_atoms(text: str) -> list[dict]:
     """`[ atoms ]` as records: number, type, name, charge, mass."""
     atoms = []
-    for line in _sections(text).get('atoms', []):
-        if not line.strip() or line.lstrip().startswith(';'):
-            continue
+    for line in topology_reader.sections(text).get('atoms', []):
         columns = line.split()
         atoms.append({'number': int(columns[0]), 'type': columns[1], 'residue': columns[3],
                       'name': columns[4], 'charge': float(columns[6]), 'mass': float(columns[7])})
@@ -69,9 +54,7 @@ def topology_atoms(text: str) -> list[dict]:
 
 def topology_bonds(text: str) -> list[tuple[int, int]]:
     bonds = []
-    for line in _sections(text).get('bonds', []):
-        if not line.strip() or line.lstrip().startswith(';'):
-            continue
+    for line in topology_reader.sections(text).get('bonds', []):
         columns = line.split()
         bonds.append((int(columns[0]), int(columns[1])))
     return bonds

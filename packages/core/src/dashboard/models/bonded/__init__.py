@@ -9,7 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-SECTION_WIDTHS = {'bonds': 2, 'constraints': 2, 'angles': 3, 'dihedrals': 4}
+FLEXIBLE_WIDTHS = {'bonds': 2, 'angles': 3, 'dihedrals': 4}
+SECTION_WIDTHS = {**FLEXIBLE_WIDTHS, 'constraints': 2}
 FUNCTION_SPECS = {
     'constraints': {
         1: {'description': 'Rigid constraint',
@@ -76,6 +77,15 @@ PARAMETER_RANGES = {
     }
     for kind, choices in _RANGE_BOUNDS.items()
 }
+#: The parameter count each flexible section's function takes, from the one range table.
+TERM_PARAMETER_COUNTS = {kind: {function: len(bounds) for function, bounds in functions.items()}
+                         for kind, functions in PARAMETER_RANGES.items()}
+
+
+def canonical_term(kind, beads):
+    """The order-independent key a flexible term is identified by: a bond's two ends have no direction."""
+    values = tuple(beads)
+    return kind, min(values, tuple(reversed(values)))
 
 
 def validate_term(kind, function, parameters):
@@ -265,19 +275,19 @@ def validate(data):
             raise ValueError('Each override needs section, beads, function and parameters')
         section = term['section']
         if not isinstance(section,str): raise ValueError('Bonded section must be a name')
-        arity = {'bonds':2,'angles':3,'dihedrals':4}.get(section)
+        arity = FLEXIBLE_WIDTHS.get(section)
         names = term['beads']; func = term['function']; params = term['parameters']
         if not arity or not isinstance(names,list) or len(names)!=arity or any(not isinstance(n,str) or n not in physical for n in names) or len(set(names))!=arity:
             raise ValueError('Overrides must name distinct massive beads in a flexible bonded term')
         if section=='bonds' and frozenset(names) in constraints:
             raise ValueError('Paper ring constraints cannot be replaced by bond overrides')
-        allowed = {'bonds':{1:2}, 'angles':{1:2,2:2,10:2}, 'dihedrals':{1:3,2:2,9:3}}[section]
+        allowed = TERM_PARAMETER_COUNTS.get(section, {})
         if type(func) is not int or func not in allowed or not isinstance(params,list) or len(params)!=allowed[func]:
             raise ValueError('Unsupported bonded function or parameter count')
         # One validator for a mapping override and a revision's hand edit: the ranges and the force/integer rules
         # cannot drift between the two doors.
         validate_term(section, func, params)
-        key = (section,min(tuple(names),tuple(reversed(names))))
+        key = canonical_term(section, names)
         if key in seen: raise ValueError('Duplicate bonded override')
         seen.add(key)
 
@@ -319,7 +329,7 @@ def refine(topology, data, directory, temperature):
     for line in topology.splitlines():
         raw = line.split(';',1)[0].strip()
         if raw.startswith('['): section=raw.strip('[] '); block += 1
-        arity = {'bonds':2,'angles':3,'dihedrals':4}.get(section)
+        arity = FLEXIBLE_WIDTHS.get(section)
         if raw and not raw.startswith(('[','#')) and arity:
             fields=raw.split(); ids=tuple(map(int,fields[:arity])); key=(section,min(ids,ids[::-1]))
             suffix = ' ;' + line.split(';',1)[1] if ';' in line else ''

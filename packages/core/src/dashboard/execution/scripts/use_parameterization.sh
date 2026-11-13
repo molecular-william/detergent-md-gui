@@ -1,5 +1,4 @@
 #!/bin/bash
-AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
 # The interpreter the application runs under, and the checkout it imports from. A stage runs with the stage directory
 # as its working directory, so the two helpers are repository modules reached through `-m`, not files beside the

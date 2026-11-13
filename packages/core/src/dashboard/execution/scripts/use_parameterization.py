@@ -24,6 +24,8 @@ import json
 import os
 from pathlib import Path
 
+from dashboard.models.bonded import parameterization as bonded_parameterization
+
 source = Path('parameterization.json')
 if not source.is_file():
     raise FileNotFoundError(
@@ -78,9 +80,7 @@ record = {
     'aa_reference': reference,
     'topology': str(final),
     'topology_sha256': hashlib.sha256(topology.encode()).hexdigest(),
-    'revision_sha256': hashlib.sha256(json.dumps(
-        {key: value for key, value in revision.items() if key != 'created_at'},
-        sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+    'revision_sha256': bonded_parameterization.revision_sha256(revision),
     'checks_published_with_the_revision': sorted((revision.get('checks') or {}).keys()),
     # What stage 5 will score this run against, named by the stage that consumed the model: the baseline is part of
     # the model and travels with it, so a run's own record can say which histograms its numbers came from -- and how

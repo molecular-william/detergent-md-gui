@@ -20,15 +20,8 @@ from detergent_pdc.execution.adapters import pdc, pdc_placement
 from detergent_pdc.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from detergent_pdc.execution.scripts import pdc_build
 
-from tests.harness.pdc_fixtures import system_stage, write_cg_pdb
+from tests.harness.pdc_fixtures import TEMPLATE, system_stage, write_cg_pdb
 
-TEMPLATE = {
-    'name': 'DDM',
-    'residue': 'DDM',
-    'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp',
-    'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
 PROTEIN = 'molecules/DDM/protein.pdb'
 REMARK = 'REMARK      1/2 of bilayer thickness:   14.8\n'

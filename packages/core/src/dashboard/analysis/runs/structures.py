@@ -34,6 +34,8 @@ import json
 import re
 from pathlib import Path
 
+from ... import itp
+
 PROTEIN_RESIDUE = 'PRO'
 DETERGENT_RESIDUE = 'DET'
 #: The chain letter a bead gets when the run's own mapping does not place it in a fragment. The chain is unreserved
@@ -154,11 +156,6 @@ def bead_family(bead_type) -> str:
     return family if family in BEAD_FAMILIES[1:] else FAMILY_UNSTATED
 
 
-def bead_family_code(bead_type) -> int:
-    """The family's code, the number written into the file's b-factor column for a bead of this type."""
-    return BEAD_FAMILIES.index(bead_family(bead_type))
-
-
 def bead_families(topology: dict | None) -> dict[str, str]:
     """The family each bead a moleculetype names belongs to, by bead name -- the same identity bonds are matched by."""
     if not topology:
@@ -277,44 +274,17 @@ def read_moleculetype_text(text: str, *, source: str = '<text>', defines=(), bas
     atoms, types, pairs = [], [], {section: [] for section in BONDED_SECTIONS}
     elastic = []
     section = None
-    defined = set(defines or ())
+    raw_lines = str(text).splitlines()
     # A moleculetype is preprocessed by grompp: martinize2 writes one bond family under `#ifdef FLEXIBLE` and the
     # other under `#ifndef FLEXIBLE`, and a reader that strips the `#` lines draws both. This run defines no
     # `FLEXIBLE` (`mdout.mdp`: `define =`), so the active topology is the `#ifndef` branch alone -- the number of
-    # bonds a simulation actually had, not the sum of two alternatives. The stack is `(parent_active, branch,
-    # saw_else)`; a directive is read before the comment strip, because `#` is the directive and `;` is a comment.
-    active = True
-    stack = []
-    for line in str(text).splitlines():
-        raw = line.split(';', 1)[0].strip()
-        if raw.startswith('#'):
-            fields = raw[1:].split()
-            directive = fields[0].lower() if fields else ''
-            argument = fields[1] if len(fields) > 1 else ''
-            if directive in ('ifdef', 'ifndef'):
-                branch = (argument in defined) == (directive == 'ifdef')
-                stack.append((active, branch, False))
-                active = active and branch
-            elif directive == 'else' and stack:
-                parent, branch, _ = stack[-1]
-                stack[-1] = (parent, not branch, True)
-                active = parent and not branch
-            elif directive == 'endif' and stack:
-                active = stack.pop()[0]
-            elif directive == 'define' and active and argument:
-                defined.add(argument)
-            elif directive == 'undef' and active and argument:
-                defined.discard(argument)
-            continue
-        if not active:
-            continue
-        content = raw
-        if not content:
-            continue
+    # bonds a simulation actually had, not the sum of two alternatives.
+    for number, content in itp.active_lines(text, defines):
         if content.startswith('['):
             section = content.strip('[]').strip().lower()
             continue
         fields = content.split()
+        line = raw_lines[number - 1]
         if section == 'atoms':
             if len(fields) < 5:
                 raise ValueError(f'{source} has an atom line without a bead name: {line!r}')

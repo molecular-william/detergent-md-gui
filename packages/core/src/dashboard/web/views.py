@@ -150,6 +150,20 @@ def analysis_view(job, summary) -> list:
     return [{k: v for k, v in task.items() if k in keys} for task in job.get('analyses', [])]
 
 
+def with_running_progress(tasks, run_dir):
+    """Each running attempt's phase from its own `progress.json`, written in place.
+
+    `directory` is written by the worker for every attempt, but a record that lacks it must cost the runs list a
+    progress line rather than a 500: a view's one promise is to report instead of raising. The route and the run view
+    share this so a running attempt reads the same in both.
+    """
+    for task in tasks:
+        if task['status'] == 'running' and task.get('directory'):
+            try: task['progress'] = json.loads((Path(run_dir) / task['directory'] / 'progress.json').read_text())['phase']
+            except (OSError, ValueError): pass
+    return tasks
+
+
 def consistency_summary(job):
     """The integers a run card states about its comparison, or `None` when there is nothing to state.
 
@@ -411,12 +425,7 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     live = live_ns_per_day(result['progress']) if job.get('status') == 'running' else None
     if live is not None:
         result['ns_per_day'] = live
-    for task in result['analyses']:
-        # `directory` is written by the worker for every attempt, but a record that lacks it must cost the runs list
-        # a progress line rather than a 500: this view's one promise is to report instead of raising.
-        if task['status'] == 'running' and task.get('directory'):
-            try: task['progress'] = json.loads((run_dir / task['directory'] / 'progress.json').read_text())['phase']
-            except (OSError, ValueError): pass
+    with_running_progress(result['analyses'], run_dir)
     if summary:
         # A skipped stage's reason travels with the summary: it is the stage's own sentence about work it did not do,
         # and a run that completes without a score is exactly where a reader needs it. A failed stage's error is already

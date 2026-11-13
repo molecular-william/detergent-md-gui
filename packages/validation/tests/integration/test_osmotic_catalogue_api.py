@@ -11,8 +11,9 @@ run's own driver -- so the answer no longer rests on anything outside the run ty
 """
 import dataclasses
 
-from dashboard.models.mappings import context as mapping_context
 from detergent_validation.execution.adapters import osmotic
+
+from tests.harness.validation_fixtures import save_mapping, solute_files
 
 CATALOGUE = '/api/osmotic/catalogue'
 # The solute bundle's own files: the Martini solvents file is the workspace install's now, not a bundle file.
@@ -28,28 +29,6 @@ def _catalogue(dashboard):
 
 def _sugar(body, molecule_id):
     return next(item for item in body['sugars'] if item['molecule_id'] == molecule_id)
-
-
-def _solute_files(dashboard, molecule='maltose'):
-    """The directory `prepare` copies out of, under the fixture's own workspace rather than the developer's."""
-    root = dashboard.coordinator.RUNS.parent / 'osmotic' / molecule
-    root.mkdir(parents=True, exist_ok=True)
-    for name in SOLUTE_FILES:
-        (root / name).write_text('fixture\n')
-    return root
-
-
-def _save_mapping(dashboard, molecule_id):
-    """Save a candidate through the route the assignment editor posts to."""
-    context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', molecule_id)
-    with dashboard.client as c:
-        preview = c.post('/api/mappings/automatic/preview',
-                         json={'molecule_id': molecule_id, 'molecule_snapshot': context['snapshot']}).get_json()
-        assert preview['available'] is True, preview.get('reasons')
-        candidate = dict(preview['candidate'], molecule_id=molecule_id, molecule_snapshot=context['snapshot'])
-        saved = c.post('/api/mappings/drafts', json=candidate)
-    assert saved.status_code == 201, saved.get_data(as_text=True)
-    return saved.get_json()
 
 
 def test_the_catalogue_names_the_repositorys_carbohydrates_in_the_order_it_carries_them(dashboard):
@@ -84,7 +63,7 @@ def test_a_missing_solute_file_is_named_and_the_sugar_is_not_ready(dashboard):
     assert trehalose['solute_files_missing'] == list(SOLUTE_FILES)
     assert any('missing solute.gro' in blocker for blocker in trehalose['blockers']), trehalose['blockers']
     # Only some of the files: the count says how many, and the missing list names the one that is not there.
-    root = _solute_files(dashboard, 'trehalose')
+    root = solute_files(dashboard, 'trehalose', files=SOLUTE_FILES)
     (root / 'water.gro').unlink()
     trehalose = _sugar(_catalogue(dashboard), 'Trehalose')
     assert trehalose['solute_files_present'] == len(SOLUTE_FILES) - 1
@@ -107,7 +86,7 @@ def test_sucroses_blocker_carries_the_provisional_mapping_note(dashboard):
     """
     assert _sugar(_catalogue(dashboard), 'Sucrose')['provisional'] is True
     assert not any('provisional' in blocker for blocker in _sugar(_catalogue(dashboard), 'Sucrose')['blockers'])
-    _save_mapping(dashboard, 'Sucrose')
+    save_mapping(dashboard, 'Sucrose')
     sucrose = _sugar(_catalogue(dashboard), 'Sucrose')
     assert any('provisional' in blocker for blocker in sucrose['blockers']), sucrose['blockers']
     assert _sugar(_catalogue(dashboard), 'Maltose')['provisional'] is False
@@ -115,9 +94,9 @@ def test_sucroses_blocker_carries_the_provisional_mapping_note(dashboard):
 
 def test_a_sugar_with_a_mapping_and_its_solute_files_is_ready(dashboard):
     """Both halves present is the only state that is ready, and the mapping is listed with its own name."""
-    _solute_files(dashboard, 'maltose')
+    solute_files(dashboard, 'maltose', files=SOLUTE_FILES)
     assert _sugar(_catalogue(dashboard), 'Maltose')['ready'] is False, 'no mapping yet'
-    saved = _save_mapping(dashboard, 'Maltose')
+    saved = save_mapping(dashboard, 'Maltose')
     maltose = _sugar(_catalogue(dashboard), 'Maltose')
     assert maltose['ready'] is True
     assert [item['file'] for item in maltose['mappings']] == [saved['file']]

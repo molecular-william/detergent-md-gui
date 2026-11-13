@@ -22,8 +22,8 @@ from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
 from tests.harness import conformation_fixtures
-from tests.harness.pdc_fixtures import settings_of, system_stage
-from tests.harness.support import DDM_BONDS, DDM_CLASSES, PROJECT_ROOT
+from tests.harness.pdc_fixtures import library_mapping, settings_of, system_stage
+from tests.harness.support import PROJECT_ROOT
 
 
 def test_the_catalogue_lists_the_shipped_template_and_says_what_it_is(dashboard):
@@ -144,28 +144,6 @@ def test_a_fetch_that_failed_is_reported_and_leaves_the_catalogue_as_it_was(dash
 SOURCE_RUN = 'b920391735dd'
 TEMPLATE = 'molecules/DDM/micelle_template.json'
 LIBRARY_MAPPING = 'mapping_candidate_library.json'
-
-
-def library_mapping():
-    """The fixture source run's own eleven beads, as the mapping editor exports a saved mapping.
-
-    The library is matched bead for bead against the mapping's derived model, so a run that uses the fixture's
-    library must derive the same bead names in the same order. The virtual sites and the connectivity are the
-    fixture's own, which is what makes the derivation and the trajectory the same molecule.
-    """
-    parents = dict(conformation_fixtures.VIRTUAL_SITES)
-    beads = []
-    for index, (name, kind, _position) in enumerate(conformation_fixtures.BEADS, start=1):
-        bead = {'name': name, 'type': kind, 'size': DDM_CLASSES[name],
-                'atoms': [] if index in parents else [index]}
-        if index in parents:
-            bead['virtual_site'] = {'function': 1, 'parents': [conformation_fixtures.BEADS[parent - 1][0]
-                                                               for parent in parents[index]]}
-        beads.append(bead)
-    names = [name for name, _kind, _position in conformation_fixtures.BEADS]
-    return {'schema_version': 3, 'molecule_id': 'DDM', 'name': "the fixture run's own eleven beads",
-            'martini_version': 3, 'beads': beads,
-            'connections': [[names[first - 1], names[second - 1]] for first, second in DDM_BONDS]}
 
 
 def store_mapping(workspace):

@@ -51,26 +51,3 @@ def blocking(issues, permission):
 def derive(issues):
     """The four permissions a set of findings allows."""
     return {permission: not blocking(issues, permission) for permission in RULES}
-
-
-def codes(issues):
-    """The distinct finding codes, sorted."""
-    return sorted({item['code'] for item in issues})
-
-
-def evaluate(candidate, *, context=None, structure=None, allow_partial=False):
-    """One shape for every question about a candidate's usability.
-
-    Asks the graph checker once and reports what it found. A candidate the checker cannot
-    even read comes back as a ``malformed`` finding, so a caller that is asking a question
-    gets a verdict instead of an exception.
-    """
-    # Deferred: the checker asks this module for the table, so importing it here keeps the
-    # table independent of the checker.
-    from . import graph
-    try:
-        found = dict(graph.validate(candidate, structure, context=context, allow_partial=allow_partial))
-        issues = found['issues']
-    except (ValueError, KeyError, TypeError) as exc:
-        issues, found = [{'code': MALFORMED, 'message': str(exc), 'bead': None}], {}
-    return {**found, **derive(issues), 'codes': codes(issues), 'issues': issues}

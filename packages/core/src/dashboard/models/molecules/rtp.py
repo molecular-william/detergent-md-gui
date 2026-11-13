@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 
 class RtpError(ValueError):
@@ -141,7 +140,3 @@ def from_itp(text: str, *, residue: str, source: str = '') -> str:
         lines += [' '.join(names) for names in exclusions]
     return '\n'.join(lines) + '\n'
 
-
-def from_itp_file(path: str | Path, *, residue: str) -> str:
-    path = Path(path)
-    return from_itp(path.read_text(encoding='utf-8'), residue=residue, source=str(path))

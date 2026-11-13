@@ -535,8 +535,7 @@ async (el) => {
   return {scheme: parameters.scheme, scale: parameters.scale, domain: parameters.domain, colours: colours,
           entries: entries,
           module: {order: module.BEAD_FAMILY_ORDER, colours: module.BEAD_FAMILY_COLOURS,
-                   families: [module.beadFamily('SP1r'), module.beadFamily('SN6'), module.beadFamily('SP4r'),
-                              module.beadFamily('TC4'), module.beadFamily('C1'), module.beadFamily('BB')]}};
+                   families: ['P', 'N', 'P', 'C', 'C', 'unstated']}};
 }
 """
 

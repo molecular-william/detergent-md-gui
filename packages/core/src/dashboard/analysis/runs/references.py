@@ -6,12 +6,8 @@ import re
 import sys
 from pathlib import Path
 
-try:
-    from ... import files
-    from ...models.molecules import aa as aa_molecules
-except ImportError:
-    import aa_molecules
-    import files
+from ... import files
+from ...models.molecules import aa as aa_molecules
 
 
 def identity(snapshot):
@@ -64,10 +60,7 @@ def _locator(path):
     than as corruption.
     """
     resolved=Path(path).resolve()
-    try:
-        from ... import paths as path_config
-    except ImportError:
-        return {'root':'absolute','path':str(resolved)}
+    from ... import paths as path_config
     selected=path_config.current()
     for root,base in (('repo',selected.project_root),('workspace',selected.workspace)):
         try: relative=resolved.relative_to(Path(base).resolve())
@@ -82,10 +75,8 @@ def _source_path(entry):
     root=entry.get('root') or None
     if root is None or root=='absolute' or path.is_absolute():
         return path
-    try:
-        from ... import paths as path_config
-        selected=path_config.current()
-    except ImportError:raise ValueError('AA reference source is relative but this reader has no project root') from None
+    from ... import paths as path_config
+    selected=path_config.current()
     base={'repo':selected.project_root,'workspace':selected.workspace}.get(root)
     if base is None:raise ValueError(f'AA reference source has an unknown root: {root!r}')
     return Path(base)/path

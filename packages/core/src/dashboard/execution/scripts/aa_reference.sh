@@ -1,5 +1,4 @@
 #!/bin/bash
-AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 # Run-local SwissParam/CHARMM reference; retain all logs and full-system outputs.
 #
 # The mdrun budget, the device and the scheme choices arrive as environment, from the one builder that reads

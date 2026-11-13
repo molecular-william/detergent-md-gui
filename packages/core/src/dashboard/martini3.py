@@ -102,6 +102,15 @@ def include(name: str, start, *, installation=None, project_root=None) -> str:
     return Path(os.path.relpath(target, Path(start))).as_posix()
 
 
+def system_topology(directory, itp, residue, title, *, force_field, solvents) -> str:
+    """The system_EMPTY.top a CG run writes: the two installed Martini ITPs, the model, and one molecule."""
+    return (f'#include "{include(force_field, directory)}"\n'
+            f'#include "{include(solvents, directory)}"\n'
+            f'#include "{itp}"\n'
+            f'[ system ]\n{title}\n'
+            f'[ molecules ]\n{residue} 1\n')
+
+
 def ensure(*, installation=None, project_root=None, refresh: bool = False) -> Path:
     """Install the set if this workspace has none, and prove the one it has; return its directory.
 

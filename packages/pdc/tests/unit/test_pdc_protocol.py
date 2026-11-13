@@ -15,17 +15,9 @@ import pytest
 from dashboard.execution import protocol
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.pdc_fixtures import molecule_tree
+from tests.harness.pdc_fixtures import TEMPLATE, molecule_tree
 
 pytestmark = pytest.mark.usefixtures('gpu_host')
-
-TEMPLATE = {
-    'name': 'DDM',
-    'residue': 'DDM',
-    'coordinates': 'results/MMFF/lig1.pdb',
-    'topology': 'results/MMFF/lig1.itp',
-    'beads': [{'name': 'DDM', 'type': 'registered-template'}],
-}
 
 
 

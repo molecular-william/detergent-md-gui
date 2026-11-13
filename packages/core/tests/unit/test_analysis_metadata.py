@@ -6,21 +6,9 @@ def test_graph_metadata_explains_metric_direction_and_units():
     score=describe('refinement-score',{'interaction_score':.2})
     assert score['units_or_direction'].startswith('native metric')
     assert 'lower-is-better' in score['ideal_result']
-    sasa=describe('plots')
-    assert 'SASA' in sasa['title'] and 'variability' in sasa['ideal_result']
-
-
-def test_carbohydrate_evidence_metadata_names_physical_measurements():
-    """The evidence sections the carbohydrate profile requires carry their own text, apart from the analysis kinds.
-
-    These three are sections a report must contain, not analyses the worker can be asked to run, and they used to be
-    described through the *kinds'* describer -- which is how a mapping of fourteen kinds came to hold seventeen
-    entries, and why nothing noticed the three it should not have had.
-    """
-    from dashboard import features
-    sections = features.evidence_sections()
-    assert sections['mapped_geometry'][0] == 'Carbohydrate geometry and volume'
-    assert 'osmotic' in sections['osmotic_pressure'][0].lower()
+    series=describe('frame-series')
+    assert 'nm and ns' in series['units_or_direction']
+    assert 'does not establish convergence' in series['ideal_result']
 
 
 def test_the_bartender_fit_is_described_like_every_other_published_analysis():

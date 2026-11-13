@@ -38,6 +38,38 @@ DDM_CLASSES = {'S1A': 'S', 'S1B': 'S', 'S1C': 'S', 'S1VS': 'T', 'S2A': 'S', 'S2B
 DDM_TYPES = {'R': 'C1', 'S': 'SP1r', 'T': 'TC4'}
 DDM_MASSES = {'R': 72, 'S': 54, 'T': 36}
 
+#: A stored bonded revision's three-bead topology: one of each flexible section, in the shape a fit writes.
+PARAMETERIZATION_TOPOLOGY = ('[ moleculetype ]\nMOL 1\n\n[ atoms ]\n'
+                             '1 C1 1 MOL B01 1 0 72\n2 C1 1 MOL B02 2 0 72\n3 C1 1 MOL B03 3 0 72\n\n'
+                             '[ bonds ]\n1 2 1 0.30 5000\n2 3 1 0.31 5000\n\n'
+                             '[ angles ]\n1 2 3 1 120 25\n\n'
+                             '[ dihedrals ]\n1 2 3 1 -102.273 36.636 2\n')
+
+
+def parameterization_mapping(**overrides):
+    """The mapping shape a parameterization record is addressed by."""
+    candidate = {'name': 'DDM', 'beads': [{'name': 'B01'}, {'name': 'B02'}, {'name': 'B03'}],
+                 'rings': [], 'connections': []}
+    candidate.update(overrides)
+    return candidate
+
+
+def parameterization_revision(**overrides):
+    """A revision payload shaped the way `parameterization.save` validates one."""
+    payload = {'engine': 'fast-forward', 'topology': PARAMETERIZATION_TOPOLOGY,
+               'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
+                           'torsion_model': 'legacy', 'torsion_scale': 1.0},
+               'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
+                            'source': 'the mapped AA frames'},
+               'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32,
+                                'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
+                                'production_ns': 10.0},
+               'terms': {'bonds': 2, 'angles': 1, 'dihedrals': 1},
+               'engine_default_source': 'ff_inter',
+               'checks': {'dihedral-fit': {'rows': []}, 'bonded-cross-check': {'rows': []}}}
+    payload.update(overrides)
+    return payload
+
 
 #: One DDM molecule's eleven beads, in nanometres, in the order the moleculetype lists them. These are the
 #: coordinates a run's placement frame held -- the distances a viewer's distance-based bond guess was measured on.

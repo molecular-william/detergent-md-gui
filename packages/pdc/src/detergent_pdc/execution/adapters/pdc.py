@@ -913,14 +913,11 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     tail_beads_source = ("the run's own mapping: beads of the aliphatic carbon series, because the template names no "
                          'tail roles')
     if mapping is not None:
-        from dashboard.models.mappings import store
+        from detergent_pdc.execution import pdc_preview
         from detergent_pdc.models.molecules import detergent_cg
-        # A saved candidate arrives by name, not by path: the panel offers the names the store lists, and the run's
-        # own record keeps that name, so it is resolved here rather than demanded as a path.
-        source = Path(str(mapping))
-        if not source.is_file():
-            candidate = store.candidate_paths().get(source.name)
-            source = Path(candidate) if candidate else (root / str(mapping))
+        # A saved candidate arrives by name, not by path, and the preview resolves the same names for the picture it
+        # draws: one resolver, so the run and the frame it previews cannot mean two different files.
+        source = pdc_preview.resolve_mapping(mapping, root)
         if not source.is_file():
             raise ValueError(f'the detergent mapping is not a file: {mapping}')
         source = source.resolve()
@@ -1196,5 +1193,4 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=normalize_settings,
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
 )

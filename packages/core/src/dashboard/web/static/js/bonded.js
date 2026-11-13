@@ -24,7 +24,7 @@
  * reference is never an input: a CG run consumes it directly, so its rows are readings and both buttons are disabled
  * with the server's reason. The `source` column stays the store's reading -- an edited term reads `manual`.
  */
-import { $, $$, setText, cachedApi, api, invalidateResource, CATALOGUE_MAX_AGE, storage } from './shared.js';
+import { $, $$, setText, cachedApi, fillMoleculeOptions, api, invalidateResource, CATALOGUE_MAX_AGE, storage } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
 import { setupPane, setupFitCard, parseTopology, REFERENCE_REASON } from './bonded-parameterization.js';
 
@@ -652,25 +652,14 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
 
     /** The molecule select: every all-atom molecule the catalogue offers, plus CG compositions as one last group. */
     async function fillMolecules() {
-      let list = [];
-      try {
-        // The shell's own cache key: a pane mount must be a reuse of the catalogue the shell warmed, not a new read.
-        const answer = await cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE});
-        list = (answer.molecules || []).filter(record => record.kind !== 'cg');
-      } catch (error) { list = []; }
-      const options = list.map(record => new Option(record.name || record.id, record.id));
       // Compositions are CG models, not molecules, so they are not in `/api/molecules`: offered only where the
       // catalogue holds one, and last, because they are a different kind of thing rather than another molecule.
-      if ((mappingData.candidates || []).some(candidate => String(candidate.file || '').startsWith('composition:'))) {
-        options.push(new Option('CG compositions', COMPOSITIONS));
-      }
-      const previous = moleculeSelect.value;
-      moleculeSelect.replaceChildren(...options);
+      const offered = (mappingData.candidates || []).some(candidate => String(candidate.file || '').startsWith('composition:'));
       const named = (mappingData.candidates || []).find(candidate => candidate.molecule_id);
-      const preferred = named ? named.molecule_id : list[0]?.id;
-      if ([...moleculeSelect.options].some(option => option.value === previous)) moleculeSelect.value = previous;
-      else if ([...moleculeSelect.options].some(option => option.value === preferred)) moleculeSelect.value = preferred;
-      else if (moleculeSelect.options.length) moleculeSelect.selectedIndex = 0;
+      await fillMoleculeOptions(moleculeSelect, {
+        extra: offered ? [new Option('CG compositions', COMPOSITIONS)] : [],
+        preferred: named?.molecule_id,
+      });
     }
 
     /** Each saved mapping's parameterization record: the selector names every revision, not only the shown mapping's. */

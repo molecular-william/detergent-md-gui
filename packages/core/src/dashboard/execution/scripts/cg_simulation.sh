@@ -1,5 +1,4 @@
 #!/bin/bash
-AA_REFERENCE_DIR="${AA_REFERENCE_DIR:-../1_AA-reference/prod}"
 set -euxo pipefail
 # A resumed stage names the checkpoint of this stage's own mdrun. The build, the solvation and the two equilibration
 # legs already happened in this directory, so only the production leg re-runs -- appending to the trajectory it was

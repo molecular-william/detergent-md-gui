@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from detergent_pdc.execution.scripts import topology as topology_reader
+
 ATTEMPTS = 'attempts.json'
 KEPT_TOPOLOGY = 'kept.top'
 RESTART_MDP = 'restart.mdp'
@@ -40,25 +42,9 @@ RAMP_PS = 100.0
 DEFAULT_MDRUN_FLAGS = '-ntomp 8'
 
 
-def sections(text: str) -> list[str]:
-    """A topology's lines, so the one section a removal edits can be found without rewriting the file."""
-    return text.splitlines()
-
-
 def molecule_counts(text: str) -> list[tuple[str, int]]:
     """The `[ molecules ]` rows, in order: the names and counts a topology declares."""
-    rows, section = [], ''
-    for raw in text.splitlines():
-        line = raw.split(';', 1)[0].strip()
-        if line.startswith('[') and line.endswith(']'):
-            section = line[1:-1].strip().lower()
-            continue
-        if section != 'molecules' or not line:
-            continue
-        fields = line.split()
-        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit():
-            rows.append((fields[0], int(fields[-1])))
-    return rows
+    return topology_reader.molecule_rows(text)
 
 
 def kept_topology(text: str, removed: int, protein: str | None = None,

@@ -73,15 +73,6 @@ def test_a_topology_that_is_absent_says_so_with_the_glob(tmp_path):
         layout.cg_topology(tmp_path)
 
 
-def test_the_summary_reports_absences_as_data_rather_than_raising(tmp_path):
-    write(tmp_path, 'stages/07_reference/lig.xtc', 'stages/common/molecule/molecule.itp')
-    report = layout.summary(tmp_path)
-    assert report['aa_trajectory'] == 'stages/07_reference/lig.xtc'
-    assert report['solute_topology'] == 'stages/common/molecule/molecule.itp'
-    assert report['cg_trajectory'] is None and report['cg_topology'] is None
-    assert set(report) == set(layout.CANDIDATES) | {'cg_topology'}
-
-
 def test_the_work_directory_an_analysis_is_handed_has_the_same_files_without_stages(tmp_path):
     """`analysis.worker` copies the sources into a work directory rooted at the execution root.
 
@@ -111,7 +102,6 @@ def test_the_recorded_topology_name_selects_among_the_files_a_fitted_run_leaves(
     with pytest.raises(ValueError, match='more than one CG molecule topology'):
         layout.cg_topology(tmp_path)
     assert layout.cg_topology(tmp_path, 'SUCR.itp').name == 'SUCR.itp'
-    assert layout.summary(tmp_path, 'SUCR.itp')['cg_topology'] == '3_initial_CG/SUCR.itp'
 
 
 def test_a_recorded_name_that_is_not_there_says_what_is(tmp_path):

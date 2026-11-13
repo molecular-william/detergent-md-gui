@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 from dashboard import files
 from dashboard.analysis import progress
+from dashboard.analysis.runs import structures
 from dashboard.analysis.runs.radii import AA_RADII, PROBE
 from dashboard.execution import tools
 from dashboard.models import sugars as carbohydrates
@@ -117,10 +118,8 @@ def generate(run_dir):
     if len(cg.atoms)!=len(model['beads']): raise ValueError('CG atom order/count does not match candidate')
     if list(cg.atoms.names)!=[b['export_name'] for b in model['beads']]: raise ValueError('CG bead names differ from mapping')
     aa_r=[]
-    import re
     for name in aa.atoms.names:
-        element=re.sub('[^A-Za-z]','',name)
-        element=element[:2].title() if element[:2].title() in ('Cl','Br') else element[:1].upper()
+        element=structures.atom_element(name)
         if element not in AA_RADII: raise ValueError(f'No verified Rowland–Taylor radius for {name}')
         aa_r.append(AA_RADII[element])
     cg_r=[carbohydrates.RADII_NM[b['size']] for b in model['beads']]

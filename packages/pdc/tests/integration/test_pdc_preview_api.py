@@ -23,7 +23,7 @@ from dashboard.execution import tools
 from detergent_pdc import conformations
 
 from tests.harness import conformation_fixtures
-from tests.harness.support import DDM_BONDS, DDM_CLASSES
+from tests.harness.pdc_fixtures import library_mapping, mapping_candidate
 
 
 def peptide(residues=6, *, chain='A', shift_nm=0.0) -> str:
@@ -66,24 +66,6 @@ def import_protein(dashboard, monkeypatch, text=PEPTIDE, pdbid='1qj8'):
     assert response.status_code == 201, response.get_json()
     return next(entry for entry in dashboard.client.get('/api/pdc/catalog').get_json()['proteins']
                 if entry['name'] == pdbid)
-
-
-def write_mapping(dashboard, molecule_id='DDM', name='mapping_candidate_fixture.json', beads=None):
-    """A saved candidate in the workspace's own mapping store, named the way the panel offers one."""
-    directory = dashboard.paths.mapping_drafts
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / name).write_text(json.dumps({
-        'schema_version': 3, 'molecule_id': molecule_id, 'name': 'a test detergent mapping',
-        'beads': beads if beads is not None else [
-            {'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]},
-            {'name': 'TAIL2', 'type': 'C1', 'size': 'R', 'atoms': [2]},
-            {'name': 'S1A', 'type': 'SP1r', 'size': 'S', 'atoms': [3]},
-            {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'atoms': [],
-             'virtual_site': {'function': 1, 'parents': ['TAIL2', 'S1A']}}],
-        'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'S1A']],
-        'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
-        'status': 'candidate-unvalidated', 'martini_version': '3'}))
-    return name
 
 
 TEMPLATE = 'molecules/DDM/micelle_template.json'
@@ -147,7 +129,7 @@ def test_every_answer_this_route_sends_is_json_a_browser_can_parse(dashboard, mo
     The valid path and the refusal path are both put through a strict parser, because the token travels as silently
     through Python as it does loudly through `JSON.parse`, and the panel is the thing that pays for it.
     """
-    write_mapping(dashboard)
+    mapping_candidate(dashboard)
     empty_micelle = get(dashboard, template=TEMPLATE, molecule_id='DDM',
                         mapping_candidate='mapping_candidate_fixture.json', aggregation_number=40,
                         placement_mode='lattice', pdc_seed=20261013)
@@ -161,7 +143,7 @@ def test_every_answer_this_route_sends_is_json_a_browser_can_parse(dashboard, mo
 
 def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_paid(dashboard):
     """An empty micelle: no protein, so no coarse-graining at all -- and the cheapest preview the panel has."""
-    write_mapping(dashboard)
+    mapping_candidate(dashboard)
 
     body = get(dashboard, template=TEMPLATE, molecule_id='DDM', mapping_candidate='mapping_candidate_fixture.json',
                aggregation_number=40, placement_mode='lattice', pdc_seed=20261013, box_margin_nm=2.0,
@@ -190,7 +172,8 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     families = [int(round(float(line[60:66]))) for line in body['pdb'].splitlines() if line.startswith('HETATM')]
     assert families and 0 not in families, f'a bead states no family: {sorted(set(families))}'
     assert len(set(families)) >= 2, sorted(set(families))
-    assert {pdc_view.bead_family_code('SP1r'), pdc_view.bead_family_code('C1')} <= set(families), sorted(set(families))
+    assert {pdc_view.BEAD_FAMILIES.index(pdc_view.bead_family('SP1r')),
+            pdc_view.BEAD_FAMILIES.index(pdc_view.bead_family('C1'))} <= set(families), sorted(set(families))
 
     # Nothing a run reads, and no run: a preview is not a job.
     assert list(dashboard.paths.runs.glob('*')) == [] if dashboard.paths.runs.exists() else True
@@ -254,7 +237,7 @@ def test_the_malformed_questions_are_400s_before_anything_is_derived(dashboard, 
 
 def test_a_mapping_of_another_molecule_is_refused_rather_than_drawn(dashboard):
     """The picture is drawn from the mapping's own beads: pairing two molecules would draw the wrong one."""
-    write_mapping(dashboard, molecule_id='Maltose', name='mapping_candidate_maltose.json')
+    mapping_candidate(dashboard, molecule_id='Maltose', name='mapping_candidate_maltose.json')
 
     response = get(dashboard, template=TEMPLATE, molecule_id='DDM', mapping_candidate='mapping_candidate_maltose.json',
                    pdc_seed=20261013, aggregation_number=12)
@@ -273,7 +256,7 @@ def test_a_real_cold_and_warm_preview_pay_the_coarse_graining_once(dashboard, mo
     if tools.tool_path('martinize2') is None:
         pytest.skip('martinize2 is not resolvable in this workspace')
     entry = import_protein(dashboard, monkeypatch)
-    write_mapping(dashboard)
+    mapping_candidate(dashboard)
     query = {'template': TEMPLATE, 'protein': entry['name'], 'molecule_id': 'DDM',
              'mapping_candidate': 'mapping_candidate_fixture.json', 'aggregation_number': 40, 'pdc_seed': 20261013}
 
@@ -387,27 +370,6 @@ def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_
 # --- the template's one body, or the library's drawn ones ----------------------------------------------
 
 LIBRARY_MAPPING = 'mapping_candidate_library.json'
-
-
-def library_mapping():
-    """The fixture source run's own eleven beads, as the mapping editor exports a saved mapping.
-
-    The preview matches the library against this mapping's derived model, so the mapping and the fixture run must
-    state the same bead names, in the same order, as the library they are used with.
-    """
-    parents = dict(conformation_fixtures.VIRTUAL_SITES)
-    beads = []
-    for index, (name, kind, _position) in enumerate(conformation_fixtures.BEADS, start=1):
-        bead = {'name': name, 'type': kind, 'size': DDM_CLASSES[name],
-                'atoms': [] if index in parents else [index]}
-        if index in parents:
-            bead['virtual_site'] = {'function': 1, 'parents': [conformation_fixtures.BEADS[parent - 1][0]
-                                                               for parent in parents[index]]}
-        beads.append(bead)
-    names = [name for name, _kind, _position in conformation_fixtures.BEADS]
-    return {'schema_version': 3, 'molecule_id': 'DDM', 'name': "the fixture run's own eleven beads",
-            'martini_version': 3, 'beads': beads,
-            'connections': [[names[first - 1], names[second - 1]] for first, second in DDM_BONDS]}
 
 
 def write_library_mapping(dashboard):

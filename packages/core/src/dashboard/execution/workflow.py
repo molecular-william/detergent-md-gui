@@ -20,10 +20,7 @@ from .stages import Stage
 
 
 def stage_command(name, script):
-    command = ['bash', '-e', '-o', 'pipefail', str(script)]
-    if name == 'AA reference' and script.name == 'run_1mol_AA_system.sh':
-        command += ['molecule.pdb', 'spc216.gro', 'SOL', '3']
-    return command
+    return ['bash', '-e', '-o', 'pipefail', str(script)]
 
 
 #: Notified with a run's directory once all of its stages have been attempted. The analysis layer registers its own

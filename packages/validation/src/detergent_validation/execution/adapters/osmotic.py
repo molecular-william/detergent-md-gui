@@ -358,7 +358,7 @@ def series_conditions(molalities):
 
 
 
-def _molalities(requested):
+def molalities(requested):
     """The series' concentrations: ordered, each inside the range the box can place, and none repeated.
 
     A record that names none is refused rather than defaulted to one concentration -- the fallback that used to be
@@ -468,13 +468,13 @@ def normalize_settings(settings=None, profile='standard'):
     # **The concentrations come out first, and the shape is why.** `molalities` is a list, and a list has no
     # place in the published vocabulary -- a bounded scalar or one of an enumerated set -- so the loop below
     # would answer it with "Unknown osmotic setting" rather than with anything about the values in it.
-    molalities = requested.pop(SERIES_KEY, None)
+    requested_molalities = requested.pop(SERIES_KEY, None)
     result = normalize(
         requested, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         unknown_prefix='Unknown osmotic setting: ', choice_text=True)
     # The series, in the caller's order: the run type's own check, so a value outside the box's range is refused
     # with the bound named and a record that names no series is refused with the shape named.
-    result[SERIES_KEY] = _molalities(molalities)
+    result[SERIES_KEY] = molalities(requested_molalities)
     # An attempt count and a device index are counts: 2.5 of either is refused rather than floored, because
     # three-and-a-half attempts is not a thing a reader can reconcile with `attempts.json`, and a floored device
     # index would run on one nobody chose. Checked after the series, so a ragged series is refused first -- the
@@ -562,16 +562,16 @@ def readiness(metadata):
     # The concentrations: the list is the run's own plan, so a value the box cannot place is refused here as
     # well as in the setting's own range check -- which only the route applies.
     settings = metadata.get('settings') or {}
-    molalities = []
+    listed = []
     conditions = []
     try:
-        molalities = _molalities(settings.get(SERIES_KEY))
-        conditions = series_conditions(molalities)
+        listed = molalities(settings.get(SERIES_KEY))
+        conditions = series_conditions(listed)
     except ValueError as exc:
-        molalities = []
+        listed = []
         blockers.append(str(exc))
     checks.append({'label': 'Concentrations',
-                   'path': ', '.join(f'{value:g}' for value in molalities) + ' molal' if molalities else 'none',
+                   'path': ', '.join(f'{value:g}' for value in listed) + ' molal' if listed else 'none',
                    'ready': bool(conditions),
                    'detail': (f'{len(conditions)} condition(s), one directory each: '
                               + ', '.join(condition['directory'] for condition in conditions))
@@ -751,6 +751,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
-    tool_report=tool_metadata,
     choice_specs=lambda: devices.published_choices(CHOICE_SPECS),
 )

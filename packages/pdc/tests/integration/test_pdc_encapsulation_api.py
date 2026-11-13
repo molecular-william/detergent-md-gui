@@ -7,10 +7,11 @@ through the real import path, and a hand-made mapping -- so nothing touches the 
 """
 from __future__ import annotations
 
-import json
 import math
 
 import pytest
+
+from tests.harness.pdc_fixtures import mapping_candidate
 
 # Three atoms far enough apart (0.9 nm between the two carbons, with probe-inflated radii of 0.366 nm) that each
 # contributes exactly its own sphere area: the route's area is known by construction, not by a fixture's history.
@@ -32,31 +33,13 @@ def _import(dashboard, monkeypatch, pdbid, text):
     return dashboard.client.post('/api/pdc/proteins/import', json={'pdbid': pdbid})
 
 
-def _mapping(dashboard, molecule_id='DDM', beads=None, name='mapping_candidate_fixture.json'):
-    directory = dashboard.paths.mapping_drafts
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / name).write_text(json.dumps({
-        'schema_version': 3, 'molecule_id': molecule_id, 'name': 'a test detergent mapping',
-        'beads': beads if beads is not None else [
-            {'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]},
-            {'name': 'TAIL2', 'type': 'C1', 'size': 'R', 'atoms': [2]},
-            {'name': 'S1A', 'type': 'SP1r', 'size': 'S', 'atoms': [3]},
-            {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'atoms': [],
-             'virtual_site': {'function': 1, 'parents': ['TAIL2', 'S1A']}},
-        ],
-        'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'S1A']],
-        'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
-        'status': 'candidate-unvalidated', 'martini_version': '3'}))
-    return name
-
-
 def _url(entry, molecule_id='DDM', aggregation_number=150):
     return f'/api/pdc/proteins/{entry}/encapsulation?molecule_id={molecule_id}&aggregation_number={aggregation_number}'
 
 
 def test_the_estimate_comes_back_with_its_numbers_its_method_and_its_caveat(dashboard, monkeypatch):
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     response = dashboard.client.get(_url('1qj8'))
 
@@ -76,7 +59,7 @@ def test_the_route_s_method_says_apolar_parented_modified_residues_are_folded_in
     """The route returns the prose beside the number; that prose must state the modified-residue folding so a reader
     of the panel is told what the arithmetic did."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     method = dashboard.client.get(_url('1qj8')).get_json()['method']
 
@@ -89,7 +72,7 @@ def test_the_slab_the_route_uses_is_the_thickness_the_protein_states(dashboard, 
     """Two structures, two stated thicknesses, two areas -- the slab is read, not assumed."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
     _import(dashboard, monkeypatch, '2abc', THIN)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     wide = dashboard.client.get(_url('1qj8')).get_json()
     narrow = dashboard.client.get(_url('2abc')).get_json()
@@ -102,7 +85,7 @@ def test_the_slab_the_route_uses_is_the_thickness_the_protein_states(dashboard, 
 def test_a_protein_that_states_no_membrane_is_refused_with_a_reason(dashboard, monkeypatch):
     """The plan's acceptance: no membrane annotation means no slab, and a made-up slab is worse than a refusal."""
     _import(dashboard, monkeypatch, '3def', ANNOTATION_FREE)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     response = dashboard.client.get(_url('3def'))
 
@@ -124,7 +107,7 @@ def test_a_detergent_with_no_saved_mapping_is_refused_with_a_reason(dashboard, m
 def test_a_mapping_that_names_no_head_bead_is_refused_with_a_reason(dashboard, monkeypatch):
     """Every physical bead of the aliphatic carbon series: there is no head size class to resolve."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard, beads=[{'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]}])
+    mapping_candidate(dashboard, beads=[{'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]}])
 
     response = dashboard.client.get(_url('1qj8'))
 
@@ -135,8 +118,8 @@ def test_a_mapping_that_names_no_head_bead_is_refused_with_a_reason(dashboard, m
 def test_saved_mappings_that_disagree_about_the_head_bead_are_refused(dashboard, monkeypatch):
     """Two saved mappings, two head sizes: the route refuses rather than picking one silently."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard)
-    _mapping(dashboard, name='mapping_candidate_second.json',
+    mapping_candidate(dashboard)
+    mapping_candidate(dashboard, name='mapping_candidate_second.json',
              beads=[{'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]},
                     {'name': 'HEAD', 'type': 'P1', 'size': 'R', 'atoms': [2]}])
 
@@ -147,14 +130,14 @@ def test_saved_mappings_that_disagree_about_the_head_bead_are_refused(dashboard,
 
 
 def test_an_unknown_protein_entry_is_a_404(dashboard, monkeypatch):
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     assert dashboard.client.get(_url('nosuch')).status_code == 404
 
 
 def test_a_request_without_a_detergent_or_a_count_is_refused(dashboard, monkeypatch):
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     assert dashboard.client.get('/api/pdc/proteins/1qj8/encapsulation').status_code == 400
     assert dashboard.client.get(_url('1qj8', aggregation_number=0)).status_code == 400
@@ -169,7 +152,7 @@ def test_the_entry_can_be_addressed_by_the_catalogue_id_a_panel_sends(dashboard,
     tests use.
     """
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
     entry = next(item for item in dashboard.client.get('/api/pdc/catalog').get_json()['proteins']
                  if item['name'] == '1qj8')
     assert entry['id'].startswith('/'), 'an imported structure lives outside the repository, so its id is absolute'
@@ -196,7 +179,7 @@ ASSEMBLY = (
 
 def test_the_route_sizes_only_the_chains_the_caller_selected(dashboard, monkeypatch):
     _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     whole = dashboard.client.get(_url('1at9')).get_json()
     one = dashboard.client.get(_url('1at9') + '&chains=A').get_json()
@@ -210,7 +193,7 @@ def test_the_route_sizes_only_the_chains_the_caller_selected(dashboard, monkeypa
 
 def test_a_chain_the_protein_does_not_have_is_refused_with_a_reason(dashboard, monkeypatch):
     _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     response = dashboard.client.get(_url('1at9') + '&chains=A,Z')
 
@@ -235,7 +218,7 @@ WITH_PLACEHOLDER = (
 def test_naming_every_declared_chain_is_the_whole_file(dashboard, monkeypatch):
     """The panel's default selection is every chain; its estimate must be the whole-file number, unchanged."""
     _import(dashboard, monkeypatch, '1at9', WITH_PLACEHOLDER)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     whole = dashboard.client.get(_url('1at9')).get_json()
     every = dashboard.client.get(_url('1at9') + '&chains=A,B').get_json()
@@ -249,7 +232,7 @@ def test_naming_every_declared_chain_is_the_whole_file(dashboard, monkeypatch):
 
 def test_a_multi_chain_selection_is_a_comma_separated_list_the_route_reads(dashboard, monkeypatch):
     _import(dashboard, monkeypatch, '1at9', ASSEMBLY)
-    _mapping(dashboard)
+    mapping_candidate(dashboard)
 
     both = dashboard.client.get(_url('1at9') + '&chains=A,B').get_json()
     single = dashboard.client.get(_url('1at9') + '&chains=B').get_json()

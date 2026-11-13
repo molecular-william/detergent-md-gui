@@ -121,15 +121,15 @@ class SkippingWorker:
 
     def execute(self, command, **kwargs):
         attempt = Path(command[-1]).parent
-        files.atomic_json(attempt / 'skip.json', {'kind': 'stability',
+        files.atomic_json(attempt / 'skip.json', {'kind': 'bonded-cross-check',
                                                   'reason': 'this run offers no log worth checking'})
         raise subprocess.CalledProcessError(workflow.SKIPPED_EXIT_CODE, command)
 
 
 def test_a_skip_is_recorded_as_skipped_and_leaves_the_run_completed(dashboard):
     aid = '000000000001'
-    directory = f'analyses/stability/signature/{aid}'
-    task = {'id': aid, 'kind': 'stability', 'payload': {}, 'signature': 'signature',
+    directory = f'analyses/bonded-cross-check/signature/{aid}'
+    task = {'id': aid, 'kind': 'bonded-cross-check', 'payload': {}, 'signature': 'signature',
             'directory': directory, 'status': 'queued'}
     coordinator, run = seed(dashboard, analyses=[task])
 

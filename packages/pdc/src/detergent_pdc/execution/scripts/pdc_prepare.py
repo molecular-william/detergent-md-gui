@@ -21,22 +21,10 @@ from pathlib import Path
 
 from detergent_pdc.execution.adapters import pdc_preparation
 from detergent_pdc.execution.adapters.pdc import SETTINGS_NAME
+from detergent_pdc.execution.scripts import topology as topology_reader
 
 SKIPPED = 4
 REFUSED = 2
-
-
-def read_settings(stage: Path) -> dict:
-    """The run's own decisions, from the one stage that owns them.
-
-    `pdc-settings.json` is written into the run's `inputs/` by `pdc.prepare`, and every stage that needs a run's
-    numbers reads it there -- this one included, so a value the panel sent and the build reads is the same value this
-    step reads.
-    """
-    path = stage.parent.parent / 'inputs' / SETTINGS_NAME
-    if not path.is_file():
-        raise SystemExit(f'{path} is missing: this stage reads the run\'s decisions from it')
-    return json.loads(path.read_text())
 
 
 def source_protein(stage: Path, settings: dict):
@@ -67,7 +55,8 @@ def main(argv=None) -> int:
     # Resolved, because a stage runs from its own directory and is handed `.`: `Path('.').parent` is `.`, so the run
     # root a stage reached through a relative spelling is the stage's own directory and not the run's.
     stage = Path(args.stage).resolve()
-    settings = read_settings(stage)
+    settings = topology_reader.read_settings(stage.parent.parent / 'inputs' / SETTINGS_NAME,
+                                              description="the run's decisions")
 
     # The step is on by default, so it must be able to say "not on this machine" rather than refusing every run: a
     # default no machine is obliged to satisfy would turn a missing optional tool into a blocked pipeline. A tool that

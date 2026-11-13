@@ -142,7 +142,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/defaults?run_type=aa_only&profile=nonsense').status_code, 400)
 
     def test_new_run_rejects_invalid_stage_setting(self):
-        with patch.object(cg, 'readiness', return_value={'ready': True}):
+        with patch.object(cg, 'parameterization_readiness', return_value={'ready': True}):
             response = self.client.post('/', json={'detergent': 'DDM', 'method': 'fast_forward', 'temperature_k': 100})
         self.assertEqual(response.status_code, 400)
 

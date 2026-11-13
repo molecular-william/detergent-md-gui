@@ -1,13 +1,11 @@
 """Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
 import json
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
 from dashboard import paths
 from dashboard.analysis.runs import layout, structures
-from dashboard.execution.adapters.micelle import run_micelle_job
 from dashboard.web.routes.analyses import newest_published
 from dashboard.web.routes.common import coordinator, json_object
 from detergent_pdc.execution import rebuild_whole
@@ -650,22 +648,3 @@ def pdc_preview_placement():
     return jsonify(answer)
 
 
-@blueprint.post('/api/micelle/build')
-def micelle_build_api():
-    """Thin adapter for the native micelle CLI; reports are ordinary run artifacts."""
-    from dashboard.web.routes.runs import view_of
-
-    c = coordinator()
-    payload = json_object()
-    jid = uuid.uuid4().hex[:12]
-    job = {'id': jid, 'label': payload.get('label') or 'Micelle build', 'detergent': payload.get('detergent','DDM'),
-           'method': 'micelle', 'status': 'running', 'stage': 'micelle build', 'created': c.now(), 'profile': 'micelle', 'settings': payload}
-    with c.JOBS_LOCK:
-        c.database().insert(job)
-    directory = c.RUNS / jid; directory.mkdir(parents=True, exist_ok=False)
-    try:
-        result = run_micelle_job(payload, directory)
-        c.database().update(jid, status='completed' if result['status']=='completed' else 'failed', stage='complete' if result['status']=='completed' else 'micelle build', ended_at=c.now(), error=result.get('error'), command=' '.join(result['command']))
-    except Exception as exc:
-        c.database().update(jid, status='failed', stage='micelle build', ended_at=c.now(), error=str(exc))
-    return jsonify(view_of(c, c.lookup(jid))), 201

@@ -220,18 +220,6 @@ def test_the_run_type_publishes_which_of_the_two_things_will_happen(tmp_path, mo
     assert 'No mapping is selected' in cg._parameterization_state({})['statement']
 
 
-def test_the_readiness_answer_carries_that_state_beside_its_checks(tmp_path, monkeypatch):
-    """A top-level key and not a `checks` entry: both states are ready, so it is not a prerequisite."""
-    from dashboard.analysis.runs import references as aa_references
-    monkeypatch.setattr(aa_references, 'resolve', lambda *args, **kwargs: REFERENCE)
-    monkeypatch.setattr(cg, 'readiness', lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
-    answer = cg._protocol_readiness({'molecule_id': 'DDM', 'mapping_candidate': saved_mapping(),
-                                     'molecule_root': str(MOLECULES)})
-
-    assert answer['ready'] is True
-    assert answer['parameterization']['parameterized'] is False
-    assert 'stage 3' in answer['parameterization']['statement']
-
 
 def test_a_record_the_run_cannot_read_is_a_blocker_and_not_a_promise_to_fit(tmp_path, monkeypatch):
     """`prepare` refuses a corrupt record, so readiness must not answer "the run will fit it in

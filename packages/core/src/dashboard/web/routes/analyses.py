@@ -7,6 +7,8 @@ from dashboard.execution import assessment_rescore
 from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import layout
+from ..views import ANALYSIS_SUMMARY_FIELDS as CORE_ANALYSIS_SUMMARY_FIELDS
+from ..views import with_running_progress
 from .common import coordinator, json_object
 
 blueprint = Blueprint('analyses', __name__)
@@ -175,19 +177,16 @@ def rescore_assessment(jid):
 
 #: What a 2 s poller reads: the same attempt records with the heavy fields left out (`result`, `environment`,
 #: `tools`, `command`). `payload` and `outputs` stay -- the Trajectory block needs them for a frame series -- and
-#: `progress` is what makes a running attempt readable. The default answer is the whole record.
-ANALYSIS_SUMMARY_FIELDS = ('id', 'kind', 'status', 'created_at', 'started_at', 'ended_at', 'error', 'directory',
-                           'progress', 'payload', 'outputs', 'stable')
+#: `progress` is what makes a running attempt readable. The default answer is the whole record. The shared base is the
+#: run view's own whitelist, so the two summarisers cannot drift on the fields they agree about.
+ANALYSIS_SUMMARY_FIELDS = CORE_ANALYSIS_SUMMARY_FIELDS | frozenset(('progress', 'payload', 'outputs', 'stable'))
 
 
 @blueprint.get('/api/jobs/<jid>/analyses')
 def analyses_api(jid):
     c = coordinator()
     job = c.lookup(jid); tasks = job.get('analyses', [])
-    for task in tasks:
-        if task['status'] == 'running':
-            try: task['progress'] = json.loads((c.run_path(job)/task['directory']/'progress.json').read_text())['phase']
-            except (OSError, ValueError): pass
+    with_running_progress(tasks, c.run_path(job))
     if request.args.get('view') == 'summary':
         return jsonify([{key: task[key] for key in ANALYSIS_SUMMARY_FIELDS if key in task} for task in tasks])
     return jsonify(tasks)

@@ -38,8 +38,9 @@ from pathlib import Path
 from .. import files
 from ..analysis.runs import layout
 from ..models.bonded import parameterization
-from . import environment, run_scripts
+from . import environment, run_scripts, workflow
 from .adapters import cg
+from .adapters.cg_names import CGNames
 from .coordination import errors
 
 #: The stage this module re-scores, by the name a run records it under. A run type that has no stage by this name has
@@ -248,7 +249,7 @@ def _execute(coordinator, jid, attempt):
 
 def _execute_script(directory, log, env):
     """`(exit_code, error)`: the stage script's exit status, and why it could not be started when it could not."""
-    command = ['bash', '-e', '-o', 'pipefail', str(run_scripts.code_path(ASSESS_SCRIPT, root=environment.ROOT))]
+    command = workflow.stage_command(STAGE, run_scripts.code_path(ASSESS_SCRIPT, root=environment.ROOT))
     with Path(log).open('a') as output:
         output.write(f'$ {shlex.join(command)}\n')
         output.write(json.dumps({'environment': {key: env.get(key) for key in
@@ -266,7 +267,7 @@ def _status(exit_code):
     """How a reader should read the attempt's exit code, in the vocabulary every stage already uses."""
     if exit_code == 0:
         return 'completed'
-    return 'skipped' if exit_code == 4 else 'failed'
+    return 'skipped' if exit_code == workflow.SKIPPED_EXIT_CODE else 'failed'
 
 
 def _environment(manifest, run_dir, attempt):
@@ -296,8 +297,9 @@ def _environment(manifest, run_dir, attempt):
 def _cg_names(manifest):
     """The run's own molecule names, as every stage is handed them, with this run type's defaults behind them."""
     recorded = manifest.get('cg_names') if isinstance(manifest.get('cg_names'), dict) else {}
-    return {'residue_name': recorded.get('residue_name') or 'DDM',
-            'initial_itp': recorded.get('initial_itp') or 'DDM_initial.itp'}
+    defaults = CGNames.ddm_defaults()
+    return {'residue_name': recorded.get('residue_name') or defaults.residue_name,
+            'initial_itp': recorded.get('initial_itp') or defaults.initial_itp}
 
 
 def _shared_reference_path(manifest, run_dir):

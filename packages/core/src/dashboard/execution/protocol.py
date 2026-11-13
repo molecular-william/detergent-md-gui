@@ -27,8 +27,6 @@ Shapes, as of this module:
   and ``blockers``. Incomplete metadata is a blocker, never an exception: a
   caller that does not know what a run type needs must still get an answer.
 - ``prepare(run_dir, metadata)`` -> writes the run directory.
-- ``tool_report()`` -> the recorded tool versions, or an empty mapping for a run
-  type that uses no external tool.
 
 Every run type's wrapper lives in its own adapter: ``adapter_for`` returns the
 adapter's own ``Protocol`` instance. The builders import their adapter inside the
@@ -191,15 +189,6 @@ def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=N
                                    references=references, scripts=scripts, skipped=skipped, modules=modules)
 
 
-def no_choice_specs() -> Mapping:
-    """The empty vocabulary a run type with no choice-typed settings publishes.
-
-    Named rather than written as a lambda so the dataclass field below has one shared default, and so a caller that
-    asks a run type with no choices gets a declared empty answer instead of an absence.
-    """
-    return {}
-
-
 @dataclass(frozen=True)
 class Protocol:
     """What every run type can be asked, in shapes that do not vary."""
@@ -214,11 +203,10 @@ class Protocol:
     # `object`, not `None`: an adapter may return the record it wrote (osmotic returns its condition, the CG adapter
     # returns the run's manifest). Callers that only want the side effect are free to ignore it.
     prepare: Callable[..., object]
-    tool_report: Callable[[], Mapping]
     # The settings whose value is one of a list -- the nonbonded scheme, a series id. Kept apart from
     # `settings_specs` because they are bounded differently and a caller rendering a form needs each in its own
     # control. Everything that has none takes the shared default instead of repeating an empty mapping.
-    choice_specs: Callable[[], Mapping] = no_choice_specs
+    choice_specs: Callable[[], Mapping] = dict
 
 
 def blocked(*reasons: str) -> dict:

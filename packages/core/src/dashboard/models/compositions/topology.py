@@ -6,11 +6,10 @@ second source of topology truth.
 """
 from __future__ import annotations
 
-import hashlib
 import math
 from pathlib import Path
 
-from ... import itp, martini3
+from ... import files, itp, martini3
 from ..mappings.identity import canonical_sha256
 
 SUGAR_RESIDUES = (
@@ -39,10 +38,6 @@ _PROFILES = (
         "bond": {"function": 1, "length": 0.47, "force": 5000.0},
     },
 )
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _section_blocks(text: str) -> list[tuple[str, list[str]]]:
@@ -128,7 +123,7 @@ def load_sugar_catalog(source: Path) -> dict[str, dict]:
         # site with no coordinates drawn as if it were a bead.
         for site in item["virtual_sites"]:
             item["atoms"][site["site"] - 1]["virtual"] = True
-        item["source_sha256"] = _sha256(source)
+        item["source_sha256"] = files.sha256(source)
         item["source_path"] = str(source)
         item["bead_names"] = [atom["name"] for atom in item["atoms"]]
     return {key: catalog[key] for key in SUGAR_RESIDUES if key in catalog}

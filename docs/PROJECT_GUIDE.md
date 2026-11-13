@@ -33,12 +33,12 @@ The engine (`packages/core/src/dashboard/`):
   registers its blueprints, run types, analysis
   kinds, workspace and hooks (admission, prepare, create_settings, readiness, run_failed, layout, planned_skips,
   protein_topologies, kind_payload, priority, templates, static, styles, panel_modules, extension_modules,
-evidence_sections, molecule_profiles, legacy_stages); web/sections.py owns the
+  molecule_profiles, legacy_stages); web/sections.py owns the
 section order, the `DASHBOARD_TABS` filter and the engine's own fallback workspace.
 A feature distribution advertises itself with the `detergent_md.features` entry point, so installing a wheel is
 how a dashboard gains a workspace; the engine never imports one.
 * execution/ owns coordination and stage execution: adapters/cg.py (generic CG stage pipeline), aa.py (AA-only),
-  cg_names.py, composition.py, micelle.py (the micelle build adapter; `micelle/` remains the science owner), stages.py,
+  cg_names.py, composition.py, stages.py,
   workflow.py, environment.py, and coordination/ (coordinator, worker, admission, analysis_coordinator, resources,
   temporary, manifest).
 * models/ owns molecular definitions: mappings/ (candidate schema, storage, context, graph, exports, suggestions,
@@ -50,7 +50,7 @@ how a dashboard gains a workspace; the engine never imports one.
   bonded_terms.py, bonded_estimate.py, dihedral_fit.py,
   bartender_fit.py, references.py and figures.py. analysis/validation/carbohydrate_targets.py is the target registry
   that the mapping route and the validation analyses both read. kinds.py keeps the engine's own vocabulary
-  (bartender-fit, bonded-cross-check, dihedral-fit, observables, plots, stability); a feature adds its rows.
+  (bartender-fit, bonded-cross-check, dihedral-fit); a feature adds its rows.
 * web/ owns the shell: the routes every run type shares (runs, mappings, catalog, maintenance, the analyses queue),
   templates/dashboard.html and the shell's static JS. cli/ owns the `detergent-dashboard` and `detergent-import-run`
   console scripts.
@@ -68,7 +68,7 @@ conformations/ (the detergent conformation library: source validation, extractio
 resolver), analysis/runs/encapsulation.py, layout.py (stage directories, roles, review order, detergent topology),
 segments.py
 (the pdc segmenter and its markers), topologies.py (the protein's moleculetypes), view.py (the queued-run skip
-preview), web/routes/pdc.py (setup, system, micelle build), and its browser surface: `templates/panels/` and
+preview), web/routes/pdc.py (setup, system), and its browser surface: `templates/panels/` and
 `templates/fragments/`, `static/pdc.css`, `static/js/{pdc,new-run-pdc,run-view-pdc}.js`.
 
 ### Adding a distribution
@@ -545,7 +545,7 @@ not rewrite a topology; using the parameters in an AA run is the next phase.
 
 The form also carries a collapsed **Other run options** group: CG production output cadence (`nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm`), CG production cutoffs (`rlist`, `rcoulomb`, `rvdw`), and execution (`mdrun_pmefft`, `mdrun_update`, `mdrun_tunepme`). The CG legs' timestep, neighbour list, Verlet tolerance and couplings live in their own stage editors (above), not here. `cg_seed` is a visible CG control; `box_shape` is an AA-run control (the four cells above), and the CG production tolerance accepts `0.001`–`0.1` only, because GROMACS refuses exactly 0 and the CG profile has no pinned `rlist` to fall back on. MDP overrides are accepted only because they are in `SETTING_SPECS`/`CHOICE_SPECS`; an untouched run writes the reviewed MDP byte-for-byte. Help text is one server-side map (`execution/settings_help.py`) returned with `/api/defaults`: MDP fields quote the GROMACS 2026-rc manual, execution fields quote `gmx mdrun -h`; the template carries no prose. Info buttons are focusable and expose the tooltip through `aria-describedby`.
 
-A CG run's **reference** parameterization is a published Martini 3 sugar entry: Sucrose `SUCR`, Trehalose `TREH`, Lactose `LAC`, Glucose `GLC`. The start is the molecule's AA coordinates mapped onto the published bead layout; the topology is the entry's own terms; the run is one molecule in Martini water with the CG profile, no AA stage and no Fast-Forward fit. Glucose's layout identifies `GAL` because aldohexoses share one bead pattern; the molecule's identity selects `GLC` and the model says so. Maltose has no published entry and is refused. `GET /api/sugar-cg/preview` is the preview; `GET /api/readiness?run_type=cg&parameterization_kind=reference&sugar_entry=…` is the gate.
+A CG run's **reference** parameterization is a published Martini 3 sugar entry: Sucrose `SUCR`, Trehalose `TREH`, Lactose `LAC`, Glucose `GLC`. The start is the molecule's AA coordinates mapped onto the published bead layout; the topology is the entry's own terms; the run is one molecule in Martini water with the CG profile, no AA stage and no Fast-Forward fit. Glucose's layout identifies `GAL` because aldohexoses share one bead pattern; the molecule's identity selects `GLC` and the model says so. Maltose has no published entry and is refused. `GET /api/readiness?run_type=cg&parameterization_kind=reference&sugar_entry=…` is the gate.
 
 Lists compatible completed AA runs for AA reference reuse. Selecting one records its ID and checksum as the run's
 `shared_reference` and points `AA_REFERENCE_DIR` at the already-published reference; nothing is copied, the source
@@ -668,23 +668,17 @@ Each cycle of a dynamics leg writes `<deffnm>.cpt` (and backs the previous save 
 
 JSON and log endpoints are under /api/jobs, /api/readiness, /api/mappings, /api/bonded-parameterizations, /api/compositions, /api/cg-models, /api/osmotic and /api/pdc. Mapping edits are stored in the configured workspace's mapping_drafts/ directory; original candidates stay under the canonical molecule source.
 
-### Mapping exports and diagrams
+### Mapping diagrams
 
 The editor draws the same assignment in three dimensions with the vendored NGL viewer: the heavy atoms as ball-and-stick, and every bead as a translucent sphere at the centre of the atoms it maps, sized by its R/S/T class. Spheres are served as a file of one atom per bead and drawn as one representation per size class, because a representation carries a single radius scale. Clicking a sphere selects every atom that bead maps and clicking an atom selects that atom, both through the editor's own toggle, so the two views cannot hold different selections. `POST /api/mappings/overlay3d` serves both files; the unit conversion (a mapping context holds nanometres, a PDB file angstroms), the centres and the radii live in `models/mappings/overlay3d.py` with unit tests, and the browser behavior is covered by `packages/core/tests/browser/test_mapping_overlay3d_browser.py`.
-Each candidate can export .ndx, .map, .gro, or a ZIP containing all three plus candidate metadata, source hash, and validation report. All files use matching bead IDs B01, B02, …; original display names remain in model.json. This avoids GRO name truncation and Fast_Forward's restriction to alphanumeric bead identifiers. Missing, repeated, unknown, or hydrogen assignments block export. Size and connectivity findings remain visible and recorded as review issues.
+`mappings.export_files` produces the review artifacts (.ndx, .map, .gro, and the model.json) for a candidate: matching bead IDs B01, B02, …, original display names in model.json, and no periodic box. These are review artifacts, not fitted parameters or a ready-to-run system. Missing, repeated, unknown, or hydrogen assignments block an export.
 
-The .map header is [ molecule ] LIG1 <molecule_name>, as required by Fast_Forward. The .gro frame is calculated from equal-weight heavy-atom COGs, converted from ångströms to nm, and has no periodic box. These are review artifacts, not fitted parameters or a ready-to-run system. Original atom indices refer to the matching SwissParam ligand-only order.
-
-RDKit, already present in the local environment, draws the 2D structure from SwissParam MOL2 after checking atom names/order and bonds against PDB and ITP. Circle radii represent the 2D extent of assigned atoms, not Martini physical radii. Diagrams update with mapping edits and export as self-contained SVG.
+The editor's diagram is the interactive SVG the shell draws from `models/mappings/depiction.build_scene`; it carries atom ids and bead overlays and needs no export step.
 
 Carbohydrate validation is separate from mapping approval and is queued through the API rather than from a dashboard panel: `POST /api/jobs/<id>/carbohydrate-validation` takes the published `tc4` representation or the deterministic `physical_only_ring_constrained` derivative, which removes TC4 sites while retaining physical bead ownership and 1.15-scaled ring constraints. The controls that used to offer this from CG Bead Assignment were removed; the analysis, the queue route and the report endpoints are unchanged. A setup check is diagnostic-only. An evidence run requires cited targets and paper-aligned sampling before it can report `evidence_complete`.
 
 ### Analysis evidence
-POST /api/jobs/<id>/observables reads the mapped trajectory and fitted ITP, excludes defined interactions, and writes analysis/unparameterized_observables.json with units, frame count, means, standard deviations, and 5th/95th percentiles. The dashboard exposes this from the Run view's Analysis card.
-
 POST /api/jobs/<id>/surfaces runs the local GROMACS sasa -q command on the energy-minimized AA structure and mapped CG frame, preserving both source PDB surfaces, SASA XVG files, checksums, parameters, and an XY comparison SVG. This is a geometric comparison only and remains scientifically unvalidated.
-
-POST /api/jobs/<id>/stability records LINCS warning counts from stage logs, immutable trajectory checksums, and the actual local gmx check exit status/output tail in analysis/numerical_stability.json. Reports are diagnostic and do not approve a model.
 
 POST/GET /api/jobs/<id>/targets stores schema-versioned transfer and partition free energies and other supported detergent properties with units, uncertainty, conditions, and citation. Optional measured values produce standardized residuals; absent measurements remain absent.
 

@@ -1,68 +1,9 @@
-"""The sugar run's HTTP surface: the preview the form reads, the defaults it fills, and the queue it posts to.
+"""The sugar run's HTTP surface: the defaults it fills and the queue it posts to.
 
 The queue test stubs `create_job` and asserts what the route asked for; what the coordinator does with the record is
 the adapter's own suite. No test starts a simulation.
 """
 from unittest.mock import patch
-
-PREVIEW = '/api/sugar-cg/preview'
-
-
-def test_the_preview_returns_the_published_signature_and_the_candidate(dashboard):
-    r = dashboard.client.get(PREVIEW, query_string={'molecule_id': 'Sucrose', 'sugar_entry': 'SUCR'})
-
-    assert r.status_code == 200, r.get_data(as_text=True)
-    body = r.json
-    assert body['ready'] is True
-    assert body['conforms'] is True
-    assert body['topology_source'] == 'published-reference'
-    assert body['reference']['sha256'] == '4d29956a77d936cfdad10e8bbdf201cebdaa24a2f5f50688988a1c7bb9ebfc50'
-    assert [bead['name'] for bead in body['beads']] == [f'B{index:02d}' for index in range(1, 9)]
-    assert body['signature']['residues']['1'][0]['type'] == 'SP1r'
-
-
-def test_the_preview_returns_a_ready_trehalose_run(dashboard):
-    """Trehalose's published atom 8 residue column is the file's anomaly; its parents are residue 2, and the
-    reference reader now takes a site's residue from them. The preview is a run, not a blocker."""
-    r = dashboard.client.get(PREVIEW, query_string={'molecule_id': 'Trehalose', 'sugar_entry': 'TREH'})
-
-    assert r.status_code == 200
-    body = r.json
-    assert body['ready'] is True
-    assert body['conforms'] is True
-    assert body['blockers'] == []
-    assert body['sugar_entry'] == 'TREH'
-
-
-def test_the_preview_returns_a_ready_glucose_run_and_states_the_gal_ambiguity(dashboard):
-    """Glucose's layout identifies `GAL` because the aldohexoses share one four-bead pattern; `GLC` and `GAL` are
-    that mapping under different published lengths, so the molecule's own entry is a ready run and the preview says
-    in its limitations that the identity, not the layout, chose."""
-    r = dashboard.client.get(PREVIEW, query_string={'molecule_id': 'Glucose', 'sugar_entry': 'GLC'})
-
-    assert r.status_code == 200, r.get_data(as_text=True)
-    body = r.json
-    assert body['ready'] is True
-    assert body['conforms'] is True
-    assert body['blockers'] == []
-    assert body['sugar_entry'] == 'GLC'
-    assert any('GLC' in line and 'GAL' in line for line in body['limitations']), body['limitations']
-
-
-def test_the_preview_returns_a_ready_lactose_run(dashboard):
-    r = dashboard.client.get(PREVIEW, query_string={'molecule_id': 'Lactose', 'sugar_entry': 'LAC'})
-
-    assert r.status_code == 200, r.get_data(as_text=True)
-    assert r.json['ready'] is True
-    assert r.json['conforms'] is True
-    assert r.json['blockers'] == []
-
-
-def test_the_preview_refuses_an_unknown_entry(dashboard):
-    r = dashboard.client.get(PREVIEW, query_string={'molecule_id': 'Sucrose', 'sugar_entry': 'GAL'})
-
-    assert r.status_code == 400
-    assert 'SUCR' in r.get_data(as_text=True)
 
 
 def test_the_defaults_are_the_reference_kind_s_own_preset(dashboard):

@@ -26,21 +26,17 @@ from flask import Blueprint, abort, jsonify, request
 blueprint = Blueprint('osmotic', __name__)
 
 def _requested_molalities(data):
-    """The concentrations the caller named, or a 400 that names the shape this run type accepts.
+    """The concentrations the caller named, through the run type's own parser, or a 400 naming its refusal.
 
     **No default, and that is the point.** A default used to be filled in here, which made a payload that named no
     concentrations and a payload that asked for the paper's six indistinguishable -- and left behind a series whose
     concentrations nobody had named. A payload with no `molalities` is the shape the hand-queued one-condition runs
     had, so it is refused with the run type's own reason rather than defaulted.
     """
-    requested = data.get(osmotic.SERIES_KEY)
-    if requested in (None, '', []):
-        abort(400, osmotic.series_shape_reason())
-    values = requested if isinstance(requested, (list, tuple)) else str(requested).replace(',', ' ').split()
     try:
-        return [float(value) for value in values]
-    except (TypeError, ValueError):
-        abort(400, 'Molalities must be numbers')
+        return osmotic.molalities(data.get(osmotic.SERIES_KEY))
+    except ValueError as error:
+        abort(400, str(error))
 
 
 @blueprint.post('/api/osmotic/series')
@@ -80,8 +76,6 @@ def series_api():
         abort(400, str(exc))
 
     molalities = _requested_molalities(data)
-    if not molalities:
-        abort(400, osmotic.series_shape_reason())
 
     # The settings this run type accepts, asked of the run type: the route assembled the same union of two adapter
     # tables the runs route did, which is the answer for a run type only by coincidence.

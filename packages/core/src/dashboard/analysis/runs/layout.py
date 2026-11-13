@@ -479,23 +479,3 @@ def frame_source(root):
         return resolve(root, trajectory_role), resolve(root, structure_role), trajectory_role
     raise NoTrajectory(f'{root} offers no trajectory to review; looked for '
                        + ', then '.join(_looked_for(trajectory) for trajectory, _ in review_sources()))
-
-
-def summary(root, topology_name=None):
-    """What a run offers, by role, without raising: `{role: path or None}`, plus the CG topology.
-
-    A panel that has to render "why is this empty" needs the absences as data, so this is the tolerant
-    reader and `resolve` is the strict one.
-    """
-    root = Path(root)
-    report = {}
-    for role in CANDIDATES:
-        try:
-            report[role] = str(resolve(root, role).relative_to(root))
-        except ValueError:
-            report[role] = None
-    try:
-        report['cg_topology'] = str(cg_topology(root, topology_name).relative_to(root))
-    except ValueError:
-        report['cg_topology'] = None
-    return report

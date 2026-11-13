@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from detergent_pdc.execution.scripts import topology as topology_reader
+
 WATER_RESIDUE = 'SOL'
 ION_NAMES = ('NA', 'CL')
 RECORD_NAME = 'neutralisation.json'
@@ -48,20 +50,6 @@ pbc           = xyz
 """
 
 
-def sections(text: str) -> dict[str, list[list[str]]]:
-    """Every `[ section ]` of an itp or top, as its whitespace-separated data rows."""
-    found: dict[str, list[list[str]]] = {}
-    name = ''
-    for raw in text.splitlines():
-        line = raw.split(';', 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith('[') and line.endswith(']'):
-            name = line[1:-1].strip().lower()
-            found.setdefault(name, [])
-            continue
-        found.setdefault(name, []).append(line.split())
-    return found
 
 
 def moleculetype_of(text: str) -> str:
@@ -96,11 +84,7 @@ def moleculetypes(root: Path) -> dict[str, Path]:
 
 def composition(topology: Path) -> list[tuple[str, int]]:
     """`[ molecules ]` in the order written: which molecule, how many."""
-    rows = []
-    for fields in sections(topology.read_text()).get('molecules', []):
-        if len(fields) >= 2 and fields[-1].lstrip('-').isdigit():
-            rows.append((fields[0], int(fields[-1])))
-    return rows
+    return topology_reader.molecule_rows(topology.read_text())
 
 
 def counts(topology: Path) -> dict[str, int]:
@@ -114,7 +98,8 @@ def counts(topology: Path) -> dict[str, int]:
 def charge_of(path: Path) -> float:
     """The summed charge of one moleculetype, from the charges its own `[ atoms ]` states."""
     total = 0.0
-    for fields in sections(path.read_text()).get('atoms', []):
+    for line in topology_reader.sections(path.read_text()).get('atoms', []):
+        fields = line.split()
         if len(fields) >= 7:
             try:
                 total += float(fields[6])

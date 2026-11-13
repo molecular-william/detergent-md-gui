@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from detergent_pdc.models.molecules import detergent_cg
 
+from tests.harness.pdc_fixtures import atom_rows
 from tests.harness.support import PROJECT_ROOT
 
 MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
@@ -172,18 +173,6 @@ def revision(topology: str = FITTED, **overrides) -> dict:
 
 def fields(line: str) -> list[str]:
     return line.split(';', 1)[0].split()
-
-
-def atom_rows(text: str) -> list[list[str]]:
-    """The `[ atoms ]` rows: the lines a reader of a topology means when it says "the atoms"."""
-    section, rows = '', []
-    for line in text.splitlines():
-        content = line.split(';', 1)[0].strip()
-        if content.startswith('[') and content.endswith(']'):
-            section = content[1:-1].strip().lower()
-        elif content and section == 'atoms':
-            rows.append(content.split())
-    return rows
 
 
 def test_adopting_a_fit_renames_the_atoms_and_changes_nothing_else():

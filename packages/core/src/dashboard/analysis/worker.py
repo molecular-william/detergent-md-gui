@@ -46,15 +46,6 @@ def source_entries(root,kind,payload=None):
         if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
-    # The legacy pair is a *substitution*, not a default: it exists because a run written before the
-    # reference/consumer split keeps its atomistic half as `1_AA-reference/3-run.{xtc,tpr}`, so its files are not
-    # where the current patterns look. Applying it to a run that holds neither -- a protein-detergent run, which has
-    # no AA reference at all -- discarded every declared pattern (measured: `00b9ae6db23f`'s `sources.json` held
-    # `manifest.json` alone, so the producer was handed an empty directory and recorded "offers no trajectory to
-    # review" for a run holding 2.5 GB of them). The substitution is made only when a legacy file is actually there.
-    legacy = tuple(name for name in TABLE[kind].legacy_sources if (root / name).is_file())
-    if legacy and not aa_source and not (root/'1_AA-reference/prod/lig.xtc').is_file():
-        patterns = list(legacy)
     def matches(relative):
         if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):
             return True

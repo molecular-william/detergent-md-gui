@@ -59,44 +59,44 @@ def test_sucrose_and_trehalose_conform_to_their_published_entries():
     """Trehalose's published atom 8 says residue 1 while its parents are residue 2; the reader takes a site's
     residue from its parents, and a symmetric 1,1 linkage's bridging oxygen follows the published entry's choice
     of the first ring. With both read the reference's way, the chemically correct candidate conforms."""
-    sucrose = sugar_cg.preview('Sucrose', 'SUCR', molecule_root=MOLECULES)
+    sucrose = sugar_cg.assess('Sucrose', 'SUCR', molecule_root=MOLECULES)
     assert sucrose['ready'] is True
-    assert sucrose['conforms'] is True
-    assert len(sucrose['beads']) == 8
-    assert [bead['type'] for bead in sucrose['beads']] == ['SP1r', 'SP4r', 'SP1r', 'TC4',
-                                                           'SN6', 'SP4r', 'SP1r', 'TC4']
+    assert sucrose['conformance']['issues'] == []
+    assert len(sucrose['candidate']['beads']) == 8
+    assert [bead['type'] for bead in sucrose['candidate']['beads']] == ['SP1r', 'SP4r', 'SP1r', 'TC4',
+                                                                        'SN6', 'SP4r', 'SP1r', 'TC4']
 
-    trehalose = sugar_cg.preview('Trehalose', 'TREH', molecule_root=MOLECULES)
+    trehalose = sugar_cg.assess('Trehalose', 'TREH', molecule_root=MOLECULES)
     assert trehalose['ready'] is True
-    assert trehalose['conforms'] is True
+    assert trehalose['conformance']['issues'] == []
     assert trehalose['blockers'] == []
-    assert [bead['type'] for bead in trehalose['beads']] == ['SP1r', 'SP4r', 'SP1r', 'TC4',
-                                                             'SN6', 'SP4r', 'SP1r', 'TC4']
+    assert [bead['type'] for bead in trehalose['candidate']['beads']] == ['SP1r', 'SP4r', 'SP1r', 'TC4',
+                                                                          'SN6', 'SP4r', 'SP1r', 'TC4']
 
 
 def test_lactose_and_glucose_are_ready_reference_runs():
     """Lactose identifies `LAC`. Glucose's layout identifies `GAL`, because every aldohexose has the same four-bead
     pattern; `GLC` and `GAL` are one mapping with different published lengths, so the adapter accepts the molecule's
-    own entry and the preview states the ambiguity in its limitations."""
-    lactose = sugar_cg.preview('Lactose', 'LAC', molecule_root=MOLECULES)
+    own entry and the reference's layout note states the ambiguity."""
+    lactose = sugar_cg.assess('Lactose', 'LAC', molecule_root=MOLECULES)
     assert lactose['ready'] is True
-    assert lactose['conforms'] is True
+    assert lactose['conformance']['issues'] == []
     assert lactose['blockers'] == []
-    assert len(lactose['beads']) == 8
+    assert len(lactose['candidate']['beads']) == 8
 
-    glucose = sugar_cg.preview('Glucose', 'GLC', molecule_root=MOLECULES)
+    glucose = sugar_cg.assess('Glucose', 'GLC', molecule_root=MOLECULES)
     assert glucose['ready'] is True
-    assert glucose['conforms'] is True
+    assert glucose['conformance']['issues'] == []
     assert glucose['blockers'] == []
-    assert len(glucose['beads']) == 4
-    assert any('GLC' in line and 'GAL' in line and 'cannot distinguish' in line
-               for line in glucose['limitations']), glucose['limitations']
+    assert len(glucose['candidate']['beads']) == 4
+    note = reference.layout_note(glucose['candidate'], 'GLC')
+    assert note and 'GLC' in note and 'GAL' in note and 'cannot distinguish' in note, note
 
 
 def test_maltose_is_not_a_published_sugar_run():
     """Maltose's layout matches and conforms to `LAC`, which is lactose's model; a molecule the published set does
     not name stays blocked even though the candidate itself conforms."""
-    answer = sugar_cg.preview('Maltose', 'LAC', molecule_root=MOLECULES)
+    answer = sugar_cg.assess('Maltose', 'LAC', molecule_root=MOLECULES)
 
     assert answer['ready'] is False
     assert any('no published Martini 3 sugar entry' in blocker for blocker in answer['blockers'])
@@ -107,7 +107,7 @@ def test_the_offered_entries_are_the_published_sugars_in_a_stable_order():
 
 
 def test_an_entry_mismatch_is_a_blocker_not_a_silent_swap():
-    answer = sugar_cg.preview('Sucrose', 'TREH', molecule_root=MOLECULES)
+    answer = sugar_cg.assess('Sucrose', 'TREH', molecule_root=MOLECULES)
 
     assert answer['ready'] is False
     assert any('identifies SUCR' in blocker for blocker in answer['blockers'])

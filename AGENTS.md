@@ -55,8 +55,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   `funct 1` refuses the topology; one that reads each line as a dihedral measures one torsion eight times, and a writer must collapse the block's lines (`refine`).
 - `ff_assess` scores against histograms it does not make. A revision recording none still runs, and its assessment stage
   records `skipped` with that reason rather than scoring 0.00.
-- `coordinator.automatic_analyses` is the one resolver for a run type's default analyses; `kinds.for_every_run()`
-  is empty, and a `cg` revision run owes `dihedral-fit`/`bonded-cross-check`, which record `skipped` for the other kinds.
+- `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for`
+  is the only list, and a `cg` revision run owes `dihedral-fit`/`bonded-cross-check`, which record `skipped` for the other kinds.
 - A pdc belt is a torus when the protein states a membrane (`radius_nm` is then a floor under the measured
   centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its
   head site.

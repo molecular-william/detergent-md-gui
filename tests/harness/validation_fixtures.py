@@ -199,6 +199,35 @@ MAP_POSITIONS = {'B01': (0.0, 0.0, 0.0), 'B02': (0.3, 0.0, 0.0), 'B03': (0.15, 0
                  'B04': (0.9, 0.25, 0.0), 'B05': (1.1, 0.45, 0.1)}
 
 
+
+#: The solute bundle a series runner copies out of; the catalogue's own list is the run type's, passed explicitly.
+SOLUTE_FILES = ('solute.gro', 'solute.itp', 'water.gro', 'martini_v3.0.0_solvents_v1.itp')
+
+
+def solute_files(dashboard, molecule: str = 'maltose', files=SOLUTE_FILES):
+    """The directory `prepare` copies out of, under the fixture's own workspace rather than the developer's."""
+    root = dashboard.coordinator.RUNS.parent / 'osmotic' / molecule
+    root.mkdir(parents=True, exist_ok=True)
+    for name in files:
+        (root / name).write_text('fixture\n')
+    return root
+
+
+def save_mapping(dashboard, molecule_id: str = 'Maltose'):
+    """Save a candidate through the route the assignment editor posts to, so `create_job` can resolve it."""
+    from dashboard.models.mappings import context as mapping_context
+
+    context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', molecule_id)
+    with dashboard.client as c:
+        preview = c.post('/api/mappings/automatic/preview',
+                         json={'molecule_id': molecule_id, 'molecule_snapshot': context['snapshot']}).get_json()
+        assert preview['available'] is True, preview.get('reasons')
+        candidate = dict(preview['candidate'], molecule_id=molecule_id, molecule_snapshot=context['snapshot'])
+        saved = c.post('/api/mappings/drafts', json=candidate)
+    assert saved.status_code == 201, saved.get_data(as_text=True)
+    return saved.get_json()
+
+
 def publish_mapping(dashboard, jid, model=None, positions=None):
     """Leave behind the run's own mapped frame: the model the beads come from and one static GRO frame."""
     model = model or MAP_MODEL

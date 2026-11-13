@@ -69,7 +69,7 @@ def cg_job(dashboard, monkeypatch, source=None, **overrides):
 
 def test_aa_launch_and_clone_do_not_require_cg_tools(dashboard, service,monkeypatch):
     def forbidden(*a,**k):raise AssertionError('AA touched the CG workflow')
-    monkeypatch.setattr(cg,'readiness',forbidden)
+    monkeypatch.setattr(cg,'parameterization_readiness',forbidden)
     response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM','aa_nvt_ps':5})
     assert response.status_code==201,response.get_json()
     job=response.get_json();assert job['method']=='gromacs' and len(job['workflow_stages'])==7

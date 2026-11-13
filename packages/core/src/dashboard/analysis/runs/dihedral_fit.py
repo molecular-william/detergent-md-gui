@@ -58,9 +58,10 @@ def savitzky_golay(values, window=DEFAULT_WINDOW, order=DEFAULT_ORDER):
     """A Savitzky-Golay smoothing: a polynomial of `order` fitted to a window of `window` points, evaluated at its
     centre, then moved along.
 
-    Implemented here rather than taken from scipy, which is present in this environment only as another package's
-    dependency and is not declared by this project. Both edges keep their full width and are fitted in the same
-    least-squares sense as the interior, which is what lets a closed curve stay closed where its ends meet.
+    Implemented here rather than taken from scipy. `savgol_filter(mode='interp')` keeps a full-width edge window by
+    evaluating its polynomial at the edge rather than at the point, which moves the first and last `window // 2`
+    values; this version shrinks the window to the points that exist, so a closed curve whose first and last values
+    are equal stays closed. Away from the edges the two agree to floating-point error.
     """
     data = np.asarray(values, dtype=float)
     if window < 3 or window % 2 == 0:

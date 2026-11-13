@@ -47,7 +47,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ['VsiteError', 'derive_text', 'derive_file', 'derive_from_itp', 'derive_from_rtp']
+__all__ = ['VsiteError', 'derive_from_itp', 'derive_from_rtp']
 
 _ELEMENTS = {1: 'H', 6: 'C', 7: 'N', 8: 'O', 15: 'P', 16: 'S'}
 _RTP_SECTIONS = frozenset({
@@ -295,9 +295,9 @@ def _parse_itp(path: Path, text: str, sha256: str) -> tuple[_Molecule, list[dict
                 raise VsiteError(f'{path}:{lineno}: duplicate atom number {index}')
             atoms[index] = _Atom(index, fields[1], fields[4])
         elif section == 'bonds':
-            _append_bond(path, lineno, fields, bonds, diagnostics)
+            _append_bond(path, lineno, fields, bonds, diagnostics, _integer)
         elif section == 'angles':
-            _append_angle(path, lineno, fields, angles, diagnostics)
+            _append_angle(path, lineno, fields, angles, diagnostics, _integer)
 
     if moleculetype_headers == 0:
         raise VsiteError(f'{path}: no [ moleculetype ] section')
@@ -331,11 +331,13 @@ def _validate_terms(path: Path, atoms: dict[int, _Atom], bonds: list[_Bond], ang
                     f'{path}: angle {angle.i}-{angle.j}-{angle.k} refers to missing atom {index}')
 
 
-def _append_bond(path: Path, lineno: int, fields: list[str], bonds: list[_Bond], diagnostics: list[dict]) -> None:
+def _append_bond(path: Path, lineno: int, fields: list[str], bonds: list[_Bond], diagnostics: list[dict],
+                 resolve, needs='[ bonds ] line needs i j funct') -> None:
+    """One `[ bonds ]` row, with the atoms read by the caller's resolver (indices or names)."""
     if len(fields) < 3:
-        raise VsiteError(f'{path}:{lineno}: [ bonds ] line needs i j funct')
-    i = _integer(fields[0], f'{path}:{lineno}: bond atom i')
-    j = _integer(fields[1], f'{path}:{lineno}: bond atom j')
+        raise VsiteError(f'{path}:{lineno}: {needs}')
+    i = resolve(fields[0], f'{path}:{lineno}: bond atom i')
+    j = resolve(fields[1], f'{path}:{lineno}: bond atom j')
     funct = _integer(fields[2], f'{path}:{lineno}: bond funct')
     if funct != 1:
         _warning(diagnostics, f'{path}:{lineno}: bond {i}-{j} has funct {funct}; only funct 1 is used')
@@ -345,17 +347,21 @@ def _append_bond(path: Path, lineno: int, fields: list[str], bonds: list[_Bond],
     bonds.append(_Bond(i, j, funct, b0, kb))
 
 
-def _append_angle(path: Path, lineno: int, fields: list[str], angles: list[_Angle], diagnostics: list[dict]) -> None:
+def _append_angle(path: Path, lineno: int, fields: list[str], angles: list[_Angle], diagnostics: list[dict],
+                  resolve, needs='[ angles ] line needs i j k funct', where='angle {i}-{j}-{k}') -> None:
+    """One `[ angles ]` row, with the atoms read by the caller's resolver (indices or names)."""
     if len(fields) < 4:
-        raise VsiteError(f'{path}:{lineno}: [ angles ] line needs i j k funct')
-    i = _integer(fields[0], f'{path}:{lineno}: angle atom i')
-    j = _integer(fields[1], f'{path}:{lineno}: angle atom j')
-    k = _integer(fields[2], f'{path}:{lineno}: angle atom k')
+        raise VsiteError(f'{path}:{lineno}: {needs}')
+    i = resolve(fields[0], f'{path}:{lineno}: angle atom i')
+    j = resolve(fields[1], f'{path}:{lineno}: angle atom j')
+    k = resolve(fields[2], f'{path}:{lineno}: angle atom k')
     funct = _integer(fields[3], f'{path}:{lineno}: angle funct')
     if funct != 1:
         _warning(diagnostics, f'{path}:{lineno}: angle {i}-{j}-{k} has funct {funct}; only funct 1 is used')
         return
-    theta0 = _angle_value(_number(fields[4], f'{path}:{lineno}: angle theta0'), f'{path}:{lineno}: angle {i}-{j}-{k} theta0') if len(fields) > 4 else None
+    site = where.format(i=i, j=j, k=k)
+    theta0 = _angle_value(_number(fields[4], f'{path}:{lineno}: {site} theta0'),
+                          f'{path}:{lineno}: {site} theta0') if len(fields) > 4 else None
     ktheta = _number(fields[5], f'{path}:{lineno}: angle ktheta') if len(fields) > 5 else None
     angles.append(_Angle(i, j, k, funct, theta0, ktheta))
 
@@ -413,10 +419,13 @@ def _parse_rtp(path: Path, text: str, sha256: str, residue: str) -> tuple[_Molec
     for residue_name, section_name, lineno, fields in records:
         if residue_name != residue:
             continue
+        resolve = lambda token, _what, lineno=lineno: _rtp_atom(path, lineno, token, atom_names)
         if section_name == 'bonds':
-            _append_rtp_bond(path, lineno, fields, atom_names, bonds, diagnostics)
+            _append_bond(path, lineno, fields, bonds, diagnostics, resolve,
+                         'RTP [ bonds ] line needs atom atom funct')
         elif section_name == 'angles':
-            _append_rtp_angle(path, lineno, fields, atom_names, angles, diagnostics)
+            _append_angle(path, lineno, fields, angles, diagnostics, resolve,
+                          'RTP [ angles ] line needs atom atom atom funct', 'angle')
 
     return _Molecule('rtp', residue, sha256, {}, atoms, bonds, angles), diagnostics
 
@@ -431,37 +440,6 @@ def _rtp_atom(path: Path, lineno: int, token: str, names: dict[str, int]) -> int
         if local in names:
             return names[local]
         raise VsiteError(f'{path}:{lineno}: atom {token!r} is not in this residue') from None
-
-
-def _append_rtp_bond(path: Path, lineno: int, fields: list[str], names: dict[str, int],
-                     bonds: list[_Bond], diagnostics: list[dict]) -> None:
-    if len(fields) < 3:
-        raise VsiteError(f'{path}:{lineno}: RTP [ bonds ] line needs atom atom funct')
-    i = _rtp_atom(path, lineno, fields[0], names)
-    j = _rtp_atom(path, lineno, fields[1], names)
-    funct = _integer(fields[2], f'{path}:{lineno}: bond funct')
-    if funct != 1:
-        _warning(diagnostics, f'{path}:{lineno}: bond {fields[0]}-{fields[1]} has funct {funct}; only funct 1 is used')
-        return
-    b0 = _distance(_number(fields[3], f'{path}:{lineno}: bond b0'), f'{path}:{lineno}: bond {fields[0]}-{fields[1]} b0') if len(fields) > 3 else None
-    kb = _number(fields[4], f'{path}:{lineno}: bond kb') if len(fields) > 4 else None
-    bonds.append(_Bond(i, j, funct, b0, kb))
-
-
-def _append_rtp_angle(path: Path, lineno: int, fields: list[str], names: dict[str, int],
-                      angles: list[_Angle], diagnostics: list[dict]) -> None:
-    if len(fields) < 4:
-        raise VsiteError(f'{path}:{lineno}: RTP [ angles ] line needs atom atom atom funct')
-    i = _rtp_atom(path, lineno, fields[0], names)
-    j = _rtp_atom(path, lineno, fields[1], names)
-    k = _rtp_atom(path, lineno, fields[2], names)
-    funct = _integer(fields[3], f'{path}:{lineno}: angle funct')
-    if funct != 1:
-        _warning(diagnostics, f'{path}:{lineno}: angle {fields[0]}-{fields[1]}-{fields[2]} has funct {funct}; only funct 1 is used')
-        return
-    theta0 = _angle_value(_number(fields[4], f'{path}:{lineno}: angle theta0'), f'{path}:{lineno}: angle theta0') if len(fields) > 4 else None
-    ktheta = _number(fields[5], f'{path}:{lineno}: angle ktheta') if len(fields) > 5 else None
-    angles.append(_Angle(i, j, k, funct, theta0, ktheta))
 
 
 def _load_force_field(path: Path) -> _ForceField:
@@ -803,47 +781,6 @@ def _derive(molecule: _Molecule, forcefield: _ForceField | None, diagnostics: li
         'forcefield': _forcefield(vsites, angle_constraints),
         'diagnostics': diagnostics,
     }
-
-
-def derive_text(text: str, *, force_field: str | Path | None = None, kind: str = 'itp',
-                residue: str | None = None) -> dict:
-    """Derive virtual sites from topology text already in memory.
-
-    ``kind`` is ``'itp'`` (one moleculetype) or ``'rtp'`` (one residue); the SHA-256 is taken
-    over the UTF-8 text. A route that has parsed an inspected snapshot can use this without
-    staging the file on disk.
-    """
-    kind = kind.lower()
-    if kind not in ('itp', 'rtp'):
-        raise VsiteError(f'unsupported topology kind {kind!r}; use "itp" or "rtp"')
-    if kind == 'itp' and residue:
-        raise VsiteError('a residue name is only valid for kind="rtp"')
-    if kind == 'rtp' and not residue:
-        raise VsiteError('kind="rtp" requires a residue name')
-    source = Path('<text>')
-    sha256 = hashlib.sha256(text.encode('utf-8')).hexdigest()
-    if kind == 'rtp':
-        molecule, diagnostics = _parse_rtp(source, text, sha256, residue)
-    else:
-        molecule, diagnostics = _parse_itp(source, text, sha256)
-    forcefield = _load_force_field(Path(force_field)) if force_field is not None else None
-    return _derive(molecule, forcefield, diagnostics)
-
-
-def derive_file(path: str | Path, *, force_field: str | Path | None = None, kind: str | None = None,
-                residue: str | None = None) -> dict:
-    """Derive virtual sites from a file, inferring ITP/TOP versus RTP from its suffix."""
-    path = Path(path)
-    if kind is None:
-        kind = 'rtp' if path.suffix.lower() == '.rtp' else 'itp'
-    kind = kind.lower()
-    if kind == 'rtp':
-        return derive_from_rtp(path, residue or '', force_field)
-    if kind == 'itp':
-        if residue:
-            raise VsiteError('a residue name is only valid for kind="rtp"')
-        return derive_from_itp(path, force_field)
-    raise VsiteError(f'unsupported topology kind {kind!r}; use "itp" or "rtp"')
 
 
 def derive_from_itp(path: str | Path, force_field: str | Path | None = None) -> dict:

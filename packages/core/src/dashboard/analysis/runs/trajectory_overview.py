@@ -17,7 +17,6 @@ aggregate between 26 and 92 molecules and Rg between 2.25 and 5.36 nm, while the
 Nothing here decides whether a run is scientifically valid. The output is a figure, a JSON record of the series it
 drew, and a sentence saying what was measured and on how many sampled frames.
 """
-import json
 import math
 import re
 import subprocess
@@ -75,17 +74,8 @@ def _moving_average(values, window):
                      for index in range(values.size)])
 
 
-def _manifest(work):
-    """The run's manifest, or `{}`: a missing record is a state, not a reason to refuse the overview."""
-    try:
-        data = json.loads((Path(work) / 'manifest.json').read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _run_type(work):
-    return _manifest(work).get('run_type')
+    return segments._manifest(work).get('run_type')
 
 
 def _segment(run_dir):
@@ -478,7 +468,7 @@ def _term_summary(terms, name):
 
 def _drift(work, terms):
     """The Total-Energy/Potential drift and their ratio, with the manifest-derived coupling verdict."""
-    manifest = _manifest(work)
+    manifest = segments._manifest(work)
     total = _term_summary(terms, 'Total-Energy').get('slope_per_ns')
     potential = _term_summary(terms, 'Potential').get('slope_per_ns')
     ratio = (round(abs(total) / abs(potential), 6)
@@ -723,7 +713,7 @@ def run(work, payload=None):
     molecules = _molecules(universe, protein)
     molecule_sizes = [len(group) for group in molecules]
     detergent_atoms = np.concatenate(molecules) if molecules else np.array([], dtype=int)
-    threshold = float((_manifest(work).get('settings') or {}).get('contact_nm') or 0.6)
+    threshold = float((segments._manifest(work).get('settings') or {}).get('contact_nm') or 0.6)
 
     # The subject is one thing: the protein, or -- in an empty micelle -- the aggregate the detergents form. The
     # aggregate is chosen once, on the first sampled frame, and those molecules are tracked for the whole segment;

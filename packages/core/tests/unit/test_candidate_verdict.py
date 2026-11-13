@@ -5,6 +5,7 @@ sets, the store's save message a third, the exporter's blocker list a fourth and
 molecule draft loader a fifth. The table lives in one module now, and these pin both the
 shape callers get and that the checker really asks it.
 """
+import pytest
 from dashboard.models.mappings import graph, verdict
 
 STRUCTURE = {'atoms': [{'id': 1, 'heavy': True, 'xyz': [0.0, 0.0, 0.0], 'name': 'C1'},
@@ -20,18 +21,16 @@ def candidate(**overrides):
     return document
 
 
-def test_verdict_is_one_shape_for_every_question():
-    result = verdict.evaluate({'beads': []}, context=None)
-    assert set(result) >= {'codes', 'issues', 'can_save', 'can_reuse', 'can_export', 'can_approve'}
-    assert result['can_save'] is False
+def test_the_checker_answers_with_one_verdict_shape():
+    result = graph.validate(candidate(), structure=STRUCTURE)
+    assert set(result) >= {'issues', 'can_save', 'can_reuse', 'can_export', 'can_approve'}
+    assert result['can_save'] is True and result['can_approve'] is False
 
 
-def test_a_document_that_does_not_parse_is_a_finding_not_an_exception():
-    """The caller asks a question about the candidate; it should get the answer, not a raise."""
-    result = verdict.evaluate({'beads': 'not a list'}, context=None)
-    assert result['can_save'] is False and result['can_approve'] is False
-    assert result['issues'] and result['issues'][0]['message']
-    assert result['codes'] == [verdict.MALFORMED]
+def test_a_document_that_does_not_parse_is_refused_not_silently_passed():
+    """Malformed documents are the checker's refusal; the store validates before it writes."""
+    with pytest.raises(ValueError, match='name'):
+        graph.validate({'beads': 'not a list'}, context=None)
 
 
 def test_an_advisory_blocks_approval_but_not_export_or_reuse():

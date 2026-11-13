@@ -200,16 +200,6 @@ def topology_from_fit(initial_text: str, fitted: dict, beads: list[dict]) -> str
     return '\n'.join(out).rstrip('\n') + '\n'
 
 
-def ring_lengths(terms: dict) -> dict:
-    """The six ring constraint lengths from `[ constraints ]`, as `{'1-2': nm}`."""
-    lengths = {}
-    for row in terms.get('constraints', []):
-        fields = row.split()
-        if len(fields) >= 4:
-            lengths[f'{fields[0]}-{fields[1]}'] = float(fields[3])
-    return lengths
-
-
 def ensemble_distances(structure: Path, trajectory: Path, beads: list[dict]) -> dict:
     """The AA ensemble's own mean and spread for every ring pair, which is what a fit is checked against.
 

@@ -247,18 +247,14 @@ def _lines(*, dt, nsteps, nstxtcout, nstenergy, thermostat, barostat, tau_p, tem
 
 def osmotic_mdps(*, temperature, solute_molecules, production_ps=DEFAULT_PRODUCTION_PS,
                  equilibration_ps=DEFAULT_EQUILIBRATION_PS,
-                 output_interval_ps=DEFAULT_OUTPUT_INTERVAL_PS,
-                 origin_group='REFERENCE',
-                 confinement_nm=DEFAULT_CONFINEMENT_NM,
-                 force_constant=DEFAULT_CONFINEMENT_KJ_MOL_NM2):
+                 output_interval_ps=DEFAULT_OUTPUT_INTERVAL_PS):
     """The three mdp files for one condition, as `{'minimization'|'equilibration'|'production': text}`.
 
     Durations are in picoseconds and the step counts are derived from each file's own `dt` -- 5 fs where the paper's
     equilibration runs and 20 fs in production, the same split as every other CG run here.
 
-    The confinement's own numbers -- `confinement_nm`, `force_constant`, and the group that used to serve as its
-    origin -- are accepted here for the callers that still name them, but they are spent by `plumed_walls`, which
-    writes the potential itself. The mdp only switches it on.
+    The confinement's own numbers are spent by `plumed_walls`, which writes the potential itself; the mdp only
+    switches it on.
     """
     restraint = restraint_block(solute_molecules=solute_molecules)
     equilibration_ps, output_interval_ps = _check_duration(equilibration_ps, output_interval_ps, 'equilibration')

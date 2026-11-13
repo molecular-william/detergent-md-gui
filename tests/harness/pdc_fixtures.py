@@ -27,7 +27,8 @@ from pathlib import Path
 from dashboard.execution import run_scripts
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness import conformation_fixtures
+from tests.harness.support import DDM_BONDS, DDM_CLASSES, PROJECT_ROOT
 
 #: The repository's own scripts: a stage runs one of these from its directory, and the manifest records it by path.
 SCRIPTS = Path(pdc.__file__).resolve().parents[1] / 'scripts'
@@ -175,6 +176,60 @@ def write_cg_pdb(path: Path, atoms) -> Path:
              for index, (residue_id, residue, name, xyz) in enumerate(atoms, 1)]
     path.write_text('\n'.join(lines) + '\nEND\n')
     return path
+
+
+def library_mapping() -> dict:
+    """The fixture source run's own eleven beads, as the mapping editor exports a saved mapping.
+
+    The library is matched bead for bead against the mapping's derived model, so a run that uses the fixture's
+    library must derive the same bead names in the same order. The virtual sites and the connectivity are the
+    fixture's own, which is what makes the derivation and the trajectory the same molecule.
+    """
+    parents = dict(conformation_fixtures.VIRTUAL_SITES)
+    beads = []
+    for index, (name, kind, _position) in enumerate(conformation_fixtures.BEADS, start=1):
+        bead = {'name': name, 'type': kind, 'size': DDM_CLASSES[name],
+                'atoms': [] if index in parents else [index]}
+        if index in parents:
+            bead['virtual_site'] = {'function': 1, 'parents': [conformation_fixtures.BEADS[parent - 1][0]
+                                                               for parent in parents[index]]}
+        beads.append(bead)
+    names = [name for name, _kind, _position in conformation_fixtures.BEADS]
+    return {'schema_version': 3, 'molecule_id': 'DDM', 'name': "the fixture run's own eleven beads",
+            'martini_version': 3, 'beads': beads,
+            'connections': [[names[first - 1], names[second - 1]] for first, second in DDM_BONDS]}
+
+
+def mapping_candidate(dashboard, molecule_id: str = 'DDM', name: str = 'mapping_candidate_fixture.json',
+                     beads=None) -> str:
+    """A saved candidate in the workspace's own mapping store, named the way the panel offers one."""
+    directory = dashboard.paths.mapping_drafts
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(json.dumps({
+        'schema_version': 3, 'molecule_id': molecule_id, 'name': 'a test detergent mapping',
+        'beads': beads if beads is not None else [
+            {'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]},
+            {'name': 'TAIL2', 'type': 'C1', 'size': 'R', 'atoms': [2]},
+            {'name': 'S1A', 'type': 'SP1r', 'size': 'S', 'atoms': [3]},
+            {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'atoms': [],
+             'virtual_site': {'function': 1, 'parents': ['TAIL2', 'S1A']}},
+        ],
+        'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'S1A']],
+        'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
+        'status': 'candidate-unvalidated', 'martini_version': '3'}))
+    return name
+
+
+def atom_rows(text: str) -> list[list[str]]:
+    """The `[ atoms ]` rows: the lines a reader of a topology means when it says "the atoms"."""
+    section, rows = '', []
+    for line in text.splitlines():
+        content = line.split(';', 1)[0].strip()
+        if content.startswith('[') and content.endswith(']'):
+            section = content[1:-1].strip().lower()
+        elif content and section == 'atoms':
+            rows.append(content.split())
+    return rows
 
 
 def candidate_file(tmp_path: Path) -> Path:

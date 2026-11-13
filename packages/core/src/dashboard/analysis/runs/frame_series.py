@@ -19,7 +19,6 @@ sampled frames with a temporary run input and index group. `structures.series_pd
 An old attempt's `assembled`, `fit: protein|beads` and `fragment` arguments are read as the view they described and are
 recorded as such rather than relabelled.
 """
-import json
 import math
 import subprocess
 from pathlib import Path
@@ -213,15 +212,6 @@ def _settings(payload):
             'atoms': atoms, 'view': view, 'legacy': legacy}
 
 
-def _manifest(run_dir):
-    """A run's manifest, or `{}` when it has none: an absent record is a state, not a reason to refuse a picture."""
-    try:
-        data = json.loads((Path(run_dir) / 'manifest.json').read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _inside(run_dir, path):
     """Whether `path` is a file strictly inside the run, reachable without a symbolic link.
 
@@ -318,7 +308,7 @@ def sources(run_dir, payload=None):
         if path.is_file() and _recorded_inside(run_dir, path):
             entries.setdefault(relative, path)
             break
-    manifest = _manifest(run_dir)
+    manifest = segments._manifest(run_dir)
     topology = layout.recorded_topology(run_dir, manifest.get('run_type'), manifest)
     if topology is not None:
         relative = _spelling(run_dir, topology)
@@ -671,7 +661,7 @@ def _build(work, payload, temps):
         raise ValueError(f'{models} models of {atoms} atoms is about {estimate} bytes, and a frame series may weigh '
                          f'at most {MAX_BYTES}')
     subunits = structures.read_subunits(work)
-    manifest = _manifest(work)
+    manifest = segments._manifest(work)
     protein_topologies = [] if settings['atoms'] == 'ca' else _protein_topologies(work)
     topology = None
     if settings['atoms'] != 'ca':

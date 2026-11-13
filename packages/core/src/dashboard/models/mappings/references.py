@@ -1,7 +1,6 @@
 """Read-only Martini fragment reference index for mapping suggestions."""
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 
@@ -14,10 +13,6 @@ TYPE_RE = re.compile(r"(?<![A-Za-z0-9])([STR]?[PQNCX][1-6][a-z]?)(?![A-Za-z0-9])
 _INDEX_CACHE = {}
 
 
-def _sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _size(bead_type: str) -> str:
     return bead_type[0] if bead_type[:1] in {"S", "T"} else "R"
 
@@ -26,7 +21,7 @@ def _record(fragment_id, bead_type, rank, path, locator, *, name=None, notes=Non
     return {
         "fragment_id": str(fragment_id), "type": bead_type, "size": _size(bead_type),
         "source_rank": rank, "name": name or str(fragment_id),
-        "notes": notes or "", "references": [{"path": str(path), "sha256": _sha(path), "locator": locator}],
+        "notes": notes or "", "references": [{"path": str(path), "sha256": files.sha256(path), "locator": locator}],
     }
 
 
@@ -53,10 +48,6 @@ def _parse_itp(path: Path, rank: int, source_name: str):
     return records
 
 
-def _parse_sugars(path: Path):
-    return _parse_itp(path, 1, "sugars")
-
-
 def _parse_bible(path: Path):
     records = []
     try:
@@ -79,14 +70,21 @@ def _parse_bible(path: Path):
     return records, []
 
 
+def _source_specs(root):
+    """The reference files the index reads, in rank order: (paths, parser returning (records, diagnostics))."""
+    return (
+        (sorted(path for path in (root / 'references').glob('martini_*_sugars_*.itp')
+                if path.is_file() and not path.is_symlink()),
+         lambda path: (_parse_itp(path, 1, 'sugars'), [])),
+        ([root / 'references' / 'M3-Small-Molecules' / 'models' / 'martini_v3.0.0_small_molecules_v1.itp'],
+         lambda path: (_parse_itp(path, 2, 'small-molecules'), [])),
+        ([root / 'references' / 'M3-Bible' / 'src' / 'MartiniCGSmilesDB_v6.xlsx'], _parse_bible),
+    )
+
+
 def _source_paths(root):
     """The reference files the index reads, in the rank order it reads them."""
-    paths = sorted(path for path in (root / 'references').glob('martini_*_sugars_*.itp')
-                   if path.is_file() and not path.is_symlink())
-    for candidate in (root / 'references' / 'M3-Small-Molecules' / 'models' / 'martini_v3.0.0_small_molecules_v1.itp',
-                      root / 'references' / 'M3-Bible' / 'src' / 'MartiniCGSmilesDB_v6.xlsx'):
-        paths.append(candidate)
-    return paths
+    return [path for paths, _parse in _source_specs(root) for path in paths]
 
 
 def load_index(project_root: Path) -> dict:
@@ -103,22 +101,13 @@ def load_index(project_root: Path) -> dict:
 def _build_index(root: Path) -> dict:
     """Hash and parse every reference source. Called through load_index's memo."""
     root = Path(root); records = []; sources = []; diagnostics = []
-    sugar_paths = sorted((root / "references").glob("martini_*_sugars_*.itp"))
-    for path in sugar_paths:
-        if path.is_symlink() or not path.is_file():
-            continue
-        sources.append({"path": str(path.relative_to(root)), "sha256": _sha(path), "rank": 1})
-        records.extend(_parse_sugars(path))
-    small_root = root / "references" / "M3-Small-Molecules" / "models"
-    small_itp = small_root / "martini_v3.0.0_small_molecules_v1.itp"
-    if small_itp.is_file() and not small_itp.is_symlink():
-        sources.append({"path": str(small_itp.relative_to(root)), "sha256": _sha(small_itp), "rank": 2})
-        records.extend(_parse_itp(small_itp, 2, "small-molecules"))
-    bible = root / "references" / "M3-Bible" / "src" / "MartiniCGSmilesDB_v6.xlsx"
-    if bible.is_file() and not bible.is_symlink():
-        sources.append({"path": str(bible.relative_to(root)), "sha256": _sha(bible), "rank": 3})
-        bible_records, bible_diagnostics = _parse_bible(bible)
-        records.extend(bible_records); diagnostics.extend(bible_diagnostics)
+    for rank, (paths, parse) in enumerate(_source_specs(root), 1):
+        for path in paths:
+            if path.is_symlink() or not path.is_file():
+                continue
+            sources.append({"path": str(path.relative_to(root)), "sha256": files.sha256(path), "rank": rank})
+            parsed, notes = parse(path)
+            records.extend(parsed); diagnostics.extend(notes)
     records.sort(key=lambda item: (item["source_rank"], item["fragment_id"]))
     index_payload = {"sources": sources, "records": records, "diagnostics": diagnostics}
     return index_payload | {"index_sha256": canonical_sha256(index_payload)}

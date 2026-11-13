@@ -52,14 +52,6 @@ def test_the_overlay_refuses_a_bead_list_that_is_not_a_list_and_an_unknown_molec
     assert client.post('/api/mappings/overlay3d', json={'beads': []}).status_code == 400
 
 
-def test_validation_catalog_exposes_modes_and_tiers(dashboard):
-    client = dashboard.client
-    representations = client.get('/api/mappings/representations')
-    assert representations.status_code == 200
-    assert {item['id'] for item in representations.json['representations']} == {'tc4', 'physical_only_ring_constrained'}
-    assert {item['id'] for item in representations.json['tiers']} == {'setup', 'evidence'}
-
-
 def test_validation_queue_rejects_unknown_representation(dashboard):
     client = dashboard.client
     owner = dashboard.coordinator

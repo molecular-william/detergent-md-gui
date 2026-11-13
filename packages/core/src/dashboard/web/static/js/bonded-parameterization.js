@@ -49,7 +49,7 @@
  * `window.__bondedPollMs` is the one test seam: the browser tier sets the cadence to a few hundred
  * milliseconds, and one test in that tier runs the default, so the default cannot rot unnoticed.
  */
-import { $, api, cachedApi, post, setText, liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
+import { $, api, cachedApi, fillMoleculeOptions, post, setText, liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
 
 /** Fast_Forward's own `-constraints` default, and this repository's convention. Stated so the field can show it. */
 export const DEFAULT_CONSTRAINTS = 10000;
@@ -446,15 +446,7 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
 
   /** Every AA molecule the catalogue offers: a CG composition cannot be fitted, so it is not offered here. */
   async function fillMolecules() {
-    let list = [];
-    try {
-      const answer = await cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE});
-      list = (answer.molecules || []).filter(record => record.kind !== 'cg');
-    } catch (error) { list = []; }
-    const previous = moleculeSelect.value;
-    moleculeSelect.replaceChildren(...list.map(record => new Option(record.name || record.id, record.id)));
-    if ([...moleculeSelect.options].some(option => option.value === previous)) moleculeSelect.value = previous;
-    else if (moleculeSelect.options.length) moleculeSelect.selectedIndex = 0;
+    await fillMoleculeOptions(moleculeSelect);
     molecule = moleculeSelect.value;
   }
 

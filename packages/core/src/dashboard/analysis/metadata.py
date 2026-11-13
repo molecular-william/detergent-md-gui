@@ -4,9 +4,6 @@ A kind's description is part of its row in `kinds.TABLE` rather than a mapping o
 the four lists that described a kind independently, and the only one that had drifted: it held seventeen entries for
 fourteen kinds, and a kind missing from it rendered under a title built from its own name -- which reads exactly like
 a registered one.
-
-The evidence sections a report must carry are not the engine's vocabulary: the feature whose report requires them
-registers the text, and `features.evidence_sections()` is the merged view.
 """
 from .kinds import TABLE
 

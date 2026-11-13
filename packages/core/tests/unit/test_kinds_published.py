@@ -1,7 +1,7 @@
 """The kind table as the layers read it: `default_for(run_type)` and the queue route's payload contract.
 
-The coordinator queues `default_for(run_type)` beside `for_every_run()` when a run's stages finish, so a name that
-leaves `default_for` is an analysis an AA-CG run stops publishing without anyone noticing.
+The coordinator queues `default_for(run_type)` when a run's stages finish, so a name that leaves `default_for` is
+an analysis an AA-CG run stops publishing without anyone noticing.
 
 One of these tests is about not being a second copy of a truth that lives elsewhere. The `payload` a kind declares
 is what its queue route (`web/routes/analyses.py::queue_analysis`) actually validates, and the route is read here --
@@ -85,12 +85,6 @@ def test_the_kind_that_needs_a_cg_trajectory_defaults_to_no_run_type():
     assert any(source.startswith('4_CG_sim/') for source in validation.sources)
     assert validation.default_for_run_types == ()
     assert 'carbohydrate-validation' not in kinds.default_for('cg')
-
-
-def test_a_kind_that_runs_for_every_run_is_not_also_a_run_type_default():
-    """A kind in both facets would be queued twice by the coordinator, so the two are disjoint."""
-    for name, row in kinds.TABLE.items():
-        assert not (row.runs_for_every_run and row.default_for_run_types), name
 
 
 def test_a_run_type_nobody_defaulted_a_kind_for_gets_an_empty_list():

@@ -25,11 +25,6 @@ def tree_of(path):
     return owners[0]
 
 
-def test_every_module_lives_in_exactly_one_tree():
-    for path in FILES:
-        tree_of(path)
-
-
 def test_the_tree_decides_the_owner():
     for path in FILES:
         assert modules.module_of(path) == tree_of(path), path
