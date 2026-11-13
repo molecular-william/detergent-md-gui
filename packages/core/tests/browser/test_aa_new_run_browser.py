@@ -324,3 +324,29 @@ def test_the_coupling_hmr_timestep_and_label_are_editable_and_post(dashboard, li
     assert body['mass_repartition_factor'] == '3'
     assert body['aa_nvt_tcoupl'] == 'V-rescale' and body['aa_nvt_tau_t'] == '1'
     assert not errors, errors
+
+
+def test_a_preset_saved_before_the_topology_choice_does_not_inherit_a_stale_vsite(dashboard, live_page):
+    """The preset supplies the all-atom default when it predates the field; it must not carry a prior vsite over.
+
+    `Glucose-AA-fast1` was saved before the Topology group existed and pins `mdrun_update=gpu`, which GROMACS
+    refuses for a pdb2gmx vsite topology. Loading it after selecting Hydrogens must therefore reset the choice.
+    """
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    page.route('**/api/setting-presets?*', lambda route: route.fulfill(json={
+        'presets': [{'id': 'old', 'name': 'old preset', 'run_type': 'aa_only',
+                     'settings': {'box_nm': 3.0, 'mdrun_update': 'gpu'}}],
+        'default': None}))
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
+    page.locator('#run-type').select_option('aa_only')
+    expect(page.locator('[name=vsite]')).to_be_visible()
+    page.locator('[name=vsite]').select_option('hydrogens')
+    page.locator('#preset-select').select_option('old')
+    page.locator('#preset-load').click()
+    expect(page.locator('[name=vsite]')).to_have_value('none')
+    expect(page.locator('[name=box_nm]')).to_have_value('3')
+    assert errors == []

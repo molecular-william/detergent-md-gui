@@ -47,3 +47,12 @@ def test_a_choice_without_a_construct_is_refused(tmp_path):
         aa_vsites.build(source_topology=FIXTURES / 'methyl_hydroxyl.itp', coordinates=gro,
                         force_field=forcefields.entry('charmm36-jul2022').tree(), water='tip3p',
                         residue='MOL', choice='none')
+
+
+def test_gpu_update_is_refused_with_a_vsite_topology():
+    """GROMACS update groups cannot carry pdb2gmx's virtual-site types; refuse before the NVT leg does."""
+    from dashboard.execution.adapters import aa
+
+    with pytest.raises(ValueError, match='mdrun_update gpu cannot be used with a pdb2gmx virtual-site topology'):
+        aa.normalize_settings({'vsite': 'hydrogens', 'mdrun_update': 'gpu'})
+    assert aa.normalize_settings({'vsite': 'none', 'mdrun_update': 'gpu'})['mdrun_update'] == 'gpu'

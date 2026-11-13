@@ -1132,9 +1132,16 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   function applyPreset(preset) {
     const settings = preset?.settings || {};
     for (const key of presetFields()) {
-      if (key === 'sugar_entry' || !(key in settings)) continue;
+      if (key === 'sugar_entry') continue;
       const control = form.elements[key];
       if (!control || control.disabled) continue;
+      if (!(key in settings)) {
+        // A preset saved before the topology choice existed does not name a virtual-site build; state the all-atom
+        // default instead of inheriting whatever the reader last selected. An inherited vsite plus this preset's
+        // `mdrun_update=gpu` is exactly the combination GROMACS refuses for pdb2gmx vsite topologies.
+        if (key === 'vsite') control.value = 'none';
+        continue;
+      }
       // A stored value the form cannot offer -- a GPU this host lost -- is skipped rather than blanking the control.
       if (control.tagName === 'SELECT' && ![...control.options].some(option => option.value === String(settings[key]))) continue;
       control.value = settings[key];

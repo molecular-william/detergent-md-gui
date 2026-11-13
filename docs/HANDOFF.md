@@ -6,6 +6,17 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 `Glucose-AA-fast1` could not start when a stale vsite was selected.** The preset predates the
+Topology choice and has no `vsite` key, so loading it left whatever the form last held -- in the reported case
+`hydrogens`. The preset also pins `mdrun_update=gpu`; a pdb2gmx vsite topology is built from `virtual_sites3`
+types GROMACS cannot combine with update groups, so the NVT leg failed with `Update groups can not be used for
+this system because an incompatible virtual site type is used`. Two fixes: loading a preset that does not name
+`vsite` resets that control to `none` (other missing keys keep their current value), and `aa.normalize_settings`
+now refuses `vsite != none` with `mdrun_update=gpu` up front, naming update groups and the two ways out
+(`auto`/`cpu`, or Virtual sites `none`). The preset itself is otherwise valid: a shortened all-atom copy
+completed all seven stages, and the exact 200 ns probe was cancelled after it had started. Checks: fast **2805
+passed / 1 xfailed**, browser **383 passed**, slow **25 passed**, ruff clean.
+
 **2026-11-13 AA runs can build a pdb2gmx vsite topology (phase 2).** The AA form's **Topology** group now has
 `vsite` (`none`/`hydrogens`/`aromatics`). A vsite prepare writes an RTP residue from the stored ITP, builds a
 temporary force-field overlay (ligand atom types + MkVsites dummy types/constraints/`.vsd`), runs

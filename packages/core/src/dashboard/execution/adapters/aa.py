@@ -393,6 +393,10 @@ def normalize_settings(settings=None, profile='standard'):
                    'aa_npt_nstlist':'aa_npt_nstlist must be an integer',
                    'aa_production_nstlist':'aa_production_nstlist must be an integer'})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
+    if result.get('vsite', 'none') != 'none' and result.get('mdrun_update') == 'gpu':
+        raise ValueError('mdrun_update gpu cannot be used with a pdb2gmx virtual-site topology: GROMACS '
+                         'refuses update groups for its virtual-site types. Choose auto or cpu for Update '
+                         'and constraints, or set Virtual sites to none.')
     # GROMACS refuses a Verlet buffer tolerance of exactly 0 outright ("Can not have Verlet buffer tolerance of
     # exactly 0"), but 0 sits inside the published bounds, so it is refused here by name rather than at grompp.
     for stage in ('nvt','npt','production'):
