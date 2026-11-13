@@ -90,7 +90,11 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             'mdrun_gpu': 0,
             # A checkpoint every ten minutes of wall time, the project's cadence: a failed leg loses at most that
             # much sampling to Restart, and every pdc run records the number its mdrun was given.
-            'mdrun_cpt': 10}
+            'mdrun_cpt': 10,
+            # ``gmx pdb2gmx -vsite``, passed by the back-map wrapper to every pdb2gmx CG2AT2 runs. A string choice
+            # rather than a number, advertised in ``CHOICE_SPECS`` so ``runs.py:queue`` keeps it. ``none`` is the
+            # default: a run or clone written before this setting existed back-maps exactly as it did before.
+            'protein_vsite': 'none'}
 _PROTEIN_LIMIT = 50
 # Values a spec allows as a fraction but that the builders use as counts or seeds.
 # Canonical settings that are counts, not sizes: a supplied value is stored as an `int`, so the run's record says `120`
@@ -369,6 +373,13 @@ def validate_payload(payload):
     remove_out = payload.get('remove_out_of_micelle', DEFAULTS['remove_out_of_micelle'])
     if not isinstance(remove_out, bool):
         raise ValueError(f'the pdc removal setting must be true or false, not {remove_out!r}')
+    # The back-map's pdb2gmx choice. Also a string choice in `CHOICE_SPECS` (where `normalize_settings` checks it),
+    # but `prepare` and the preview read this function's return value, so it is validated here too: a value the
+    # wrapper cannot pass would otherwise reach the stage and fail there.
+    vsite = payload.get('protein_vsite', DEFAULTS['protein_vsite'])
+    if vsite not in CHOICE_SPECS['protein_vsite'][1]:
+        raise ValueError('the pdc protein virtual-site choice must be one of '
+                         + ', '.join(CHOICE_SPECS['protein_vsite'][1]) + f', not {vsite!r}')
     # The plan's step 1 is a choice too, and it is checked here for the same reason: a string that means "yes" to a
     # caller would silently mean "no" to the builder.
     # The default is the adapter's -- on -- but a step *about a protein* cannot be on for a build that has none: an empty
@@ -388,6 +399,7 @@ def validate_payload(payload):
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
             'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
             'prepare_protein': prepare_protein, 'remove_out_of_micelle': remove_out,
+            'protein_vsite': vsite,
             'conformation_library': library,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
@@ -821,6 +833,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     from detergent_pdc.execution.adapters.pdc_placement import DEFAULT_RADIUS_NM
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
                     'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
+                    'protein_vsite': choices['protein_vsite'],
                     'radius_nm': numbers.get('radius_nm') or round(float(DEFAULT_RADIUS_NM), 6)})
 
     run_dir = Path(run_dir)
@@ -1164,6 +1177,10 @@ CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assem
                 'backmap': ('Back-mapping (CG2AT2)', (True, False)),
                 'prepare_protein': ('Protein preparation (PDB2PQR)', (True, False)),
                 'remove_out_of_micelle': ('Remove out-of-micelle detergents', (True, False)),
+                # The back-map's `gmx pdb2gmx -vsite` choice. Advertised so `runs.py:queue` keeps it, and enumerated
+                # here rather than in `SETTING_SPECS` because it is a GROMACS choice, not a number. The back-map
+                # stage's wrapper adds the flag to the `pdb2gmx` calls CG2AT2 makes, and to no other command.
+                'protein_vsite': ('Protein virtual sites', ('none', 'hydrogens', 'aromatics')),
                 # No enumerable domain here: the two shapes are build (`runs`, `size`, `seed`) and reference (`key`,
                 # `sha256`), and the library package is the one place that says which a spec is and what is wrong
                 # with it. Its empty options are what keep the key from being dropped before the job is created.

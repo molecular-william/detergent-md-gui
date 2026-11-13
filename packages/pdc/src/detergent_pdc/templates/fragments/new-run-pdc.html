@@ -137,6 +137,13 @@
             </div>
           </section>
           <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Back-map</h4>
+            <div class="new-pdc-option-rows">
+              <label>Protein virtual sites<span class="setting-control"><select name="protein_vsite"><option value="none">None</option><option value="hydrogens">Hydrogens</option><option value="aromatics">Aromatics</option></select></span></label>
+            </div>
+            <p class="hint">Passed to <code>pdb2gmx</code> as <code>-vsite</code> for every protein chain CG2AT2 converts. Hydrogens turns the protein's hydrogens into virtual sites; <strong>Aromatics is deprecated by GROMACS</strong> and also makes the aromatic ring atoms virtual sites.</p>
+          </section>
+          <section class="new-pdc-option-group">
             <h4 class="new-pdc-option-title">Execution</h4>
             <div class="new-pdc-option-rows">
               <label>GPU device (CUDA id)<span class="setting-control"><select name="mdrun_gpu" class="new-pdc-gpu-device"></select></span></label>
@@ -348,6 +355,7 @@
       <dt>Seed</dt><dd data-new-summary="seed">—</dd>
       <dt>Removal</dt><dd data-new-summary="removal">—</dd>
       <dt>Back-map</dt><dd data-new-summary="backmap">CG2AT2 to atomistic</dd>
+      <dt>Protein virtual sites</dt><dd data-new-summary="vsite">—</dd>
     </dl>
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
     <p id="launch-blocker" class="hint" role="status"></p>

@@ -23,12 +23,12 @@ def no_tool_probe(monkeypatch):
     monkeypatch.setattr(sugar_cg, 'tool_metadata', lambda: {})
 
 
-def _prepare(run, *, molecule_id='Sucrose', entry='SUCR'):
+def _prepare(run, *, molecule_id='Sucrose', entry='SUCR', settings=None):
     """A reference-kind CG run, through the one registered run type the UI posts."""
     snapshot = aa_molecules.selection(MOLECULES, molecule_id)
     return protocol.adapter_for('cg').prepare(
         run, {'molecule_id': molecule_id, 'molecule_snapshot': snapshot,
-              'settings': {'sugar_entry': entry}, 'profile': 'sugar-cg-v1',
+              'settings': {'sugar_entry': entry, **(settings or {})}, 'profile': 'sugar-cg-v1',
               'parameterization': {'kind': 'reference', 'sugar_entry': entry},
               'molecule_root': MOLECULES})
 
@@ -185,6 +185,47 @@ def test_parameter_delta_reads_the_run_layout(tmp_path):
     assert all(row['difference'] == pytest.approx(0.0) for row in delta)
     assert delta[-1]['residue'] == 'link'
     assert delta[-1]['reference_force'] == 6200
+
+
+def test_the_cg_stage_defaults_are_cg_s_own():
+    """The three CG stage editors start this run on the reviewed profiles, not on a copied second table."""
+    from dashboard.execution.adapters import cg
+
+    values = sugar_cg.stage_defaults()['values']
+    cg_values = cg.stage_defaults('sugar-cg-v1')['values']
+    for key in sugar_cg.CG_SETTINGS:
+        if key in cg_values:
+            assert values[key] == cg_values[key], key
+        else:
+            assert key not in values, key  # no reviewed default: the empty control is the rule
+
+
+def _mdp_value(path, key):
+    for line in path.read_text().splitlines():
+        raw = line.split(';', 1)[0]
+        if '=' in raw and raw.split('=', 1)[0].strip() == key:
+            return raw.split('=', 1)[1].strip()
+    raise AssertionError(f'{path}: no {key}')
+
+
+def test_a_cg_stage_setting_and_a_production_override_reach_their_mdps(tmp_path):
+    """The published-reference run shows the same CG stage editors, so their numbers must reach its MDPs."""
+    run = tmp_path / 'run'
+    _prepare(run, settings={'cg_minimization_steps': 5000, 'cg_equil_dt_fs': 10,
+                            'cg_production_dt_fs': 10, 'cg_production_ps': 100,
+                            'nstlog': 500, 'nstenergy': 250})
+    inputs = run / 'inputs'
+
+    assert _mdp_value(inputs / 'minimization.mdp', 'nsteps') == '5000'
+    eq = inputs / 'eq.mdp'
+    assert float(_mdp_value(eq, 'dt')) == pytest.approx(0.01)
+    assert _mdp_value(eq, 'nsteps') == str(round(5000 / 0.01))
+    md = inputs / 'md.mdp'
+    assert float(_mdp_value(md, 'dt')) == pytest.approx(0.01)
+    assert _mdp_value(md, 'nsteps') == '10000'
+    assert _mdp_value(md, 'nstlog') == '500' and _mdp_value(md, 'nstenergy') == '250'
+    with pytest.raises(ValueError, match='CG minimisation step cap must be an integer'):
+        sugar_cg.normalize_settings({'cg_minimization_steps': 100.5})
 
 
 def test_settings_refuse_a_field_this_run_does_not_use():

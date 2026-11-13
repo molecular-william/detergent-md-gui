@@ -112,6 +112,9 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     expect(page.locator('#stage-aa-npt-facts')).to_have_text('1 000 ps · 2 fs · 500 000 steps · nstlist 20')
     expect(page.locator('#stage-aa-production-facts')).to_have_text(
         '10 000 ps · 2 fs · 5 000 000 steps · nstlist 20')
+    # The CG legs are the other run type's: their three editors are out of the AA form's way.
+    for stage in ('minimization', 'equilibration', 'production'):
+        expect(page.locator(f'#stage-cg-{stage}')).to_be_hidden()
 
     # A shorter timestep is more steps over the same duration.
     page.locator('[name=aa_nvt_dt_fs]').fill('1')
@@ -143,11 +146,15 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     assert body['aa_production_nstlist'] == '50'
     assert body['aa_production_verlet_buffer_tolerance'] == '-1'
 
-    # A CG run consumes a reference that already ran: none of the three AA stage editors is offered.
+    # A CG run consumes a reference that already ran: none of the three AA stage editors is offered, and the three
+    # CG editors take their place.
     page.locator('#tab-new').click()
     page.locator('#run-type').select_option('cg')
     for stage in ('nvt', 'npt', 'production'):
         expect(page.locator(f'#stage-aa-{stage}')).to_be_hidden()
+    for stage in ('minimization', 'equilibration', 'production'):
+        expect(page.locator(f'#stage-cg-{stage}')).to_be_visible()
+    expect(page.locator('h4.new-option-title.cg-setting')).to_be_visible()
     # The stage group's heading, its blurb and the box-shape note go with the controls they describe.
     expect(page.locator('h4.new-option-title.aa-setting')).to_be_hidden()
     expect(page.locator('p.hint.aa-setting').first).to_be_hidden()

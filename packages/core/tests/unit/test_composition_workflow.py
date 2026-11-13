@@ -116,6 +116,24 @@ def test_prepare_writes_the_cg_build_the_script_reads(tmp_path, saved):
     assert not list(run.rglob('*.sh')) and not list(run.rglob('*.py')), 'a run holds no code of its own'
 
 
+def test_prepare_writes_the_cg_stage_settings_into_its_mdps(tmp_path, saved):
+    """A composition run shares cg's three stage editors: a named stage number reaches that leg's own MDP."""
+    run = tmp_path / 'run'
+    _prepare(run, saved, settings={'cg_minimization_steps': 5000, 'cg_minimization_nstlist': 10,
+                                   'cg_equil_dt_fs': 10, 'cg_equil_tau_t': 2, 'cg_production_dt_fs': 10})
+    inputs = run / 'stages/4_CG_sim/inputs'
+
+    assert _mdp_value(inputs / 'minimization.mdp', 'nsteps') == '5000'
+    assert _mdp_value(inputs / 'minimization.mdp', 'nstlist') == '10'
+    eq = inputs / 'eq.mdp'
+    assert float(_mdp_value(eq, 'dt')) == pytest.approx(0.01)
+    assert _mdp_value(eq, 'tau-t') == '2'
+    assert float(_mdp_value(inputs / 'md.mdp', 'dt')) == pytest.approx(0.01)
+    # The counts stay counts by name, whichever kind prepares the run.
+    with pytest.raises(ValueError, match='CG equilibration nstlist must be an integer'):
+        composition.normalize_settings({'cg_equil_nstlist': 10.5})
+
+
 def test_the_simulation_script_constructs_the_real_gromacs_commands(tmp_path, saved):
     """A fake `gmx` records argv: no mdrun runs, and every leg of the real CG build is constructed."""
     run = tmp_path / 'run'

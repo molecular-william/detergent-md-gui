@@ -34,6 +34,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
                            placement_mode: 'pdc_placement_mode'};
+  // The three values `pdc.CHOICE_SPECS['protein_vsite']` advertises, spelled for the review. The control's own option
+  // labels are the same words; this map exists only so the summary can add what the choice does.
+  const VSITE_LABELS = {hydrogens: 'Hydrogens', aromatics: 'Aromatics'};
   // The device is the host's, not the build's: the select is filled from `/api/run/devices`, and a run that names
   // none sends nothing, so the adapter's default device stands. The note is a readiness fact, never a gate.
   const gpuSelect = field('mdrun_gpu');
@@ -76,6 +79,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const chainBoxes = () => [...form.elements].filter(el => el.name === 'protein_chains');
   const selectedChains = () => chainBoxes().filter(el => el.checked).map(el => el.value);
   const backmapping = () => !!field('backmap')?.checked;
+  // The back-map's `pdb2gmx -vsite` choice. It is not a number and not a boolean: the back-map stage's wrapper reads
+  // it as one of three strings and appends the flag to the `pdb2gmx` calls CG2AT2 makes, and to no other command.
+  const proteinVsite = () => field('protein_vsite')?.value || 'none';
   // The removal/assessment pipeline is a choice, not an assumption. On is the regular assessment + removal +
   // checkpoint chain; off is one plain CG MD leg. The adapter owns the stage consequences; this panel makes the
   // choice visible and sends it.
@@ -560,6 +566,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : (hasProtein
           ? 'Off: the back-map stage records skipped and the run stops coarse-grained, with no atomistic structure produced.'
           : 'Skipped: an empty micelle has no protein to align, so no atomistic structure is produced.'));
+    // The virtual-site choice is the back-map's, and the review says whether it will reach a pdb2gmx at all.
+    const vsite = proteinVsite();
+    setText(summary('vsite'), vsite === 'none' ? 'none · pdb2gmx default'
+      : (!backmap || !hasProtein
+          ? `${VSITE_LABELS[vsite]} · recorded, but the back-map does not run`
+          : `${VSITE_LABELS[vsite]} · pdb2gmx -vsite ${vsite}`));
     // The plan's step 1 is about a protein. An empty micelle records it skipped, so the review says that instead of
     // promising a rebuild the run cannot do, and the protein card's statement of the step is not shown at all.
     setText(summary('prepare'), hasProtein
@@ -1476,6 +1488,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   });
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  field('protein_vsite')?.addEventListener('change', () => { store(); syncSummary(); });
   // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
   // longer this form's once it moves, and the card says so rather than quietly drawing the old one.
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
@@ -1538,6 +1551,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       if (field('protein').value && chains.length) payload.protein_chains = chains;
       payload.backmap = backmapping();
       payload.remove_out_of_micelle = removeOutside();
+      // Stated always, like the back-map choice: a run whose pdb2gmx was asked for aromatic virtual sites must not be
+      // readable as one that used the default.
+      payload.protein_vsite = proteinVsite();
       // The plan's step 1, sent always: the adapter's default is off, and a run whose preparation was asked for must
       // not be readable as one that was not. A protein-free run cannot ask for it -- there is nothing to prepare --
       // so it is stated only where the run has a structure, exactly as the chain selection is.
@@ -1590,6 +1606,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       }
       fillDefaults();
       if (remembered.mdrun_nb && field('mdrun_nb')) field('mdrun_nb').value = remembered.mdrun_nb;
+      // The select's stored value is restored explicitly for the same reason `mdrun_nb`'s is: the loop above keeps
+      // only non-selects, and a remembered back-map choice must not be replaced by the default on the next load.
+      if (remembered.protein_vsite && field('protein_vsite')) {
+        field('protein_vsite').value = remembered.protein_vsite;
+      }
       // The seed defaults to today's date: the adapter requires one, the control sits in a collapsed block, and a
       // build with no seed cannot be compared with another. Cleared by hand it stays empty and the gate names it.
       const seedInput = field('pdc_seed');

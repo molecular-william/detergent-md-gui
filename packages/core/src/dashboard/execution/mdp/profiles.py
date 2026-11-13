@@ -203,7 +203,8 @@ _CG_TOPOLOGY_COMMENTS = {
 
 _CG_EQUILIBRATION_COMMENTS = {
     **_MARTINI_COMMENTS,
-    'dt': '5 fs: the standing coarse-grained EQUILIBRATION timestep (production is 20 fs)',
+    'dt': '5 fs by default: the standing coarse-grained EQUILIBRATION timestep (production is 20 fs); a run may '
+          'name its own, in fs',
     'nsteps': "the run's duration in steps, at this file's dt",
     'nstlog': 'the log every 100 steps',
     'nstenergy': 'energies every 100 steps',
@@ -225,19 +226,22 @@ _CG_EQUILIBRATION_COMMENTS = {
 
 _CG_PRODUCTION_COMMENTS = {
     **_CG_EQUILIBRATION_COMMENTS,
-    'dt': '20 fs: the coarse-grained PRODUCTION timestep (equilibration is 5 fs)',
+    'dt': '20 fs by default: the coarse-grained PRODUCTION timestep (equilibration is 5 fs); a run may name its own, '
+          'in fs',
     'pcoupl': 'the production barostat at 1 bar (the Martini 3 protocol)',
     'tau-p': '12 ps: the production time constant the template states',
     'gen-vel': 'production continues the equilibrated velocities',
     'continuation': 'this leg continues the equilibrated state',
 }
 
-#: The CG production options the New run form may override. They keep the reviewed values above as their defaults --
-#: an untouched run renders this file byte for byte -- and a run that names one replaces only that option; the run
-#: records the number it used. `rlist` is deliberately not in the profile's settings: GROMACS sizes the neighbour list
-#: from the Verlet tolerance, so a run may pin it but the reviewed file must not. Scoped to production because that is
-#: the leg whose trajectory the analyses read; the equilibration leg keeps its own reviewed cadence and couplings.
-_CG_PRODUCTION_VARIABLE = ('nstlog', 'nstenergy', 'xtc-precision', 'nstcomm', 'nstlist',
+#: The CG stages' options the New run form may override. Each profile keeps its reviewed values as the defaults -- an
+#: untouched run renders the file byte for byte -- and a run that names one replaces only that option; the run records
+#: the number it used. `rlist` is deliberately not in the production profile's settings: GROMACS sizes the neighbour
+#: list from the Verlet tolerance, so a run may pin it but the reviewed file must not.
+_CG_MINIMIZATION_VARIABLE = ('nsteps', 'nstlist', 'verlet-buffer-tolerance')
+_CG_EQUILIBRATION_VARIABLE = ('dt', 'nsteps', 'nstxtcout', 'nstlist', 'verlet-buffer-tolerance', 'tau-t', 'tau-p',
+                              'compressibility')
+_CG_PRODUCTION_VARIABLE = ('dt', 'nstlog', 'nstenergy', 'xtc-precision', 'nstcomm', 'nstlist',
                            'verlet-buffer-tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau-t', 'tau-p',
                            'compressibility')
 
@@ -277,7 +281,7 @@ CG_PROFILES = (
             comments={**_CG_TOPOLOGY_COMMENTS, 'nsteps': 'cg.prepare stamps 20000 steps',
                       'define': "empty: cg.prepare clears the template's -DFLEXIBLE"},
             source=f'{_CG_TEMPLATE}/4_CG_sim/inputs/minimization.mdp as cg.prepare patches it (nsteps, define)',
-            version='cg-minimization-v1'),
+            version='cg-minimization-v1', variable=_CG_MINIMIZATION_VARIABLE),
     Profile(settings={'title': 'Martini', 'integrator': 'md', 'dt': 0.005, 'nsteps': None, 'nstcomm': 100,
                       'comm-grps': 'System', 'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0,
                       'nstlog': 100, 'nstenergy': 100, 'nstxtcout': None, 'xtc-precision': 1000, 'xtc-grps': '',
@@ -291,7 +295,7 @@ CG_PROFILES = (
                       'constraints': 'none', 'constraint-algorithm': 'Lincs', 'lincs-iter': 1, 'lincs-order': 4,
                       'lincs-warnangle': 30, 'ld-seed': None},
             comments=_CG_EQUILIBRATION_COMMENTS,
-            source=_CG_PREPARE_SOURCE, version='cg-equilibration-v1'),
+            source=_CG_PREPARE_SOURCE, version='cg-equilibration-v1', variable=_CG_EQUILIBRATION_VARIABLE),
     Profile(settings={'title': 'Martini', 'integrator': 'md', 'dt': 0.02, 'nsteps': None, 'nstcomm': 100,
                       'comm-grps': 'System', 'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0,
                       'nstlog': 100, 'nstenergy': 100, 'nstxtcout': None, 'xtc-precision': 1000, 'xtc-grps': '',

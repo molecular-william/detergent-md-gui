@@ -2,6 +2,7 @@
 import json
 import re
 import shutil
+from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
 from dashboard.execution.adapters import cg
@@ -24,6 +25,13 @@ COMPOSITION = {'head_fragment_id': 'builtin:martini-sugars-v2:GLC', 'tail_recipe
 def open_stage(page, name):
     """Open an AA stage editor; a closed `<details>` keeps its inputs out of Playwright's reach."""
     editor = page.locator(f'#stage-aa-{name}')
+    if editor.evaluate('(el) => el.open') is False:
+        editor.locator('> summary').click()
+
+
+def open_cg_stage(page, name):
+    """Open a CG stage editor; a closed `<details>` keeps its inputs out of Playwright's reach."""
+    editor = page.locator(f'#stage-cg-{name}')
     if editor.evaluate('(el) => el.open') is False:
         editor.locator('> summary').click()
 
@@ -180,11 +188,20 @@ def test_the_run_type_shows_only_the_settings_that_leg_builds(dashboard, live_pa
     expect(page.locator('[name=aa_nvt_ps]').locator('xpath=ancestor::label')).to_be_hidden()
     expect(page.locator('[name=cg_equil_ps]').locator('xpath=ancestor::label')).to_be_visible()
     expect(page.locator('[name=cg_production_ps]')).to_be_visible()
+    # Each run type shows the three stage editors its own legs run.
+    for stage in ('minimization', 'equilibration', 'production'):
+        expect(page.locator(f'#stage-cg-{stage}')).to_be_visible()
+    for stage in ('nvt', 'npt', 'production'):
+        expect(page.locator(f'#stage-aa-{stage}')).to_be_hidden()
     page.locator('#run-type').select_option('aa_only')
     expect(page.locator('#new-constraints-group')).to_be_visible()
     expect(page.locator('[name=aa_nvt_ps]')).to_be_visible()
     expect(page.locator('[name=cg_equil_ps]').locator('xpath=ancestor::label')).to_be_hidden()
     expect(page.locator('[name=constraints]')).to_be_enabled()
+    for stage in ('minimization', 'equilibration', 'production'):
+        expect(page.locator(f'#stage-cg-{stage}')).to_be_hidden()
+    for stage in ('nvt', 'npt', 'production'):
+        expect(page.locator(f'#stage-aa-{stage}')).to_be_visible()
     assert errors == []
 
 
@@ -227,6 +244,34 @@ def test_the_label_is_suggested_until_edited_and_suggest_restores_it(dashboard, 
     assert errors == []
 
 
+def test_generate_sets_an_integer_seed_up_to_today_for_both_halves(dashboard, live_page):
+    """Both seeds are generated, not defaulted: an integer from 1 through today's date, and the form keeps it."""
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    # Each seed belongs to its own half: the panel opens on a CG run, where only the CG seed is offered.
+    expect(page.locator('#generate-cg-seed')).to_be_visible(timeout=SERVER_WAIT)
+    expect(page.locator('#generate-aa-seed')).to_be_hidden()
+    today = int(date.today().strftime('%Y%m%d'))
+    for run_type, button, field in (('aa_only', '#generate-aa-seed', 'aa_seed'),
+                                    ('cg', '#generate-cg-seed', 'cg_seed')):
+        page.locator('#run-type').select_option(run_type)
+        expect(page.locator(button)).to_be_visible(timeout=SERVER_WAIT)
+        # The old "Default" control is gone: these are the Generate buttons, not the generic `.use-default` ones.
+        assert 'use-default' not in (page.locator(button).get_attribute('class') or '')
+        page.locator(button).click()
+        value = page.locator(f'[name={field}]').input_value()
+        assert re.fullmatch(r'[1-9]\d*', value), (field, value)
+        assert 1 <= int(value) <= today, (field, value, today)
+        saved = json.loads(page.evaluate("localStorage.getItem('ddm.form')"))
+        assert saved[field] == value, (field, saved.get(field))
+    # The CG seed is the CG half's: an AA run does not offer it.
+    page.locator('#run-type').select_option('aa_only')
+    expect(page.locator('#generate-cg-seed')).to_be_hidden()
+    expect(page.locator('#generate-aa-seed')).to_be_visible()
+    assert errors == []
+
+
 def test_a_preset_is_saved_loaded_made_default_and_deleted(dashboard, live_page):
     """The preset bar's four controls against the real routes, on the workspace's own store."""
     page, errors = live_page
@@ -253,6 +298,31 @@ def test_a_preset_is_saved_loaded_made_default_and_deleted(dashboard, live_page)
     page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('[name=aa_production_ps]')).to_have_value('4321', timeout=SERVER_WAIT)
     expect(page.locator('#preset-marker')).to_contain_text('Applied preset: Browser preset · default')
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.locator('#preset-delete').click()
+    expect(select.locator('option')).to_have_count(1, timeout=SERVER_WAIT)
+    assert errors == []
+
+
+def test_a_cg_preset_round_trips_a_stage_editor_number(dashboard, live_page):
+    """A CG preset carries the editors' own numbers, not only the durations it carried before."""
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    # The reviewed default reaches the field before the preset is saved, so the saved set is the rendered one.
+    page.wait_for_function("() => document.querySelector('[name=cg_production_dt_fs]').value !== ''",
+                           timeout=SERVER_WAIT)
+    open_cg_stage(page, 'production')
+    page.locator('[name=cg_production_dt_fs]').fill('10')
+    page.once('dialog', lambda dialog: dialog.accept('CG stage preset'))
+    page.locator('#preset-save').click()
+    select = page.locator('#preset-select')
+    expect(select.locator('option')).to_have_count(2, timeout=SERVER_WAIT)
+    # Changing the field and loading the preset puts the saved stage number back, and its facts line follows it.
+    page.locator('[name=cg_production_dt_fs]').fill('20')
+    page.locator('#preset-load').click()
+    expect(page.locator('[name=cg_production_dt_fs]')).to_have_value(re.compile(r'^10(?:\.0)?$'))
+    expect(page.locator('#stage-cg-production-facts')).to_contain_text('10 fs')
     page.once('dialog', lambda dialog: dialog.accept())
     page.locator('#preset-delete').click()
     expect(select.locator('option')).to_have_count(1, timeout=SERVER_WAIT)
@@ -288,6 +358,11 @@ def test_a_saved_composition_is_a_molecule_and_posts_its_derived_model(dashboard
     expect(page.locator('#starting-coordinates-field')).to_be_hidden()
     expect(page.locator('#molecule-inputs-status')).to_contain_text('No AA inputs')
     expect(page.locator('#start-run')).to_be_enabled(timeout=SERVER_WAIT)
+    # A composition is a CG kind, so it offers the three CG editors and none of the AA ones.
+    for stage in ('minimization', 'equilibration', 'production'):
+        expect(page.locator(f'#stage-cg-{stage}')).to_be_visible()
+    for stage in ('nvt', 'npt', 'production'):
+        expect(page.locator(f'#stage-aa-{stage}')).to_be_hidden()
 
     posted = {}
     page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), lambda route: (

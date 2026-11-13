@@ -1,10 +1,12 @@
-"""The first look at a completed trajectory: RMSD, radius of gyration, shape, RMSF and energy.
+"""The first look at a completed trajectory: RMSD, radius of gyration, shape, RMSF, energy and the stage traces.
 
 One sequential pass over the run's latest playable segment, sampled to at most `MAX_FRAMES` frames. The questions are
 the ones a reader asks before any modelling claim: did the protein (or, in an empty micelle, the largest detergent
 aggregate) keep its shape, how large is it, how many detergent molecules stay in one aggregate, and do the
 temperature, pressure and potential hold still. The record keeps the full series statistics, the gyration tensor's
-shape descriptors, per-atom RMSF, the end-to-end distance on a small subject, and one summary per EDR term.
+shape descriptors, per-atom RMSF, the end-to-end distance on a small subject, and one summary per EDR term. A third
+row of the figure draws the equilibration legs' own traces -- the minimisation potential against step, the NVT
+temperature and the NPT pressure against time -- as bounded samples of one term each rather than a second EDR copy.
 
 Every inter-molecular distance is minimum-image. The run's `whole.xtc` makes molecules whole and centres the whole
 system, but it does not cluster the micelle; a micelle across a box face would otherwise read as two fragments and
@@ -98,6 +100,31 @@ def _segment(run_dir):
 #: `eq.edr` and `min.edr`, and either would answer a production trajectory.
 ENERGY_NAMES = ('md.edr', 'run.edr')
 
+#: Every equilibration leg a run can write, the energy file each carries, and the one term its trace draws. Explicit,
+#: never a glob: `4_CG_sim` holds `min.edr`, `eq.edr` and `md.edr` in one directory, so a glob would let a production
+#: request answer with the minimisation file. First existing candidate wins per leg, and a leg whose file or term is
+#: absent is simply omitted from the record.
+STAGE_ENERGY = {
+    'minimisation': {'term': 'Potential', 'x_unit': 'step',
+                     'candidates': ('03_minimization/run.edr', '4_CG_sim/min.edr', '03_minimisation/system.edr')},
+    'nvt': {'term': 'Temperature', 'x_unit': 'time_ps',
+            'candidates': ('04_nvt/run.edr', '4_CG_sim/eq.edr', '04_nvt/system.edr')},
+    'npt': {'term': 'Pressure', 'x_unit': 'time_ps',
+            'candidates': ('05_npt/run.edr', '4_CG_sim/eq.edr', '05_npt/system.edr')},
+}
+
+#: The production leg's energy file, by the paths a run records it under. `_energy` falls back to these when the
+#: trajectory's own sibling search finds nothing, before the old single-staged-file guess.
+PRODUCTION_ENERGY = ('07_reference/run.edr', '06_production/run.edr',
+                     '4_CG_sim/md.edr', '06_assessment/prod/run.edr')
+
+#: The third figure row, in the order the run runs the legs: the record's leg, its title and its y-axis label.
+STAGE_PANELS = (
+    ('minimisation', 'Minimisation potential', 'Potential (kJ/mol)'),
+    ('nvt', 'Equilibration temperature', 'Temperature (K)'),
+    ('npt', 'Equilibration pressure', 'Pressure (bar)'),
+)
+
 
 def _energy_beside(trajectory):
     """The energy file of the leg that wrote `trajectory`, or `None`.
@@ -129,13 +156,15 @@ def _reference_leg_energy(trajectory):
 
 
 def sources(run_dir, payload=None):
-    """Stage the latest segment's trajectory, structure and its energy file; nothing else from the run.
+    """Stage the latest segment's trajectory, structure and energy files; nothing else from the run.
 
     The producer finds the pair again by scanning the staged tree, so the hook and the producer cannot disagree
     about *which* segment this overview describes without disagreeing about the run itself: the staged tree holds
-    exactly the one trajectory the hook chose. The energy file is the leg's own, found by `_energy_beside`: beside
-    the trajectory, or in the stage directory above it when the trajectory is an extracted solute. An AA-only run's
-    extracted reference has no sibling energy, so its production leg's `.edr` is staged instead.
+    exactly the one trajectory the hook chose. The production energy file is the leg's own, found by
+    `_energy_beside`: beside the trajectory, or in the stage directory above it when the trajectory is an extracted
+    solute. An AA-only run's extracted reference has no sibling energy, so its production leg's `.edr` is staged
+    instead. The equilibration legs are staged explicitly from `STAGE_ENERGY`: the producer reads one term from each,
+    and a leg with no file is not an error -- it is a run whose equilibration the record cannot show.
     """
     run_dir = Path(run_dir)
     chosen = _segment(run_dir)
@@ -150,6 +179,12 @@ def sources(run_dir, payload=None):
             edr = _reference_leg_energy(trajectory)
         if edr is not None and edr.is_relative_to(run_dir):
             entries[str(edr.relative_to(run_dir))] = edr
+    for spec in STAGE_ENERGY.values():
+        for relative in spec['candidates']:
+            found = segments.present(run_dir, relative)
+            if found is not None and found.is_relative_to(run_dir):
+                entries.setdefault(str(found.relative_to(run_dir)), found)
+                break
     return entries
 
 
@@ -457,13 +492,27 @@ def _drift(work, terms):
             'basis': _drift_basis(manifest, nve)}
 
 
+def _production_energy(work):
+    """The production leg's staged energy file, by its known record paths, or `None`.
+
+    The symmetric answer to a run whose trajectory was extracted elsewhere: the staged tree names the leg
+    explicitly, so the several equilibration `.edr`s staged beside it do not make "which leg" a guess.
+    """
+    for relative in PRODUCTION_ENERGY:
+        found = segments.present(Path(work), relative)
+        if found is not None:
+            return found
+    return None
+
+
 def _energy(work, trajectory):
     """Every term in the leg's EDR as a series summary, or None with the reason energy is absent.
 
-    `sources` stages exactly one energy file, and it need not sit beside the trajectory: an AA reference
-    publication extracts `07_reference/lig.xtc` while its `06_production/run.edr` stays in the production stage
-    directory. So the staged tree is the fallback, and it is read only when it holds one `.edr` -- two would make
-    "which leg" a guess.
+    `sources` stages the production energy file and up to one `.edr` per equilibration leg, and the production one
+    need not sit beside the trajectory: an AA reference publication extracts `07_reference/lig.xtc` while its
+    `06_production/run.edr` stays in the production stage directory. So the fallbacks are, in order, the staged tree's
+    known production paths and then the old single-staged-`.edr` guess -- several staged files make that guess
+    meaningless, which is why the explicit paths resolve first.
 
     Discovery runs first: `gmx energy` without `-o` prints its term menu on stderr, and the parsed names decide which
     indices the plotting run asks for. The menu is not always parseable, so the three plotted terms remain the
@@ -472,10 +521,12 @@ def _energy(work, trajectory):
     """
     edr = _energy_beside(trajectory)
     if edr is None:
+        edr = _production_energy(work)
+    if edr is None:
         staged = sorted(path for path in Path(work).rglob('*.edr') if path.is_file())
         edr = staged[0] if len(staged) == 1 else None
     if edr is None:
-        return None, 'no .edr is staged beside the trajectory or its stage directory'
+        return None, 'no .edr is staged beside the trajectory or at a known production path'
     gmx = tools.tool_path('gmx')
     if gmx is None:
         return None, 'gmx is not available, so the .edr cannot be read'
@@ -523,35 +574,105 @@ def _energy(work, trajectory):
             'interactions': {name: summary for name, summary in terms.items() if ':' in name}}, None
 
 
-def _draw(path, series, labels, energy, reason, *, aggregate=True):
-    """Draw the overview: shape, then energy. The aggregate panel is absent for a single-molecule run.
+def _stage_term(menu, term):
+    """The menu index of `term`, spelling folded, or `None` when this EDR does not carry it."""
+    wanted = _energy_term_key(term)
+    return next((index for index, name in menu if _energy_term_key(name) == wanted), None)
+
+
+def _stage_trace(work, leg, edr, spec, gmx):
+    """One equilibration leg's trace: the single requested term, bounded to `ENERGY_POINTS` points, or `None`.
+
+    Only the leg's own term is read. The record keeps the samples the figure draws (`x`, `values`) plus the same
+    `series_summary` every other series carries; an EDR without the term, or a `gmx energy` that refuses it, omits
+    the leg rather than drawing an empty curve.
+    """
+    discovery = subprocess.run([gmx, 'energy', '-f', str(edr)], input='0\n',
+                               capture_output=True, text=True)
+    menu = _energy_menu(discovery.stderr) or _energy_menu(discovery.stdout)
+    index = _stage_term(menu, spec['term'])
+    if index is None:
+        return None
+    output = Path(work) / f'.trajectory-overview-{leg}.xvg'
+    try:
+        done = subprocess.run([gmx, 'energy', '-f', str(edr), '-o', str(output)],
+                              input=f'{index}\n0\n', capture_output=True, text=True)
+        if done.returncode != 0 or not output.is_file():
+            return None
+        labels, times, columns = _xvg_columns(output)
+    finally:
+        output.unlink(missing_ok=True)
+    wanted = _energy_term_key(spec['term'])
+    position = next((index for index, label in enumerate(labels) if _energy_term_key(label) == wanted), None)
+    if position is None or position >= len(columns) or not times:
+        return None
+    values = columns[position]
+    step = max(1, math.ceil(len(times) / ENERGY_POINTS))
+    if spec['x_unit'] == 'step':
+        # A minimisation EDR counts steps, not time, so the axis is the step number and no per-ns slope is claimed.
+        x = [int(round(times[offset])) for offset in range(0, len(times), step)]
+        summary = _rounded(series_summary(values[::step]))
+    else:
+        x = [round(times[offset], 4) for offset in range(0, len(times), step)]
+        summary = _rounded(series_summary(values[::step], times_ns=[time / 1000.0 for time in x]))
+    return {'term': spec['term'],
+            'source': str(edr.relative_to(work)),
+            'x': x,
+            'x_unit': spec['x_unit'],
+            'values': [round(values[offset], 6) for offset in range(0, len(values), step)],
+            **summary}
+
+
+def _stages(work):
+    """Each equilibration leg's trace, keyed by leg; a leg with no staged file or no term is absent.
+
+    Explicit paths, not a glob: `4_CG_sim` writes `min.edr`, `eq.edr` and `md.edr` in one directory, and a stage
+    trace must read the leg it names. The first existing candidate wins, the same rule `sources` stages by, so the
+    hook and the producer cannot disagree about which file a leg means.
+    """
+    gmx = tools.tool_path('gmx')
+    if gmx is None:
+        return {}
+    stages = {}
+    for leg, spec in STAGE_ENERGY.items():
+        for relative in spec['candidates']:
+            edr = segments.present(Path(work), relative)
+            if edr is None:
+                continue
+            entry = _stage_trace(work, leg, edr, spec, gmx)
+            if entry is not None:
+                stages[leg] = entry
+            break
+    return stages
+
+
+def _draw(path, series, labels, energy, reason, *, aggregate=True, stages=None):
+    """Draw the overview: shape, production energy, then the equilibration stage traces.
 
     Titles are generic on purpose: the same figure is drawn for a protein, a micelle and a small molecule, so a
-    title that named a detergent would be wrong on most runs.
+    title that named a detergent would be wrong on most runs. The aggregate panel and its cell are absent for a
+    single-molecule run, so the grid closes rather than showing a hole.
     """
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 
-    fig = Figure(figsize=(14, 8), layout='constrained')
+    fig = Figure(figsize=(14, 10), layout='constrained')
     FigureCanvasAgg(fig)
-    rows = fig.subplots(2, 3)
+    rows = fig.subplots(3, 3)
     rmsd_axis, gyration_axis, third = rows[0]
-    if aggregate:
-        energy_axes = list(rows[1])
-    else:
-        # No aggregate curve to draw: the first energy term takes its cell and the spare cell is removed, so the
-        # figure is five panels rather than a hole with nothing in it.
-        energy_axes = [third, rows[1][0], rows[1][1]]
-        fig.delaxes(rows[1][2])
+    if not aggregate:
+        # No aggregate curve to draw: remove its cell rather than leave a hole with nothing in it. The eight
+        # remaining panels are row 1's RMSD and Rg, production energy, and the three stage traces.
+        fig.delaxes(third)
 
-    def line(axis, times, values, colour, title, ylabel):
+    def line(axis, times, values, colour, title, ylabel, xlabel='Time (ns)'):
         # The raw samples stay visible at low alpha; the moving average is the line a reader reads. Both are the
         # same data -- the window is stated in the legend -- so the picture never hides the points behind the trend.
         window = _window(len(values))
         axis.plot(times, values, color=colour, linewidth=0.8, alpha=.3, label='sampled')
         axis.plot(times, _moving_average(values, window), color=colour, linewidth=2.2, alpha=1.0,
                   label=f'moving average ({window} samples)')
-        axis.set(title=title, xlabel='Time (ns)', ylabel=ylabel)
+        axis.set(title=title, xlabel=xlabel, ylabel=ylabel)
         axis.legend(fontsize=7, frameon=False)
         axis.grid(alpha=.18)
 
@@ -560,13 +681,23 @@ def _draw(path, series, labels, energy, reason, *, aggregate=True):
     if aggregate:
         line(third, series['times_ns'], series['aggregate_largest'], '#8a5a12', 'Largest aggregate', 'molecules')
 
-    for axis, term, colour in zip(energy_axes, ENERGY_TERMS, ('#b03a48', '#6a4ea8', '#2f6b3a')):
+    for axis, term, colour in zip(rows[1], ENERGY_TERMS, ('#b03a48', '#6a4ea8', '#2f6b3a')):
         entry = (energy or {}).get('terms', {}).get(term)
         if entry:
             line(axis, [t / 1000 for t in entry['time_ps']], entry['values'], colour,
                  f"{term} · mean {entry['mean']:g}", term)
         else:
             axis.text(.5, .5, reason or 'not available', ha='center', va='center', wrap=True, fontsize=9)
+            axis.grid(alpha=.18)
+
+    for axis, (leg, title, ylabel) in zip(rows[2], STAGE_PANELS):
+        entry = (stages or {}).get(leg)
+        if entry:
+            xlabel = 'Step' if entry['x_unit'] == 'step' else 'Time (ps)'
+            line(axis, entry['x'], entry['values'], '#5a5a5a',
+                 f"{title} · mean {entry['mean']:g}", ylabel, xlabel=xlabel)
+        else:
+            axis.text(.5, .5, 'not available', ha='center', va='center', wrap=True, fontsize=9)
             axis.grid(alpha=.18)
 
     fig.suptitle(f"Trajectory overview · {labels['segment']}", fontsize=13)
@@ -658,6 +789,7 @@ def run(work, payload=None):
             free.append(0)
 
     energy, energy_reason = _energy(work, trajectory)
+    stages = _stages(work)
     series = {'times_ns': times, 'rmsd_nm': rmsds, 'gyration_nm': gyrations,
               'aggregate_largest': largest, 'aggregates': counts, 'aggregate_free': free}
     segment = _segment(work)
@@ -667,7 +799,7 @@ def run(work, payload=None):
     aggregate = len(molecules) > 1
     figure = work / 'trajectory-overview.png'
     _draw(figure, series, labels_for_figure, energy,
-          (energy_reason if energy is None else '') or 'not available', aggregate=aggregate)
+          (energy_reason if energy is None else '') or 'not available', aggregate=aggregate, stages=stages)
 
     rmsd_summary = _rounded(series_summary(rmsds, times_ns=times))
     rmsd_summary['se'] = rmsd_summary['block_sem']
@@ -716,6 +848,9 @@ def run(work, payload=None):
                        'free': free_summary},
         'energy': energy,
         'energy_absent': energy_reason,
+        # Top level, not under `energy`: a run can stage its equilibration legs while its production EDR is
+        # unreadable, and the stage traces do not depend on the production file to exist.
+        'stages': stages,
         'smoothing': {'fraction': SMOOTHING_FRACTION, 'frames': _window(len(times)),
                       'energy_samples': _window(len(plotted['values'])) if plotted else None},
         'series': series,

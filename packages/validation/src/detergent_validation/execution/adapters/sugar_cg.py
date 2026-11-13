@@ -84,6 +84,13 @@ SETTING_SPECS = {
     'mdrun_gpu': ('mdrun GPU device', 0, 64),
     'mdrun_cpt': ('Checkpoint interval (minutes)', 1, 100000),
 }
+#: The CG stages' own numbers, and the CG production overrides the same editor offers. The bounds and labels are
+#: `cg`'s, so one table serves all three CG kinds; the defaults are read from `cg.stage_defaults` in `stage_defaults`.
+CG_SETTINGS = ('cg_minimization_steps', 'cg_minimization_nstlist', 'cg_minimization_verlet_buffer_tolerance',
+               'cg_equil_dt_fs', 'cg_equil_nstlist', 'cg_equil_verlet_buffer_tolerance', 'cg_equil_tau_t',
+               'cg_equil_tau_p', 'cg_equil_compressibility', 'cg_production_dt_fs',
+               'nstxtcout', *cg.PRODUCTION_OVERRIDES)
+SETTING_SPECS.update({key: cg.SETTING_SPECS[key] for key in CG_SETTINGS})
 CHOICE_SPECS = {
     'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu', 'gpu')),
     'mdrun_pme': ('PME scheme', ('auto', 'cpu', 'gpu')),
@@ -102,11 +109,19 @@ def _profile(profile):
 
 
 def stage_defaults(profile='sugar-cg-v1'):
-    """The values this run type starts from; the profile changes only production's duration."""
+    """The values this run type starts from; the profile changes only production's duration.
+
+    The CG stages' numbers and the production overrides are read from `cg.stage_defaults`, so the same reviewed
+    profiles that render an AA-to-CG or composition run's MDPs start this form too.
+    """
     values = dict(DEFAULTS)
     if _profile(profile) == 'standard':
         values['cg_production_ps'] = STANDARD_PRODUCTION_PS
-    return {'values': values, 'sources': {'sugar': VERSION}, 'profile': _profile(profile)}
+    cg_values = cg.stage_defaults(_profile(profile))['values']
+    # `rlist` and `nstxtcout` have no reviewed default: their empty control is the reviewed rule.
+    values.update({key: cg_values[key] for key in CG_SETTINGS if key in cg_values})
+    return {'values': values, 'sources': {'sugar': VERSION, 'CG stages': 'cg.stage_defaults'},
+            'profile': _profile(profile)}
 
 
 def normalize_settings(settings=None, profile='sugar-cg-v1'):
@@ -118,9 +133,10 @@ def normalize_settings(settings=None, profile='sugar-cg-v1'):
         object_message='Sugar CG settings must be an object', unknown_prefix='Unknown sugar CG setting: ',
         label_messages=True,
     )
-    coerce_integers(result, {'cg_seed': 'CG seed must be an integer',
-                             'mdrun_gpu': 'mdrun_gpu must be an integer',
-                             'mdrun_cpt': 'mdrun_cpt must be an integer'})
+    integrals = {'cg_seed': 'CG seed must be an integer', 'mdrun_gpu': 'mdrun_gpu must be an integer',
+                 'mdrun_cpt': 'mdrun_cpt must be an integer'}
+    integrals.update({key: cg._INTEGRALS[key] for key in CG_SETTINGS if key in cg._INTEGRALS})
+    coerce_integers(result, integrals)
     if result['sugar_entry'] not in ENTRIES:
         raise ValueError('sugar_entry must be one of ' + ', '.join(ENTRIES))
     if result['output_interval_ps'] > result['cg_production_ps']:
@@ -346,7 +362,8 @@ def prepare(run_dir, metadata):
         f'[ molecules ]\n{entry} 1\n'
     )
     from dashboard.execution.mdp import write_mdp
-    write_mdp('cg-minimization-v1', inputs / 'minimization.mdp')
+    write_mdp('cg-minimization-v1', inputs / 'minimization.mdp',
+              cg.mdp_values(settings, 'cg-minimization-v1'))
     write_mdp('cg-equilibration-v1', inputs / 'eq.mdp', cg.mdp_values(settings, 'cg-equilibration-v1'))
     write_mdp('cg-production-v1', inputs / 'md.mdp', cg.mdp_values(settings, 'cg-production-v1'))
     delta = reference.parameter_delta(topology, entry, layout='run')

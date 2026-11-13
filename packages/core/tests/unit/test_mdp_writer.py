@@ -290,7 +290,8 @@ def test_cg_profiles_match_prepare_patches(tmp_path, overrides):
     initial = patched(tmp_path, 'initial.mdp', {'nsteps': 0}, FF_TEMPLATE / '3_initial_CG/initial.mdp')
     assert_same('cg-initial-v1', initial.read_text())
     minimisation = patched(tmp_path, 'minimization.mdp', {'nsteps': 20000, 'define': ''})
-    assert_same('cg-minimization-v1', minimisation.read_text())
+    assert_same('cg-minimization-v1', minimisation.read_text(),
+                cg.mdp_values(settings, 'cg-minimization-v1'))
     for name, profile in (('eq', 'cg-equilibration-v1'), ('md', 'cg-production-v1')):
         expected, values = current_cg_dynamics(tmp_path, settings, name)
         assert_same(profile, expected, values, ignore=NEIGHBOURS)
@@ -481,11 +482,11 @@ def test_cg_production_options_replace_only_what_the_run_names():
     # The one option the run did not name keeps the reviewed value.
     assert written['gen-temp'] == str(settings['temperature_k'])
 
-    # The equilibration leg keeps its own reviewed cadence: an override belongs to production only.
+    # The equilibration leg takes its own stage keys but not the production-only overrides.
     assert cg.mdp_values(chosen, 'cg-equilibration-v1').get('nstlog') is None
     # Only the declared variable options are overrideable; the rest is the reviewed physics.
     with pytest.raises(ValueError, match='takes no run value'):
-        render('cg-production-v1', {'dt': 0.01})
+        render('cg-production-v1', {'integrator': 'steep'})
 
 
 def test_the_cg_production_form_starts_on_the_reviewed_numbers():
@@ -499,6 +500,98 @@ def test_the_cg_production_form_starts_on_the_reviewed_numbers():
             assert setting not in numbers, setting
     # The two the profile leaves to GROMACS have no default: an empty control is the reviewed rule.
     assert 'rlist' not in numbers and 'nstxtcout' not in numbers
+
+
+def test_the_cg_stage_defaults_are_read_from_the_reviewed_profiles():
+    """The form's per-stage numbers are the profiles' own, unit-converted rather than copied into a second table."""
+    values = cg.stage_defaults()['values']
+    for setting, (profile, mdp, factor) in cg._STAGE_SETTING_SOURCES.items():
+        assert values[setting] == PROFILES[profile].settings[mdp] * factor, setting
+    # A femtosecond field states the profile's ps timestep times 1000; everything else is already in its unit.
+    assert values['cg_equil_dt_fs'] == 5 and values['cg_production_dt_fs'] == 20
+    assert values['cg_minimization_steps'] == 20000
+
+
+def test_an_untouched_cg_run_leaves_every_reviewed_number_alone():
+    """Whatever the profile states for a non-None option is what an untouched run renders."""
+    settings = cg.normalize_settings(None)
+    for profile in ('cg-minimization-v1', 'cg-equilibration-v1', 'cg-production-v1'):
+        written = parsed(render(profile, cg.mdp_values(settings, profile)))
+        for key, value in PROFILES[profile].settings.items():
+            if value is not None:
+                assert equivalent(written[key], formatted(value)), (profile, key)
+    # And byte for byte: the minimisation is the profile's own file, and the equilibration differs from the file that
+    # was written before its stage settings existed only in the options that now carry the reviewed defaults.
+    assert render('cg-minimization-v1', cg.mdp_values(settings, 'cg-minimization-v1')) == render('cg-minimization-v1')
+    dt = PROFILES['cg-equilibration-v1'].settings['dt']
+    previous = {'nsteps': round(settings['cg_equil_ps'] / dt),
+                'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
+                'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+                'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    assert render('cg-equilibration-v1', cg.mdp_values(settings, 'cg-equilibration-v1')) == \
+        render('cg-equilibration-v1', previous)
+
+
+def test_a_cg_minimisation_override_reaches_its_own_mdp():
+    settings = cg.normalize_settings({'cg_minimization_steps': 1000, 'cg_minimization_nstlist': 25,
+                                      'cg_minimization_verlet_buffer_tolerance': 0.002})
+    written = parsed(render('cg-minimization-v1', cg.mdp_values(settings, 'cg-minimization-v1')))
+
+    assert written['nsteps'] == '1000'
+    assert written['nstlist'] == '25'
+    assert written['verlet-buffer-tolerance'] == '0.002'
+    # The neighbours and the cap are integers; a fractional one is refused by name.
+    for key in ('cg_minimization_steps', 'cg_minimization_nstlist'):
+        with pytest.raises(ValueError, match='must be an integer'):
+            cg.normalize_settings({key: 1.5})
+
+
+def test_a_cg_equilibration_timestep_drives_its_step_and_output_counts():
+    """Halving the timestep doubles both the step count and the trajectory stride, exactly as the AA stages do."""
+    default = cg.normalize_settings({'cg_equil_ps': 10, 'output_interval_ps': 1})
+    changed = cg.normalize_settings({'cg_equil_ps': 10, 'output_interval_ps': 1, 'cg_equil_dt_fs': 2.5,
+                                     'cg_equil_nstlist': 30, 'cg_equil_verlet_buffer_tolerance': 0.01,
+                                     'cg_equil_tau_t': 2.0, 'cg_equil_tau_p': 6.0,
+                                     'cg_equil_compressibility': 3e-5})
+    before = parsed(render('cg-equilibration-v1', cg.mdp_values(default, 'cg-equilibration-v1')))
+    after = parsed(render('cg-equilibration-v1', cg.mdp_values(changed, 'cg-equilibration-v1')))
+
+    assert after['dt'] == '0.0025'
+    assert int(after['nsteps']) == 2 * int(before['nsteps']) == 4000
+    assert int(after['nstxtcout']) == 2 * int(before['nstxtcout']) == 400
+    assert after['nstlist'] == '30' and after['verlet-buffer-tolerance'] == '0.01'
+    assert after['tau-t'] == '2' and after['tau-p'] == '6' and after['compressibility'] == '3e-05'
+    # The reviewed couplings an unchanged run keeps.
+    assert before['tau-t'] == '1' and before['tau-p'] == '4' and before['compressibility'] == '4.5e-05'
+    with pytest.raises(ValueError, match='CG equilibration timestep'):
+        cg.normalize_settings({'cg_equil_dt_fs': 0.1})
+
+
+def test_a_cg_production_timestep_drives_its_step_count():
+    """Production's timestep is now the run's, like the AA stages': the duration is what stays fixed."""
+    default = cg.normalize_settings({'cg_production_ps': 20, 'output_interval_ps': 1})
+    changed = cg.normalize_settings({'cg_production_ps': 20, 'output_interval_ps': 1,
+                                     'cg_production_dt_fs': 10})
+    before = parsed(render('cg-production-v1', cg.mdp_values(default, 'cg-production-v1')))
+    after = parsed(render('cg-production-v1', cg.mdp_values(changed, 'cg-production-v1')))
+
+    assert before['dt'] == '0.02' and after['dt'] == '0.01'
+    assert int(after['nsteps']) == 2 * int(before['nsteps']) == 2000
+    assert int(after['nstxtcout']) == 2 * int(before['nstxtcout'])
+    with pytest.raises(ValueError, match='CG production timestep'):
+        cg.normalize_settings({'cg_production_dt_fs': 25})
+
+
+def test_all_three_cg_kinds_publish_the_per_stage_settings():
+    """The route keeps only advertised keys, so each adapter must publish what the one form posts."""
+    from dashboard.execution.adapters import cg_run, composition
+    from detergent_validation.execution.adapters import sugar_cg
+
+    expected = set(cg._STAGE_SETTING_SOURCES) | set(cg.PRODUCTION_OVERRIDES) | {'nstxtcout'}
+    for specs in (cg.PROTOCOL.settings_specs(), composition.PROTOCOL.settings_specs(),
+                  sugar_cg.PROTOCOL.settings_specs(), cg_run.PROTOCOL.settings_specs()):
+        assert expected <= set(specs)
+
 
 
 def test_a_run_may_name_the_constraint_set_the_force_field_block_writes():

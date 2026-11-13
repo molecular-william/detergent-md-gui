@@ -62,3 +62,17 @@ def test_the_hook_stages_only_the_latest_playable_segment(dashboard):
     assert 'stages/4_npt/system.xtc' in staged, staged
     assert 'stages/4_npt/system.gro' in staged, staged
     assert 'stages/3_nvt/system.xtc' not in staged, 'an older playable segment was staged beside the latest one'
+
+
+def test_the_hook_stages_each_equilibration_legs_energy_file(dashboard):
+    """The third figure row reads one term per leg, so the hook stages each leg's own EDR explicitly."""
+    _, run = seed(dashboard)
+    write(run, '03_minimization/run.edr', size=10)
+    write(run, '04_nvt/system.edr', size=10)
+    write(run, '05_npt/run.edr', size=10)
+
+    entries = trajectory_overview.sources(run)
+
+    assert entries['03_minimization/run.edr'] == run / '03_minimization/run.edr'
+    assert entries['04_nvt/system.edr'] == run / '04_nvt/system.edr'
+    assert entries['05_npt/run.edr'] == run / '05_npt/run.edr'

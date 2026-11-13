@@ -69,6 +69,30 @@ for _stage in ('nvt', 'npt', 'production'):
                          'compressibility': 'compressibility'})
     MDP_HELP.update({f'aa_{_stage}_{name}': MDP_HELP[source] for name, source in _aliases.items()})
 
+#: The CG stages each carry their own copy of the same MDP options, keyed by the setting name their input posts.
+#: Production's own overrides already use the generic names above; the other two legs prefix theirs, so the form
+#: asks for help by those exact names. Their timesteps and the minimisation's cap are stated here rather than through
+#: the AA `dt`/`nsteps` sentence, because the CG legs have no hydrogen repartitioning and a minimisation has no
+#: duration to convert.
+_CG_STAGE_HELP = {
+    'cg_minimization_nstlist': 'nstlist',
+    'cg_minimization_verlet_buffer_tolerance': 'verlet_buffer_tolerance',
+    'cg_equil_nstlist': 'nstlist',
+    'cg_equil_verlet_buffer_tolerance': 'verlet_buffer_tolerance',
+    'cg_equil_tau_t': 'tau_t',
+    'cg_equil_tau_p': 'tau_p',
+    'cg_equil_compressibility': 'compressibility',
+}
+MDP_HELP.update({name: MDP_HELP[source] for name, source in _CG_STAGE_HELP.items()})
+MDP_HELP.update({
+    'cg_minimization_steps': 'the minimisation step cap: a minimisation has no duration to convert, so GROMACS takes '
+                             'at most this many steps',
+    'cg_equil_dt_fs': 'the time step; the manual states dt (0.001) [ps]. The form names it in femtoseconds and the run '
+                      'writes fs/1000: 5 fs is the reviewed equilibration step (production is 20 fs)',
+    'cg_production_dt_fs': 'the time step; the manual states dt (0.001) [ps]. The form names it in femtoseconds and the '
+                           'run writes fs/1000: 20 fs is the reviewed production step (equilibration is 5 fs)',
+})
+
 #: Execution-flag meanings, quoted from `gmx mdrun -h` on the installed build.
 MDRUN_HELP = {
     'mdrun_ntomp': 'Number of OpenMP threads per MPI rank to start (0 is guess)',

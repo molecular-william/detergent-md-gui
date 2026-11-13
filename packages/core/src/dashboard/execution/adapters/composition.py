@@ -70,10 +70,8 @@ SETTING_SPECS = {key: spec for key, spec in cg.SETTING_SPECS.items() if key not 
 SETTING_SPECS.update({key: aa_adapter.SETTING_SPECS[key] for key in cg.RUN_EXECUTION_SETTINGS})
 CHOICE_SPECS = {key: aa_adapter.CHOICE_SPECS[key]
                 for key in ('mdrun_nb', 'mdrun_pme', 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme')}
-_INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'mdrun_gpu': 'mdrun_gpu must be an integer',
-              'mdrun_cpt': 'mdrun_cpt must be an integer', 'nstlog': 'nstlog must be an integer',
-              'nstenergy': 'nstenergy must be an integer', 'nstxtcout': 'nstxtcout must be an integer',
-              'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer'}
+_INTEGRALS = {**cg._INTEGRALS, 'mdrun_gpu': 'mdrun_gpu must be an integer',
+              'mdrun_cpt': 'mdrun_cpt must be an integer'}
 
 
 def _profile(profile):
@@ -251,7 +249,8 @@ def prepare(run_dir, metadata):
         f'#include "{names["final_itp"]}"\n'
         f'[ system ]\n{names["residue_name"]} composition in Martini water\n'
         f'[ molecules ]\n{names["residue_name"]} 1\n')
-    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp')
+    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp',
+              cg.mdp_values(settings, 'cg-minimization-v1'))
     write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', cg.mdp_values(settings, 'cg-equilibration-v1'))
     write_mdp('cg-production-v1', sim / 'inputs/md.mdp', cg.mdp_values(settings, 'cg-production-v1'))
 

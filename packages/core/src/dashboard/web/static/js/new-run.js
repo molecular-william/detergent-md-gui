@@ -57,6 +57,25 @@ export function writeReadiness(checks, blockers) {
 //: rebuild cadence and Verlet buffer tolerance inside its own stage editor (`#stage-aa-<stage>`).
 const AA_STAGES = ['nvt', 'npt', 'production'];
 
+//: The CG run's three legs. Minimisation states a step cap; the two dynamics legs state a duration, a timestep and a
+//: neighbour-list cadence. Each editor's facts host is `<host>-facts`.
+const CG_STAGES = [
+  {host: 'stage-cg-minimization', steps: 'cg_minimization_steps', nstlist: 'cg_minimization_nstlist'},
+  {host: 'stage-cg-equilibration', ps: 'cg_equil_ps', dt: 'cg_equil_dt_fs', nstlist: 'cg_equil_nstlist'},
+  {host: 'stage-cg-production', ps: 'cg_production_ps', dt: 'cg_production_dt_fs', nstlist: 'nstlist'},
+];
+
+//: Every control whose change moves a stage's facts line or the run summary: each AA stage's duration, timestep and
+//: neighbour list, and the CG legs' duration, timestep, neighbour list, step cap and the rest of their new settings --
+//: a Verlet tolerance or coupling time changes no fact, but it is persisted and refreshed like the numbers it sits by.
+const STAGE_SUMMARY_FIELDS = [
+  ...AA_STAGES.flatMap(stage => [`aa_${stage}_ps`, `aa_${stage}_dt_fs`, `aa_${stage}_nstlist`]),
+  'cg_minimization_steps', 'cg_minimization_nstlist', 'cg_minimization_verlet_buffer_tolerance',
+  'cg_equil_ps', 'cg_equil_dt_fs', 'cg_equil_nstlist', 'cg_equil_verlet_buffer_tolerance',
+  'cg_equil_tau_t', 'cg_equil_tau_p', 'cg_equil_compressibility',
+  'cg_production_ps', 'cg_production_dt_fs', 'nstlist',
+];
+
 /** One stage control's number, or null when the control is absent or empty (the pdc form has none of these). */
 function stageNumber(form, name) {
   const raw = form?.elements?.[name]?.value;
@@ -70,9 +89,10 @@ function stageNumber(form, name) {
 const groupedNumber = number => number.toLocaleString('en-GB').replace(/,/g, ' ');
 
 /**
- * Write each AA stage editor's facts line: its duration, timestep, the step count they imply and its neighbour-list
- * cadence. A collapsed stage still says what it holds. A part whose control is empty is omitted, and a page with no
- * AA stage elements (the pdc form) is answered without touching anything.
+ * Write each stage editor's facts line: its duration, timestep, the step count they imply and its neighbour-list
+ * cadence -- or, for CG minimisation, its step cap and neighbour list. A collapsed stage still says what it holds. A
+ * part whose control is empty is omitted, and a page with none of these elements (the pdc form) is answered without
+ * touching anything.
  */
 function syncStageSummaries(form) {
   if (!form) return;
@@ -86,6 +106,21 @@ function syncStageSummaries(form) {
     if (ps !== null) parts.push(`${groupedNumber(ps)} ps`);
     if (dt !== null) parts.push(`${groupedNumber(dt)} fs`);
     if (ps !== null && dt !== null && dt > 0) parts.push(`${groupedNumber(Math.round(ps / (dt / 1000)))} steps`);
+    if (nstlist !== null) parts.push(`nstlist ${groupedNumber(nstlist)}`);
+    host.textContent = parts.join(' · ');
+  }
+  for (const stage of CG_STAGES) {
+    const host = document.getElementById(`${stage.host}-facts`);
+    if (!host) continue;
+    const ps = stageNumber(form, stage.ps);
+    const dt = stageNumber(form, stage.dt);
+    const steps = stageNumber(form, stage.steps);
+    const nstlist = stageNumber(form, stage.nstlist);
+    const parts = [];
+    if (ps !== null) parts.push(`${groupedNumber(ps)} ps`);
+    if (dt !== null) parts.push(`${groupedNumber(dt)} fs`);
+    if (ps !== null && dt !== null && dt > 0) parts.push(`${groupedNumber(Math.round(ps / (dt / 1000)))} steps`);
+    if (steps !== null) parts.push(`${groupedNumber(steps)} steps`);
     if (nstlist !== null) parts.push(`nstlist ${groupedNumber(nstlist)}`);
     host.textContent = parts.join(' · ');
   }
@@ -170,21 +205,28 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   const RUN_FIELDS = ['box_shape','mdrun_pmefft','mdrun_update','mdrun_tunepme'];
   // The CG production options the Other run options fold offers. Each has a `SETTING_SPECS` bound and is written into
   // `cg-production-v1`; the equilibration leg keeps its own reviewed values. `nstxtcout` and `rlist` have no default,
-  // so an empty control leaves GROMACS' own rule (the ps interval and the Verlet buffer) in force.
+  // so an empty control leaves GROMACS' own rule (the ps interval and the Verlet buffer) in force. The ten stage-leg
+  // numbers are the editors' own fields; a reference and a composition post them too, because their adapters run the
+  // same three legs.
+  const CG_PRODUCTION_FIELDS = ['nstlog','nstenergy','nstxtcout','xtc_precision','nstcomm','nstlist',
+    'verlet_buffer_tolerance','rlist','rcoulomb','rvdw','tau_t','tau_p','compressibility'];
+  const CG_STAGE_FIELDS = ['cg_minimization_steps','cg_minimization_nstlist','cg_minimization_verlet_buffer_tolerance',
+    'cg_equil_dt_fs','cg_equil_nstlist','cg_equil_verlet_buffer_tolerance','cg_equil_tau_t','cg_equil_tau_p',
+    'cg_equil_compressibility','cg_production_dt_fs'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed',
-    'nstlog','nstenergy','nstxtcout','xtc_precision','nstcomm','nstlist','verlet_buffer_tolerance','rlist',
-    'rcoulomb','rvdw','tau_t','tau_p','compressibility'];
-  // The published sugar reference's own vocabulary (`validation ... sugar_cg.SETTING_SPECS`). A reference run
-  // advertises these and none of the AA or CG-production overrides, so the form posts only what that adapter reads.
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
+  // The published sugar reference's own vocabulary (`validation ... sugar_cg.SETTING_SPECS`) plus the production and
+  // stage-leg overrides its three legs run: a reference run advertises those, and none of the AA half's settings, so
+  // the form posts only what that adapter reads.
   const REFERENCE_FIELDS = ['sugar_entry','cg_equil_ps','cg_production_ps','temperature_k','cg_seed',
-    'output_interval_ps','mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme'];
+    'output_interval_ps','mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme',
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
   // A composition is a CG molecule with a *derived* model, so its settings are the CG dialect without the AA half's
   // durations, the sugar entry or the force field (`execution/adapters/composition.py:SETTING_SPECS`). The form posts
   // only these keys, and a `cg` preset fills the ones it carries.
   const COMPOSITION_FIELDS = ['cg_equil_ps','cg_production_ps','cg_seed','temperature_k','output_interval_ps',
     'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme','mdrun_pmefft','mdrun_update',
-    'mdrun_tunepme','nstlog','nstenergy','nstxtcout','xtc_precision','nstcomm','nstlist','verlet_buffer_tolerance',
-    'rlist','rcoulomb','rvdw','tau_t','tau_p','compressibility'];
+    'mdrun_tunepme', ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
   const AA_ONLY_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, 'force_field'];
   const REVISION_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, ...CG_FIELDS, 'force_field'];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
@@ -935,12 +977,13 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (savedForm[input.name] !== undefined) input.value = savedForm[input.name];
     input.addEventListener('input', () => storage.set('form', formValues()));
   }
-  // A collapsed stage still says what it holds: the facts line follows its duration, timestep and neighbour list,
-  // and the first paint states the restored numbers before `/api/defaults` answers.
-  for (const stage of AA_STAGES) {
-    for (const suffix of ['ps', 'dt_fs', 'nstlist']) {
-      form.elements[`aa_${stage}_${suffix}`]?.addEventListener('input', () => syncStageSummaries(form));
-    }
+  // A collapsed stage still says what it holds: the facts line follows its duration, timestep, neighbour list and
+  // (CG minimisation) step cap, and the first paint states the restored numbers before `/api/defaults` answers. The
+  // summary and the stored form move with it, so a stage number is persisted like any other setting.
+  for (const name of STAGE_SUMMARY_FIELDS) {
+    form.elements[name]?.addEventListener('input', () => {
+      syncStageSummaries(form); syncRunSummary(); storage.set('form', formValues());
+    });
   }
   syncStageSummaries(form);
   // A form saved before the split names the retired `aa_cg` (or `sugar_cg`/`cg_composition`). The select has no such
@@ -1081,6 +1124,18 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       storage.set('form', formValues());
     } catch (error) { notice(error.message); }
   });
+  // A seed is generated, not defaulted: an integer from 1 through today's date, which is the one value a default
+  // cannot supply. The generic `.use-default` handler stays off these two buttons; they carry no such class.
+  function generateSeed(button, field) {
+    button?.addEventListener('click', () => {
+      const input = form.elements[field];
+      if (!input) return;
+      input.value = String(1 + Math.floor(Math.random() * Number(localDate())));
+      syncRunSummary(); refreshReadiness(); storage.set('form', formValues());
+    });
+  }
+  generateSeed($('#generate-aa-seed'), 'aa_seed');
+  generateSeed($('#generate-cg-seed'), 'cg_seed');
 
   // Readiness ---------------------------------------------------------------------------------------------------
   let readinessGeneration = 0, readinessTimer, readinessController;
@@ -1128,10 +1183,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       setText($('#review-status'), 'Readiness unavailable'); $('#review-status').dataset.ready = 'false';
     }
   }
-  for (const input of [form.elements.temperature_k, form.elements.aa_nvt_ps, form.elements.aa_npt_ps,
-                       form.elements.aa_production_ps, form.elements.cg_equil_ps, form.elements.cg_production_ps]) {
-    input?.addEventListener('input', () => { syncRunSummary(); storage.set('form', formValues()); });
-  }
+  form.elements.temperature_k?.addEventListener('input', () => { syncRunSummary(); storage.set('form', formValues()); });
   form.elements.temperature_k?.addEventListener('input', refreshReadiness);
 
   // Submission --------------------------------------------------------------------------------------------------

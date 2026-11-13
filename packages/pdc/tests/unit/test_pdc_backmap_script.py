@@ -77,3 +77,37 @@ def test_the_alignment_uses_the_protonated_reference_when_there_is_one() -> None
 
     assert '../01_prepare/protein_prepared.pdb' in script and '-a cg2at_atomistic.pdb' in script
     assert 'missing atoms' in script, 'the reason is written down: pdb2gmx refuses the heavy-atom-only file'
+
+
+def test_the_stage_wraps_gmx_so_pdb2gmx_gets_the_runs_choice() -> None:
+    """CG2AT2 accepts one executable (`-gmx`) and concatenates it into every GROMACS command it runs.
+
+    The run's `-vsite` choice therefore travels as a wrapper: it is appended to `pdb2gmx` and to no other command, and
+    `none` adds no flag. The real gmx is resolved before the wrapper is written and embedded as an absolute path,
+    because the tool's shell commands run from directories the stage does not control.
+    """
+    script = text()
+
+    assert 'GMX_BIN="${GMX:-$(command -v gmx || true)}"' in script, 'the real gmx is resolved, not assumed'
+    assert 'VSITE_WRAPPER="$PWD/gmx-vsite"' in script
+    assert 'cat > "$VSITE_WRAPPER"' in script and 'chmod +x "$VSITE_WRAPPER"' in script, 'the wrapper is executable'
+    body = script.split('cat > "$VSITE_WRAPPER" <<WRAPPER', 1)[1].split('\nWRAPPER', 1)[0]
+    assert 'if [ "\\${1:-}" = "pdb2gmx" ] && [ "$PROTEIN_VSITE" != "none" ]; then' in body, \
+        'only pdb2gmx, and only a non-none choice, gets the flag'
+    executed_body = '\n'.join(line for line in body.splitlines() if not line.strip().startswith('#'))
+    assert executed_body.count('-vsite') == 1, 'no unguarded append: the `none` run passes no flag'
+    assert 'exec "$GMX_BIN" "\\$@" -vsite "$PROTEIN_VSITE"' in body
+    assert 'exec "$GMX_BIN" "\\$@"' in body, 'every other command is the real gmx, untouched'
+    assert 'RUN_SETTING_PROTEIN_VSITE' in script, 'the executor exports the run setting under this name'
+    assert '../../inputs/pdc-settings.json' in script, 'a run prepared before the setting has the on-disk fallback'
+    assert 'none|hydrogens|aromatics' in script and 'must be one of none, hydrogens, aromatics' in script, \
+        'a value the wrapper cannot pass stops the stage by name'
+
+
+def test_the_vsite_wrapper_is_passed_to_the_tool_and_created_before_it() -> None:
+    script = text()
+    executed = ' '.join(line for line in script.splitlines() if not line.strip().startswith('#'))
+
+    assert '-gmx "$VSITE_WRAPPER"' in executed, 'without -gmx the tool calls the bare gmx and the choice is lost'
+    assert executed.index('chmod +x "$VSITE_WRAPPER"') < executed.index('-gmx "$VSITE_WRAPPER"'), \
+        'the wrapper exists before the invocation names it'

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>CG stage settings, seeds and virtual sites — draft</title>
+<style>
+body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:980px;color:#1c2635;background:#f6f8fb}
+.card{background:#fff;border:1px solid #d8e0ea;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
+h1{font-size:1.35rem}h2{font-size:1rem;text-transform:uppercase;letter-spacing:.06em;color:#526175}
+details{border:1px solid #d8e0ea;border-radius:8px;margin:.5rem 0;background:#fbfcfe}
+summary{cursor:pointer;padding:.65rem .8rem;font-weight:600}
+summary .facts{float:right;font-weight:400;color:#66748a;font-size:.85rem}
+.body{padding:.2rem .8rem 1rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.6rem}
+label{display:flex;flex-direction:column;gap:.2rem;font-size:.82rem;color:#3d4b5f}
+input,select{font:inherit;padding:.35rem .45rem;border:1px solid #c7d2df;border-radius:5px;background:#fff}
+.actions{display:flex;gap:.4rem;align-items:center}
+button{font:inherit;padding:.35rem .7rem;border:1px solid #c7d2df;border-radius:5px;background:#fff;cursor:pointer}
+button.primary{background:#2455b0;color:#fff;border-color:#2455b0}
+.hint{color:#66748a;font-size:.82rem}
+.seed{display:flex;gap:.4rem;align-items:center}
+</style></head><body>
+<h1>New run — CG stages, seeds and protein virtual sites</h1>
+<p class="hint">Draft only: ids, labels and help text for the build. The AA editors above these are unchanged.</p>
+
+<section class="card"><h2>Stage settings · CG</h2>
+<p class="hint">The CG simulation's three legs. Defaults are the reviewed profile values; changing one overrides it for this run only.</p>
+
+<details open><summary>CG minimisation <span class="facts">20 000 steps · nstlist 20</span></summary>
+<div class="body">
+  <label>Step cap<input type="number" min="1" max="1000000" value="20000"></label>
+  <label>Neighbour list rebuild (steps)<input type="number" min="1" max="10000" value="20"></label>
+  <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><input type="number" min="0.001" max="0.1" step="0.001" value="0.005"></label>
+</div></details>
+
+<details><summary>CG equilibration <span class="facts">5 000 ps · 5 fs · 1 000 000 steps · nstlist 40</span></summary>
+<div class="body">
+  <label>Duration (ps)<input type="number" min="1" value="5000"></label>
+  <label>Timestep (fs)<input type="number" min="0.5" max="20" step="0.5" value="5"></label>
+  <label>Neighbour list rebuild (steps)<input type="number" min="1" max="10000" value="40"></label>
+  <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><input type="number" min="0.001" max="0.1" step="0.001" value="0.005"></label>
+  <label>Thermostat coupling (ps)<input type="number" min="0.01" max="100" step="0.01" value="1.0"></label>
+  <label>Barostat coupling (ps)<input type="number" min="0.1" max="100" step="0.1" value="4.0"></label>
+  <label>Compressibility (bar⁻¹)<input type="number" min="0" max="1" step="any" value="4.5e-5"></label>
+</div></details>
+
+<details><summary>CG production <span class="facts">10 000 ps · 20 fs · 500 000 steps · nstlist 40</span></summary>
+<div class="body">
+  <label>Duration (ps)<input type="number" min="1" value="10000"></label>
+  <label>Timestep (fs)<input type="number" min="0.5" max="20" step="0.5" value="20"></label>
+  <label>Neighbour list rebuild (steps)<input type="number" min="1" max="10000" value="40"></label>
+  <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><input type="number" min="0.001" max="0.1" step="0.001" value="0.005"></label>
+  <label>Thermostat coupling (ps)<input type="number" min="0.01" max="100" step="0.01" value="1.0"></label>
+  <label>Barostat coupling (ps)<input type="number" min="0.1" max="100" step="0.1" value="12.0"></label>
+  <label>Compressibility (bar⁻¹)<input type="number" min="0" max="1" step="any" value="4.5e-5"></label>
+</div></details>
+</section>
+
+<section class="card"><h2>Seeds</h2>
+<div class="body">
+  <label>AA random seed<span class="seed"><input type="number" min="1" value="20261113"><button type="button">Generate</button></span><span class="hint">1 … today (20261113)</span></label>
+  <label>CG random seed<span class="seed"><input type="number" min="1" value="20260911"><button type="button">Generate</button></span><span class="hint">1 … today (20261113)</span></label>
+</div></section>
+
+<section class="card"><h2>pdc Other run options · back-map</h2>
+<div class="body">
+  <label>Protein virtual sites<select><option>None</option><option>Hydrogens</option><option>Aromatics</option></select>
+  <span class="hint">Passed as <code>gmx pdb2gmx -vsite</code> to every protein topology CG2AT2 builds. Aromatics is deprecated by GROMACS.</span></label>
+</div></section>
+</body></html>

@@ -73,21 +73,67 @@ def write_aa_run(root, *, frames=5):
     return reference
 
 
-def fake_gmx_energy(monkeypatch, series, *, menu=True, times_ps=None, legends=None):
-    """Replace `gmx energy` with its two calls: discovery, then one XVG holding every term.
+def write_stage_edrs(root):
+    """The three equilibration EDRs, in the root and `stages/` spellings the run layouts use."""
+    paths = {}
+    for relative in ('03_minimization/run.edr', 'stages/04_nvt/run.edr', '05_npt/system.edr'):
+        path = Path(root) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('not really an edr; the reader is replaced in the tests')
+        paths[relative] = path
+    return paths
 
-    `series` maps a term name to its values, one per row, and its insertion order is the menu's order. The XVG's
-    columns are written in the file's own (reversed) order, so a reader that trusted its request order fails. No
-    `-o` prints the numbered menu on stderr, as the real tool does; `menu=False` emulates a version whose output
-    cannot be parsed. `legends` overrides an XVG legend, for GROMACS' spelling (`Proper-Dih.` becomes `Proper Dih.`).
+
+def stage_tables(paths, rows=4):
+    """One row-per-sample table per equilibration EDR, keyed by full path so equal file names cannot collide."""
+    return {
+        str(paths['03_minimization/run.edr']): {
+            'terms': {'Potential': [float(-190000 + index) for index in range(rows)]},
+            'times_ps': [float(index) for index in range(rows)],
+        },
+        str(paths['stages/04_nvt/run.edr']): {
+            'terms': {'Temperature': [300.0 + index for index in range(rows)]},
+            'times_ps': [1000.0 * index for index in range(rows)],
+        },
+        str(paths['05_npt/system.edr']): {
+            'terms': {'Pressure': [1.0 + index for index in range(rows)]},
+            'times_ps': [1000.0 * index for index in range(rows)],
+        },
+    }
+
+
+def production_table(rows=4):
+    return {'terms': {'Potential': [-190500.0] * rows,
+                      'Temperature': [300.5] * rows,
+                      'Pressure': [1.0] * rows}}
+
+
+def fake_gmx_energy(monkeypatch, series=None, *, menu=True, times_ps=None, legends=None, edrs=None):
+    """Replace `gmx energy` with its two calls: discovery, then one XVG holding the requested terms.
+
+    `series` maps a term name to its values, one per row, and its insertion order is the menu's order; it answers
+    every EDR. `edrs` maps an EDR's full path (or bare file name) to its own `{'terms': ..., 'times_ps': ...,
+    'legends': ...}`, so the production file and each equilibration file can carry a different menu, data and x
+    column -- which is what several staged `.edr`s need. The XVG's columns are written in the file's own (reversed)
+    order, so a reader that trusted its request order fails. No `-o` prints the numbered menu on stderr, as the real
+    tool does; `menu=False` emulates a version whose output cannot be parsed. `legends` overrides an XVG legend, for
+    GROMACS' spelling (`Proper-Dih.` becomes `Proper Dih.`).
     """
-    order = list(series)
-    rows = len(next(iter(series.values())))
-    times = list(times_ps) if times_ps is not None else [1000.0 * index for index in range(rows)]
-    columns = list(reversed(order))
-    legends = {name: (legends or {}).get(name, name) for name in order}
+    edrs = edrs or {}
+
+    def resolve(edr):
+        key = str(edr) if str(edr) in edrs else Path(edr).name
+        spec = edrs.get(key) or ({} if series is None else {'terms': series})
+        table = spec.get('terms') or {}
+        order = list(table)
+        rows = len(next(iter(table.values()))) if table else 0
+        times = spec.get('times_ps', times_ps)
+        times = list(times) if times is not None else [1000.0 * index for index in range(rows)]
+        return table, order, rows, times, spec.get('legends', legends)
 
     def run(command, **kwargs):
+        edr = command[command.index('-f') + 1]
+        table, order, rows, times, overrides = resolve(edr)
         if '-o' not in command:
             if not menu:
                 return SimpleNamespace(returncode=1, stdout='', stderr='no term menu here')
@@ -98,14 +144,23 @@ def fake_gmx_energy(monkeypatch, series, *, menu=True, times_ps=None, legends=No
                       f'{listed}---  ---\n')
             return SimpleNamespace(returncode=1, stdout='', stderr=stderr)
         selected = [line for line in kwargs.get('input', '').splitlines() if line.strip()]
+        assert selected and selected[-1] == '0', 'a zero ends the selection'
         if menu:
-            assert selected[:len(order)] == [str(index + 1) for index in range(len(order))], selected
-            assert selected[len(order)] == '0', 'a zero ends the selection'
+            chosen = []
+            for line in selected[:-1]:
+                assert line.isdigit() and 1 <= int(line) <= len(order), line
+                chosen.append(int(line))
+            assert len(set(chosen)) == len(chosen), 'a term is selected once'
+            names = [order[index - 1] for index in chosen]
+        else:
+            names = [name for name in selected[:-1] if name in order]
+        columns = list(reversed(names))
+        legends_for = {name: (overrides or {}).get(name, name) for name in names}
         output = Path(command[command.index('-o') + 1])
         lines = ['# a fake gmx energy XVG']
-        lines += [f'@ s{index} legend "{legends[name]}"' for index, name in enumerate(columns)]
+        lines += [f'@ s{index} legend "{legends_for[name]}"' for index, name in enumerate(columns)]
         for row in range(rows):
-            values = ' '.join(str(series[name][row]) for name in columns)
+            values = ' '.join(str(table[name][row]) for name in columns)
             lines.append(f'{times[row]} {values}')
         output.write_text('\n'.join(lines) + '\n')
         return SimpleNamespace(returncode=0, stdout='', stderr='')
@@ -273,20 +328,22 @@ def test_a_single_molecule_figure_has_no_aggregate_panel(tmp_path, monkeypatch):
 
     axes = recorded[0].axes
     titles = [axis.get_title() for axis in axes]
-    assert len(axes) == 5, 'RMSD, Rg and the three energy terms; no aggregate cell'
+    assert len(axes) == 8, 'the aggregate cell is deleted, not left as a hole: two shape, three energy, three stages'
     assert titles[:2] == ['RMSD', 'Radius of gyration']
     assert titles[2].startswith('Temperature · mean')
     assert not any('aggregate' in title.lower() for title in titles)
+    assert axes[5].texts[0].get_text() == 'not available', 'no stage EDRs were staged, so the cell says so'
 
 
 def test_a_multi_molecule_figure_keeps_the_generic_aggregate_panel(tmp_path, monkeypatch):
-    """A micelle's aggregate curve stays; only its detergent-specific title goes."""
+    """A micelle's aggregate curve stays; only its detergent-specific title goes, in a full 3x3 grid."""
     write_run(tmp_path)
     recorded = spy_figures(monkeypatch)
 
     trajectory_overview.run(tmp_path)
 
     titles = [axis.get_title() for axis in recorded[0].axes]
+    assert len(recorded[0].axes) == 9
     assert titles[:3] == ['RMSD', 'Radius of gyration', 'Largest aggregate'], titles
 
 
@@ -463,3 +520,141 @@ def test_xvg_legends_are_folded_to_the_canonical_term_names(tmp_path, monkeypatc
     assert energy['drift']['kinetic_energy_slope_per_ns'] == pytest.approx(1.0)
     assert energy['drift']['ratio'] == pytest.approx(1.0)
     assert energy['terms']['Temperature']['values'] == [300.0] * 5
+
+
+def test_the_equilibration_energy_files_are_staged(tmp_path):
+    """Each leg stages its own candidate, first existing wins, and the production entry stays intact."""
+    stage = write_run(tmp_path)
+    (stage.parent / 'md.edr').write_text('the production leg')
+    paths = write_stage_edrs(tmp_path)
+    # Earlier candidates that exist but lose to the one above them, and a file that must not be guessed at.
+    (tmp_path / '4_CG_sim').mkdir()
+    (tmp_path / '4_CG_sim' / 'min.edr').write_text('not this one')
+    (tmp_path / '4_CG_sim' / 'eq.edr').write_text('nor this one')
+
+    entries = trajectory_overview.sources(tmp_path)
+
+    assert entries['stages/08_extension/md.edr'] == stage.parent / 'md.edr'
+    assert entries['03_minimization/run.edr'] == paths['03_minimization/run.edr']
+    assert entries['stages/04_nvt/run.edr'] == paths['stages/04_nvt/run.edr']
+    # The CG equilibration file is the NPT leg's own EDR and outranks the pdc candidate in this mixed tree.
+    assert entries['4_CG_sim/eq.edr'] == tmp_path / '4_CG_sim/eq.edr'
+    assert '4_CG_sim/min.edr' not in entries, 'the first existing candidate won the minimisation leg'
+
+
+def test_the_stage_traces_are_read_and_recorded(tmp_path, monkeypatch):
+    """One term per leg: Potential against step, Temperature and Pressure against time, all bounded samples."""
+    stage = write_run(tmp_path)
+    (stage / 'run.edr').write_text('the production leg')
+    paths = write_stage_edrs(tmp_path)
+    edrs = stage_tables(paths)
+    edrs[str(stage / 'run.edr')] = production_table()
+    fake_gmx_energy(monkeypatch, edrs=edrs)
+
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    stages = record['stages']
+    assert set(stages) == {'minimisation', 'nvt', 'npt'}
+    assert stages['minimisation']['term'] == 'Potential'
+    assert stages['nvt']['term'] == 'Temperature'
+    assert stages['npt']['term'] == 'Pressure'
+    assert stages['minimisation']['x_unit'] == 'step'
+    assert stages['minimisation']['x'] == [0, 1, 2, 3], 'the x column is the step count'
+    assert all(isinstance(value, int) for value in stages['minimisation']['x'])
+    for leg in ('nvt', 'npt'):
+        assert stages[leg]['x_unit'] == 'time_ps'
+        assert stages[leg]['x'] == [0.0, 1000.0, 2000.0, 3000.0]
+    for leg, entry in stages.items():
+        assert entry['n'] == len(entry['values']) <= trajectory_overview.ENERGY_POINTS, leg
+        assert entry['n'] == len(entry['x']), leg
+        assert math.isfinite(entry['mean']), leg
+    assert stages['minimisation']['mean'] == pytest.approx(-189998.5)
+    assert stages['nvt']['mean'] == pytest.approx(301.5)
+    assert stages['npt']['mean'] == pytest.approx(2.5)
+    # Four EDRs were staged and the production one still resolved: not the only-staged-file guess.
+    assert record['energy']['source'] == 'run.edr'
+    assert record['energy']['terms']['Temperature']['mean'] == 300.5
+
+
+def test_the_stage_samples_are_bounded(tmp_path, monkeypatch):
+    """A long minimisation keeps at most ENERGY_POINTS samples, not a second copy of the EDR."""
+    stage = write_run(tmp_path)
+    (stage / 'run.edr').write_text('the production leg')
+    paths = write_stage_edrs(tmp_path)
+    edrs = stage_tables(paths, rows=1300)
+    edrs[str(stage / 'run.edr')] = production_table()
+    fake_gmx_energy(monkeypatch, edrs=edrs)
+
+    trajectory_overview.run(tmp_path)
+
+    stages = json.loads((tmp_path / 'trajectory-overview.json').read_text())['stages']
+    minimisation = stages['minimisation']
+    assert minimisation['n'] <= trajectory_overview.ENERGY_POINTS
+    assert len(minimisation['values']) <= trajectory_overview.ENERGY_POINTS
+    assert len(minimisation['x']) <= trajectory_overview.ENERGY_POINTS
+    assert minimisation['x'][:3] == [0, 3, 6], 'the sampled steps, every third run'
+
+
+def test_a_stage_without_its_term_omits_that_leg(tmp_path, monkeypatch):
+    """A minimisation EDR with no Potential is omitted rather than drawn empty."""
+    stage = write_run(tmp_path)
+    (stage / 'run.edr').write_text('the production leg')
+    paths = write_stage_edrs(tmp_path)
+    edrs = stage_tables(paths)
+    edrs[str(paths['03_minimization/run.edr'])]['terms'] = {'Total-Energy': [1.0, 2.0, 3.0, 4.0]}
+    edrs[str(stage / 'run.edr')] = production_table()
+    fake_gmx_energy(monkeypatch, edrs=edrs)
+
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert set(record['stages']) == {'nvt', 'npt'}
+    assert record['energy']['terms']['Temperature']['mean'] == 300.5
+
+
+def test_the_production_energy_resolves_at_its_known_path_among_several_edrs(tmp_path, monkeypatch):
+    """An AA reference has no sibling energy; its recorded production path beats the staged equilibration files."""
+    reference = write_aa_run(tmp_path)
+    minimisation = tmp_path / '04_nvt' / 'system.edr'
+    minimisation.parent.mkdir()
+    minimisation.write_text('a stage leg')
+    npt = tmp_path / '05_npt' / 'system.edr'
+    npt.parent.mkdir()
+    npt.write_text('another stage leg')
+    edrs = {
+        str(tmp_path / 'stages/06_production/run.edr'): production_table(),
+        str(minimisation): {'terms': {'Temperature': [999.0] * 4}},
+        str(npt): {'terms': {'Pressure': [42.0] * 4}},
+    }
+    fake_gmx_energy(monkeypatch, edrs=edrs)
+
+    trajectory_overview.run(tmp_path)
+
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert record['energy']['source'] == 'run.edr'
+    assert record['energy']['terms']['Temperature']['mean'] == 300.5, 'the stage files did not answer'
+    assert set(record['stages']) == {'nvt', 'npt'}
+    assert record['stages']['npt']['term'] == 'Pressure'
+    assert reference.is_dir()
+
+
+def test_the_stage_traces_have_their_own_figure_row(tmp_path, monkeypatch):
+    """The third row names the leg traces; a production run keeps the full 3x3 grid."""
+    stage = write_run(tmp_path)
+    (stage / 'run.edr').write_text('the production leg')
+    paths = write_stage_edrs(tmp_path)
+    edrs = stage_tables(paths)
+    edrs[str(stage / 'run.edr')] = production_table()
+    fake_gmx_energy(monkeypatch, edrs=edrs)
+    recorded = spy_figures(monkeypatch)
+
+    trajectory_overview.run(tmp_path)
+
+    titles = [axis.get_title() for axis in recorded[0].axes]
+    assert len(recorded[0].axes) == 9
+    assert titles[:3] == ['RMSD', 'Radius of gyration', 'Largest aggregate']
+    assert [title.split(' ·')[0] for title in titles[3:6]] == ['Temperature', 'Pressure', 'Potential']
+    assert [title.split(' ·')[0] for title in titles[6:]] == [
+        'Minimisation potential', 'Equilibration temperature', 'Equilibration pressure']
+    assert (tmp_path / 'trajectory-overview.png').is_file()

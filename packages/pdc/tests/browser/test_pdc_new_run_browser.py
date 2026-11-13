@@ -94,7 +94,8 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
-                 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks'):
+                 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks',
+                 'protein_vsite'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
     assert page.locator('[name=snapshot_interval_ns], [name=snapshot_cap]').count() == 0, 'snapshot inputs are retired'
 
@@ -233,8 +234,8 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
     block = page.locator('#new-advanced')
     expect(block).to_be_visible()
-    assert page.locator('#new-advanced .new-pdc-option-group').count() == 5
-    assert page.locator('#new-advanced [name]').count() == 26
+    assert page.locator('#new-advanced .new-pdc-option-group').count() == 6
+    assert page.locator('#new-advanced [name]').count() == 27
     height = block.bounding_box()['height']
     assert height < 800, f'the expanded block is {height:.0f} px tall; a scan should fit under 800'
 
@@ -395,6 +396,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
         'backmap': True, 'remove_out_of_micelle': True,
+        # The back-map's pdb2gmx choice is stated always, like the back-map toggle: a run that asked for virtual sites
+        # must not be readable as one that used the default.
+        'protein_vsite': 'none',
         # The plan's step 1, stated rather than omitted, and on by default: a run that asked for the preparation must not
         # be readable as one that did not -- the same reason the back-map choice is always sent.
         'prepare_protein': True,

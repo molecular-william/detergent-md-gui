@@ -28,6 +28,29 @@ def test_a_changed_timestep_survives_a_reload(dashboard, live_page):
     assert errors == []
 
 
+def test_a_changed_cg_timestep_survives_a_reload(dashboard, live_page):
+    """The CG editors persist like the AA ones, and their facts line follows the stored timestep."""
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.add_init_script("""if (!sessionStorage.seeded) {
+        localStorage.setItem('ddm.form', JSON.stringify({run_type:'cg',molecule_id:'DDM'}));
+        sessionStorage.seeded = '1';
+    }""")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+
+    expect(page.locator('[name=cg_equil_dt_fs]')).to_have_value('5', timeout=30000)
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 5 fs · 2 000 steps · nstlist 40')
+    page.locator('[name=cg_equil_dt_fs]').fill('10')
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 10 fs · 1 000 steps · nstlist 40')
+
+    page.reload()
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('[name=cg_equil_dt_fs]')).to_have_value('10', timeout=30000)
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 10 fs · 1 000 steps · nstlist 40')
+    assert errors == []
+
+
 def test_new_run_recovers_deleted_clone_and_preserves_settings(dashboard, live_page):
     dashboard.coordinator.database().replace([])
     page, errors = live_page

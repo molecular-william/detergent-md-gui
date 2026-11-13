@@ -255,6 +255,19 @@ SETTING_SPECS = {
     'temperature_k': ('Temperature', 200, 500),
     'sasa_probe_nm': ('SASA probe radius', 0.05, 0.5),
     'output_interval_ps': ('Trajectory output interval', 0.001, 100000),
+    # The three CG stages' own numbers. Their defaults are the reviewed profiles' (`_reviewed_stage_defaults`), so an
+    # untouched run renders each reviewed MDP byte for byte; a run that names one replaces only that option. A
+    # femtosecond is the unit the form states and the MDP writes ps, so `mdp_values` divides by 1000.
+    'cg_minimization_steps': ('CG minimisation step cap', 1, 1000000),
+    'cg_minimization_nstlist': ('CG minimisation neighbour list rebuild (steps)', 1, 10000),
+    'cg_minimization_verlet_buffer_tolerance': ('CG minimisation Verlet buffer tolerance', 0.001, 0.1),
+    'cg_equil_dt_fs': ('CG equilibration timestep (fs)', 0.5, 20),
+    'cg_equil_nstlist': ('CG equilibration neighbour list rebuild (steps)', 1, 10000),
+    'cg_equil_verlet_buffer_tolerance': ('CG equilibration Verlet buffer tolerance', 0.001, 0.1),
+    'cg_equil_tau_t': ('CG equilibration thermostat coupling (ps)', 0.01, 100.0),
+    'cg_equil_tau_p': ('CG equilibration barostat coupling (ps)', 0.1, 100.0),
+    'cg_equil_compressibility': ('CG equilibration compressibility (bar^-1)', 0.0, 1.0),
+    'cg_production_dt_fs': ('CG production timestep (fs)', 0.5, 20),
     # The CG production leg's MDP options the New run form may override. Their defaults are the reviewed profile's
     # own numbers (`_production_defaults`), so an untouched run writes the reviewed file; a value the run names
     # replaces only that option and the manifest records it. `rlist` and `nstxtcout` have no default on purpose:
@@ -290,7 +303,10 @@ PRODUCTION_OVERRIDES = {'nstlog': 'nstlog', 'nstenergy': 'nstenergy', 'xtc_preci
 # What counts as a step count rather than a size: a fractional one is refused by name.
 _INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'nstlog': 'nstlog must be an integer',
               'nstenergy': 'nstenergy must be an integer', 'nstxtcout': 'nstxtcout must be an integer',
-              'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer'}
+              'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer',
+              'cg_minimization_steps': 'CG minimisation step cap must be an integer',
+              'cg_minimization_nstlist': 'CG minimisation nstlist must be an integer',
+              'cg_equil_nstlist': 'CG equilibration nstlist must be an integer'}
 
 
 def _production_defaults():
@@ -303,6 +319,29 @@ def _production_defaults():
     settings = PROFILES['cg-production-v1'].settings
     return {setting: settings[mdp] for setting, mdp in PRODUCTION_OVERRIDES.items()
             if isinstance(settings.get(mdp), (int, float)) and not isinstance(settings.get(mdp), bool)}
+
+
+#: Where each per-stage CG field starts: the reviewed profile that owns the option, the option's MDP name, and the
+#: factor between the unit the form states and the one the MDP writes (a timestep is asked in fs and written in ps).
+#: Reading the numbers from `PROFILES` keeps the form and the profile from drifting apart.
+_STAGE_SETTING_SOURCES = {
+    'cg_minimization_steps': ('cg-minimization-v1', 'nsteps', 1),
+    'cg_minimization_nstlist': ('cg-minimization-v1', 'nstlist', 1),
+    'cg_minimization_verlet_buffer_tolerance': ('cg-minimization-v1', 'verlet-buffer-tolerance', 1),
+    'cg_equil_dt_fs': ('cg-equilibration-v1', 'dt', 1000),
+    'cg_equil_nstlist': ('cg-equilibration-v1', 'nstlist', 1),
+    'cg_equil_verlet_buffer_tolerance': ('cg-equilibration-v1', 'verlet-buffer-tolerance', 1),
+    'cg_equil_tau_t': ('cg-equilibration-v1', 'tau-t', 1),
+    'cg_equil_tau_p': ('cg-equilibration-v1', 'tau-p', 1),
+    'cg_equil_compressibility': ('cg-equilibration-v1', 'compressibility', 1),
+    'cg_production_dt_fs': ('cg-production-v1', 'dt', 1000),
+}
+
+
+def _reviewed_stage_defaults():
+    """The CG stages' reviewed numbers, in the units the form states."""
+    return {setting: PROFILES[profile].settings[mdp] * factor
+            for setting, (profile, mdp, factor) in _STAGE_SETTING_SOURCES.items()}
 
 
 #: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device,
@@ -328,6 +367,7 @@ def stage_defaults(profile='standard'):
               'cg_production_ps': _mdp_value(cg_mdf, 'nsteps') * _mdp_value(cg_mdf, 'dt'),
               'temperature_k': _mdp_value(aa_eqf, 'ref_t'), 'sasa_probe_nm': 0.191, 'output_interval_ps': 10.0, 'cg_seed': 20260911}
     values.update(_production_defaults())
+    values.update(_reviewed_stage_defaults())
     if profile == 'draft-smoke': values.update(aa_equil_ps=10.0, aa_production_ps=50.0, cg_equil_ps=10.0, cg_production_ps=50.0)
     if profile == 'draft-smoke-reference': values.update(cg_equil_ps=10.0, cg_production_ps=10000.0)
     return {'values': values, 'sources': {'AA': 'resources/templates/small_mols_fast_forward/1_AA_reference/mdps/{eq,md}.mdp', 'CG': 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/{eq,md}.mdp', 'SASA probe': 'Fast_Forward tutorial probe convention (0.191 nm)'}, 'profile': profile}
@@ -362,25 +402,38 @@ MDP_PROFILES = {'3_initial_CG/initial.mdp': 'cg-initial-v1',
 
 
 def mdp_values(settings, profile):
-    """The numbers one CG dynamics profile leaves to the run, at the profile's own timestep.
+    """The numbers one CG MDP profile leaves to the run.
 
-    The step count and the output stride are the arithmetic `cg.prepare` has always used; only the timestep moved,
-    from a template read back after patching to the reviewed profile the file is rendered from. The production leg
-    also takes any option the run named from the form's Other run options; with none named the map is the reviewed
-    profile's own, byte for byte.
+    The minimisation writes its step cap and neighbour list; the equilibration writes its own timestep, the step
+    count and output stride that follow from it, its neighbour list, couplings and compressibility; production writes
+    its timestep, the step count and stride that follow, and any option the run named from the form's Other run
+    options. Every default comes from the reviewed profile (`stage_defaults`), so a run that names nothing renders the
+    reviewed file byte for byte.
     """
-    dt = PROFILES[profile].settings['dt']
-    duration = settings['cg_equil_ps' if profile == 'cg-equilibration-v1' else 'cg_production_ps']
-    values = {'nsteps': round(duration / dt),
+    if profile == 'cg-minimization-v1':
+        return {'nsteps': settings['cg_minimization_steps'],
+                'nstlist': settings['cg_minimization_nstlist'],
+                'verlet-buffer-tolerance': settings['cg_minimization_verlet_buffer_tolerance']}
+    if profile == 'cg-equilibration-v1':
+        dt = settings['cg_equil_dt_fs'] / 1000
+        return {'dt': dt, 'nsteps': round(settings['cg_equil_ps'] / dt),
+                'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
+                'nstlist': settings['cg_equil_nstlist'],
+                'verlet-buffer-tolerance': settings['cg_equil_verlet_buffer_tolerance'],
+                'tau-t': settings['cg_equil_tau_t'], 'tau-p': settings['cg_equil_tau_p'],
+                'compressibility': settings['cg_equil_compressibility'],
+                'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+                'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    dt = settings['cg_production_dt_fs'] / 1000
+    values = {'dt': dt, 'nsteps': round(settings['cg_production_ps'] / dt),
               'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
               'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
               'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
-    if profile == 'cg-production-v1':
-        for setting, mdp in PRODUCTION_OVERRIDES.items():
-            if settings.get(setting) is not None:
-                values[mdp] = settings[setting]
-        if settings.get('nstxtcout') is not None:
-            values['nstxtcout'] = settings['nstxtcout']
+    for setting, mdp in PRODUCTION_OVERRIDES.items():
+        if settings.get(setting) is not None:
+            values[mdp] = settings[setting]
+    if settings.get('nstxtcout') is not None:
+        values['nstxtcout'] = settings['nstxtcout']
     return values
 
 
@@ -691,7 +744,6 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     # The MDPs are rendered from reviewed profiles at the run's own numbers; the installed Martini ITPs and the water box
     # are not copied at all: the topology includes the ITPs by a path relative to itself, and `cg_simulation.sh` reads
     # the published water box where it lives.
-    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp')
     (sim / 'system_EMPTY.top').write_text(
         f'#include "{martini3.include(MARTINI_FF, sim)}"\n'
         f'#include "{martini3.include(MARTINI_SOLVENTS, sim)}"\n'
@@ -705,6 +757,7 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     # The device this run names has to be one this host reports: refused at prepare, rather than by mdrun three
     # stages in. A host that reports no devices is not a refusal (`devices.require`).
     devices.require(settings['mdrun_gpu'])
+    write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp', mdp_values(settings, 'cg-minimization-v1'))
     write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', mdp_values(settings, 'cg-equilibration-v1'))
     write_mdp('cg-production-v1', sim / 'inputs/md.mdp', mdp_values(settings, 'cg-production-v1'))
     # The run's numbers travel as data and as `RUN_SETTING_*` environment variables, so the repository scripts are one

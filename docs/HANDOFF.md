@@ -6,6 +6,31 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 CG runs get stage editors, both seeds get Generate, the overview gains stage traces, and pdc gains protein
+virtual sites.** The New run form now has three CG stage editors beside the AA ones: CG minimisation (step cap,
+`nstlist`, Verlet tolerance), CG equilibration and CG production (duration, timestep, `nstlist`, Verlet tolerance,
+thermostat/barostat coupling, compressibility). Production keeps its cadence and cutoff overrides under *Other run
+options*. Defaults are read from the reviewed `PROFILES` (`cg._reviewed_stage_defaults`), so an untouched run renders
+the CG MDPs byte for byte; the keys are advertised by `cg`, `composition` and the sugar `sugar_cg` adapter, so all
+three CG kinds show the editors. The AA and CG random seeds now have **Generate**, drawing an integer in
+`1..YYYYMMDD` (today local), replacing Default.
+The overview gains a third row: Potential vs step for minimisation, Temperature for NVT and Pressure for NPT, each
+read from the leg's own EDR and recorded under `stages`; the production panels and record are unchanged.
+`pdb2gmx` cannot build the AA reference for this project's ligands -- the stored DDM PDB is residue `LIG`, and
+`gmx pdb2gmx -vsite {none,hydrogens,aromatics}` fails with `Residue 'LIG' not found in residue topology database` --
+so the virtual-site choice lives in the pdc back-map, the only stage that invokes pdb2gmx (inside CG2AT2). The choice
+is `protein_vsite` (`none`/`hydrogens`/`aromatics`), recorded in the pdc settings; `pdc_backmap.sh` writes a
+repo-owned `gmx` wrapper that appends `-vsite <choice>` to `pdb2gmx` calls and passes it to CG2AT2 with `-gmx`.
+Checks: fast **2769 passed / 1 xfailed**, browser **381 passed**, slow **24 passed**, ruff clean. Live: Sucrose
+published-reference CG run `d1dc16dfe369` completed in **19.3 s** with equilibration at 2 fs (10 ps, 5 000 steps,
+nstlist 30) and production at 10 fs (10 ps, 1 000 steps, nstlist 30); the minimisation wrote its 1 000-step cap.
+Its overview `04171a0091c5` read all three stage traces -- minimisation Potential (242 step samples), equilibration
+Temperature and Pressure (51 samples each, both from `eq.edr`) -- and the production energy from `md.edr` (43
+terms). The live form exposes the three CG editors and both Generate buttons; the pdc form exposes
+`protein_vsite`. A pre-existing race was hit while queuing an automatic analysis immediately after a run finished:
+the analysis thread failed with `A worker still holds this run` and stayed queued until a dashboard restart. That
+is not caused by this change and was not fixed here.
+
 **2026-11-13 the trajectory overview records the full statistics, shape, RMSF and every EDR term.** The first batch
 of the richer overview landed. `analysis/runs/statistics.py` gains `series_summary` (20 keys: n, mean, sample std,
 naive SEM, block-averaged SEM, median, p05/p95, min/max, half means, OLS slope per ns + stderr + R² + RMS from fit,

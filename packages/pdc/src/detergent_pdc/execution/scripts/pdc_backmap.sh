@@ -39,6 +39,46 @@ fi
 # the previous, already-neutralised one. So the stage clears its own conversion before it starts.
 rm -rf FINAL
 
+# CG2AT2 calls `gmx pdb2gmx` for every chain, and that is the one GROMACS call whose `-vsite` the run chooses. The tool
+# has one knob for the executable it calls (`-gmx`), so the real gmx is wrapped once here: the wrapper appends
+# `-vsite <choice>` to `pdb2gmx` invocations only, and passes every other command through untouched. The choice is a
+# run setting, exported by the executor as `RUN_SETTING_PROTEIN_VSITE`; a run prepared before the setting existed has
+# no such variable and reads `none` from the settings the stage is given, which back-maps exactly as it always did.
+GMX_BIN="${GMX:-$(command -v gmx || true)}"
+if [ -z "$GMX_BIN" ] || [ ! -x "$GMX_BIN" ]; then
+  echo "back-mapping needs gmx on PATH (override with GMX=/path/to/gmx); '$GMX_BIN' is not executable" >&2
+  exit 3
+fi
+# CG2AT2 concatenates this path into shell commands, so it has to be absolute -- the stage's own working directory is
+# not where the tool runs from.
+GMX_BIN=$(readlink -f "$GMX_BIN")
+PROTEIN_VSITE="${RUN_SETTING_PROTEIN_VSITE:-}"
+if [ -z "$PROTEIN_VSITE" ] && [ -f ../../inputs/pdc-settings.json ]; then
+  PROTEIN_VSITE=$("$PYTHON" -c 'import json; print(json.load(open("../../inputs/pdc-settings.json")).get("protein_vsite") or "")')
+fi
+PROTEIN_VSITE="${PROTEIN_VSITE:-none}"
+case "$PROTEIN_VSITE" in
+  none|hydrogens|aromatics) ;;
+  *)
+    echo "protein_vsite must be one of none, hydrogens, aromatics; this run names '$PROTEIN_VSITE'" >&2
+    exit 3
+    ;;
+esac
+# The stage path carries no spaces (a run id and a stage directory), which is what lets the tool quote it into its own
+# shell command. The value is one of the three strings above, so it is safe to write into the wrapper.
+VSITE_WRAPPER="$PWD/gmx-vsite"
+cat > "$VSITE_WRAPPER" <<WRAPPER
+#!/bin/bash
+# Written by pdc_backmap.sh. CG2AT2 accepts one executable and concatenates it into shell commands, so pdb2gmx
+# is where the run's -vsite choice belongs; every other GROMACS call is handed to the real gmx unchanged.
+# CG2AT2 supplies pdb2gmx's -his selections on stdin, which exec leaves in place.
+if [ "\${1:-}" = "pdb2gmx" ] && [ "$PROTEIN_VSITE" != "none" ]; then
+  exec "$GMX_BIN" "\$@" -vsite "$PROTEIN_VSITE"
+fi
+exec "$GMX_BIN" "\$@"
+WRAPPER
+chmod +x "$VSITE_WRAPPER"
+
 # The atomistic reference the conversion aligns to. The prepared protein when the run built one: the deposited file
 # carries heavy atoms only, and CG2AT2 runs pdb2gmx on what it is handed -- measured, that answers "the supplied protein
 # structure contains incorrectly named or missing atoms", while the protonated `01_prepare/protein_prepared.pdb`
@@ -76,6 +116,8 @@ STRUCTURE=cg2at_input.gro
 #                                  structure, because the tool reads `<parent>/<name>/non_protein/...`.
 #   -w tip3p                       the water the all-atom half uses (`charmm36-jul2022.ff/tip3p.itp` in the reference
 #                                  topology), and a prompt without it.
+#   -gmx <path>                    the wrapper above: the executable the tool runs every GROMACS command with, and the
+#                                  one place the run's pdb2gmx `-vsite` choice travels.
 #   -loc FINAL                     the directory the last line of this script tests for.
 #
 # stdin is `/dev/null` so any prompt still to come fails at once instead of waiting on nobody.
@@ -85,7 +127,7 @@ STRUCTURE=cg2at_input.gro
 # status is tolerated and the files are what decide (measured: a whole 113,724-atom complex, exit 1).
 set +e
 "$PYTHON" "$CG2AT" -c "$STRUCTURE" -a cg2at_atomistic.pdb -o align -fg "$FRAGMENTS" -ff "$FORCEFIELD" -w tip3p \
-  -silent -loc FINAL < /dev/null 2>&1 | tee backmap.log
+  -gmx "$VSITE_WRAPPER" -silent -loc FINAL < /dev/null 2>&1 | tee backmap.log
 CG2AT_EXIT=$?
 set -e
 echo "cg2at exit status: $CG2AT_EXIT (the converted files, not this, decide the outcome)"

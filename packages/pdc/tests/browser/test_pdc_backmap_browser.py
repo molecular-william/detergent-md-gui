@@ -104,3 +104,40 @@ def test_the_toggle_value_reaches_the_payload(dashboard, live_page):
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert posted['backmap'] is True, posted
     assert errors == [], errors
+
+
+def test_the_protein_virtual_site_choice_is_offered_and_reaches_the_payload(dashboard, live_page):
+    """The back-map's pdb2gmx choice: three values, `none` by default, and the chosen one on the payload.
+
+    The control lives in Other run options, which is why the test opens that block. The review names the value and the
+    flag it becomes, so a reader can tell whether this run's pdb2gmx will virtualise the protein.
+    """
+    page, errors = live_page
+    posted = {}
+    serve(page)
+
+    def queue(route):
+        if route.request.method != 'POST':
+            route.fallback()
+            return
+        posted.update(route.request.post_data_json or {})
+        route.fulfill(status=201, json={'id': 'pdcqueued1', 'run_type': 'pdc'})
+
+    page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
+    open_panel(page, live_page.base_url)
+    page.locator('#new-advanced > summary').click()
+
+    choice = page.locator('[name=protein_vsite]')
+    expect(choice).to_be_visible()
+    assert choice.input_value() == 'none', 'the default is the flag-less back-map every earlier run had'
+    options = page.evaluate("Array.from(document.querySelectorAll('[name=protein_vsite] option'))"
+                            ".map(o => [o.value, o.textContent])")
+    assert options == [['none', 'None'], ['hydrogens', 'Hydrogens'], ['aromatics', 'Aromatics']], options
+    expect(page.locator('[data-new-summary=vsite]')).to_contain_text('none')
+
+    choice.select_option('hydrogens')
+    expect(page.locator('[data-new-summary=vsite]')).to_contain_text('pdb2gmx -vsite hydrogens')
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert posted['protein_vsite'] == 'hydrogens', posted
+    assert errors == [], errors

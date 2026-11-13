@@ -9,6 +9,7 @@ the contract the run type validates.
 The stores are stubbed with the routes' own shapes: a fixture workspace holds no fitted revision, and what this file
 judges is what the panel does with the answer, not the fitting pipeline.
 """
+from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
@@ -39,7 +40,17 @@ DEFAULT_VALUES = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000
                   'pressure_bar': 1, 'output_interval_ps': 10, 'box_nm': 4, 'aa_seed': 1,
                   'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_gpu': 0, 'mdrun_cpt': 10,
                   'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'constraints': 'all-bonds',
-                  'force_field': 'charmm36-jul2022', 'cg_equil_ps': 10, 'cg_production_ps': 10000, 'cg_seed': 7}
+                  'force_field': 'charmm36-jul2022', 'cg_equil_ps': 10, 'cg_production_ps': 10000, 'cg_seed': 7,
+                  # The three CG stage editors' own reviewed numbers.
+                  'cg_minimization_steps': 20000, 'cg_minimization_nstlist': 20,
+                  'cg_minimization_verlet_buffer_tolerance': 0.005,
+                  'cg_equil_dt_fs': 5, 'cg_equil_nstlist': 40, 'cg_equil_verlet_buffer_tolerance': 0.005,
+                  'cg_equil_tau_t': 1, 'cg_equil_tau_p': 4, 'cg_equil_compressibility': 4.5e-05,
+                  'cg_production_dt_fs': 20,
+                  # The CG production overrides the other options fold shows.
+                  'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'tau_t': 1, 'tau_p': 12,
+                  'compressibility': 4.5e-05, 'nstlog': 1000, 'nstenergy': 1000, 'xtc_precision': 1000,
+                  'nstcomm': 100, 'rcoulomb': 1.1, 'rvdw': 1.1}
 
 
 def stub(page, submissions=None):
@@ -182,6 +193,57 @@ def test_a_mapping_without_a_revision_is_offered_as_a_draft(dashboard, live_page
     payload = submissions[0]['parameterization']
     assert payload['kind'] == 'revision' and payload['mapping_candidate'] == 'ddm-tail.json'
     assert payload['revision'] is None
+    assert live_page.errors == []
+
+
+def test_the_cg_stage_editors_state_their_numbers_and_post_while_collapsed(dashboard, live_page):
+    """The CG run has its own three editors: a step cap, and duration/timestep/steps/nstlist for the dynamics legs.
+
+    A collapsed `<details>` keeps its inputs in the form, so a stage the reader never opened still posts its numbers.
+    The facts line is each stage's own arithmetic, and it is refreshed when a duration, timestep or neighbour list
+    changes.
+    """
+    page = live_page.page
+    submissions = []
+    stub(page, submissions)
+    open_panel(page, live_page.base_url)
+
+    assert page.locator('#stage-cg-minimization').evaluate('(el) => el.open') is False
+    assert page.locator('#stage-cg-equilibration').evaluate('(el) => el.open') is True
+    expect(page.locator('#stage-cg-minimization-facts')).to_have_text('20 000 steps · nstlist 20')
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 5 fs · 2 000 steps · nstlist 40')
+    expect(page.locator('#stage-cg-production-facts')).to_have_text('10 000 ps · 20 fs · 500 000 steps · nstlist 40')
+
+    # A shorter timestep is more steps over the same duration; a part whose control is empty is omitted.
+    page.locator('[name=cg_equil_dt_fs]').fill('10')
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 10 fs · 1 000 steps · nstlist 40')
+    page.locator('[name=cg_equil_ps]').fill('')
+    expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 fs · nstlist 40')
+    page.locator('[name=cg_equil_ps]').fill('10')
+
+    # Open production if it is closed, change two numbers, close it again: a collapsed stage still posts.
+    if page.locator('#stage-cg-production').evaluate('(el) => el.open') is False:
+        page.locator('#stage-cg-production > summary').click()
+    page.locator('[name=cg_production_dt_fs]').fill('10')
+    page.locator('[name=nstlist]').fill('50')
+    page.locator('#stage-cg-production > summary').click()
+    assert page.locator('#stage-cg-production').evaluate('(el) => el.open') is False
+    expect(page.locator('#stage-cg-production-facts')).to_have_text(
+        '10 000 ps · 10 fs · 1 000 000 steps · nstlist 50')
+
+    # The generated CG seed is an integer up to today, and it is what the queued run carries.
+    page.locator('#generate-cg-seed').click()
+    generated = page.locator('[name=cg_seed]').input_value()
+    assert generated.isdigit() and 1 <= int(generated) <= int(date.today().strftime('%Y%m%d')), generated
+
+    expect(page.locator('#start-run')).to_be_enabled()
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    body = submissions[0]
+    assert (body['cg_production_dt_fs'], body['nstlist']) == ('10', '50')
+    assert body['cg_equil_ps'] == '10' and body['cg_equil_nstlist'] == '40'
+    assert body['cg_minimization_steps'] == '20000'
+    assert body['cg_seed'] == generated
     assert live_page.errors == []
 
 

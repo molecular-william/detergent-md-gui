@@ -277,7 +277,7 @@ def test_every_prepared_mdp_is_its_recorded_profile_at_the_run_numbers(fitted_ru
         '4_CG_sim/inputs/md.mdp': 'cg-production-v1'}
     for relative, profile in manifest['mdp_profiles'].items():
         values = (cg.mdp_values(manifest['settings'], profile)
-                  if profile in ('cg-equilibration-v1', 'cg-production-v1') else None)
+                  if profile in ('cg-minimization-v1', 'cg-equilibration-v1', 'cg-production-v1') else None)
         expected = render(profile, values)
         assert (run / 'stages' / relative).read_text() == expected, relative
         assert (run / 'inputs' / relative).read_text() == expected, relative

@@ -282,9 +282,18 @@ three dynamics MDPs and no other stage, so every leg states the same masses. It 
 writes no line at all, which is GROMACS' own default of 1 — and GROMACS refuses a factor its topology cannot take (the
 bonded heavy atom would fall below the repartitioned light-atom mass); with the CHARMM36 topology here factor 3 passes
 and factor 4 does not. A positive tolerance lets GROMACS size `rlist`; with the protocol's 2.5 nm box and 1.2 nm
-cut-offs it usually cannot fit, and `grompp`'s refusal is what the stage console then shows. CG, pdc and osmotic have
-no stage editors of this kind: their timesteps and boxes are the CG profiles' standing decisions, placement geometry,
-and the osmotic paper's fixed cell.
+cut-offs it usually cannot fit, and `grompp`'s refusal is what the stage console then shows.
+
+**CG runs have the same three stage editors for their own legs** (`cg_minimization_*`, `cg_equil_*`, and the
+production editor). CG minimisation states its step cap, neighbour-list rebuild and Verlet buffer tolerance; CG
+equilibration and production state duration, timestep (5 fs and 20 fs by default, in `cg_equil_dt_fs`/
+`cg_production_dt_fs`), neighbour-list rebuild, Verlet buffer tolerance, thermostat coupling, barostat coupling and
+compressibility. The production editor also carries the cadence and cutoff overrides, which are the run's output
+rather than the leg's physics. Every default is read from `PROFILES` (`cg._reviewed_stage_defaults`), so an untouched
+run renders the reviewed CG MDPs byte for byte; `cg.mdp_values` converts the fs timestep to ps and recomputes the step
+count and trajectory stride. The same keys are advertised by `cg`, `composition` and the published-reference sugar
+adapter, so all three CG kinds show the editors. pdc and osmotic still have no stage editors of this kind: their
+durations are pdc's leg settings and the osmotic paper's fixed cell.
 
 `box_shape` (AA runs only) offers the GROMACS manual's four useful cells — **Cube**, **rhombic dodecahedron
 (xy-square)**, **rhombic dodecahedron (xy-hexagon)** and **truncated octahedron** — all sized by the same **minimum
@@ -443,6 +452,14 @@ gyration are measured on the protein, or the largest molecule aggregate when the
 panel is drawn only when the segment holds more than one non-water molecule, since one molecule cannot aggregate.
 Temperature, pressure and potential come from the trajectory leg's own EDR, and an AA-only run's extracted
 `07_reference/lig.xtc` takes them from the production leg (`06_production/run.edr`) that wrote the source trajectory.
+A third row draws the equilibration legs' own traces: **Minimisation potential** against step, **Equilibration
+temperature** and **Equilibration pressure** against time (the NVT and NPT legs where the run has them). `sources()` stages one EDR per leg explicitly -- AA `03_minimization/run.edr`,
+`04_nvt/run.edr`, `05_npt/run.edr`; CG `4_CG_sim/min.edr` and `4_CG_sim/eq.edr` (the CG equilibration is the
+pressure-coupled leg); pdc `03_minimisation/system.edr`,
+`04_nvt/system.edr`, `05_npt/system.edr` -- and the producer reads only the one term each panel needs, bounded to
+`ENERGY_POINTS`; a leg whose file or term is absent is omitted rather than drawn empty. The record keeps those series
+under `stages`, with the same summary statistics as every other series (no per-ns slope for a step-counted
+minimisation).
 `energy.components` carries the EDR's own component terms -- Angle, Proper-Dih., LJ-14, Coulomb-14, LJ-(SR),
 Coulomb-(SR), Coul.-recip. and Potential, plus Bond and Improper when the leg wrote them -- and
 `energy.pressure_tensor` carries the `Pres-*`/`Vir-*` terms when the leg wrote those, so the record can say which
@@ -490,11 +507,11 @@ Shows the exact packaged input paths, executable availability, and missing workf
 The form offers two run types: **AA run** (`aa_only`) and **CG run** (`cg`; `osmotic` has its own panel). A CG run chooses a **Parameterization** of the selected molecule — a saved mapping revision, a published reference, or a composition — and no mapping/AA pickers of its own. **Starting coordinates** is `stored` (default: the frame the fit saved with the revision) or `remap` (re-read the AA reference for analyses that need `mapped.xtc`); a revision with no stored frame refuses `stored` and says so. The "Input files consistent" block is a closed `<details>` whose summary keeps the verdict and molecule facts. Stage settings are saved as named per-workspace presets (`/api/setting-presets`), with one default per run type; a run records the preset it used as `settings_preset`. A blank label is generated as `[molecule]-[AA|CG]-[length]ns-[YYYYMMDD]` (e.g. `Lactose-CG-15ns-20261110`), with the length summing equilibration and production; the field stays editable and a **Suggest** button restores the suggestion. The retired `aa_cg`/`sugar_cg`/`cg_composition` records are migrated to `cg` by `cli/migrate_run_types.py` (manifest + job row; stages untouched); a record still naming one is refused with the CLI's name.
 
 
-Exposes AA/CG equilibration and production durations, temperature, trajectory output interval, and SASA probe radius. Each value has a Default button. Defaults come from the packaged Fast_Forward/CHARMM/Martini MDPs at the profile the run type owns: a CG revision run starts at 10 ps equilibration and 10000 ps production, a composition run at the same preset, and an AA-only run at the standard durations. Submitted settings are range-checked, converted to stage-specific nsteps, recorded in the manifest, and applied only inside that run directory.
+Exposes the AA and CG stage editors, temperature, trajectory output interval, and SASA probe radius. Each numeric value has a Default button; the two random seeds have **Generate**, which draws an integer in `1..YYYYMMDD` (today in local time) rather than a fixed default. Defaults come from the packaged Fast_Forward/CHARMM/Martini MDPs at the profile the run type owns: a CG revision run starts at 10 ps equilibration and 10000 ps production, a composition run at the same preset, and an AA-only run at the standard durations. Submitted settings are range-checked, converted to stage-specific nsteps, recorded in the manifest, and applied only inside that run directory.
 
 Visible **Constraints** is the AA half's only distance-constraint control: `constraints` is a `CHOICE_SPECS` entry (`none`, `h-bonds`, `all-bonds`) whose value goes into every AA MDP, defaulting to the force-field entry's own (`all-bonds`). A CG reference or composition run shows it disabled at `none`; the CG profiles state `none` themselves, so the control carries no CG value. It selects bond-to-constraint conversion only -- a topology's own `[ constraints ]` block is enforced by LINCS whatever it says.
 
-The form also carries a collapsed **Other run options** group: output cadence (`nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm`), neighbour/cutoffs (`nstlist`, `verlet_buffer_tolerance`, `rlist`, `rcoulomb`, `rvdw`), thermostat/barostat couplings (`tau_t`, `tau_p`, `compressibility`), and execution (`mdrun_pmefft`, `mdrun_update`, `mdrun_tunepme`); `cg_seed` is a visible CG control; `box_shape` is an AA-run control (the four cells above), and the CG production tolerance accepts `0.001`–`0.1` only, because GROMACS refuses exactly 0 and the CG profile has no pinned `rlist` to fall back on. MDP overrides are scoped to the CG production leg and are accepted only because they are in `SETTING_SPECS`/`CHOICE_SPECS`; an untouched run writes the reviewed MDP byte-for-byte. Help text is one server-side map (`execution/settings_help.py`) returned with `/api/defaults`: MDP fields quote the GROMACS 2026-rc manual, execution fields quote `gmx mdrun -h`; the template carries no prose. Info buttons are focusable and expose the tooltip through `aria-describedby`.
+The form also carries a collapsed **Other run options** group: CG production output cadence (`nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm`), CG production cutoffs (`rlist`, `rcoulomb`, `rvdw`), and execution (`mdrun_pmefft`, `mdrun_update`, `mdrun_tunepme`). The CG legs' timestep, neighbour list, Verlet tolerance and couplings live in their own stage editors (above), not here. `cg_seed` is a visible CG control; `box_shape` is an AA-run control (the four cells above), and the CG production tolerance accepts `0.001`–`0.1` only, because GROMACS refuses exactly 0 and the CG profile has no pinned `rlist` to fall back on. MDP overrides are accepted only because they are in `SETTING_SPECS`/`CHOICE_SPECS`; an untouched run writes the reviewed MDP byte-for-byte. Help text is one server-side map (`execution/settings_help.py`) returned with `/api/defaults`: MDP fields quote the GROMACS 2026-rc manual, execution fields quote `gmx mdrun -h`; the template carries no prose. Info buttons are focusable and expose the tooltip through `aria-describedby`.
 
 A CG run's **reference** parameterization is a published Martini 3 sugar entry: Sucrose `SUCR`, Trehalose `TREH`, Lactose `LAC`, Glucose `GLC`. The start is the molecule's AA coordinates mapped onto the published bead layout; the topology is the entry's own terms; the run is one molecule in Martini water with the CG profile, no AA stage and no Fast-Forward fit. Glucose's layout identifies `GAL` because aldohexoses share one bead pattern; the molecule's identity selects `GLC` and the model says so. Maltose has no published entry and is refused. `GET /api/sugar-cg/preview` is the preview; `GET /api/readiness?run_type=cg&parameterization_kind=reference&sugar_entry=…` is the gate.
 
@@ -510,7 +527,9 @@ and a record's `owners` list is inferred, so a name is not an address), puts fit
 every entry with what it carries (`revision 2 · 11 beads · 26 terms · fitted 2026-10-22`, or `… · derived
 terms`) — the **initialisation** style (`lattice` or `self-assembly`), an aggregation number, salt, a positive
 integer seed, assessment/extension durations, the three equilibration legs (minimisation steps, NVT ps, NPT
-ps), the protein **subunit** selection, whether the back-map runs, and the **Prepare protein** toggle
+ps), the protein **subunit** selection, whether the back-map runs, the back-map's **protein virtual sites**
+(`protein_vsite`: `none`, `hydrogens` or `aromatics`, passed as `gmx pdb2gmx -vsite` to every protein topology
+CG2AT2 builds; `none` adds no flag), and the **Prepare protein** toggle
 (`prepare_protein`, on by default wherever the build has a protein: the stage skips by name when `pdb2pqr` is
 not resolvable). `GET /api/pdc/preview/placement` derives a live **system preview** — the frame the build
 would write (protein + detergent in the box, before solvation) — through the build's own functions, caching

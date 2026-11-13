@@ -236,7 +236,7 @@
         </div>
         <span id="preset-marker" class="hint" role="status"></span>
       </div>
-      <p class="hint">One molecule in water: minimization → NVT → NPT → NPT production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
+      <p class="hint">One molecule in water: AA minimisation → NVT → NPT → NPT production; CG minimisation → equilibration → production. Charged molecules receive counterions, with no added salt. Default durations are starting points, not a convergence guarantee.</p>
       {# The three AA stages are minimisable editors: a native <details> per stage, with the numbers a reader most
          often changes inside and a facts line in the summary so a collapsed stage still says what it holds. They are
          `aa-setting` because only an AA run has these stages; a CG run consumes a reference that already ran. #}
@@ -293,12 +293,48 @@
           {{ aa_coupling_fields('production', true, true) }}
         </div></div>
       </details>
+      {# The CG simulation's three legs, in its own editor shells. The CG production leg keeps its output cadence and
+         cutoffs under Other run options, because those are the run's output rather than the leg's physics; every
+         per-leg number lives here. `cg-setting` is what hides the whole group for an AA run. #}
+      <h4 class="new-option-title cg-setting">Stages · CG</h4>
+      <p class="hint cg-setting">The CG simulation's minimisation, equilibration and production. Defaults are the
+        reviewed Martini 3 values; changing one overrides it for this run only and the manifest records it.</p>
+      <details class="stage-editor cg-setting" id="stage-cg-minimization">
+        <summary><span class="stage-name">CG minimisation</span><span class="stage-facts" id="stage-cg-minimization-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Step cap<span class="setting-control"><input name="cg_minimization_steps" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="cg_minimization_steps">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="cg_minimization_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="cg_minimization_nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><span class="setting-control"><input name="cg_minimization_verlet_buffer_tolerance" type="number" min="0.001" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="cg_minimization_verlet_buffer_tolerance">Default</button></span></label>
+        </div></div>
+      </details>
+      <details class="stage-editor cg-setting" id="stage-cg-equilibration" open>
+        <summary><span class="stage-name">CG equilibration</span><span class="stage-facts" id="stage-cg-equilibration-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="cg_equil_dt_fs" type="number" min="0.5" max="20" step="0.5"><button type="button" class="secondary use-default" data-field="cg_equil_dt_fs">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="cg_equil_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><span class="setting-control"><input name="cg_equil_verlet_buffer_tolerance" type="number" min="0.001" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="cg_equil_verlet_buffer_tolerance">Default</button></span></label>
+          <label>Thermostat coupling (ps)<span class="setting-control"><input name="cg_equil_tau_t" type="number" min="0.01" max="100" step="0.01"><button type="button" class="secondary use-default" data-field="cg_equil_tau_t">Default</button></span></label>
+          <label>Barostat coupling (ps)<span class="setting-control"><input name="cg_equil_tau_p" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="cg_equil_tau_p">Default</button></span></label>
+          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="cg_equil_compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="cg_equil_compressibility">Default</button></span></label>
+        </div></div>
+      </details>
+      <details class="stage-editor cg-setting" id="stage-cg-production" open>
+        <summary><span class="stage-name">CG production</span><span class="stage-facts" id="stage-cg-production-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
+          <label>Timestep (fs)<span class="setting-control"><input name="cg_production_dt_fs" type="number" min="0.5" max="20" step="0.5"><button type="button" class="secondary use-default" data-field="cg_production_dt_fs">Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="nstlist">Default</button></span></label>
+          <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹</span><span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0.001" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
+          <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"><button type="button" class="secondary use-default" data-field="tau_t">Default</button></span></label>
+          <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="tau_p">Default</button></span></label>
+          <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="compressibility">Default</button></span></label>
+        </div></div>
+      </details>
       <section class="new-option-group" aria-labelledby="new-sampling-title">
         <h4 id="new-sampling-title" class="new-option-title">Sampling</h4>
         <div class="settings-grid">
           <label>Trajectory interval (ps)<span class="setting-control"><input name="output_interval_ps" type="number" min="0.001" step="0.001"><button type="button" class="secondary use-default" data-field="output_interval_ps">Default</button></span></label>
-          <label class="cg-setting">CG equilibration (ps)<span class="setting-control"><input name="cg_equil_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_equil_ps">Default</button></span></label>
-          <label class="cg-setting">CG production (ps)<span class="setting-control"><input name="cg_production_ps" type="number" min="1" step="1"><button type="button" class="secondary use-default" data-field="cg_production_ps">Default</button></span></label>
         </div>
       </section>
       <section class="new-option-group" aria-labelledby="new-ensemble-title">
@@ -314,8 +350,8 @@
       <section class="new-option-group" aria-labelledby="new-seeds-title">
         <h4 id="new-seeds-title" class="new-option-title">Seeds</h4>
         <div class="settings-grid">
-          <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="aa_seed">Default</button></span></label>
-          <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary use-default" data-field="cg_seed">Default</button></span></label>
+          <label>AA random seed<span class="setting-control"><input name="aa_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary" id="generate-aa-seed">Generate</button></span></label>
+          <label class="cg-setting">CG random seed<span class="setting-control"><input name="cg_seed" type="number" min="1" max="2147483646" step="1"><button type="button" class="secondary" id="generate-cg-seed">Generate</button></span></label>
         </div>
       </section>
       {# Distance constraints are the atomistic leg's own choice, so only an AA run shows this group; a CG run consumes
@@ -342,22 +378,12 @@
               <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="nstcomm">Default</button></span></label>
             </div>
           </section>
-          <section class="new-option-group aa-cg-setting" aria-labelledby="new-neighbour-title">
-            <h4 id="new-neighbour-title" class="new-option-title">CG production neighbour search and cutoffs</h4>
+          <section class="new-option-group aa-cg-setting" aria-labelledby="new-cutoffs-title">
+            <h4 id="new-cutoffs-title" class="new-option-title">CG production cutoffs</h4>
             <div class="settings-grid">
-              <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="nstlist">Default</button></span></label>
-              <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0.001" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
               <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05" placeholder="GROMACS sizes it"></span></label>
               <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rcoulomb">Default</button></span></label>
               <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rvdw">Default</button></span></label>
-            </div>
-          </section>
-          <section class="new-option-group aa-cg-setting" aria-labelledby="new-coupling-title">
-            <h4 id="new-coupling-title" class="new-option-title">CG production thermostat and barostat</h4>
-            <div class="settings-grid">
-              <label>Thermostat coupling (ps)<span class="setting-control"><input name="tau_t" type="number" min="0.01" max="100" step="any"><button type="button" class="secondary use-default" data-field="tau_t">Default</button></span></label>
-              <label>Barostat coupling (ps)<span class="setting-control"><input name="tau_p" type="number" min="0.1" max="100" step="0.1"><button type="button" class="secondary use-default" data-field="tau_p">Default</button></span></label>
-              <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="compressibility">Default</button></span></label>
             </div>
           </section>
           <section class="new-option-group" aria-labelledby="new-execution-title">
@@ -376,7 +402,7 @@
             </div>
           </section>
         </div>
-        <p class="hint">The CG production options start on the reviewed profile's own numbers; changing one overrides it for this run and the manifest records what was used. The equilibration leg keeps its own reviewed cadence and couplings. The scheme choices and the checkpoint cadence apply to the equilibration and production stages; an <b>energy minimisation always runs with them at auto</b> and writes no checkpoint flag. The thread, rank and device settings still apply to every stage, because they say how the leg executes, not what physics it runs. An empty trajectory interval or neighbour cut-off means GROMACS' own rule (the ps interval above, and the Verlet buffer) rather than a pinned value. The info buttons beside a setting quote the GROMACS manual for MDP options and <code>gmx mdrun -h</code> for execution flags.</p>
+        <p class="hint">The CG stage editors above start on the reviewed profile's own numbers; changing one overrides it for this run and the manifest records what was used. The production output cadence and cutoffs here are overrides too. The scheme choices and the checkpoint cadence apply to the equilibration and production stages; an <b>energy minimisation always runs with them at auto</b> and writes no checkpoint flag. The thread, rank and device settings still apply to every stage, because they say how the leg executes, not what physics it runs. An empty trajectory interval or neighbour cut-off means GROMACS' own rule (the ps interval above, and the Verlet buffer) rather than a pinned value. The info buttons beside a setting quote the GROMACS manual for MDP options and <code>gmx mdrun -h</code> for execution flags.</p>
       </details>
       <p class="hint" id="run-gpu-note" role="status"></p><p id="defaults-source" class="hint" aria-live="polite"></p>
     </fieldset>
