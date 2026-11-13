@@ -511,6 +511,18 @@ Exposes the AA and CG stage editors, temperature, trajectory output interval, an
 
 Visible **Constraints** is the AA half's only distance-constraint control: `constraints` is a `CHOICE_SPECS` entry (`none`, `h-bonds`, `all-bonds`) whose value goes into every AA MDP, defaulting to the force-field entry's own (`all-bonds`). A CG reference or composition run shows it disabled at `none`; the CG profiles state `none` themselves, so the control carries no CG value. It selects bond-to-constraint conversion only -- a topology's own `[ constraints ]` block is enforced by LINCS whatever it says.
 
+Inside the folded molecule input check, **Derive virtual sites** posts `/api/molecules/<id>/virtual-sites` and shows
+what MkVsites derives from the molecule's own topology: dummy atom types and masses, dummy--dummy and
+dummy--anchor constraints, OH angle constraints, and the `.vsd` lines a force field needs. The report is
+read-only -- it queues no run and changes no setting -- and the action is hidden for a composition or an
+invalid molecule. The same derivation is the CLI `python -m dashboard.cli.derive_vsites --itp PATH
+[--force-field DIR]` (or `--rtp PATH --residue NAME`), which prints JSON or writes `--out`. The implementation
+is an adapted port of MkVsites (Larsson, Kneisz & Marklund, *J. Comput. Chem.* 41:1564-1569, 2020; MIT), not
+a vendored copy; it uses the molecule's exact inline bond/angle rows first and a force field's `[ bondtypes ]`/
+`[ angletypes ]` only where a row carries no parameter. Its scope is MkVsites' own: terminal groups with one
+heavy neighbour and the rest hydrogen, plus OH angle constraints. It does not convert CH2/CH/NH, and it does
+not rewrite a topology; using the parameters in an AA run is the next phase.
+
 The form also carries a collapsed **Other run options** group: CG production output cadence (`nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm`), CG production cutoffs (`rlist`, `rcoulomb`, `rvdw`), and execution (`mdrun_pmefft`, `mdrun_update`, `mdrun_tunepme`). The CG legs' timestep, neighbour list, Verlet tolerance and couplings live in their own stage editors (above), not here. `cg_seed` is a visible CG control; `box_shape` is an AA-run control (the four cells above), and the CG production tolerance accepts `0.001`–`0.1` only, because GROMACS refuses exactly 0 and the CG profile has no pinned `rlist` to fall back on. MDP overrides are accepted only because they are in `SETTING_SPECS`/`CHOICE_SPECS`; an untouched run writes the reviewed MDP byte-for-byte. Help text is one server-side map (`execution/settings_help.py`) returned with `/api/defaults`: MDP fields quote the GROMACS 2026-rc manual, execution fields quote `gmx mdrun -h`; the template carries no prose. Info buttons are focusable and expose the tooltip through `aria-describedby`.
 
 A CG run's **reference** parameterization is a published Martini 3 sugar entry: Sucrose `SUCR`, Trehalose `TREH`, Lactose `LAC`, Glucose `GLC`. The start is the molecule's AA coordinates mapped onto the published bead layout; the topology is the entry's own terms; the run is one molecule in Martini water with the CG profile, no AA stage and no Fast-Forward fit. Glucose's layout identifies `GAL` because aldohexoses share one bead pattern; the molecule's identity selects `GLC` and the model says so. Maltose has no published entry and is refused. `GET /api/sugar-cg/preview` is the preview; `GET /api/readiness?run_type=cg&parameterization_kind=reference&sugar_entry=…` is the gate.

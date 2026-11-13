@@ -308,6 +308,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (!record) {
       const title = document.createElement('strong'); title.textContent = 'Select a molecule directory'; status.append(title);
       panel.textContent = 'Select an available molecule directory. Missing saved selections must be replaced explicitly.';
+      syncVirtualSites(null);
       return;
     }
     const title = document.createElement('strong'); title.textContent = record.valid ? 'Input files consistent' : 'Input files need attention'; status.append(title);
@@ -330,7 +331,90 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       const note = document.createElement('p'); note.className = 'hint';
       note.textContent = `metadata.json generated automatically. ${record.metadata.provenance}`; panel.append(note);
     }
+    syncVirtualSites(record);
   }
+
+  // MkVsites derivation: a read-only parameter report for the selected molecule. The panel is inside the folded
+  // input check and keeps its last report while the same molecule is selected, so a readiness refresh does not wipe
+  // what the reader just asked for.
+  let vsiteMolecule = null;
+  function syncVirtualSites(record) {
+    const panel = $('#molecule-vsites');
+    if (!panel) return;
+    const id = record?.valid && record.kind !== 'cg' ? record.id : '';
+    if (id !== vsiteMolecule) {
+      vsiteMolecule = id;
+      $('#vsite-report')?.replaceChildren();
+      setText($('#vsite-status'), '');
+    }
+    panel.hidden = !id;
+    const button = $('#derive-vsites');
+    if (button) button.disabled = false;
+  }
+  function forceFieldText(report) {
+    const ff = report.forcefield || {};
+    const sections = [
+      ['ffbonded.itp — constraints', 'constraints'],
+      ['ffbonded.itp — angle constraints', 'angle_constraints'],
+      ['ffnonbonded.itp — dummy masses', 'dummy_masses'],
+      ['atomtypes.atp — dummy types', 'atomtypes'],
+      ['aminoacids.vsd — constructions', 'vsd'],
+    ];
+    return sections.filter(([, key]) => (ff[key] || []).length)
+      .map(([title, key]) => `# ${title}\n${ff[key].join('\n')}`).join('\n\n');
+  }
+  function renderVirtualSites(report) {
+    const host = $('#vsite-report');
+    if (!host) return;
+    host.replaceChildren();
+    const vsites = report.vsites || [], angles = report.angle_constraints || [], diagnostics = report.diagnostics || [];
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    setText($('#vsite-status'), [
+      plural(vsites.length, 'vsite type', 'vsite types'),
+      plural(angles.length, 'OH angle constraint', 'OH angle constraints'),
+      ...(diagnostics.length ? [plural(diagnostics.length, 'diagnostic', 'diagnostics')] : []),
+    ].join(' · '));
+    if (!vsites.length && !angles.length) {
+      const message = document.createElement('p'); message.className = 'hint';
+      message.textContent = 'No MkVsites construct was derivable from this topology.';
+      host.append(message);
+    } else {
+      const snippets = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = 'Force-field snippets';
+      const pre = document.createElement('pre'); pre.textContent = forceFieldText(report);
+      snippets.append(summary, pre); host.append(snippets);
+    }
+    if (diagnostics.length) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = 'Diagnostics';
+      const list = document.createElement('ul');
+      for (const item of diagnostics) {
+        const row = document.createElement('li');
+        row.textContent = `${item.level || 'note'}: ${item.message || item}`;
+        list.append(row);
+      }
+      details.append(summary, list); host.append(details);
+    }
+    const raw = document.createElement('details');
+    const rawSummary = document.createElement('summary'); rawSummary.textContent = 'Raw report';
+    const rawPre = document.createElement('pre'); rawPre.textContent = JSON.stringify(report, null, 2);
+    raw.append(rawSummary, rawPre); host.append(raw);
+  }
+  $('#derive-vsites')?.addEventListener('click', async () => {
+    const id = form.elements.molecule_id.value;
+    const button = $('#derive-vsites');
+    if (!id || !button) return;
+    button.disabled = true;
+    setText($('#vsite-status'), 'Deriving…');
+    $('#vsite-report')?.replaceChildren();
+    try {
+      renderVirtualSites(await post(`/api/molecules/${encodeURIComponent(id)}/virtual-sites`, {}));
+    } catch (error) {
+      setText($('#vsite-status'), error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   // A composition is a CG molecule, not a folder: it has no AA topology to check and no AA stage to run. The same
   // folded block reports that, in the place the reader looks for the input verdict.
@@ -355,6 +439,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       : "This run reads the composition's own immutable topology and coordinates. There is no AA "
         + 'stage, no mapping and no fit; the parameterization is derived from the recipe and the head reference.';
     panel.replaceChildren(note);
+    syncVirtualSites(null);
   }
 
   // The run label ------------------------------------------------------------------------------------------------

@@ -70,6 +70,48 @@ class MoleculeDirectoryTests(unittest.TestCase):
         entry=self.catalogue()[0]; self.assertFalse(entry['valid'])
         self.assertIn('atom',' '.join(entry['issues']).lower())
 
+    def test_virtual_sites_route_derives_parameters_without_queuing(self):
+        """The per-molecule report reads the ITP's own atom types and inline terms; it never creates a job."""
+        itp = """[ atomtypes ]
+C  6  12.011  0.0  A  0.0  0.0
+H  1   1.008  0.0  A  0.0  0.0
+
+[ moleculetype ]
+EX 3
+
+[ atoms ]
+1 C 1 EX C1 1 0 12.011
+2 H 1 EX H1 2 0 1.008
+3 H 1 EX H2 3 0 1.008
+4 H 1 EX H3 4 0 1.008
+5 C 1 EX C2 5 0 12.011
+
+[ bonds ]
+1 2 1 0.109 1000
+1 3 1 0.109 1000
+1 4 1 0.109 1000
+1 5 1 0.153 1000
+
+[ angles ]
+2 1 5 1 109.5 100
+3 1 5 1 109.5 100
+4 1 5 1 109.5 100
+"""
+        gro = """Example
+5
+""" + ''.join(f'{i:5d}{"EX":<5}{name:>5}{i:5d}{x:8.3f}{0:8.3f}{0:8.3f}\n'
+                      for i, name, x in [(1, 'C1', 0), (2, 'H1', .1), (3, 'H2', -.1),
+                                         (4, 'H3', .1), (5, 'C2', .153)]) + "1 1 1\n"
+        (self.folder/'molecule.itp').write_text(itp)
+        (self.folder/'molecule.gro').write_text(gro)
+        response = self.client.post('/api/molecules/example/virtual-sites')
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        report = response.get_json()
+        self.assertEqual([v['name'] for v in report['vsites']], ['MCH3_1'])
+        self.assertEqual(report['vsites'][0]['nH'], 3)
+        self.assertTrue(report['forcefield']['vsd'])
+        self.assertEqual(self.dashboard.coordinator.database().all(), [], 'the report never queues a run')
+
     def test_symlinks_and_traversal_cannot_supply_molecules(self):
         (self.root/'molecules/alias').symlink_to(self.folder,target_is_directory=True)
         self.assertEqual([e['id'] for e in self.catalogue()],['example'])

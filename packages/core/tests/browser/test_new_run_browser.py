@@ -389,3 +389,35 @@ def test_a_saved_composition_is_a_molecule_and_posts_its_derived_model(dashboard
     assert any(parse_qs(urlsplit(url).query).get('parameterization_kind') == ['composition']
                for url in seen['defaults']), seen['defaults']
     assert errors == []
+
+
+#: A minimal MkVsites report: one CH3 dummy type and one OH angle constraint, with the snippets the panel folds.
+VSITE_REPORT = {
+    'source': {'kind': 'itp', 'moleculetype': 'LIG1', 'sha256': '0' * 64},
+    'vsites': [{'name': 'MCH3_1', 'center': 'CR', 'heavy': 'CR', 'nH': 3, 'dummy_mass': 6.69,
+                'dummy_distance_nm': 0.091795, 'anchor_distance_nm': 0.165027, 'count': 1, 'atoms': [[1, 2, 3, 4]]}],
+    'angle_constraints': [{'heavy': 'CR', 'hydrogen': 'HOR', 'distance_nm': 0.193354, 'count': 1, 'atoms': [[5, 6, 7]]}],
+    'forcefield': {'constraints': ['MCH3_1 MCH3_1 2 0.091795', 'MCH3_1 CR 2 0.165027'],
+                   'angle_constraints': ['CR HOR 2 0.193354'],
+                   'dummy_masses': ['MCH3_1 0 0.000000 0.00 A 0.0 0.0'],
+                   'atomtypes': ['MCH3_1 0.00000'], 'vsd': ['CR CR MCH3_1']},
+    'diagnostics': [],
+}
+
+
+def test_the_molecule_block_derives_virtual_sites(dashboard, live_page):
+    """The per-molecule action reports MkVsites parameters without queueing a run or changing a setting."""
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.get_by_role('tab', name='New run', exact=True).click()
+    expect(page.locator('#new')).to_have_attribute('aria-busy', 'false')
+    if page.locator('#molecule-inputs').evaluate('(el) => el.open') is False:
+        page.locator('#molecule-inputs > summary').click()
+    expect(page.locator('#derive-vsites')).to_be_visible()
+    page.route(re.compile(r'/api/molecules/[^/]+/virtual-sites$'),
+               lambda route: route.fulfill(status=200, json=VSITE_REPORT))
+    page.locator('#derive-vsites').click()
+    expect(page.locator('#vsite-status')).to_contain_text('1 vsite type · 1 OH angle constraint', timeout=SERVER_WAIT)
+    expect(page.locator('#vsite-report')).to_contain_text('MCH3_1')
+    expect(page.locator('#vsite-report')).to_contain_text('aminoacids.vsd')
+    assert errors == []

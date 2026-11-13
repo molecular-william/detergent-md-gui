@@ -1,0 +1,7 @@
+[ atomtypes ]
+; name at.num mass charge ptype sigma epsilon
+ CT1    6      12.0000 0.0000 A     0.0   0.0
+ CT2    6      12.0000 0.0000 A     0.0   0.0
+ HC     1       1.0000 0.0000 A     0.0   0.0
+ OH     8      16.0000 0.0000 A     0.0   0.0
+ HO     1       1.0000 0.0000 A     0.0   0.0

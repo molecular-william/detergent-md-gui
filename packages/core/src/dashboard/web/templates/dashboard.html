@@ -192,6 +192,17 @@
       <details id="molecule-inputs">
         <summary><span class="status-dot" data-state="pending" aria-hidden="true"></span><span id="molecule-inputs-status" role="status" aria-live="polite"><strong>Checking input files…</strong></span></summary>
         <div id="molecule-details">Checking input files…</div>
+        {# MkVsites derives parameters, not a topology: this action is a read-only report for the selected molecule,
+           inside the folded input check so it never competes with the run's own settings. #}
+        <div id="molecule-vsites" class="molecule-vsites" hidden>
+          <div class="toolbar">
+            <button type="button" id="derive-vsites" class="secondary">Derive virtual sites</button>
+            <span id="vsite-status" class="hint" role="status"></span>
+          </div>
+          <p class="hint">Derives dummy types, constraints and <code>.vsd</code> lines from this molecule's own
+            parameters (MkVsites, Larsson et al. 2020). It changes no run setting and writes no topology.</p>
+          <div id="vsite-report"></div>
+        </div>
       </details>
       <input type="hidden" name="detergent" value="DDM">
       <p class="hint">AA runs accept supplied CHARMM36 July 2022 topologies with CHARMM TIP3P water. GROMACS checks parameter compatibility before simulation. A recognised sugar can also run CG-only from the published Martini 3 sugar reference.</p>

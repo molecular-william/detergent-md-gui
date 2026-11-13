@@ -6,6 +6,25 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-13 MkVsites derivation lands as a read-only per-molecule report (phase 1).** MkVsites
+(github.com/ErikMarklund/mkvsites, commit 3878974, MIT; Larsson, Kneisz & Marklund, *J. Comput. Chem.* 41:1564-
+1569, 2020) derives missing vsite parameters from an ITP/RTP plus force-field data. Its own scope is terminal
+groups (one heavy neighbour, the rest hydrogen) and OH angle constraints; it does not rewrite a topology. On this
+repo's DDM it finds nothing against CHARMM36 (SwissParam's CR/OR/HCMM/HOR types are aliens), but with the ITP's
+own atom types and exact inline bond/angle rows it derives `MCH3_1` (one dummy type) and seven OH constraints --
+matching the upstream tool run over a minimal ITP-derived force-field overlay. Their `topinspect.py` ITP->RTP
+helper crashes on the DDM ITP, so a converter is ours.
+
+Phase 1 is `models/molecules/vsites.py` (adapted port, no vendored tree), the `derive_vsites` CLI, the
+`POST /api/molecules/<id>/virtual-sites` route, and a **Derive virtual sites** action in the folded New run
+molecule block. It reports dummy types/masses, constraints, OH angle constraints, `.vsd` lines and diagnostics;
+it queues no run and changes no setting. Checks: fast **2794 passed / 1 xfailed**, browser **382 passed** at
+`-n 8` (two known load flakes appeared at `-n 16`; each passed solo), slow **24 passed**, ruff clean. Live DDM:
+the route returns `MCH3_1` (count 1) and one `CR HOR` constraint (count 7) with no diagnostics; the New run
+button shows `1 vsite type · 1 OH angle constraint`. Phase 2 (not built) is the AA run setting that builds an
+RTP + force-field overlay + `.vsd` and runs `pdb2gmx -vsite`, recording the generated topology and comparing it
+with all-atom.
+
 **2026-11-13 CG runs get stage editors, both seeds get Generate, the overview gains stage traces, and pdc gains protein
 virtual sites.** The New run form now has three CG stage editors beside the AA ones: CG minimisation (step cap,
 `nstlist`, Verlet tolerance), CG equilibration and CG production (duration, timestep, `nstlist`, Verlet tolerance,

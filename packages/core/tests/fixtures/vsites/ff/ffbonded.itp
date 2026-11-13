@@ -1,0 +1,11 @@
+[ bondtypes ]
+; i j funct b0 kb
+ CT1 HC  1 0.109 300000
+ CT1 CT2 1 0.150 300000
+ CT2 OH  1 0.143 300000
+ OH  HO  1 0.096 300000
+
+[ angletypes ]
+; i j k funct theta0 ktheta
+ HC  CT1 CT2 1 109.4712206 400
+ CT2 OH  HO  1 108.5       400

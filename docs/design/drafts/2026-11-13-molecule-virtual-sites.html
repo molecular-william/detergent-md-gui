@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Molecule virtual sites — draft</title>
+<style>
+body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:900px;color:#1c2635;background:#f6f8fb}
+.card{background:#fff;border:1px solid #d8e0ea;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
+h1{font-size:1.35rem}h2{font-size:1rem;text-transform:uppercase;letter-spacing:.06em;color:#526175}
+details{border:1px solid #d8e0ea;border-radius:8px;margin:.5rem 0;background:#fbfcfe}
+summary{cursor:pointer;padding:.65rem .8rem;font-weight:600}
+.body{padding:.2rem .8rem 1rem}
+button{font:inherit;padding:.35rem .7rem;border:1px solid #c7d2df;border-radius:5px;background:#fff;cursor:pointer}
+button.primary{background:#2455b0;color:#fff;border-color:#2455b0}
+pre{background:#f2f5f9;border:1px solid #d8e0ea;border-radius:6px;padding:.7rem;overflow:auto;font-size:12px}
+.hint{color:#66748a;font-size:.82rem}
+.row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.badge{background:#e8eef8;color:#2455b0;border-radius:99px;padding:.1rem .5rem;font-size:.78rem}
+</style></head><body>
+<h1>New run · molecule input block</h1>
+<p class="hint">Draft: the derivation is a per-molecule action inside the folded input check. It never queues a run or changes a setting.</p>
+
+<section class="card">
+<h2>Molecule inputs</h2>
+<p><strong>Molecule</strong> DDM · 81 atoms · charmm36-jul2022 · water: tip3p · charge: 0</p>
+<details open>
+<summary><span class="badge">Input files consistent</span> · 81 atoms · charmm36-jul2022 · water: tip3p · charge: 0</summary>
+<div class="body">
+  <ul><li>molecule.itp · present</li><li>molecule.gro · present</li><li>metadata.json · present</li></ul>
+  <div class="row" style="margin:.6rem 0">
+    <button class="primary">Derive virtual sites</button>
+    <span class="hint">MkVsites-derived dummy types, constraints and .vsd lines for this topology.</span>
+  </div>
+  <p class="hint" role="status">2 vsite types · 7 OH angle constraints · 1 diagnostic</p>
+  <details>
+    <summary>Force-field snippets</summary>
+    <div class="body">
+      <p class="hint">Paste into the named force-field files. These are parameters, not a topology rewrite.</p>
+      <pre># ffbonded.itp — constraints
+MCH3_1  MCH3_1  2  0.091795
+MCH3_1  CR      2  0.165027
+
+# ffbonded.itp — angle constraints
+CR  HOR  2  0.193354
+
+# ffnonbonded.itp / atomtypes.atp — dummy mass
+MCH3_1  0  0.000000  0.00  A  0.0 0.0
+MCH3_1  0.00000
+
+# aminoacids.vsd — the construction
+CR  CR  MCH3_1</pre>
+    </div>
+  </details>
+  <details>
+    <summary>Diagnostics and raw report</summary>
+    <div class="body"><pre>{"vsites": [{"name": "MCH3_1", "center": "CR", "heavy": "CR", "nH": 3, "dummy_mass": 6.69, "dummy_distance_nm": 0.0918, "anchor_distance_nm": 0.1650, "count": 1}], "angle_constraints": [{"heavy": "CR", "hydrogen": "HOR", "distance_nm": 0.1934, "count": 7}], "diagnostics": [{"level": "warning", "message": "one angle type has two parameter sets; the per-atom row was used"}]}</pre></div>
+  </details>
+</div>
+</details>
+</section>
+
+<section class="card">
+<h2>Error state</h2>
+<p class="hint">A topology pdb2gmx cannot build is named, not silently ignored.</p>
+<p class="hint" role="status" style="color:#b03a48">No virtual-site construct was derivable: atom 7 has no H–C–C angle row.</p>
+</section>
+</body></html>

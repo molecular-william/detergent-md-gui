@@ -69,7 +69,7 @@ AREAS = {
     ),
     'molecules': (
         'unit/test_detergent_*', 'unit/test_composition_*', 'unit/test_properties_*', 'unit/test_identity.py',
-        'unit/test_reference_identity.py',
+        'unit/test_reference_identity.py', 'unit/test_molecules_vsites.py',
         'integration/test_detergent_list.py', 'integration/test_compositions_api.py',
         'integration/test_molecule_discovery.py', 'browser/test_composition_*',
     ),

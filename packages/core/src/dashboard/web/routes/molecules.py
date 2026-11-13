@@ -10,13 +10,13 @@ from pathlib import Path
 from flask import Blueprint, abort, jsonify, request
 
 from ...analysis.runs import references as aa_references
-from ...execution import protocol
+from ...execution import forcefields, protocol
 from ...execution.adapters import aa, cg
 from ...execution.protocol import adapter_for, profile_for_run_type
 from ...models import mappings
 from ...models.mappings import context as mapping_context
 from ...models.molecules import aa as aa_molecules
-from ...models.molecules import detergent_registry
+from ...models.molecules import detergent_registry, vsites
 from .common import coordinator
 
 blueprint = Blueprint('molecules', __name__)
@@ -180,6 +180,35 @@ def molecules_api():
     return jsonify(molecules=aa_molecules.catalogue(c.ROOT/'molecules'))
 
 
+@blueprint.post('/api/molecules/<molecule_id>/virtual-sites')
+def molecule_virtual_sites(molecule_id):
+    """Derive the missing virtual-site parameters for one molecule's own topology.
+
+    Read-only: the report is parameters for a force field plus the ``.vsd`` construction lines, never a rewritten
+    topology and never a queued run. The molecule's own ``[ atomtypes ]`` and inline bond/angle rows are the primary
+    source; its metadata force field is the fallback for an RTP or a topology that omits a parameter, and an unknown
+    entry is not fatal because the derivation can still answer from the inline rows.
+    """
+    c = coordinator()
+    folder = c.ROOT / 'molecules' / molecule_id
+    try:
+        snapshot = aa_molecules.inspect(c.ROOT / 'molecules', molecule_id, generate_metadata=False)
+    except (OSError, ValueError) as exc:
+        abort(400, str(exc))
+    if not snapshot.get('valid'):
+        abort(400, '; '.join(snapshot.get('issues') or ['the molecule is not a valid AA source']))
+    name = str((snapshot.get('metadata') or {}).get('force_field') or '').removesuffix('.ff')
+    try:
+        force_field = forcefields.entry(name).tree() if name else None
+    except ValueError:
+        force_field = None
+    try:
+        report = vsites.derive_from_itp(folder / snapshot['inputs']['topology'], force_field=force_field)
+    except (OSError, ValueError) as exc:
+        abort(400, f'the virtual-site derivation could not read this topology: {exc}')
+    return jsonify(report)
+
+
 @blueprint.get('/api/detergents')
 def detergents_api():
     """The molecules the detergent registry names, for the protein-detergent panel's list.
@@ -281,7 +310,7 @@ def _with_force_fields(result):
     name (`execution.settings_help`), quoted from the GROMACS manual and `gmx mdrun -h`, so the template states no
     help text of its own and the panel renders the same sentences the run type accepts.
     """
-    from ...execution import forcefields, settings_help
+    from ...execution import settings_help
     result['force_fields']=[{'name':entry.name,'label':entry.label,'temperature_k':entry.temperature_k,
                              'water':entry.water_file[:-len('.itp')]} for entry in
                             (forcefields.entry(name) for name in forcefields.names())]

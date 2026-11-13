@@ -1,0 +1,40 @@
+; One LIG residue with no bonded parameters: the force-field fixture beside
+; this file supplies them. Atom order matches methyl_hydroxyl.itp so the
+; two routes can be compared directly.
+[ LIG ]
+[ atoms ]
+; atom type charge cgnr
+ C1  CT1  0.0 1
+ H1  HC   0.0 1
+ H2  HC   0.0 1
+ H3  HC   0.0 1
+ C2  CT2  0.0 1
+ O1  OH   0.0 1
+ H4  HO   0.0 1
+ C3  CT1  0.0 1
+ H5  HC   0.0 1
+ H6  HC   0.0 1
+ H7  HC   0.0 1
+
+[ bonds ]
+; atom atom funct
+ C1 H1 1
+ C1 H2 1
+ C1 H3 1
+ C1 C2 1
+ C2 O1 1
+ O1 H4 1
+ C2 C3 1
+ C3 H5 1
+ C3 H6 1
+ C3 H7 1
+
+[ angles ]
+; atom atom atom funct
+ H1 C1 C2 1
+ H2 C1 C2 1
+ H3 C1 C2 1
+ H5 C3 C2 1
+ H6 C3 C2 1
+ H7 C3 C2 1
+ C2 O1 H4 1
