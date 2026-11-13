@@ -23,8 +23,9 @@ function throughput(value) {
 }
 
 //: How often the run list is re-read, and how long a hidden tab waits before looking again. `window.__runsPollMs` is
-//: the browser tier's seam, the same pattern the Run view's pollers use; production is five seconds.
-const pollMilliseconds = () => Number(window.__runsPollMs) || 5000;
+//: the browser tier's seam, the same pattern the Run view's pollers use; production is ten seconds, the cadence a
+//: running leg's live ns/day is refreshed at.
+const pollMilliseconds = () => Number(window.__runsPollMs) || 10000;
 const HIDDEN_WAKE_MS = 30000;
 
 export function createRuns({ onClone, onDeleted }) {

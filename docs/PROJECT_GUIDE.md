@@ -355,7 +355,7 @@ Either wait for the run to stop or choose a free GPU." A run on another device s
 no devices answers as device 0, so its runs stay one at a time. `max_concurrent_runs` is therefore a ceiling per
 device, not across the host.
 
-Background polling updates individual status fields every five seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
+Background polling updates individual status fields every ten seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
 The Runs panel is one dense table — the Table/Grouped layouts and their remembered choice are gone — narrowed by a
 **Filters** disclosure above it (`web/static/js/runs.js`) with three checkbox groups: run type, status and method.
@@ -367,7 +367,7 @@ reads as its slug), and `methods` is the distinct set runs actually record, labe
 disagree. `/api/jobs` takes each of `run_type`, `status` and `method` repeated
 (`?run_type=cg&run_type=pdc`); one value answers exactly as it did before, which is why the Run view's one-type
 read and Complexes' `?limit=100` are unchanged, and an unknown run type in a list is still a 400 naming the
-vocabulary. A tick applies at once, returns to page 1, clears the remembered `ETag`, and is sent by the five-second
+vocabulary. A tick applies at once, returns to page 1, clears the remembered `ETag`, and is sent by the ten-second
 poll too; the choice is saved in browser storage under `runsFilters`, and the panel opens itself when one is
 active. A narrowed table that matches nothing says "No runs match these filters" with a Clear filters action, which
 is never the "No runs yet" sentence a workspace with no runs gets.

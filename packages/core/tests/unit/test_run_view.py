@@ -6,6 +6,7 @@ manifest and the ownership flags as arguments -- so it can be tested without a F
 app, and so a request cannot be aborted from inside it.
 """
 import json
+from datetime import datetime, timedelta, timezone
 
 from dashboard.web import views
 
@@ -196,6 +197,31 @@ def test_the_eta_parser_ignores_estimates_before_the_latest_mdrun(tmp_path):
     assert views.parse_gromacs_eta(text) == {'eta_source': 'GROMACS console output',
                                              'gromacs_remaining_seconds': 42.5}
     assert views.parse_gromacs_eta('nothing to see') == {}
+
+
+def test_a_running_run_reports_live_throughput_from_its_step_counter(tmp_path):
+    run = tmp_path / ('a' * 12)
+    (run / 'logs').mkdir(parents=True)
+    stage = run / 'stages/4_CG_sim/inputs'
+    stage.mkdir(parents=True)
+    (stage / 'md.mdp').write_text('integrator = md\nnsteps = 400\ndt = 0.01\n')
+    log = run / 'logs/4_CG_sim.log'
+    log.write_text('+ gmx grompp -f inputs/md.mdp -o md.tpr\n+ gmx mdrun -deffnm md\nstep 200\n')
+    started = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    record = job(status='running', run_type='cg', started_at=started)
+    stages = [{'name': 'CG simulation', 'status': 'running', 'log': str(log), 'started_at': started}]
+    view = views.run_view(record, run_dir=run, manifest={'run_type': 'cg', 'stages': stages,
+                                                          'stage_plan': ['CG simulation']})
+    # 200 steps at 10 fs is 0.002 ns in ten minutes, i.e. 0.288 ns/day, not the previous leg's Performance line.
+    assert 0 < view['ns_per_day'] < 1, view['ns_per_day']
+
+
+def test_live_throughput_is_simulated_nanoseconds_over_wall_time():
+    now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+    progress = {'ns_done': 2.0, 'started_at': (now - timedelta(minutes=10)).isoformat()}
+    assert views.live_ns_per_day(progress, now=now) == 288.0
+    assert views.live_ns_per_day({'ns_done': 0.0, 'started_at': now.isoformat()}, now=now) is None
+    assert views.live_ns_per_day({'ns_done': 2.0}, now=now) is None
 
 
 def test_tail_returns_the_end_of_a_log_and_nothing_for_a_missing_one(tmp_path):

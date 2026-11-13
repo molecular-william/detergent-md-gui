@@ -41,8 +41,8 @@ UNREPAIRABLE = 'Invalid persisted run ID; repair the metadata before using this 
 # GROMACS prints `Performance: <ns/day> <ns/day/GPU?> <hours> <hours>` per mdrun leg; the first number is the leg's
 # throughput. The parser sees only a log's tail, so one match per file is enough, and the highest wins across legs.
 PERFORMANCE = re.compile(r'Performance:\s+([0-9]+(?:\.[0-9]+)?)')
-# A run's logs are immutable once it ends, and `/api/jobs` re-reads up to 100 runs every five seconds, so the tail of
-# each log is parsed once per (path, mtime, size). The cap bounds a long-lived dashboard's memory; clearing wholesale
+# A running log is appended and an ended run's is immutable; `/api/jobs` re-reads up to 100 runs every ten seconds,
+# so the tail of each log is parsed once per (path, mtime, size). The cap bounds a long-lived dashboard's memory; clearing wholesale
 # is safe because every entry is a pure function of the file it names.
 PERFORMANCE_CACHE = {}
 PERFORMANCE_CACHE_MAX = 4096
@@ -92,6 +92,32 @@ def performance_ns_per_day(run_dir):
         if found is not None and (best is None or found > best):
             best = found
     return best
+
+
+def live_ns_per_day(progress, now=None):
+    """A running stage's throughput from simulated nanoseconds and wall time, or None when either is unknown.
+
+    GROMACS prints `Performance:` once, when a leg ends, so the log's own number cannot move during the leg a reader is
+    watching. The step counter and the stage's start are available every poll; this turns them into the same unit.
+    """
+    if not isinstance(progress, dict):
+        return None
+    ns_done, started = progress.get('ns_done'), progress.get('started_at')
+    try:
+        ns = float(ns_done)
+        began = datetime.fromisoformat(started)
+    except (TypeError, ValueError):
+        return None
+    if not ns > 0:
+        return None
+    current = now or (datetime.now() if began.tzinfo is None else datetime.now(began.tzinfo))
+    try:
+        seconds = (current - began).total_seconds()
+    except TypeError:
+        return None
+    if seconds <= 0:
+        return None
+    return round(ns / (seconds / 86400), 1)
 
 
 def parse_gromacs_eta(text) -> dict:
@@ -291,6 +317,8 @@ def progress(job, stages, *, run_dir, console_log=None) -> dict:
     for path in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
         reading = stage_progress.progress_from_file(name, directory, path)
         if reading.get('legs'):
+            # The view owns the clock: the progress reader sees the log, not when the stage began.
+            reading['started_at'] = current.get('started_at')
             return reading
     return {}
 
@@ -379,6 +407,10 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result['metadata_warnings'].extend(warnings)
     result.update(eta(job, stages, run_dir=run_dir, console_log=console_log))
     result['progress'] = progress(job, stages, run_dir=run_dir, console_log=console_log)
+    # While a stage runs, prefer the measured rate: the log's own Performance line belongs to the previous leg.
+    live = live_ns_per_day(result['progress']) if job.get('status') == 'running' else None
+    if live is not None:
+        result['ns_per_day'] = live
     for task in result['analyses']:
         # `directory` is written by the worker for every attempt, but a record that lacks it must cost the runs list
         # a progress line rather than a 500: this view's one promise is to report instead of raising.

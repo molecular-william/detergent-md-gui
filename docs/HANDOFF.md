@@ -27,6 +27,15 @@ now refuses `vsite != none` with `mdrun_update=gpu` up front, naming update grou
 completed all seven stages, and the exact 200 ns probe was cancelled after it had started. Checks: fast **2805
 passed / 1 xfailed**, browser **383 passed**, slow **25 passed**, ruff clean.
 
+**2026-11-13 the Runs card's ns/day is live while a leg runs, and the list refreshes every ten seconds.** The card
+used to state only GROMACS' `Performance:` line, which mdrun prints when a leg *ends*, so on a long production it sat
+still (or showed the previous leg). `web/progress.py` now reads each mdp's `dt` and `integrator` alongside `nsteps`
+and reports `ns_done` (completed legs by their declared length, the current leg by its latest step; minimisation
+contributes no simulated time). `views.live_ns_per_day` divides that by wall time since the running stage started;
+`run_view` prefers it while the run is running and keeps the logged GROMACS number for completed runs. The Runs poll
+is ten seconds (was five), so the number moves at the requested cadence. Checks: fast **2807 passed / 1 xfailed**,
+browser **386 passed**, slow **25 passed**, ruff clean.
+
 **2026-11-13 Start could also do nothing with no request, for two general reasons.** The browser's native
 constraint validation inspected controls the run does not send: an out-of-range CG value is hidden on an AA form,
 so its bubble has nowhere to appear and the click was simply dropped. The form is now `novalidate`; the queue

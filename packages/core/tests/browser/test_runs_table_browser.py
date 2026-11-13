@@ -361,7 +361,7 @@ def _filter_jobs():
 
 
 def test_the_filter_boxes_narrow_the_request_and_the_poll_keeps_the_narrowing(dashboard, live_page):
-    """Ticking a box re-reads the narrowed list at once, and the five-second poll asks the same narrowed question.
+    """Ticking a box re-reads the narrowed list at once, and the ten-second poll asks the same narrowed question.
 
     Asserted on the query string the server received, not only on the rows: a panel that filtered the fetched page
     in the browser would show the right rows and still page a hidden superset of every other run.

@@ -28,7 +28,8 @@ step 100, remaining wall clock time:    9 s
 step 200, remaining wall clock time:    8 s
 """
 
-MDPS = {'minimization.mdp': 'nsteps = 500\n', 'eq.mdp': 'nsteps = 10000\n', 'md.mdp': 'nsteps = 400\n'}
+MDPS = {'minimization.mdp': 'integrator = steep\nnsteps = 500\n',
+        'eq.mdp': 'nsteps = 10000\ndt = 0.01\n', 'md.mdp': 'nsteps = 400\ndt = 0.01\n'}
 
 
 def stage_dir(tmp_path):
@@ -45,6 +46,8 @@ def test_three_legs_count_to_the_step_within_the_last_one(tmp_path):
     assert (reading['stage'], reading['leg'], reading['legs']) == ('CG simulation', 'md', 3)
     assert reading['step'] == 200 and reading['steps'] == 400 and reading['measured'] is True
     assert reading['percent'] == 83, reading
+    # eq ran 10 000 steps at 10 fs, then md printed 200 at the same timestep; minimisation contributes no time.
+    assert reading['ns_done'] == 0.102, reading
 
 
 def test_a_leg_with_no_reading_yet_reports_the_legs_already_done(tmp_path):

@@ -24,8 +24,11 @@ MDP_PATH = re.compile(r'-f\s+(\S+\.mdp)')
 TPR_PATH = re.compile(r'-o\s+(\S+\.tpr)')
 #: GROMACS' own step counter, one per line of the progress block.
 STEP = re.compile(r'\bstep\s+(\d+)\b')
-#: `nsteps` as the mdp states it.
+#: `nsteps` and `dt` as the mdp states them; the latter turns a step counter into simulated nanoseconds.
 NSTEPS = re.compile(r'^\s*nsteps\s*=\s*(\d+)\s*$', re.M | re.I)
+DT = re.compile(r'^\s*dt\s*=\s*([0-9.eE+-]+)\s*$', re.M | re.I)
+#: Energy minimisation has no simulated time, so its `dt` must not be counted as nanoseconds.
+INTEGRATOR = re.compile(r'^\s*integrator\s*=\s*([A-Za-z]+)\s*$', re.M | re.I)
 
 
 def _chunks(line):
@@ -51,10 +54,11 @@ def scan(lines):
     return legs, grompp
 
 
-def _leg_lengths(grompp, stage_dir):
-    """`{leg name: nsteps}` for the legs whose mdp this reader can find and parse.
+def _leg_parameters(grompp, stage_dir):
+    """`({leg name: nsteps}, {leg name: dt_ps})` for the legs whose mdp this reader can find and parse.
 
-    A leg whose mdp is missing or unreadable is absent rather than zero: an unknown length is not a finished leg.
+    A leg whose mdp is missing or unreadable is absent rather than zero: an unknown length is not a finished leg,
+    and an unknown timestep cannot turn its step counter into simulated time.
     """
     pairs = {}
     for line in grompp:
@@ -63,17 +67,28 @@ def _leg_lengths(grompp, stage_dir):
             # The leg is named by `-deffnm`, which may carry a directory (`-deffnm prod/run` in the extension stage), so the
             # key drops only the `.tpr` suffix: `Path(...).stem` would answer `run` and miss the leg it describes.
             pairs[tpr.group(1).removesuffix('.tpr')] = mdp.group(1)
-    lengths = {}
+    lengths, timesteps = {}, {}
     if stage_dir is None:
-        return lengths
+        return lengths, timesteps
     for leg, mdp in pairs.items():
         try:
-            found = NSTEPS.search((Path(stage_dir) / mdp).read_text())
+            text = (Path(stage_dir) / mdp).read_text()
         except OSError:
             continue
+        found = NSTEPS.search(text)
         if found:
             lengths[leg] = int(found.group(1))
-    return lengths
+        integrator = INTEGRATOR.search(text)
+        if integrator and integrator.group(1).lower() in ('steep', 'cg'):
+            timesteps[leg] = 0.0
+            continue
+        found = DT.search(text)
+        if found:
+            try:
+                timesteps[leg] = float(found.group(1))
+            except ValueError:
+                pass
+    return lengths, timesteps
 
 
 def reading(stage_name, stage_dir, legs, grompp):
@@ -85,7 +100,7 @@ def reading(stage_name, stage_dir, legs, grompp):
     """
     if not legs:
         return {}
-    lengths = _leg_lengths(grompp, stage_dir)
+    lengths, timesteps = _leg_parameters(grompp, stage_dir)
     current, step = legs[-1]
     total = lengths.get(current)
     done = len(legs) - 1
@@ -93,9 +108,29 @@ def reading(stage_name, stage_dir, legs, grompp):
         percent = round(100 * (done + min(1.0, step / total)) / len(legs))
     else:
         percent = round(100 * done / len(legs)) if done else None
+    ns_done = _ns_done(legs, lengths, timesteps)
     return {'stage': stage_name, 'leg': current, 'legs': len(legs), 'leg_index': len(legs),
-            'step': step, 'steps': total, 'percent': percent,
+            'step': step, 'steps': total, 'percent': percent, 'ns_done': ns_done,
             'measured': bool(step is not None and total)}
+
+
+def _ns_done(legs, lengths, timesteps):
+    """Simulated nanoseconds completed in the stage, or None when a leg's length or timestep is unknown.
+
+    A leg followed by another one ran its mdp's full `nsteps`; the step counter may only have printed `step 0` before
+    the next leg began. The current leg is counted by its latest printed step.
+    """
+    total = 0.0
+    for index, (name, last_step) in enumerate(legs):
+        dt = timesteps.get(name)
+        if index == len(legs) - 1:
+            steps = last_step if last_step is not None else 0
+        else:
+            steps = lengths.get(name)
+        if dt is None or steps is None:
+            return None
+        total += steps * dt / 1000
+    return round(total, 6)
 
 
 def progress_from_file(stage_name, stage_dir, path):
