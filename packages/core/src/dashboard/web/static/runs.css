@@ -69,9 +69,9 @@
 .job-progress-seg.done { background:var(--segment-color); }
 .job-progress-seg.future { background:#e2e8f0; }
 /* Stage settings: the read-only values a run recorded, grouped by the stage that recorded them. */
-/* Stage settings are groups of small tables, so the disclosure is a three-column grid at desk width: the run
+/* Stage settings are groups of small tables, so the disclosure is a four-column grid at desk width: the run
    row is already the full table width, and one column per stage wastes it. Narrower windows fall to two, then one. */
-.stage-settings-host { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:6px 22px; align-items:start; }
+.stage-settings-host { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px 18px; align-items:start; }
 .stage-settings-group { min-width:0; }
 @media (max-width:1200px) { .stage-settings-host { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 @media (max-width:760px) { .stage-settings-host { grid-template-columns:1fr; } }
