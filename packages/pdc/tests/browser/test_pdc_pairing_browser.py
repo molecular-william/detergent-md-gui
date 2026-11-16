@@ -42,6 +42,7 @@ TRIMER_CATALOG = {**CATALOG, 'proteins': [TRIMER]}
 PAIRS = (('new-pdc-detergent-pair', 'Detergent · Detergent template', '#new-detergent', '#new-template'),
          ('new-pdc-protein-pair', 'Protein · Download from OPM', '#new-protein', '#new-protein-id'),
          ('new-pdc-config-pair', 'Initialisation style · Detergents in the micelle', '#new-placement', '#new-count'),
+         ('new-pdc-equilibration', 'CG NVT equilibration · CG NPT equilibration', '#new-nvt-ps', '#new-npt-ps'),
          ('new-pdc-legs', 'CG assessment leg · CG extension leg', '#new-assessment-ns', '#new-extension-ns'))
 # A row is shared when the two cells' tops agree within the rounding of a sub-pixel layout.
 TOLERANCE_PX = 2
