@@ -274,8 +274,8 @@ def test_revert_restores_every_editable_term_that_has_a_fitted_original(dashboar
     assert errors == [], errors
 
 
-def test_scale_multiplies_bond_lengths_only_and_refuses_a_non_positive_factor(dashboard, live_page):
-    """Scale changes parameter 0 of every editable bond; forces, angles, dihedrals and constraints are untouched.
+def test_scale_multiplies_ring_constraint_lengths_only_and_refuses_a_non_positive_factor(dashboard, live_page):
+    """Scale changes parameter 0 of every editable ring constraint; bonds, forces, angles and dihedrals are untouched.
 
     A refused factor applies nothing and leaves the field as typed, because the reader's next action is to correct
     that field rather than to wonder why it changed.
@@ -297,14 +297,14 @@ def test_scale_multiplies_bond_lengths_only_and_refuses_a_non_positive_factor(da
     factor.fill('1.10')
     pane_id(page, 'bonded-scale-terms').click()
     expect(pane_id(page, 'bonded-bulk-status')).to_contain_text(
-        'Scaled 2 bond lengths by ×1.10. Save in place or Save as new writes them.')
-    assert input_values(page, 'bonds:1') == ['0.385', '4500']
-    assert input_values(page, 'bonds:2') == ['0.44', '5000']
+        'Scaled 1 ring constraint length by ×1.10. Save in place or Save as new writes them.')
+    assert input_values(page, 'bonds:1') == ['0.35', '4500']
+    assert input_values(page, 'bonds:2') == ['0.40', '5000']
     assert input_values(page, 'angles:1') == ['125', '30']
     assert input_values(page, 'angles:2') == ['118', '28']
     assert input_values(page, 'dihedrals:1') == ['-100', '40', '2']
-    assert input_values(page, 'constraints:1') == ['0.315']
-    expect(term_inputs(page, 'bonds:1').nth(0)).to_have_attribute('data-dirty', 'true')
+    assert input_values(page, 'constraints:1') == ['0.3465']
+    expect(term_inputs(page, 'constraints:1').nth(0)).to_have_attribute('data-dirty', 'true')
     assert factor.input_value() == '1.10', 'the typed factor is kept'
     assert errors == [], errors
 

@@ -499,6 +499,40 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       pinnedStatus = null;
     }
 
+    /** The mapping's ring bead pairs, as sorted name pairs: what makes a constraint row a ring constraint.
+     * A ring names its beads in the mapping's own vocabulary (S1A ...), while a run-layout topology names them
+     * by export position (B01 ...), so both spellings are pairs: a constraint row matches whichever the topology
+     * states. */
+    function ringPairs() {
+      const beads = selectedMapping?.beads || [];
+      const indexByName = new Map(beads.map((bead, index) => [String(bead.name), index]));
+      const pairs = new Set();
+      const add = names => {
+        for (let first = 0; first < names.length; first += 1) {
+          for (let second = first + 1; second < names.length; second += 1) {
+            pairs.add([names[first], names[second]].sort().join('|'));
+          }
+        }
+      };
+      for (const ring of selectedMapping?.rings || []) {
+        const names = [...(ring.beads || [])].map(String);
+        add(names);
+        const exported = names.map(name => {
+          const index = indexByName.get(name);
+          return index === undefined ? null : `B${String(index + 1).padStart(2, '0')}`;
+        });
+        if (exported.every(Boolean)) add(exported);
+      }
+      return pairs;
+    }
+
+    /** The editable constraint rows that are ring constraints: a mapping ring pair, or a mapping-sourced constraint. */
+    function ringConstraintTerms() {
+      const pairs = ringPairs();
+      return terms.filter(term => term.editable && term.kind === 'constraints'
+        && (pairs.has([...(term.beads || [])].map(String).sort().join('|')) || term.source === 'mapping'));
+    }
+
     /** Why neither bulk action can run here, or '' when they can. */
     function bulkBlockedReason(shown) {
       const reference = !!selectedMapping?.read_only;
@@ -517,7 +551,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       const reason = bulkBlockedReason(shown);
       const editable = terms.filter(term => term.editable);
       const fitted = reason ? 0 : editable.filter(term => fittedValues(shown, term)).length;
-      const bonds = reason ? 0 : editable.filter(term => term.kind === 'bonds').length;
+      const rings = reason ? 0 : ringConstraintTerms().length;
       if (revertButton) {
         revertButton.disabled = saving || !!reason || fitted === 0;
         revertButton.title = reason || (fitted
@@ -525,10 +559,10 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
           : 'No editable term has a fitted original to revert to.');
       }
       if (scaleButton) {
-        scaleButton.disabled = saving || !!reason || bonds === 0;
-        scaleButton.title = reason || (bonds
-          ? `Multiply the length of ${bonds} editable bond${bonds === 1 ? '' : 's'} by the factor.`
-          : 'This revision has no editable bond lengths to scale.');
+        scaleButton.disabled = saving || !!reason || rings === 0;
+        scaleButton.title = reason || (rings
+          ? `Multiply the length of ${rings} editable ring constraint${rings === 1 ? '' : 's'} by the factor.`
+          : 'This revision has no editable ring-constraint lengths to scale.');
       }
       if (bulkStatus) {
         const text = reason || (bulkMessage ? bulkMessage.text : 'Bulk edits change the table; Save writes them.');
@@ -555,8 +589,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       renderState();
     }
 
-    /** Multiply the length (parameter 0) of every editable bond by the factor; forces and other kinds are untouched. */
-    function scaleBondLengths() {
+    /** Multiply the length (parameter 0) of every editable ring constraint by the factor; bonds and forces untouched. */
+    function scaleRingConstraints() {
       const shown = parameterization.shownRevision();
       if (!shown) return;
       const typed = scaleFactor ? String(scaleFactor.value).trim() : '';
@@ -568,14 +602,13 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         return;
       }
       let scaled = 0;
-      for (const term of terms) {
-        if (!term.editable || term.kind !== 'bonds') continue;
+      for (const term of ringConstraintTerms()) {
         const length = Number(pendingValues(term)[0]);
         if (!Number.isFinite(length)) continue;
         setPendingValue(term, 0, String(Number((length * factor).toPrecision(12))));
         scaled += 1;
       }
-      bulkMessage = {text: `Scaled ${scaled} bond length${scaled === 1 ? '' : 's'} by ×${typed}. Save in place or Save as new writes them.`, kind: 'warn'};
+      bulkMessage = {text: `Scaled ${scaled} ring constraint length${scaled === 1 ? '' : 's'} by ×${typed}. Save in place or Save as new writes them.`, kind: 'warn'};
       renderState();
     }
 
@@ -1034,7 +1067,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     if (saveInPlace) saveInPlace.onclick = () => saveEditedTerms('in_place');
     if (saveNew) saveNew.onclick = () => saveEditedTerms('new');
     if (revertButton) revertButton.onclick = revertTermsToFitted;
-    if (scaleButton) scaleButton.onclick = scaleBondLengths;
+    if (scaleButton) scaleButton.onclick = scaleRingConstraints;
 
     async function mount() {
       // One model load at mount: the selects are set and their options filled here, and `showOption` below loads the

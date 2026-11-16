@@ -630,9 +630,10 @@
     <div class="toolbar bonded-bulk-actions" role="group" aria-label="Bulk term edits">
       <button type="button" class="secondary" id="bonded-revert-terms{{ suffix }}" disabled
               title="Restore every editable term to the value its engine fitted">Revert to fitted values</button>
-      <label class="bonded-scale">Scale bond lengths ×<input id="bonded-scale-factor{{ suffix }}" type="number"
+      <label class="bonded-scale">Scale ring constraints ×<input id="bonded-scale-factor{{ suffix }}" type="number"
         min="0.01" max="100" step="0.01" value="1.00" inputmode="decimal"></label>
-      <button type="button" class="secondary" id="bonded-scale-terms{{ suffix }}" disabled>Scale all</button>
+      <button type="button" class="secondary" id="bonded-scale-terms{{ suffix }}" disabled
+              title="Multiply every editable ring constraint length by the factor">Scale ring constraints</button>
     </div>
     <p class="hint" id="bonded-bulk-status{{ suffix }}" role="status">Bulk edits change the table; Save writes them.</p>
     <h3 class="bonded-subhead">Solvent-accessible surface</h3>

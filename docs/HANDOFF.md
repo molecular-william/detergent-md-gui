@@ -10,8 +10,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 bulk actions over the shown revision's editable rows, changing exactly the table's pending values; Save in place /
 Save as new is still the one write. Revert to fitted values restores each term from the revision's recorded
 engine_terms (terms without an engine original -- mapping ring constraints/overrides, geometry fallback, virtual
-sites -- are left and counted); Scale all multiplies bond lengths (the [ bonds ] first parameter) by a validated
-finite positive factor, leaving forces/angles/dihedrals/constraints alone. Below each pane's table,
+sites -- are left and counted); Scale ring constraints multiplies ring constraint lengths (the [ constraints ]
+first parameter of mapping ring pairs) by a validated finite positive factor, leaving bonds/forces/angles/dihedrals
+alone. Below each pane's table,
 POST /api/bonded-surfaces computes the AA (element vdW) and mapped-CG (Martini R/S/T) SAS envelopes from the
 molecule's current coordinates through surfaces.envelope with the 0.191 nm probe -- no run, trajectory or GROMACS is
 read -- and the pane overlays both meshes in one Plotly scene, states probe/spacing/counts and offers a dot toggle.
