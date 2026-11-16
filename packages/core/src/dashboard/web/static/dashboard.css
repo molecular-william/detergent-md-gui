@@ -217,3 +217,10 @@ nav{max-width:100%;overflow-x:auto;white-space:nowrap}nav button{flex:0 0 auto}
   background: #3a2f12; color: #fde68a }
 .bonded-terms-status[data-state=warn] { color: #8a4a00 }
 .bonded-terms-status[data-state=error] { color: var(--danger); font-weight: 600 }
+
+/* The mapped AA/CG SAS surface: its own Plotly host, the dots switch above it, and the provenance line below. */
+.bonded-surface-plot { height: 360px; background: #fff }
+.bonded-surface-controls { margin: 0 0 8px }
+.bonded-surface-toggle { font-size: 13px; font-weight: 600 }
+.bonded-surface-status { min-height: 20px; margin: 6px 0 0 }
+.bonded-surface-status[data-state=error] { color: var(--danger); font-weight: 600 }

@@ -15,7 +15,9 @@ from pathlib import Path
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting as bonded_fitting
 from dashboard.models.bonded import parameterization
+from dashboard.models.mappings import context as mapping_context
 from dashboard.web.routes.common import coordinator, json_object
+from detergent_validation.analysis.runs import mapped_surface
 from flask import Blueprint, abort, jsonify, request
 
 blueprint = Blueprint('bonded', __name__)
@@ -283,3 +285,32 @@ def parameterization_terms(content_hash):
     except ValueError as exc:
         abort(400, _message(exc))
     return jsonify(record)
+
+
+@blueprint.post('/api/bonded-surfaces')
+def bonded_surfaces():
+    """The mapped molecule's AA and CG surface meshes, from the molecule folder and a mapping's bead list.
+
+    No run and no GROMACS are involved: 'molecule_id' names a molecule folder this project carries, and 'beads' is
+    the mapping editor's own list (a virtual site names no atom, so it gets no sphere). Both meshes are built at one
+    spacing and one probe, which the answer states, so the two panes draw comparable surfaces rather than two
+    differently-inflated pictures. A mesh over the bounded grid is coarsened and re-sent; a request that names too
+    many beads, or a molecule whose surface stays over the cap, is refused with the limit named.
+    """
+    payload = json_object()
+    molecule_id = payload.get('molecule_id')
+    if not isinstance(molecule_id, str) or not molecule_id.strip():
+        abort(400, 'molecule_id is required')
+    beads = payload.get('beads')
+    if not isinstance(beads, list):
+        abort(400, 'beads must be a list')
+    if len(beads) > mapped_surface.MAX_BEADS:
+        abort(400, f'beads must name at most {mapped_surface.MAX_BEADS} entries')
+    try:
+        context = mapping_context.build_context(_molecule_root(), molecule_id.strip())
+    except (OSError, ValueError) as exc:
+        abort(400, str(exc))
+    try:
+        return jsonify(mapped_surface.build(context, beads))
+    except mapped_surface.SurfaceTooLarge as exc:
+        abort(400, str(exc))

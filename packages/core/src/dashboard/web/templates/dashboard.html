@@ -625,6 +625,20 @@
               aria-describedby="bonded-terms-status{{ suffix }}">Save as new</button>
     </div>
     <p class="hint bonded-terms-status" id="bonded-terms-status{{ suffix }}" role="status">Choose a parameterization revision to edit its terms.</p>
+    {# Bulk edits change the table's pending values; Save in place / Save as new is still the one write. Revert
+       restores the engine's fitted value where one is recorded; Scale multiplies bond lengths only. #}
+    <div class="toolbar bonded-bulk-actions" role="group" aria-label="Bulk term edits">
+      <button type="button" class="secondary" id="bonded-revert-terms{{ suffix }}" disabled
+              title="Restore every editable term to the value its engine fitted">Revert to fitted values</button>
+      <label class="bonded-scale">Scale bond lengths ×<input id="bonded-scale-factor{{ suffix }}" type="number"
+        min="0.01" max="100" step="0.01" value="1.00" inputmode="decimal"></label>
+      <button type="button" class="secondary" id="bonded-scale-terms{{ suffix }}" disabled>Scale all</button>
+    </div>
+    <p class="hint" id="bonded-bulk-status{{ suffix }}" role="status">Bulk edits change the table; Save writes them.</p>
+    <h3 class="bonded-subhead">Solvent-accessible surface</h3>
+    <p class="hint">AA and mapped-CG envelopes from the molecule's current coordinates, 0.191 nm probe. No
+      simulation is read: a run's surface is the surfaces analysis.</p>
+    <div class="bonded-surface" id="bonded-surface{{ suffix }}"><p class="hint">Choose a model to draw its surface.</p></div>
   </section>
 {%- endmacro %}
 <section id="bonded" class="panel bonded-workspace" role="tabpanel" aria-labelledby="tab-bonded"{% if panel != 'bond-interactions' %} hidden{% endif %}>

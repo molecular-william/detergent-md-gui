@@ -6,6 +6,19 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Bond Interactions: bulk term edits and a mapped AA/CG surface.** The Interactions table now has two
+bulk actions over the shown revision's editable rows, changing exactly the table's pending values; Save in place /
+Save as new is still the one write. Revert to fitted values restores each term from the revision's recorded
+engine_terms (terms without an engine original -- mapping ring constraints/overrides, geometry fallback, virtual
+sites -- are left and counted); Scale all multiplies bond lengths (the [ bonds ] first parameter) by a validated
+finite positive factor, leaving forces/angles/dihedrals/constraints alone. Below each pane's table,
+POST /api/bonded-surfaces computes the AA (element vdW) and mapped-CG (Martini R/S/T) SAS envelopes from the
+molecule's current coordinates through surfaces.envelope with the 0.191 nm probe -- no run, trajectory or GROMACS is
+read -- and the pane overlays both meshes in one Plotly scene, states probe/spacing/counts and offers a dot toggle.
+New files: validation analysis/runs/mapped_surface.py and core static/js/bonded-surface.js; the pane wiring is
+bonded.js. Checks: fast **2791 passed / 1 xfailed**, browser **386 passed** plus the known assessment-rescore load
+flake (passes solo), slow **22 passed / 1 xfailed**, ruff clean.
+
 **2026-11-16 Runs panel: stage settings, segmented AA progress, and an AA minimization editor.** The three per-run
 disclosures (Artifacts, Commands and stage records, Console) and the console pane plus console.js are removed. Each
 run card now has a read-only **Stage settings** disclosure (web/stage_settings.py; only recorded keys, grouped by

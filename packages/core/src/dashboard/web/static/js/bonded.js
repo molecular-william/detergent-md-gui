@@ -27,6 +27,7 @@
 import { $, $$, setText, cachedApi, fillMoleculeOptions, api, invalidateResource, CATALOGUE_MAX_AGE, storage } from './shared.js';
 import { mountBondedPlot } from './bonded-plot.js';
 import { setupPane, setupFitCard, parseTopology, REFERENCE_REASON } from './bonded-parameterization.js';
+import { createBondedSurface } from './bonded-surface.js';
 
 const FUNCTION_OPTIONS = {
   // A rigid constraint has a length and no potential; the row is editable so the length can be changed, and the
@@ -163,6 +164,11 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     const saveInPlace = id('bonded-save-terms-inplace');
     const saveNew = id('bonded-save-terms-new');
     const termsStatus = id('bonded-terms-status');
+    const revertButton = id('bonded-revert-terms');
+    const scaleButton = id('bonded-scale-terms');
+    const scaleFactor = id('bonded-scale-factor');
+    const bulkStatus = id('bonded-bulk-status');
+    const surface = createBondedSurface({host: id('bonded-surface')});
     const plot = mountBondedPlot($('.bonded-plot', root), {
       uirevision: `bonded-${side}`,
       onBeadSelection: selected => { selectedBeads = selected; renderState(); },
@@ -189,6 +195,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     let termsKey = '';
     //: A server refusal or a save sentence, held until the next edit or model switch. The base sentence otherwise.
     let pinnedStatus = null;
+    //: The last bulk action's own sentence (or its refusal), kept until the next action or model switch.
+    let bulkMessage = null;
     let saving = false;
     let generation = 0;
     let optionsGeneration = 0;
@@ -221,6 +229,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
           if (pending.size) pinnedStatus = {text: 'Unsaved parameter changes were discarded.', kind: 'warn', discarded: true};
           else if (!pinnedStatus || !pinnedStatus.discarded) pinnedStatus = null;
           pending.clear();
+          bulkMessage = null;
           termsKey = key;
         }
         terms = rows;
@@ -461,8 +470,118 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         : {text: `Showing revision ${shown.revision}, the revision a run consumes.`, kind: ''};
     }
 
+    // --- bulk edits: pending values only -------------------------------------------------------------
+
+    /** The engine's original parameters for a row, or null when the revision records none.
+
+     * Matching is kind + sorted beads, plus the function when the engine term carries one -- the same identity
+     * `term_sources` uses, so "where this came from" and "what to revert to" cannot disagree. A term the engine did
+     * not fit (a mapping ring constraint, an override, a virtual site) has no original and is left untouched.
+     */
+    function fittedValues(shown, term) {
+      const rows = shown && shown.engine_terms;
+      if (!Array.isArray(rows)) return null;
+      const beads = [...(term.beads || [])].map(String).sort().join('|');
+      const match = rows.find(row => row && row.kind === term.kind
+        && [...(row.beads || [])].map(String).sort().join('|') === beads
+        && (row.function === undefined || row.function === null || String(row.function) === String(term.function))
+        && Array.isArray(row.parameters) && row.parameters.length === term.parameters.length);
+      return match ? match.parameters.map(String) : null;
+    }
+
+    /** Replace all of a row's pending values at once, keeping the existing "matches the store" rule. */
+    function setPendingValues(term, values) {
+      const entry = pending.get(term.id) || {values: storedValues(term)};
+      const next = [...entry.values];
+      values.forEach((value, index) => { if (index < next.length) next[index] = String(value); });
+      if (next.some((item, at) => !sameNumber(item, term.parameters[at]))) pending.set(term.id, {values: next});
+      else pending.delete(term.id);
+      pinnedStatus = null;
+    }
+
+    /** Why neither bulk action can run here, or '' when they can. */
+    function bulkBlockedReason(shown) {
+      const reference = !!selectedMapping?.read_only;
+      if (reference) return REFERENCE_REASON;
+      if (!selectedMapping) return 'Choose a saved mapping first.';
+      if (!shown) return 'This model has no stored revision to edit; its rows are the mapping\'s draft connectivity.';
+      if (shown.parameters_editable === false) return shown.save_in_place_reason || 'This revision is read-only.';
+      if (!terms.some(term => term.editable)) return 'This revision has no editable terms.';
+      return '';
+    }
+
+    /** Both bulk buttons and their status: the shown revision's gate decides, and a re-render cannot re-enable them. */
+    function updateBulkActions() {
+      if (!revertButton && !scaleButton && !bulkStatus) return;
+      const shown = parameterization.shownRevision();
+      const reason = bulkBlockedReason(shown);
+      const editable = terms.filter(term => term.editable);
+      const fitted = reason ? 0 : editable.filter(term => fittedValues(shown, term)).length;
+      const bonds = reason ? 0 : editable.filter(term => term.kind === 'bonds').length;
+      if (revertButton) {
+        revertButton.disabled = saving || !!reason || fitted === 0;
+        revertButton.title = reason || (fitted
+          ? `Restore the ${fitted} editable term${fitted === 1 ? '' : 's'} that have a fitted original.`
+          : 'No editable term has a fitted original to revert to.');
+      }
+      if (scaleButton) {
+        scaleButton.disabled = saving || !!reason || bonds === 0;
+        scaleButton.title = reason || (bonds
+          ? `Multiply the length of ${bonds} editable bond${bonds === 1 ? '' : 's'} by the factor.`
+          : 'This revision has no editable bond lengths to scale.');
+      }
+      if (bulkStatus) {
+        const text = reason || (bulkMessage ? bulkMessage.text : 'Bulk edits change the table; Save writes them.');
+        setText(bulkStatus, text);
+        bulkStatus.dataset.state = reason ? 'warn' : (bulkMessage?.kind || '');
+      }
+    }
+
+    /** Restore every editable term's parameters to the engine's fitted value, where the revision recorded one. */
+    function revertTermsToFitted() {
+      const shown = parameterization.shownRevision();
+      if (!shown) return;
+      let reverted = 0, lacked = 0;
+      for (const term of terms) {
+        if (!term.editable) continue;
+        const values = fittedValues(shown, term);
+        if (!values) { lacked += 1; continue; }
+        setPendingValues(term, values);
+        reverted += 1;
+      }
+      bulkMessage = {text: `Reverted ${reverted} editable term${reverted === 1 ? '' : 's'} to their fitted values`
+        + `${lacked ? `; ${lacked} ${lacked === 1 ? 'has' : 'have'} no fitted original.` : '.'}`, kind: 'warn'};
+      // Re-render the table so every restored value is the input's, with its dirty marker; this also updates the actions.
+      renderState();
+    }
+
+    /** Multiply the length (parameter 0) of every editable bond by the factor; forces and other kinds are untouched. */
+    function scaleBondLengths() {
+      const shown = parameterization.shownRevision();
+      if (!shown) return;
+      const typed = scaleFactor ? String(scaleFactor.value).trim() : '';
+      const factor = Number(typed);
+      if (!typed || !Number.isFinite(factor) || factor <= 0) {
+        // The input keeps what was typed; the refusal is the status sentence, not a rewrite of the field.
+        bulkMessage = {text: 'Enter a scale factor greater than zero.', kind: 'error'};
+        updateTermActions();
+        return;
+      }
+      let scaled = 0;
+      for (const term of terms) {
+        if (!term.editable || term.kind !== 'bonds') continue;
+        const length = Number(pendingValues(term)[0]);
+        if (!Number.isFinite(length)) continue;
+        setPendingValue(term, 0, String(Number((length * factor).toPrecision(12))));
+        scaled += 1;
+      }
+      bulkMessage = {text: `Scaled ${scaled} bond length${scaled === 1 ? '' : 's'} by ×${typed}. Save in place or Save as new writes them.`, kind: 'warn'};
+      renderState();
+    }
+
     /** Both buttons and the status: the matrix is the server's gate and the pane's own shown/current state. */
     function updateTermActions() {
+      updateBulkActions();
       if (!saveInPlace || !saveNew || !termsStatus) return;
       const reference = !!selectedMapping?.read_only;
       const shown = parameterization.shownRevision();
@@ -535,6 +654,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       try {
         const saved = await parameterization.saveTerms({mode, edits});
         pending.clear();
+        bulkMessage = null;
         const message = mode === 'in_place'
           ? `Revision ${shown.revision} saved in place: ${edits.length} term${edits.length === 1 ? '' : 's'} edited; Source reads manual.`
           : `Revision ${saved.revision} saved and current; revision ${shown.revision} is unchanged.`;
@@ -633,6 +753,23 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       tableHost.append(table);
     }
 
+    //: The surface is keyed on the molecule and the mapping's beads, not on a selection or a term edit: those
+    //: re-render the table but do not move an atom, and a rebuild per keystroke would be a plot per keystroke.
+    let surfaceKey = '';
+    function syncSurface() {
+      const moleculeId = selectedMapping?.molecule_id || structure?.molecule_id || structure?.snapshot?.id || null;
+      const beads = Array.isArray(selectedMapping?.beads) ? selectedMapping.beads : [];
+      if (!structure || !moleculeId || !beads.length) {
+        if (surfaceKey) { surface.clear(); surfaceKey = ''; }
+        return;
+      }
+      const key = JSON.stringify([moleculeId, beads.length, selectedMapping?.identity || selectedMapping?.name || '']);
+      if (key === surfaceKey) return;
+      surfaceKey = key;
+      Promise.resolve(surface.load({molecule_id: moleculeId, beads}))
+        .catch(error => notice(error.message, side));
+    }
+
     function renderState() {
       renderTable();
       updateTermActions();
@@ -640,6 +777,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         // No atoms, no scene: an empty figure and the reason, never another molecule's geometry under these names.
         plot.render({beads: [], edges: [], terms: [], selectedBeads, selectedTermId, beadAliases: new Map()});
         setText(selectionStatus, geometryNotice || 'Select a bead to read its name.');
+        syncSurface();
         return;
       }
       const geometry = beadGeometry(selectedMapping || {});
@@ -648,6 +786,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       setText(selectionStatus, selectedBeads.length
         ? `Selected beads: ${selectedBeads.join(' · ')}`
         : 'Select a bead to read its name.');
+      syncSurface();
     }
 
     /** The molecule select: every all-atom molecule the catalogue offers, plus CG compositions as one last group. */
@@ -894,6 +1033,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
     if (deleteButton) deleteButton.onclick = () => deleteParameterization();
     if (saveInPlace) saveInPlace.onclick = () => saveEditedTerms('in_place');
     if (saveNew) saveNew.onclick = () => saveEditedTerms('new');
+    if (revertButton) revertButton.onclick = revertTermsToFitted;
+    if (scaleButton) scaleButton.onclick = scaleBondLengths;
 
     async function mount() {
       // One model load at mount: the selects are set and their options filled here, and `showOption` below loads the

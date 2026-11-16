@@ -56,6 +56,64 @@ def save_revision(mapping):
         'ensemble': {'frames': 20001}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
 
 
+#: Every editable kind in one revision, with stored values deliberately away from the engine's fitted ones so a
+#: revert is visible. The constraint and the virtual site are the mapping's, not the engine's.
+BULK_TOPOLOGY = """[ moleculetype ]
+LIG1 1
+
+[ atoms ]
+1 SP1r 1 LIG1 B01 1 0 54
+2 SP1r 1 LIG1 B02 2 0 54
+3 SP1r 1 LIG1 B03 3 0 54
+4 SP1r 1 LIG1 B04 4 0 54
+
+[ constraints ]
+2 3 1 0.315
+
+[ virtual_sitesn ]
+4 1 2 3
+
+[ bonds ]
+1 2 1 0.35 4500
+3 4 1 0.40 5000
+
+[ angles ]
+1 2 3 1 125 30
+2 3 4 1 118 28
+
+[ dihedrals ]
+1 2 3 4 1 -100 40 2
+"""
+
+#: The engine's own fitted values: five of the six editable words, and nothing for the ring constraint or the site.
+BULK_ENGINE_TERMS = [
+    {'kind': 'bonds', 'beads': ['B01', 'B02'], 'function': '1', 'parameters': ['0.32', '5000']},
+    {'kind': 'bonds', 'beads': ['B03', 'B04'], 'function': '1', 'parameters': ['0.38', '5200']},
+    {'kind': 'angles', 'beads': ['B01', 'B02', 'B03'], 'function': '1', 'parameters': ['120', '25']},
+    {'kind': 'angles', 'beads': ['B02', 'B03', 'B04'], 'function': '1', 'parameters': ['116', '26']},
+    {'kind': 'dihedrals', 'beads': ['B01', 'B02', 'B03', 'B04'], 'function': '1',
+     'parameters': ['-102.273', '36.636', '2']},
+]
+
+
+def save_bulk_revision(mapping):
+    """One real revision carrying engine_terms, so Revert has a recorded fitted value to restore."""
+    return parameterization.save(mapping, {
+        'engine': 'fast-forward', 'topology': BULK_TOPOLOGY, 'engine_terms': BULK_ENGINE_TERMS,
+        'options': {'constraints_threshold': 10000, 'temperature_k': 300, 'torsion_model': 'legacy'},
+        'ensemble': {'frames': 20001}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
+
+
+def term_inputs(page, term_id, side='A'):
+    """The editable inputs of one table row, in parameter order."""
+    return pane(page, side).locator(f'.bonded-interaction-table tr[data-id="{term_id}"] input')
+
+
+def input_values(page, term_id, side='A'):
+    inputs = term_inputs(page, term_id, side)
+    return [inputs.nth(index).input_value() for index in range(inputs.count())]
+
+
 def save_mapping(dashboard, molecule='DDM', name=None):
     """One saved candidate built the way the editor builds it: scoped to a molecule and its snapshot."""
     context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
@@ -182,6 +240,73 @@ def test_a_constraint_is_editable_and_virtual_site_parents_are_read_only(dashboa
     expect(rows.nth(2).locator('input')).to_have_count(2), 'the bond is editable too'
     expect(pane(page, 'A').locator('.bonded-interaction-table select')).to_have_count(0)
     assert errors == []
+
+
+def test_revert_restores_every_editable_term_that_has_a_fitted_original(dashboard, live_page):
+    """Revert is scoped to the shown revision's editable rows, and only where the engine recorded a value.
+
+    The constraint is the mapping's own ring target and the virtual site is a reading, so neither has an original:
+    the constraint is left at its stored length and counted in the sentence rather than invented as a fitted value.
+    """
+    saved = save_mapping(dashboard)
+    save_bulk_revision(mappings.get(saved['file']))
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    choose_mapping(page, saved['file'], saved['molecule_id'])
+    pane(page, 'A').locator('.bonded-interaction-table tbody tr').first.wait_for(timeout=30000)
+
+    assert input_values(page, 'bonds:1') == ['0.35', '4500']
+    assert input_values(page, 'angles:1') == ['125', '30']
+    assert input_values(page, 'dihedrals:1') == ['-100', '40', '2']
+    expect(pane_id(page, 'bonded-revert-terms')).to_be_enabled()
+    pane_id(page, 'bonded-revert-terms').click()
+
+    expect(pane_id(page, 'bonded-bulk-status')).to_contain_text(
+        'Reverted 5 editable terms to their fitted values; 1 has no fitted original.')
+    assert input_values(page, 'bonds:1') == ['0.32', '5000']
+    assert input_values(page, 'bonds:2') == ['0.38', '5200']
+    assert input_values(page, 'angles:1') == ['120', '25']
+    assert input_values(page, 'angles:2') == ['116', '26']
+    assert input_values(page, 'dihedrals:1') == ['-102.273', '36.636', '2']
+    assert input_values(page, 'constraints:1') == ['0.315'], 'the mapping ring constraint has no original'
+    # The restored rows are pending edits now, not written values.
+    expect(term_inputs(page, 'bonds:1').nth(0)).to_have_attribute('data-dirty', 'true')
+    assert errors == [], errors
+
+
+def test_scale_multiplies_bond_lengths_only_and_refuses_a_non_positive_factor(dashboard, live_page):
+    """Scale changes parameter 0 of every editable bond; forces, angles, dihedrals and constraints are untouched.
+
+    A refused factor applies nothing and leaves the field as typed, because the reader's next action is to correct
+    that field rather than to wonder why it changed.
+    """
+    saved = save_mapping(dashboard)
+    save_bulk_revision(mappings.get(saved['file']))
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    choose_mapping(page, saved['file'], saved['molecule_id'])
+    pane(page, 'A').locator('.bonded-interaction-table tbody tr').first.wait_for(timeout=30000)
+
+    factor = pane_id(page, 'bonded-scale-factor')
+    factor.fill('0')
+    pane_id(page, 'bonded-scale-terms').click()
+    expect(pane_id(page, 'bonded-bulk-status')).to_contain_text('Enter a scale factor greater than zero.')
+    assert input_values(page, 'bonds:1') == ['0.35', '4500']
+    assert factor.input_value() == '0', 'the typed factor is kept'
+
+    factor.fill('1.10')
+    pane_id(page, 'bonded-scale-terms').click()
+    expect(pane_id(page, 'bonded-bulk-status')).to_contain_text(
+        'Scaled 2 bond lengths by ×1.10. Save in place or Save as new writes them.')
+    assert input_values(page, 'bonds:1') == ['0.385', '4500']
+    assert input_values(page, 'bonds:2') == ['0.44', '5000']
+    assert input_values(page, 'angles:1') == ['125', '30']
+    assert input_values(page, 'angles:2') == ['118', '28']
+    assert input_values(page, 'dihedrals:1') == ['-100', '40', '2']
+    assert input_values(page, 'constraints:1') == ['0.315']
+    expect(term_inputs(page, 'bonds:1').nth(0)).to_have_attribute('data-dirty', 'true')
+    assert factor.input_value() == '1.10', 'the typed factor is kept'
+    assert errors == [], errors
 
 
 def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, live_page):
@@ -536,6 +661,11 @@ def test_a_reference_without_a_saved_mapping_is_read_only_and_offers_no_seed(das
     for button in ('bonded-save-terms-inplace', 'bonded-save-terms-new'):
         expect(pane_id(page, button)).to_have_attribute('title', re.compile(REFERENCE_SENTENCE))
     expect(pane_id(page, 'bonded-terms-status')).to_contain_text(REFERENCE_SENTENCE)
+    # Bulk edits are edits too: a reference has no editable term and both actions are inert with its sentence.
+    expect(pane_id(page, 'bonded-revert-terms')).to_be_disabled()
+    expect(pane_id(page, 'bonded-scale-terms')).to_be_disabled()
+    expect(pane_id(page, 'bonded-revert-terms')).to_have_attribute('title', re.compile(REFERENCE_SENTENCE))
+    expect(pane_id(page, 'bonded-bulk-status')).to_contain_text(REFERENCE_SENTENCE)
     # The fit card has no mapping to fit: its own status says so rather than offering a disabled mystery.
     expect(page.locator('#bonded-fit')).to_be_disabled()
     expect(page.locator('#bonded-fit-status')).to_contain_text('Choose a mapping first')
