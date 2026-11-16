@@ -6,6 +6,16 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Runs Stage settings is a three-column grid; run dcbb42dcb73b repaired.** The per-run Stage settings
+disclosure places its stage groups in three columns (two at <=1200px, one at <=760px); each group is its own
+section, so a heading stays with its table. Separately, run dcbb42dcb73b failed only at its last stage, 'AA
+reference publication', because aa.py changed after the run was prepared (commit 634d133, parser delegation). The six
+simulation stages had completed. The manifest now carries an explicit code_repair record (old/new sha256, commit,
+stages on each code), the aa_molecules pin was updated to the current bytes, and the publication stage was resumed
+through POST /api/jobs/<id>/resume; the run is completed and 07_reference/reference.json is published. A code change
+after prepare still refuses a not-yet-run stage by design; this repair was deliberate and recorded, not silent.
+Checks: fast 2791 passed / 1 xfailed, browser 387 passed, ruff clean; slow unaffected (UI/data only).
+
 **2026-11-16 Bond Interactions: bulk term edits and a mapped AA/CG surface.** The Interactions table now has two
 bulk actions over the shown revision's editable rows, changing exactly the table's pending values; Save in place /
 Save as new is still the one write. Revert to fitted values restores each term from the revision's recorded

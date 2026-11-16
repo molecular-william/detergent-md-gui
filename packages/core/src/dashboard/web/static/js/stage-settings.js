@@ -27,10 +27,12 @@ export function renderStageSettings(host, detail) {
     return;
   }
   for (const group of groups) {
+    const block = document.createElement('section');
+    block.className = 'stage-settings-group';
     const heading = document.createElement('h4');
     heading.className = 'stage-settings-title';
     heading.textContent = group.label || group.stage || 'Stage';
-    host.append(heading);
+    block.append(heading);
     const table = document.createElement('table');
     table.className = 'stage-settings-table';
     const body = document.createElement('tbody');
@@ -45,7 +47,8 @@ export function renderStageSettings(host, detail) {
       body.append(row);
     }
     table.append(body);
-    host.append(table);
+    block.append(table);
+    host.append(block);
   }
 }
 
