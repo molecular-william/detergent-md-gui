@@ -7,8 +7,9 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 ## Next session
 
 **2026-11-16 Runs Stage settings is a four-column grid; run dcbb42dcb73b repaired.** The per-run Stage settings
-disclosure places its stage groups in four columns (two at <=1200px, one at <=760px); each group is its own
-section, so a heading stays with its table. Separately, run dcbb42dcb73b failed only at its last stage, 'AA
+disclosure places its stage groups in four columns (two at <=1200px, one at <=760px); the Run view Analysis tab's
+Stage settings mode uses two columns (one at <=900px). Each group is its own section, so a heading stays with its
+table. Separately, run dcbb42dcb73b failed only at its last stage, 'AA
 reference publication', because aa.py changed after the run was prepared (commit 634d133, parser delegation). The six
 simulation stages had completed. The manifest now carries an explicit code_repair record (old/new sha256, commit,
 stages on each code), the aa_molecules pin was updated to the current bytes, and the publication stage was resumed

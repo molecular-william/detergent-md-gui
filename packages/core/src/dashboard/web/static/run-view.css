@@ -206,6 +206,12 @@
   border-color: var(--accent) }
 .run-view-analysis .analysis-mode-panel { min-width: 0 }
 .run-view-analysis .analysis-mode-panel[hidden] { display: none }
+/* The Stage settings mode is the same groups the Runs row shows, as a two-column grid inside the card: the card is
+   half the Run view, so two tables per row is what a half-width card holds. */
+.run-view-analysis .stage-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px; align-items: start }
+.run-view-analysis .stage-settings .stage-settings-group { min-width: 0 }
+@media (max-width: 900px) { .run-view-analysis .stage-settings { grid-template-columns: 1fr } }
 .run-view-analysis .analysis-notice { border: 1px solid var(--line); border-left: 3px solid #b8891f;
   border-radius: 8px; background: #fdfaf1; padding: 9px 11px; font-size: 12px; line-height: 1.5;
   color: #5b4b22; margin: 8px 0 }
