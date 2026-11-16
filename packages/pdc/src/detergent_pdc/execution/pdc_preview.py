@@ -558,7 +558,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
-             'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None, 'tube_radius_nm': None,
+             'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None,
              'detergent_representation': None,
              # Which terms the picture's bonds are -- the mapping's fit or its derivation -- in the run's own words.
              # `None` for a centres-only build, which draws no bonds to attribute.
@@ -696,11 +696,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                               conformations=conformations)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the two numbers it was derived from. `band_radius_nm` is what the card renders as
-    # "the belt is a band of radius X nm in the membrane plane", so it is the torus's **centre-line** -- the measured
-    # slab radius the belt was placed about. It used to carry the band record's `radius_nm`, which after the belt
-    # became a torus is the *tube's* radius (the detergent's own length, a constant for every protein and every
-    # selection): a reader checking whether the plane shrank with the subunits was shown one number that never moved.
-    # The tube's radius is stated under its own name, and the measurement beside it, so all three can be re-added.
+    # "the belt is a band of radius X nm in the membrane plane", so it is the measured **cylinder surface radius**
+    # (with the run's radius setting applied as its floor) the belt was placed about -- the number that moves when a
+    # selection moves the transmembrane atoms. The detergent's own length, which is how far outside that surface each
+    # head stands, is stated under its own name, and the measured radius before the floor beside it.
     band = placement['band'] or {}
     shell = placement.get('shell') or {}
     # The shell's own numbers, and the density they and the count make. `shell`/`band` are never both set: a belt's
@@ -708,8 +707,13 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     # shape and the shape's name says which geometry produced them.
     shape_record = shell or band
     basis.update({'placement_shape': placement['placement_shape'], 'clearance_nm': placement['protein_clearance_nm'],
-                  'band_radius_nm': band.get('centre_line_radius_nm'), 'slab_radius_nm': band.get('slab_radius_nm'),
-                  'tube_radius_nm': band.get('tube_radius_nm'),
+                  'band_radius_nm': band.get('radius_nm'), 'slab_radius_nm': band.get('slab_radius_nm'),
+                  'detergent_length_nm': band.get('detergent_length_nm'),
+                  # The cylinder the belt was measured about, and the vertical band and tilt the sites were given,
+                  # so the panel can name the shape without re-deriving it from the coordinates.
+                  'cylinder': band.get('cylinder'),
+                  'vertical_half_band_nm': band.get('vertical_half_band_nm'),
+                  'tilt_deg': band.get('tilt_deg'),
                   # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
                   # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
                   # measures a smaller shell, and these two fields are where that shows.

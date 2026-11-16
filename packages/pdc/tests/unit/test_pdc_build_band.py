@@ -27,9 +27,12 @@ PROTEIN = 'molecules/DDM/protein.pdb'
 REMARK = 'REMARK      1/2 of bilayer thickness:   14.8\n'
 # The stage's own membrane plane statement, for the assertions below: 14.8 A stated is 1.48 nm stated.
 HALF_THICKNESS_NM = 1.48
-# Three beads inside the slab, the furthest 1.0 nm from the membrane axis (the file's z is the normal).
-CG_BEADS = [(1, 'PRO', 'B01', (1.0, 0.0, 0.2)), (1, 'PRO', 'B02', (-1.0, 0.0, 0.2)),
-            (1, 'PRO', 'B03', (0.0, 1.0, -0.2))]
+# A transmembrane bundle inside the slab: two rings of radius 1.0 nm at z = -1 and +1, so its principal axis is
+# the file's z (the frame normal) rather than an arbitrary in-plane direction.
+CG_BEADS = [(1, 'PRO', 'B01', (1.0, 0.0, -1.0)), (1, 'PRO', 'B02', (-1.0, 0.0, -1.0)),
+            (1, 'PRO', 'B03', (0.0, 1.0, -1.0)), (1, 'PRO', 'B04', (0.0, -1.0, -1.0)),
+            (1, 'PRO', 'B05', (1.0, 0.0, 1.0)), (1, 'PRO', 'B06', (-1.0, 0.0, 1.0)),
+            (1, 'PRO', 'B07', (0.0, 1.0, 1.0)), (1, 'PRO', 'B08', (0.0, -1.0, 1.0))]
 # The molecule's own length, written into the fixture structure: the tube's radius is measured from it. Two atoms,
 # 2.4 nm apart, which is the scale a DDM's own structure states (measured 2.1431 nm for the packaged molecule).
 MOLECULE_LENGTH_NM = 2.4
@@ -86,14 +89,16 @@ def detergent_centres(stage: Path) -> np.ndarray:
     return np.asarray([atom['position'] for atom in atoms if str(atom['name']).startswith('DD')])
 
 
-def distance_to_centre_line(sites, centre_radius: float, centre_nm: float = 0.0) -> np.ndarray:
-    """Each site's distance to the tube's centre-line: the circle of `centre_radius` in the frame's own plane."""
+def distance_to_axis(sites, axis, origin) -> np.ndarray:
+    """Each site's radial distance from the cylinder's axis, the way the placement measures it."""
     sites = np.asarray(sites, dtype=float)
-    radial = np.hypot(sites[:, 0], sites[:, 1]) - centre_radius
-    return np.hypot(radial, sites[:, 2] - centre_nm)
+    axis = np.asarray(axis, dtype=float)
+    relative = sites - np.asarray(origin, dtype=float)
+    axial = relative @ axis
+    return np.linalg.norm(relative - np.outer(axial, axis), axis=1)
 
 
-def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_tube(tmp_path):
+def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_cylinder(tmp_path):
     stage = stage_directory(prepared(tmp_path))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
 
@@ -104,24 +109,30 @@ def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_
     assert report['membrane_frame']['half_thickness_nm'] == HALF_THICKNESS_NM
     assert report['membrane_frame']['axis'] == [0.0, 0.0, 1.0]
     assert 'protein.pdb' in report['membrane_frame']['source'], 'traceable to the file that stated it'
-    assert report['placement_shape'] == 'belt-torus'
-    # The measured cylinder is the slab's 1.0 nm and the run's own radius_nm (3.0 nm, the sphere's number) is a floor
-    # under it, so the centre-line this build uses is the larger of the two. The tube's own radius is nobody's
-    # setting: it is the detergent's length, measured from the molecule's own structure (2.4 nm here).
-    assert report['placement_band']['slab_radius_nm'] == 1.0
-    assert report['placement_band']['centre_line_radius_nm'] == 3.0
-    assert report['placement_band']['tube_radius_nm'] == MOLECULE_LENGTH_NM
+    assert report['placement_shape'] == 'belt-cylinder'
+    # The measured cylinder is the bundle's own 1.0 nm radius; the run's radius_nm (3.0 nm, the sphere's number) is a
+    # floor under it, so the surface this build uses is the larger of the two. The stand-off is nobody's setting: it
+    # is the detergent's length, measured from the molecule's own structure (2.4 nm here).
+    band = report['placement_band']
+    assert band['slab_radius_nm'] == 1.0
+    assert band['cylinder']['radius_nm'] == 1.0
+    assert band['cylinder']['atom_count'] == len(CG_BEADS)
+    assert band['cylinder']['axis'] == [0.0, 0.0, 1.0]
+    assert band['radius_nm'] == 3.0 and band['radius_source'] == 'floor'
+    assert band['detergent_length_nm'] == MOLECULE_LENGTH_NM
     assert report['protein_clearance_nm'] >= MIN_CLEARANCE_NM
 
     centres = detergent_centres(stage)
     assert len(centres) == 8
-    # The file the stage writes is a `.gro`: three decimals, so a reader gets the tube's distances to that
+    # The file the stage writes is a `.gro`: three decimals, so a reader gets the cylinder's distances to that
     # resolution -- which is the tolerance these assertions are made at.
-    distances = distance_to_centre_line(centres, 3.0)
-    assert np.allclose(distances, MOLECULE_LENGTH_NM, atol=1e-3), \
-        "every placed detergent stands the detergent's own length from the centre-line"
-    assert np.all(np.abs(centres[:, 2]) < MOLECULE_LENGTH_NM + 1e-3), \
-        'the belt reaches the detergent length either side of the membrane centre, and no further'
+    distances = distance_to_axis(centres, band['cylinder']['axis'], band['cylinder']['origin_nm'])
+    assert np.allclose(distances, band['radius_nm'] + MOLECULE_LENGTH_NM, atol=1e-3), \
+        "every placed head stands the detergent's own length outside the cylinder surface"
+    assert np.all(np.abs(centres[:, 2]) <= band['vertical_half_band_nm'] + 1e-3), \
+        'the belt stays inside the spread vertical band'
+    assert np.max(np.abs(centres[:, 2])) > 0.85 * band['vertical_half_band_nm'], \
+        'and the same count covers that band, not one height'
 
 
 def test_the_stage_refuses_a_cg_protein_whose_beads_have_no_position(tmp_path):
@@ -155,39 +166,44 @@ def test_the_band_builds_a_box_whose_z_clears_the_protein_rather_than_the_belt(t
     """
     stage = stage_directory(prepared(tmp_path))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
-                 CG_BEADS + [(1, 'PRO', 'B04', (0.0, 0.0, 2.5))])
+                 CG_BEADS + [(1, 'PRO', 'B09', (0.0, 0.0, 5.0))])
 
     code = pdc_build.build(stage)
     report = report_of(stage)
 
     assert code == 3
-    assert report['box_nm'][2] == pytest.approx(2 * (2.5 + 2.0)), \
+    assert report['box_nm'][2] == pytest.approx(2 * (5.0 + 2.0)), \
         'z clears the furthest protein bead, not the belt the placement was given'
 
 
 def test_the_box_contains_the_belt_that_reaches_past_the_slab(tmp_path):
-    """The correction's consequence for the box: the belt now reaches the detergent length either side of the plane.
+    """The spread band's consequence for the box: the belt now reaches 1.5x the old half-height either side.
 
-    A `.gro` this stage writes with a belt whose own z extent (2.4 nm) is further from the plane than either the
-    slab (1.48 nm) or the protein's beads (0.2 nm) must have a box whose z contains it: 2 x (2.4 + 2.0) nm, and not
-    the slab's 2 x (1.48 + 2.0) that the belt-inside-the-slab rule gave.
+    A `.gro` this stage writes with a belt whose own z extent (up to 3.6 nm here) is further from the plane than
+    either the slab (1.48 nm) or the protein's beads (0.9 nm) must have a box whose z contains it: 2 x (the belt's
+    recorded reach + 2.0) nm, and not the slab's 2 x (1.48 + 2.0) that the belt-inside-the-slab rule gave.
     """
     stage = stage_directory(prepared(tmp_path))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
-                 [(1, 'PRO', 'B01', (1.0, 0.0, 0.2)), (1, 'PRO', 'B02', (-1.0, 0.0, 0.2)),
-                  (1, 'PRO', 'B03', (0.0, 1.0, -0.2)), (1, 'PRO', 'B04', (0.0, 0.0, 0.2))])
+                 [(1, 'PRO', 'B01', (1.0, 0.0, -0.9)), (1, 'PRO', 'B02', (-1.0, 0.0, -0.9)),
+                  (1, 'PRO', 'B03', (0.0, 1.0, -0.9)), (1, 'PRO', 'B04', (0.0, -1.0, -0.9)),
+                  (1, 'PRO', 'B05', (1.0, 0.0, 0.9)), (1, 'PRO', 'B06', (-1.0, 0.0, 0.9)),
+                  (1, 'PRO', 'B07', (0.0, 1.0, 0.9)), (1, 'PRO', 'B08', (0.0, -1.0, 0.9))])
 
     code = pdc_build.build(stage)
     report = report_of(stage)
     centres = detergent_centres(stage)
 
     assert code == 3
-    assert report['placement_band']['belt_reach_nm'] == MOLECULE_LENGTH_NM
-    belt_reach = float(np.abs(detergent_centres(stage)[:, 2]).max())
+    band = report['placement_band']
+    belt_reach = float(np.abs(centres[:, 2]).max())
     assert belt_reach > 1.4, 'this belt reaches past the slab, which is what makes the box rule matter'
-    assert report['box_nm'][2] == pytest.approx(2 * (report['placement_band']['belt_reach_nm'] + 2.0)), \
+    assert band['belt_reach_nm'] > MOLECULE_LENGTH_NM, 'the spread band reaches further than the old half-height'
+    assert band['belt_reach_nm'] >= belt_reach - 1e-3, 'and the record includes the body the build stamps'
+    assert report['box_nm'][2] == pytest.approx(2 * (band['belt_reach_nm'] + 2.0)), \
         "the box's z contains the belt's own reach, not only the slab the belt used to sit inside"
-    assert report['box_nm'][2] / 2 - 2.0 >= belt_reach, 'and the belt is inside it by the margin the run asked for'
+    assert report['box_nm'][2] / 2 - 2.0 >= belt_reach - 1e-3, \
+        'and the belt is inside it by the margin the run asked for'
     assert np.all(np.abs(centres[:, 2]) < report['box_nm'][2] / 2), 'every placed centre is inside the box'
 
 

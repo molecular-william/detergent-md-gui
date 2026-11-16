@@ -5,7 +5,7 @@ Both halves are measured here rather than described, and the measurement says tw
 
 * **the plane.** The slab radius is measured from the SELECTED chains' own atoms inside the membrane frame's slab, so
   a selection whose atoms reach a smaller radius measures a smaller radius -- and, above the default radius the
-  placement treats as a floor, the belt is placed on that smaller centre-line. A *deposited trimer* is the case that
+  placement treats as a floor, the belt is placed on that smaller cylinder surface. A *deposited trimer* is the case that
   hides it: its chains are three-fold about the membrane axis, so one chain, two chains and three chains all reach
   the same radius. 1AT9 is exactly that protein (measured in the report beside this file), so the report's first half
   is not reproducible on it and its expectation is right in general.
@@ -97,12 +97,13 @@ def placement_for(stage: Path, source: Path, chains, count: int, *, radius_nm=pd
     return placed, frame
 
 
-def distance_to_centre_line(sites, centre_radius, axis=(0.0, 0.0, 1.0), centre_nm=0.0):
-    """Each site's distance to the tube's centre-line, as `test_pdc_placement` measures it."""
+def distance_to_axis(sites, axis, origin):
+    """Each site's radial distance from the cylinder's axis, as `test_pdc_placement` measures it."""
     sites = np.asarray(sites, dtype=float)
     axis = np.asarray(axis, dtype=float)
-    radial = np.linalg.norm(sites - np.outer(sites @ axis, axis), axis=1) - centre_radius
-    return np.hypot(radial, sites @ axis - centre_nm)
+    relative = sites - np.asarray(origin, dtype=float)
+    axial = relative @ axis
+    return np.linalg.norm(relative - np.outer(axial, axis), axis=1)
 
 
 # --- half one: the plane, and the selection ---------------------------------------------------------------
@@ -140,12 +141,14 @@ def test_the_selection_moves_the_belt_whenever_the_measurement_is_over_the_floor
     one, _ = placement_for(tmp_path / 'a', source, ['A'], 12, radius_nm=1.0)
     other, _ = placement_for(tmp_path / 'b', source, ['B'], 12, radius_nm=1.0)
 
-    assert one['band']['centre_line_radius_nm'] == pytest.approx(3.0, abs=1e-4)
-    assert other['band']['centre_line_radius_nm'] == pytest.approx(1.0, abs=1e-4)
-    assert other['band']['tube_radius_nm'] == pytest.approx(MOLECULE_LENGTH_NM)
-    # And the placed sites are on the smaller tube's surface, not on the larger one's: the belt really moved.
+    assert one['band']['radius_nm'] == pytest.approx(3.0, abs=1e-4)
+    assert other['band']['radius_nm'] == pytest.approx(1.0, abs=1e-4)
+    assert other['band']['detergent_length_nm'] == pytest.approx(MOLECULE_LENGTH_NM)
+    # And the placed sites stand off the smaller cylinder's surface, not the larger one's: the belt really moved.
     assert len(other['centers']) == 12
-    assert np.allclose(distance_to_centre_line(other['centers'], 1.0), MOLECULE_LENGTH_NM, atol=1e-5)
+    cylinder = other['band']['cylinder']
+    distances = distance_to_axis(other['centers'], cylinder['axis'], cylinder['origin_nm'])
+    assert np.allclose(distances, cylinder['surface_radius_nm'] + MOLECULE_LENGTH_NM, atol=1e-5)
 
 
 def test_a_selection_under_the_default_radius_keeps_the_default_belt_not_the_measured_one(tmp_path):
@@ -163,9 +166,10 @@ def test_a_selection_under_the_default_radius_keeps_the_default_belt_not_the_mea
     placed, _ = placement_for(tmp_path / 'b', source, ['B'], 12)
 
     assert placed['band']['slab_radius_nm'] == pytest.approx(1.0, abs=1e-4), 'the measurement did shrink'
+    assert placed['band']['cylinder']['radius_nm'] == pytest.approx(1.0, abs=1e-4)
     assert placed['band']['radius_floor_nm'] == pdc_placement.DEFAULT_RADIUS_NM
-    assert placed['band']['centre_line_radius_nm'] == pytest.approx(pdc_placement.DEFAULT_RADIUS_NM, abs=1e-4), \
-        'the belt is the default floor, not the measured cylinder'
+    assert placed['band']['radius_nm'] == pytest.approx(pdc_placement.DEFAULT_RADIUS_NM, abs=1e-4), \
+        'the belt surface is the default floor, not the measured cylinder'
 
 
 def test_a_three_fold_selection_leaves_the_measured_radius_unchanged(tmp_path):
@@ -196,7 +200,7 @@ def test_a_subset_keeps_the_proteins_own_membrane_statement(tmp_path):
     placed, frame = placement_for(tmp_path / 'a', source, ['A'], 12)
 
     assert frame is not None and frame.half_thickness_nm == HALF_THICKNESS_NM
-    assert placed['placement_shape'] == 'belt-torus'
+    assert placed['placement_shape'] == 'belt-cylinder'
 
 
 # --- half two: the tails, and the centre-line ------------------------------------------------------------
@@ -204,24 +208,21 @@ def test_a_subset_keeps_the_proteins_own_membrane_statement(tmp_path):
 def test_no_two_detergents_share_an_orientation_so_the_belt_is_not_parallel(tmp_path):
     """"The tails are still in a parallel orientation": measured over a placed belt, they are not.
 
-    Each site's direction is its own meridian -- `cos(phi)` outward in the membrane plane and `sin(phi)` along the
-    axis -- so the belt has one distinct direction per detergent and its body is not in the membrane plane unless its
-    own meridian puts it there. A belt whose bodies were parallel would have one direction repeated, a meridian range
-    of zero, and a mean direction of unit length; all three are measured here.
-
-    The near-duplicate bound is 0.1 degree rather than 1.0: near the top of the half-circle every meridian points
-    almost along the membrane normal, so two sites at different azimuths there are a fraction of a degree apart while
-    half a nanometre apart on the belt. While every site came from the ladder's first pass those two never coincided;
-    the bead-level gate now refuses entries, so a replacement can come from a later pass and land beside one. What
-    the placement promises is one *distinct* direction per detergent -- asserted exactly below -- and a belt spanning
-    the whole half-circle, not a minimum gap between neighbours at the pole.
+    Each site's direction is its own outward normal, tilted about its own tangent -- so the belt has one distinct
+    direction per detergent and no shared heading. A parallel belt would repeat one direction, have a zero spread of
+    azimuths, and a mean direction of unit length; the three are measured here.
     """
     source = structure(tmp_path, [('A', ring(1.5))])
     placed, frame = placement_for(tmp_path / 'a', source, ['A'], 60, radius_nm=1.5)
 
     directions = np.asarray(placed['directions'])
     axis = np.asarray(unit_axis(frame.axis), dtype=float)
+    origin = np.asarray(placed['band']['cylinder']['origin_nm'])
     centres = np.asarray(placed['centers'])
+    relative = centres - origin
+    heights = relative @ axis
+    radial = relative - np.outer(heights, axis)
+    outward = radial / np.linalg.norm(radial, axis=1)[:, None]
     assert len(directions) == 60 and np.allclose(np.linalg.norm(directions, axis=1), 1.0)
 
     distinct = {tuple(np.round(row, 9)) for row in directions}
@@ -229,47 +230,49 @@ def test_no_two_detergents_share_an_orientation_so_the_belt_is_not_parallel(tmp_
     np.fill_diagonal(separations, np.nan)
     assert len(distinct) == len(directions), 'no two detergents may share a direction'
     assert float(np.nanmin(separations)) > 0.1, 'and no two may be effectively the same orientation'
-    # A mean of unit length is one direction repeated. The bound is 0.25 and not 0.05 because a belt the protein
-    # refuses entries from keeps a *subset* of the ladder's directions: the kept ones no longer cancel to nothing, and
-    # measured here the mean is 0.08 against a parallel belt's 1.0.
     assert float(np.linalg.norm(directions.mean(axis=0))) < 0.25, \
         'parallel bodies would have a mean of unit length'
 
-    # The meridian is the angle out of the membrane plane: the belt reaches the plane and the axis, so it is not one
-    # band and not one orientation.
-    meridian = np.degrees(np.arccos(np.clip(np.abs(directions @ axis), -1.0, 1.0)))
-    assert meridian.min() < 5.0 and meridian.max() > 85.0
-    # The ladder's own entries never reach z = +-1 exactly, so the belt stops just short of the poles: what matters
-    # is that it is placed across the tube's whole surface and never outside it.
-    assert 0.95 * placed['band']['tube_radius_nm'] < float(np.abs(centres @ axis).max()) \
-        <= placed['band']['tube_radius_nm'] + 1e-6
+    # The constant tilt is the one the placement documents, and the azimuths still wrap the whole belt.
+    tilt = np.degrees(np.arccos(np.clip((directions * outward).sum(axis=1), -1.0, 1.0)))
+    assert np.allclose(tilt, pdc_placement.TILT_DEGREES), 'every body is the same documented tilt'
+    across, up = pdc_placement._plane_basis(axis)
+    azimuths = np.arctan2(outward @ up, outward @ across)
+    assert float(azimuths.max() - azimuths.min()) > 0.9 * 2.0 * np.pi, 'the belt wraps the whole circumference'
+    # The ladder's entries never reach |z| = 1 exactly, so the band is covered just short of its edges.
+    assert 0.95 * placed['band']['vertical_half_band_nm'] < float(np.abs(heights).max()) \
+        <= placed['band']['vertical_half_band_nm'] + 1e-6
 
 
-def test_every_tails_own_direction_points_at_the_centre_line(tmp_path):
-    """The tail's heading is the inward meridian, which is the direction of the nearest centre-line point.
+def test_every_tail_dips_inwards_from_its_own_outward_normal(tmp_path):
+    """The tail's heading is the outward normal tilted towards the axis, not a single belt-wide heading.
 
-    The angle is zero by construction -- `centre = centre_line + length * direction` and `stamp` hangs the body back
-    along `-direction` -- and it is measured here against the *nearest* point of the circle, so a belt that pointed
-    at the axis's single heading instead of at its own azimuth would show up as an angle.
+    `stamp` hangs the body back along `-direction`, so the head-ward direction's radial component is `cos` of the
+    documented tilt and the tail end therefore sits `length * cos(tilt)` closer to the axis than the head end. Each
+    site's own azimuth gives it its own normal, so the belt is not one heading.
     """
     source = structure(tmp_path, [('A', ring(1.5))])
     placed, frame = placement_for(tmp_path / 'a', source, ['A'], 60, radius_nm=1.5)
 
     axis = np.asarray(unit_axis(frame.axis), dtype=float)
+    origin = np.asarray(placed['band']['cylinder']['origin_nm'])
     centres = np.asarray(placed['centers'])
     directions = np.asarray(placed['directions'])
-    radial = centres - np.outer(centres @ axis, axis)
-    radial = radial / np.linalg.norm(radial, axis=1)[:, None]
-    line = placed['band']['centre_line_radius_nm'] * radial + frame.centre_nm * axis
-    to_line = line - centres
-    to_line = to_line / np.linalg.norm(to_line, axis=1)[:, None]
+    relative = centres - origin
+    heights = relative @ axis
+    radial = relative - np.outer(heights, axis)
+    outward = radial / np.linalg.norm(radial, axis=1)[:, None]
 
-    angle = np.degrees(np.arccos(np.clip((-directions * to_line).sum(axis=1), -1.0, 1.0)))
-    assert np.all(angle < 1e-3), 'every tail heads for the centre-line at its own azimuth'
+    tilt = np.degrees(np.arccos(np.clip((directions * outward).sum(axis=1), -1.0, 1.0)))
+    assert np.allclose(tilt, pdc_placement.TILT_DEGREES), 'every tail dips by the documented tilt'
 
-    # And the spread of that heading around the belt is a half-circle: a single orientation would be no spread.
-    tilt = np.degrees(np.arccos(np.clip((directions * radial).sum(axis=1), -1.0, 1.0)))
-    assert tilt.max() - tilt.min() > 80.0, 'the tails do not all sit at one angle to the radial'
+    # And the tail end is closer to the axis than the head end by exactly that tilt's own radial loss.
+    head_radial = np.linalg.norm(radial, axis=1)
+    tail_radial = np.linalg.norm(radial - MOLECULE_LENGTH_NM * np.cos(np.deg2rad(pdc_placement.TILT_DEGREES))
+                                 * outward, axis=1)
+    assert np.all(tail_radial < head_radial)
+    assert np.allclose(head_radial - tail_radial,
+                       MOLECULE_LENGTH_NM * np.cos(np.deg2rad(pdc_placement.TILT_DEGREES)))
 
 
 def test_the_stamped_molecule_follows_its_own_sites_direction(tmp_path):
@@ -294,11 +297,12 @@ def test_the_stamped_molecule_follows_its_own_sites_direction(tmp_path):
         own = own / np.linalg.norm(own)
         # A tolerance a hundred times the 1e-5 the beads are rounded to in the written file.
         assert np.allclose(own, direction, atol=1e-4), 'the body is oriented by its own site, per site'
-        # The molecule's head end stands on the tube's outer surface, at the tube's own radius.
+        # The molecule's head end stands outside the cylinder surface by the molecule's own length.
         head_end = max((np.asarray(atom['position']) for atom in beads if atom['name'].startswith('H1')),
                        key=lambda point: float(np.dot(point - np.asarray(centre), direction)))
-        assert distance_to_centre_line([head_end], placed['band']['centre_line_radius_nm'])[0] == \
-            pytest.approx(placed['band']['tube_radius_nm'], abs=1e-4)
+        cylinder = placed['band']['cylinder']
+        assert distance_to_axis([head_end], cylinder['axis'], cylinder['origin_nm'])[0] == \
+            pytest.approx(cylinder['surface_radius_nm'] + placed['band']['detergent_length_nm'], abs=1e-4)
 
 
 # --- the preview's own report of the belt's radius --------------------------------------------------------
@@ -333,18 +337,18 @@ def preview_basis(tmp_path, monkeypatch, radius_nm: float):
 def test_the_panel_number_is_the_belts_own_radius_and_not_the_detergents_length(tmp_path, monkeypatch):
     """"The hydrophobic plane should shrink correspondingly": the number the panel states must be that plane.
 
-    The belt is a torus whose centre-line is the measured slab radius; the card renders `basis.band_radius_nm` as
-    "the belt is a band of radius X nm in the membrane plane". That field carried the *tube's* radius after the belt
-    became a torus -- the detergent's own length, the same 2.0 nm for every selection -- so a reader checking whether
-    the plane shrank with the subunits saw one constant number. It is the belt's own radius where the sentence says
-    it is, and it moves when the selection moves the cylinder.
+    The belt is a cylinder whose surface radius is measured from the selected transmembrane atoms; the card renders
+    `basis.band_radius_nm` as "the belt is a band of radius X nm in the membrane plane". That field used to carry the
+    torus's *tube* radius -- the detergent's own length, the same 2.0 nm for every selection -- so a reader checking
+    whether the plane shrank with the subunits saw one constant number. It is the cylinder's own surface radius where
+    the sentence says it is, and it moves when the selection moves the cylinder.
     """
     one = preview_basis(tmp_path / 'one', monkeypatch, 3.5)
     other = preview_basis(tmp_path / 'other', monkeypatch, 4.5)
 
-    assert one['band_radius_nm'] == pytest.approx(3.5, abs=1e-4), 'the belt\'s own centre-line radius'
-    assert one['band_radius_nm'] != MOLECULE_LENGTH_NM, 'not the detergent\'s length'
-    assert one['tube_radius_nm'] == pytest.approx(MOLECULE_LENGTH_NM), 'which is still stated, under its own name'
+    assert one['band_radius_nm'] == pytest.approx(3.5, abs=1e-4), "the belt's own cylinder surface radius"
+    assert one['band_radius_nm'] != MOLECULE_LENGTH_NM, "not the detergent's length"
+    assert one['detergent_length_nm'] == pytest.approx(MOLECULE_LENGTH_NM), 'which is stated under its own name'
     assert one['slab_radius_nm'] == pytest.approx(3.5, abs=1e-4)
     assert other['band_radius_nm'] == pytest.approx(4.5, abs=1e-4), \
         'the plane follows the selection, which is the whole of the report'

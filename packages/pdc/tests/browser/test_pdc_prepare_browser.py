@@ -55,7 +55,7 @@ def answer(*, valid=True, step=None, reasons=(), pdb='', prepare_seconds=0.0, he
                   'residue': 'DDM', 'mapping': None, 'aggregation_number': 150, 'placement_mode': 'lattice',
                   'seed': 20261014, 'beads': 1028 if valid else None, 'protein_beads': 928,
                   'box_nm': [10.0, 9.0, 12.0] if valid else None, 'clearance_nm': 0.5436 if valid else None,
-                  'placement_shape': 'belt-torus' if valid else None, 'band_radius_nm': 2.1431,
+                  'placement_shape': 'belt-cylinder' if valid else None, 'band_radius_nm': 2.1431,
                   'detergent_representation': "the mapping's beads",
                   'prepare_protein': prepare_protein,
                   'prepare': ({'tool': 'pdb2pqr', 'tool_version': '3.7.1', 'heavy_atoms_added': heavy_atoms,

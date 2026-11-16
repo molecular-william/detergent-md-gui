@@ -120,7 +120,7 @@ def empty_micelle_pdb(molecules=3):
 
 
 def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, clearance: float | None = 0.5436,
-           placement_shape='belt-torus', band: float | None = 3.1408, representation='the mapping\u2019s beads',
+           placement_shape='belt-cylinder', band: float | None = 3.1408, representation='the mapping\u2019s beads',
            cost=None, protein: str | None = '1qj8', chains=('A', 'B'), mode='lattice', aggregation=150,
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,

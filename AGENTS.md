@@ -57,9 +57,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   records `skipped` with that reason rather than scoring 0.00.
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for`
   is the only list, and a `cg` revision run owes `dihedral-fit`/`bonded-cross-check`, which record `skipped` for the other kinds.
-- A pdc belt is a torus when the protein states a membrane (`radius_nm` is then a floor under the measured
-  centre-line) and a sphere when it does not; on either shape a detergent's body must clear the protein, not only its
-  head site.
+- A pdc belt is a **cylinder** when the protein states a membrane: axis from the PCA of its slab atoms, radius from
+  their radial extent (`radius_nm` is a floor), each detergent at its own surface point (head out, tail 15 deg inward),
+  band 1.5x its length; no membrane keeps a sphere. On either shape a detergent's body must clear the protein, not just its head site.
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
 - Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and
