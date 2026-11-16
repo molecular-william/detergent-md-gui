@@ -83,3 +83,46 @@ def test_an_oversized_bead_list_is_a_400_naming_the_cap(dashboard):
 
     assert response.status_code == 400
     assert str(mapped_surface.MAX_BEADS) in response.get_data(as_text=True)
+
+
+def test_a_ring_scale_dilates_the_cg_ring_and_leaves_the_aa_mesh_alone(dashboard):
+    """The CG ring is drawn at the ring scale the table states; an atom is not stretched by a constraint target."""
+    plain = dashboard.client.post(SURFACES, json={'molecule_id': 'DDM', 'beads': BEADS}).get_json()
+    scaled = dashboard.client.post(SURFACES, json={
+        'molecule_id': 'DDM', 'beads': BEADS, 'rings': [{'beads': ['B01', 'B02'], 'scale': 2.0}]}).get_json()
+
+    def centres(body):
+        return {bead['name']: bead['centre_nm'] for bead in body['cg']['beads']}
+
+    assert math.dist(centres(scaled)['B01'], centres(scaled)['B02']) == pytest.approx(
+        2 * math.dist(centres(plain)['B01'], centres(plain)['B02']), rel=1e-4)
+    assert scaled['aa']['vertices'] == plain['aa']['vertices'], 'a ring scale is not an atomistic fact'
+    assert scaled['cg']['rings'] == [{'beads': ['B01', 'B02'], 'scale': 2.0}]
+
+
+def test_a_scaled_ring_carries_its_connected_parts_so_the_mapped_links_hold(dashboard):
+    """Dilating a ring would lengthen every link out of it; the placement shifts the other parts back, as a run's do."""
+    beads = [*BEADS, {'name': 'TAIL', 'size': 'S', 'type': 'C1', 'atoms': [4]}]
+    connections = [['B01', 'TAIL']]
+    plain = dashboard.client.post(SURFACES, json={
+        'molecule_id': 'DDM', 'beads': beads, 'connections': connections}).get_json()
+    scaled = dashboard.client.post(SURFACES, json={
+        'molecule_id': 'DDM', 'beads': beads, 'connections': connections,
+        'rings': [{'beads': ['B01', 'B02'], 'scale': 2.0}]}).get_json()
+
+    def length(body, first, second):
+        centres = {bead['name']: bead['centre_nm'] for bead in body['cg']['beads']}
+        return math.dist(centres[first], centres[second])
+
+    assert length(scaled, 'B01', 'B02') == pytest.approx(2 * length(plain, 'B01', 'B02'), rel=1e-4)
+    assert length(scaled, 'B01', 'TAIL') == pytest.approx(length(plain, 'B01', 'TAIL'), rel=1e-4)
+
+
+def test_a_malformed_ring_or_connection_is_a_400(dashboard):
+    for extra in ({'rings': [{'beads': ['B01'], 'scale': 1.1}]},
+                  {'rings': [{'beads': ['B01', 'B02'], 'scale': -1}]},
+                  {'rings': [{'beads': ['B01', 'B02'], 'scale': True}]},
+                  {'connections': [['B01']]}):
+        response = dashboard.client.post(SURFACES, json={'molecule_id': 'DDM', 'beads': BEADS, **extra})
+        assert response.status_code == 400, extra
+

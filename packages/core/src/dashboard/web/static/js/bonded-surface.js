@@ -133,8 +133,10 @@ export function createBondedSurface({host}) {
     const counts = [];
     if (surfaces.aa) counts.push('AA ' + surfaces.aa.points + ' points / ' + surfaces.aa.triangles + ' triangles');
     if (surfaces.cg) counts.push('CG ' + surfaces.cg.points + ' points / ' + surfaces.cg.triangles + ' triangles');
+    const dilated = [...new Set(surfaces.rings.map(ring => ring.scale + '×'))];
+    const rings = dilated.length ? ' · CG rings dilated ' + dilated.join(', ') : '';
     return 'SAS envelope from the mapped coordinates, not a simulation. Probe radius ' + probe
-      + ' · spacing ' + spacing + ' · ' + counts.join(' · ') + '.';
+      + ' · spacing ' + spacing + ' · ' + counts.join(' · ') + rings + '.';
   }
 
   function fail(error) {
@@ -169,6 +171,7 @@ export function createBondedSurface({host}) {
       surfaces = {
         aa: mesh(answer && answer.aa),
         cg: mesh(answer && answer.cg),
+        rings: Array.isArray(answer && answer.cg && answer.cg.rings) ? answer.cg.rings : [],
         probe: numberOrNull(answer && answer.probe_radius_nm, answer && answer.probe_nm,
                             metadata.probe_nm, metadata.probe_radius_nm),
         spacing: numberOrNull(answer && answer.spacing_nm, answer && answer.grid_spacing_nm,

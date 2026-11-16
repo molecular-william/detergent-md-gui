@@ -292,10 +292,13 @@ def bonded_surfaces():
     """The mapped molecule's AA and CG surface meshes, from the molecule folder and a mapping's bead list.
 
     No run and no GROMACS are involved: 'molecule_id' names a molecule folder this project carries, and 'beads' is
-    the mapping editor's own list (a virtual site names no atom, so it gets no sphere). Both meshes are built at one
-    spacing and one probe, which the answer states, so the two panes draw comparable surfaces rather than two
-    differently-inflated pictures. A mesh over the bounded grid is coarsened and re-sent; a request that names too
-    many beads, or a molecule whose surface stays over the cap, is refused with the limit named.
+    the mapping editor's own list (a virtual site names no atom, so it gets no sphere). 'rings' carries each ring's
+    effective scale -- the mapping's own times the table's pending edit -- and 'connections' the mapping's links, so
+    the CG bead positions come from the placement a run starts from: rings dilated, connected parts shifted to keep
+    the mapped link vectors. The AA mesh is the atoms' own geometry and never scales with a constraint. Both meshes are
+    built at one spacing and one probe, which the answer states, so the two panes draw comparable surfaces rather than
+    two differently-inflated pictures. A mesh over the bounded grid is coarsened and re-sent; a request that names too
+    many beads or rings, a malformed scale, or a molecule whose surface stays over the cap, is refused with the reason.
     """
     payload = json_object()
     molecule_id = payload.get('molecule_id')
@@ -311,6 +314,9 @@ def bonded_surfaces():
     except (OSError, ValueError) as exc:
         abort(400, str(exc))
     try:
-        return jsonify(mapped_surface.build(context, beads))
-    except mapped_surface.SurfaceTooLarge as exc:
+        return jsonify(mapped_surface.build(
+            context, beads, rings=payload.get('rings'), connections=payload.get('connections'),
+            representation_mode=payload.get('representation_mode')))
+    except ValueError as exc:
+        # SurfaceTooLarge is one of these: a mesh over the cap and a malformed ring are both the request's answer.
         abort(400, str(exc))

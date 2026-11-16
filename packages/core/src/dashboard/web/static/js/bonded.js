@@ -503,7 +503,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
      * A ring names its beads in the mapping's own vocabulary (S1A ...), while a run-layout topology names them
      * by export position (B01 ...), so both spellings are pairs: a constraint row matches whichever the topology
      * states. */
-    function ringPairs() {
+    function ringPairs(only) {
       const beads = selectedMapping?.beads || [];
       const indexByName = new Map(beads.map((bead, index) => [String(bead.name), index]));
       const pairs = new Set();
@@ -514,7 +514,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
           }
         }
       };
-      for (const ring of selectedMapping?.rings || []) {
+      for (const ring of only ? [only] : (selectedMapping?.rings || [])) {
         const names = [...(ring.beads || [])].map(String);
         add(names);
         const exported = names.map(name => {
@@ -786,8 +786,35 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       tableHost.append(table);
     }
 
-    //: The surface is keyed on the molecule and the mapping's beads, not on a selection or a term edit: those
-    //: re-render the table but do not move an atom, and a rebuild per keystroke would be a plot per keystroke.
+    /** A ring's effective scale: the mapping's own, times the shown revision's pending/stored length ratio, so the
+     * surface draws the ring the table is about to save. A ring whose constraint rows cannot be told apart from the
+     * mapping's own reads at the mapping's scale, which is what the topology already states. */
+    function surfaceRingScale(ring) {
+      const stored = Number(ring && ring.scale !== undefined ? ring.scale : 1.15);
+      const base = Number.isFinite(stored) && stored > 0 ? stored : 1;
+      const pairs = ringPairs(ring);
+      for (const term of terms) {
+        if (!term.editable || term.kind !== 'constraints') continue;
+        const key = [...(term.beads || [])].map(String).sort().join('|');
+        if (!pairs.has(key)) continue;
+        const was = Number((term.parameters || [])[0]);
+        const now = Number(pendingValues(term)[0]);
+        if (Number.isFinite(was) && was > 0 && Number.isFinite(now) && now > 0) {
+          return Number((base * (now / was)).toFixed(4));
+        }
+      }
+      return Number(base.toFixed(4));
+    }
+
+    function surfaceRings() {
+      return (selectedMapping?.rings || [])
+        .filter(ring => Array.isArray(ring && ring.beads) && ring.beads.length >= 2)
+        .map(ring => ({beads: ring.beads.map(String), scale: surfaceRingScale(ring)}));
+    }
+
+    //: The surface is keyed on the molecule, the mapping's beads and the rings' effective scales -- not on a selection
+    //: or a typed value: those re-render the table but move no atom, and a rebuild per keystroke would be a mesh per
+    //: keystroke. The bulk Scale action does move the rings apart, so its re-render changes the key and re-fetches.
     let surfaceKey = '';
     function syncSurface() {
       const moleculeId = selectedMapping?.molecule_id || structure?.molecule_id || structure?.snapshot?.id || null;
@@ -796,10 +823,17 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         if (surfaceKey) { surface.clear(); surfaceKey = ''; }
         return;
       }
-      const key = JSON.stringify([moleculeId, beads.length, selectedMapping?.identity || selectedMapping?.name || '']);
+      const rings = surfaceRings();
+      const key = JSON.stringify([moleculeId, beads.length, selectedMapping?.identity || selectedMapping?.name || '',
+                                  rings.map(ring => [ring.beads.join('|'), ring.scale])]);
       if (key === surfaceKey) return;
       surfaceKey = key;
-      Promise.resolve(surface.load({molecule_id: moleculeId, beads}))
+      const payload = {molecule_id: moleculeId, beads, rings,
+                       connections: Array.isArray(selectedMapping?.connections) ? selectedMapping.connections : []};
+      if (typeof selectedMapping?.representation_mode === 'string' && selectedMapping.representation_mode) {
+        payload.representation_mode = selectedMapping.representation_mode;
+      }
+      Promise.resolve(surface.load(payload))
         .catch(error => notice(error.message, side));
     }
 

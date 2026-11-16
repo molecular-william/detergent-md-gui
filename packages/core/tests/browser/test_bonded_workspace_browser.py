@@ -15,7 +15,7 @@ import json
 import re
 
 from dashboard.models import mappings
-from dashboard.models.bonded import parameterization
+from dashboard.models.bonded import generation, parameterization
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
@@ -112,6 +112,28 @@ def term_inputs(page, term_id, side='A'):
 def input_values(page, term_id, side='A'):
     inputs = term_inputs(page, term_id, side)
     return [inputs.nth(index).input_value() for index in range(inputs.count())]
+
+
+#: A two-triangle mesh per envelope: enough for the pane to draw, so a test never waits on a marching-cubes grid.
+SURFACE = {'aa': {'vertices': [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0], 'faces': [0, 1, 2, 1, 3, 2]},
+           'cg': {'vertices': [0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1], 'faces': [0, 1, 2, 1, 3, 2]},
+           'probe_radius_nm': 0.191, 'spacing_nm': 0.06}
+
+
+def save_sugar_mapping(dashboard, molecule='Glucose'):
+    """A saved sugar mapping with one revision carrying its own ring constraints, so Scale has a ring to move."""
+    context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
+    candidate = automatic_mapping(mapping_context.as_structure(context), molecule)
+    candidate['molecule_id'] = molecule
+    candidate['molecule_snapshot'] = context['snapshot']
+    saved = mappings.save_draft(candidate)
+    mapping = mappings.get(saved['file'])
+    parameterization.save(mapping, {
+        'engine': 'fast-forward',
+        'topology': generation.topology_from_terms(mapping, mapping_context.as_structure(context), []),
+        'options': {'constraints_threshold': 10000, 'temperature_k': 300, 'torsion_model': 'legacy'},
+        'ensemble': {'frames': 20001}, 'checks': {}, 'aa_reference': None, 'diagnostics': []})
+    return saved
 
 
 def save_mapping(dashboard, molecule='DDM', name=None):
@@ -307,6 +329,42 @@ def test_scale_multiplies_ring_constraint_lengths_only_and_refuses_a_non_positiv
     expect(term_inputs(page, 'constraints:1').nth(0)).to_have_attribute('data-dirty', 'true')
     assert factor.input_value() == '1.10', 'the typed factor is kept'
     assert errors == [], errors
+
+
+def test_scaling_a_ring_constraint_redraws_the_surface_at_the_new_ring_scale(dashboard, live_page):
+    """The bulk Scale moves the CG rings on screen too: the pane re-asks for the surface at the scale the table states.
+
+    The mapping's own ring scale is 1.15 and the surface draws the ring at it, so a x1.10 edit is 1.265 -- the number
+    the run's coordinates would be built with, not a picture of the atoms.
+    """
+    saved = save_sugar_mapping(dashboard)
+    page, errors = live_page
+    asked = []
+
+    def surface(route):
+        asked.append(route.request.post_data_json)
+        mesh = dict(SURFACE)
+        mesh['cg'] = {**SURFACE['cg'], 'rings': (asked[-1] or {}).get('rings', [])}
+        route.fulfill(json=mesh)
+
+    page.route('**/api/bonded-surfaces', surface)
+    page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
+    choose_mapping(page, saved['file'], 'Glucose')
+    pane(page, 'A').locator('.bonded-interaction-table tbody tr').first.wait_for(timeout=30000)
+
+    status = pane(page, 'A').locator('.bonded-surface-status')
+    expect(status).to_contain_text('CG rings dilated 1.15', timeout=30000)
+    assert asked[-1]['molecule_id'] == 'Glucose'
+    assert asked[-1]['rings'] == [{'beads': ['S1A', 'S1B', 'S1C'], 'scale': 1.15}], asked[-1]['rings']
+    assert asked[-1]['connections'], 'the mapping connects its beads, so the placement can keep its links'
+
+    pane_id(page, 'bonded-scale-factor').fill('1.10')
+    pane_id(page, 'bonded-scale-terms').click()
+
+    expect(status).to_contain_text('CG rings dilated 1.265', timeout=30000)
+    assert asked[-1]['rings'] == [{'beads': ['S1A', 'S1B', 'S1C'], 'scale': 1.265}], asked[-1]['rings']
+    assert errors == [], errors
+
 
 
 def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, live_page):

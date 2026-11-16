@@ -6,6 +6,25 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Bond Interactions: the CG surface follows the ring constraints.** The mapped CG envelope was built
+from each bead's raw atom mean, so the drawn CG ring was 1.00x while the table and the run said 1.15x (the mapping's
+`ring.scale`; `bonded.generation` writes each `[ constraints ]` length as `distance(raw centres) * scale`), and the bulk
+Scale action widened that gap instead of showing it. Now `POST /api/bonded-surfaces` takes the mapping's `rings` (each
+with its effective scale), its `connections` and its `representation_mode`, and places the CG beads with
+`sugars.coords.coordinates(scaled=True)` -- the placement a run's mapped `.gro` is written from, so the rings dilate
+and the connected parts shift to keep the mapped link vectors. Only the CG mesh moves: a ring scale is a CG constraint
+target, not a fact about the atoms. The pane sends `ring.scale * pending/stored` of that ring's own constraint row, so
+the surface previews what Save writes, and keys the surface on those scales: the bulk Scale re-fetches, typing a single
+value does not (a mesh per keystroke). The status line states the dilation. Refused with a 400: a ring of fewer than
+two beads, a scale that is not a finite number above 0 (and at most `MAX_RING_SCALE`), a connection that is not a
+bead-name pair, more than `MAX_RINGS`/`MAX_CONNECTIONS`. Plan: `docs/plans/2026-11-16-cg-surface-ring-scale.md`
+(gitignored). Tests: an integration case per behaviour (ring doubles while the AA vertices stay byte-identical; a third
+bead's link keeps its length through the shift; four malformed payloads are 400s) and a browser case that presses Scale
+and requires the re-request at 1.265 = 1.15 x 1.10. **The dashboard needs a restart.** Checks: fast **2796 passed / 1
+xfailed**, bonded browser files **50 passed**, browser tier **388 passed** (its first parallel run failed two
+load-sensitive cases -- this file's layout-measuring AA stage-settings test and the known assessment-rescore one --
+both green solo and on the re-run), ruff clean.
+
 **2026-11-16 Bonded term edits kept their digits: Save as new no longer answers 500.** The ring-scale button posts
 each scaled length at 12 significant digits, and `rewrite_interactions` rendered parameters with `%g` -- six -- so
 the store's own read-back check (`float(stored) - float(requested) > 1e-12`) called the write a store defect and
