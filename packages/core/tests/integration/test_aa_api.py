@@ -227,6 +227,23 @@ def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch
     assert len(dashboard.coordinator.database().all()) == 1
 
 
+def test_a_pin_on_the_reference_json_digest_is_the_spelling_a_fit_records(dashboard, service):
+    """`bonded.fitting.resolve_reference` pins the hash of `reference.json`; the map was the only accepted spelling.
+
+    Every revision this workspace holds carries that scalar, so comparing it against the map refused every CG run
+    with 'AA reference hashes changed since attachment' (measured 2026-11-16).
+    """
+    source = reference_fixture(dashboard, 'draft-smoke')
+    root = dashboard.coordinator.RUNS / source['id']
+    pin = files.sha256(root / 'stages/07_reference/reference.json')
+
+    assert aa_references.verify(root, pin)['reference_eligible'] is True
+    with pytest.raises(ValueError, match='changed since attachment'):
+        aa_references.verify(root, '0' * 64)
+    with pytest.raises(ValueError, match='changed since attachment'):
+        aa_references.verify(root, {'stages/07_reference/lig.xtc': '0' * 64})
+
+
 def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, service):
     from dashboard.analysis import worker as analysis
     source = reference_fixture(dashboard)

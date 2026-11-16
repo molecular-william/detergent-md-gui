@@ -11,6 +11,7 @@ adapter's `normalize_settings` answer -- the same numbers the run itself would r
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import uuid
@@ -88,12 +89,18 @@ def save(paths, document) -> None:
     files.atomic_json(_path(paths), document)
 
 
-def normalize_settings(run_type, settings=None) -> dict:
+def normalize_settings(run_type, settings=None, kind=None) -> dict:
     """One preset's settings, refused and completed by the adapter that owns them.
 
     Every supplied key must be advertised by the run type: `CG_FIELDS` posted for an `aa_only` run is the
     mistake this catches, because the queue would drop those values without a word and the run would use
     its defaults. The answer is `normalize_settings`, so a stored preset is exactly what a run would use.
+
+    `kind` is the parameterization kind the form was showing. The `cg` run type advertises the union of three
+    kinds' vocabularies and normalizes a payload in the dialect of one: its normalizer takes the kind as an
+    argument and assumes `revision` when it is not told, which refused a reference preset with "Unknown run
+    settings: sugar_entry" -- a key the same run type advertises (measured 2026-11-16). The kind travels only to
+    an adapter whose normalizer asks for it, which is why the signature is read rather than passed to every one.
     """
     adapter = _adapter(run_type)
     if settings is None:
@@ -104,7 +111,10 @@ def normalize_settings(run_type, settings=None) -> dict:
     unknown = sorted(set(settings) - advertised)
     if unknown:
         raise ValueError(f'Unknown setting(s) for {run_type}: ' + ', '.join(unknown))
-    return dict(adapter.normalize_settings(settings, protocol.profile_for_run_type(run_type)))
+    profile = protocol.profile_for_run_type(run_type)
+    if kind and 'parameterization' in inspect.signature(adapter.normalize_settings).parameters:
+        return dict(adapter.normalize_settings(settings, profile, parameterization={'kind': kind}))
+    return dict(adapter.normalize_settings(settings, profile))
 
 
 def for_run_type(paths, run_type) -> dict:
@@ -129,11 +139,11 @@ def _name(name) -> str:
     return ' '.join(name.split())[:MAX_NAME]
 
 
-def create(paths, *, name, run_type, settings=None) -> dict:
+def create(paths, *, name, run_type, settings=None, kind=None) -> dict:
     """Store one preset; a duplicate name within the run type is refused, naming the preset that holds it."""
     _adapter(run_type)
     chosen = _name(name)
-    values = normalize_settings(run_type, settings)
+    values = normalize_settings(run_type, settings, kind)
     document = load(paths)
     _refuse_duplicate(document, run_type, chosen)
     record = {'id': uuid.uuid4().hex[:12], 'name': chosen, 'run_type': run_type, 'settings': values,

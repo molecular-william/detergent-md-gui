@@ -65,6 +65,25 @@ def test_the_reference_is_a_read_only_model_and_posts_its_own_vocabulary(dashboa
     assert errors == []
 
 
+def test_saving_a_reference_preset_keeps_the_sugar_entry_the_form_carries(dashboard, live_page):
+    """Saving stage settings on the reference branch answered "Unknown run settings: sugar_entry" until the kind
+    travelled with the request."""
+    page, errors = live_page
+    open_panel(page, live_page.base_url, "{run_type:'cg',molecule_id:'Lactose'}")
+    expect(page.locator('#run-parameterization')).to_contain_text('Martini 3 reference · LAC', timeout=SERVER_WAIT)
+    expect(page.locator('[name=cg_equil_ps]')).to_have_value('5000', timeout=SERVER_WAIT)
+
+    page.once('dialog', lambda dialog: dialog.accept('Reference preset'))
+    page.locator('#preset-save').click()
+
+    expect(page.locator('#notice')).to_have_text('Preset Reference preset saved.', timeout=SERVER_WAIT)
+    expect(page.locator('#preset-select option')).to_have_count(2, timeout=SERVER_WAIT)
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.locator('#preset-delete').click()
+    expect(page.locator('#preset-select option')).to_have_count(1, timeout=SERVER_WAIT)
+    assert errors == []
+
+
 def test_a_saved_revision_duration_is_replaced_by_the_reference_profile(dashboard, live_page):
     """The reference kind's durations are its adapter's, not the last CG revision the form was left on."""
     page, errors = live_page

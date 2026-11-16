@@ -6,6 +6,21 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Two fixes: a CG preset's dialect, and the reference pin every revision carries.** (1) Saving stage
+settings on the published-reference CG branch answered `Unknown run settings: sugar_entry`: the `cg` run type
+advertises the union of its three parameterization kinds and normalizes a payload in one kind's dialect, defaulting
+to `revision`; the preset store told it nothing, so the reference kind's own key was refused by the revision
+dialect. A preset now travels with the kind the form was showing (`kind` in `POST /api/setting-presets`), and the
+store hands it to an adapter whose normalizer asks for it -- read from the signature, so `aa_only`/`pdc`/`osmotic`
+are untouched. (2) Every CG run from a revision was refused with `AA reference hashes changed since attachment`:
+`bonded.fitting.resolve_reference` pins one digest -- the sha256 of the reference's `reference.json` -- while
+`references.verify` compared that pin against the map of every artifact's digest, so a scalar pin never matched.
+`verify` now compares like with like and still honours both spellings (the map is what `publish` writes into a
+selection). Measured after: all 7 revisions in this workspace resolve, and a Glucose CG readiness answers
+`AA reference: Shared reference verified` instead of blocking. Tests: `test_setting_presets.py` (a reference preset
+keeps the sugar entry; the revision dialect still refuses it), a browser case that saves a reference preset on the
+Lactose form, and `test_aa_api.py` (a scalar pin verifies; a wrong scalar and a wrong map are both refused). Checks:
+fast **2803 passed / 1 xfailed**, CG new-run browser files **24 passed**, ruff clean. **The dashboard needs a restart.**
 **2026-11-16 Run 0c5f5738089c: a reference CG run's beads had no bonds or colours, and its overview was refused.**
 Two unrelated defects, both measured on that run. (1) `layout.cg_topology` only looked under `stages/3_initial_CG/`,
 which a mapping writes; a reference or derived CG run has no mapping stage -- `sugar_cg` stages the published entry as
@@ -860,6 +875,8 @@ scale or a chemistry difference until a like-for-like AA source exists (there is
 | item | state | next |
 | --- | --- | --- |
 | Sugar comparison subpanel | not started; hand-off 2026-11-10 | build the validation "Sugar comparison" panel (reference vs mapped triangles and bead compositions); start with a plan + HTML draft; see the paragraph above |
+| Cross-run AA vs CG comparison | asked for 2026-11-16 after run `0c5f5738089c`: the AA-vs-CG panels are single-run (they read `1_AA-reference/` + `2_mapping/` + `4_CG_sim/` inside one run), so a CG-only reference run can only be put *beside* an AA run, never compared with it | build it as a new kind: take the AA run named in the request (its `stages/07_reference/lig.{gro,xtc}`), this run's `4_CG_sim/prod/lig_CG.{gro,xtc}`, and the bead-atom correspondence from the sugar package's own candidate; needs a payload/UI "compare this run with run X" and one science decision (which mapping the published entry is compared through) |
+| `dbc366ae772b` AA reference lacks `07_reference/run.sh` | `reference.json` records its digest, so `files.verify` refuses the DDM mapping `10c318949` with `Cannot reuse changed or missing artifact`; the other six revisions verify | decide whether to re-publish that reference (a new record over the files it has) or leave it refused -- re-publishing rewrites a completed run's provenance, so it is the user's call |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued (e.g. an automatic kind that has not run) is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | Runs filters | built 2026-11-09 (`119d5c0`): dense only, checkbox run type/status/method, multi-value `/api/jobs`, `GET /api/run-filters` | the molecule and created-after facets were not added; its own slice if wanted |

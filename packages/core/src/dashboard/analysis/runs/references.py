@@ -199,7 +199,13 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
     data=json.loads(path.read_text())
     if data.get('reference_eligible') is not True:raise ValueError('AA reference failed technical checks')
     hashes=dict(data['sha256']);hashes['stages/07_reference/reference.json']=files.sha256(path)
-    if expected is not None and hashes!=expected:raise ValueError('AA reference hashes changed since attachment')
+    # Two spellings are pinned and both are honoured: the map of every artifact's digest (an older attachment, and
+    # what test_aa_api writes) and the one digest of this reference.json that bonded.fitting.resolve_reference
+    # records -- 'the run id and the hash of its reference.json'. Comparing the map against that scalar refused
+    # every CG run whose revision carried a pin, which is every revision this workspace holds (measured 2026-11-16).
+    if expected is not None:
+        current = hashes if isinstance(expected, dict) else files.sha256(path)
+        if current != expected: raise ValueError('AA reference hashes changed since attachment')
     for relative in hashes:
         target=run_dir/relative
         if any(p.is_symlink() for p in (target,*target.parents) if p==run_dir or p.is_relative_to(run_dir)):

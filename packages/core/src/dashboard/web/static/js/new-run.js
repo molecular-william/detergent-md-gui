@@ -1192,7 +1192,10 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (name === null) return;
     if (!name.trim()) { notice('A preset needs a name.'); return; }
     try {
-      const answer = await post('/api/setting-presets', {name: name.trim(), run_type: runType, settings: currentStageSettings()});
+      // The kind is the dialect the settings are written in: the CG run type serves three, and the reference one
+      // carries a sugar entry the revision dialect refuses.
+      const answer = await post('/api/setting-presets', {name: name.trim(), run_type: runType,
+        kind: currentKind(), settings: currentStageSettings()});
       appliedPreset = {id: answer.preset.id, name: answer.preset.name};
       await loadPresets(runType);
       notice(`Preset ${answer.preset.name} saved.`);

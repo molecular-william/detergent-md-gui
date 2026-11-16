@@ -38,6 +38,21 @@ def test_a_setting_the_run_type_does_not_advertise_is_refused(isolated_workspace
         saved(isolated_workspace, settings={'nonsense': 1})
 
 
+def test_a_reference_kind_preset_keeps_the_sugar_entry_the_form_carries(isolated_workspace):
+    """The cg run type advertises three kinds' vocabulary and normalizes in one dialect; the kind says which."""
+    preset = saved(isolated_workspace, run_type='cg', kind='reference',
+                   settings={'sugar_entry': 'GLC', 'cg_production_ps': '200000'})
+
+    assert preset['settings']['sugar_entry'] == 'GLC'
+    assert preset['settings']['cg_production_ps'] == 200000
+
+
+def test_the_same_settings_are_still_refused_in_the_revision_dialect(isolated_workspace):
+    """A revision run cannot consume a sugar entry, so the kind is told rather than guessed."""
+    with pytest.raises(ValueError, match='sugar_entry'):
+        saved(isolated_workspace, run_type='cg', kind='revision', settings={'sugar_entry': 'GLC'})
+
+
 def test_an_out_of_range_value_is_refused(isolated_workspace):
     with pytest.raises(ValueError):
         saved(isolated_workspace, settings={'aa_production_ps': 0})

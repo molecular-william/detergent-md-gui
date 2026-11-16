@@ -35,10 +35,20 @@ def list_presets():
 
 @blueprint.post('/api/setting-presets')
 def create_preset():
-    """Save the current stage settings under a name; a duplicate name within the run type is a 409."""
+    """Save the current stage settings under a name; a duplicate name within the run type is a 409.
+
+    'kind' is the parameterization kind the form was showing ('cg' serves three): the store normalizes the
+    settings in that kind's own dialect, so a reference preset keeps the sugar entry the form carries.
+    """
     payload = json_object()
+    kind = payload.get('kind')
+    if kind is None and isinstance(payload.get('parameterization'), dict):
+        kind = payload['parameterization'].get('kind')
+    if kind is not None and not isinstance(kind, str):
+        abort(400, 'kind must be a string')
     preset = _answer(lambda: setting_presets.create(
-        _paths(), name=payload.get('name'), run_type=payload.get('run_type'), settings=payload.get('settings')))
+        _paths(), name=payload.get('name'), run_type=payload.get('run_type'),
+        settings=payload.get('settings'), kind=kind))
     return jsonify(preset=preset), 201
 
 
