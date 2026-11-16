@@ -40,11 +40,11 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
 
 ## Invariants
-- One content identity is one saved mapping: `save_draft` refuses a second (`DuplicateMapping`; the route answers 409
-  with `existing`), and a rename is an in-place save, so it is not a duplicate.
-- A parameterization belongs to the mapping: revisions keyed by content hash, one current (`make current`), and an
-  `owners` claim list; the panel deletes it (`DELETE /api/bonded-parameterizations/<content_hash>`); the shown
-  revision is display-only and only `Make current` changes what a run consumes.
+- One name is one saved mapping (`records/<slug>.json`): `save_draft` refuses a name another model holds (409 with
+  `existing`), a rename is an in-place save that moves the record and its revisions, and a legacy record stays
+  readable by content hash (`legacy_hash`) until the contract step.
+- A parameterization is addressed by that name: `<slug>.revisions/<n>`, highest current, deleted by name; only
+  `Make current` changes what a run consumes (the shown revision is display-only).
 - A mapping's identity must not depend on how its numbers were spelled: only `candidate_identity` normalises
   (`numbers_as_values`); the `canonical_sha256` digests are byte digests on purpose.
 - A `cg` revision run consumes the revision it names (default current) and pins its AA source to that revision's
@@ -82,7 +82,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - A run setting is advertised in `SETTING_SPECS` or `CHOICE_SPECS` in the same edit: `web/routes/runs.py` keeps only
   advertised keys, so an unadvertised setting is dropped without a word and the run silently uses the default.
 - Provenance is the `inputs.json` record and `stage_scripts` names/versions (plus `provenance.json`, which gates nothing), not a copy: the one Martini 3 set lives at
-  `workspace/dashboard/martini3` (`dashboard.martini3`), every run reads it in place, and `references/` is upstream.
+  `workspace/dashboard/martini3/<version>/` (`dashboard.martini3`, witnessed by `martini3.json`), every run reads it in place, and `references/` is upstream; a molecule folder is `molecules/<id>/<version>/` (unversioned is the legacy shape).
 
 ## Engineering rules
 - Read `docs/HANDOFF.md` before the first edit and leave it current: the next session starts there, not from your

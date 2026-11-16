@@ -11,7 +11,8 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Current state (2026-11-16)
 
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
-  It was restarted 2026-11-16 17:36 on `9dd97ba`. Restart after a Python or template change: the unit keeps its
+  It was restarted 2026-11-16 18:19 on `ed3e995`, and the named-store migration was applied after it. Restart after a
+  Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
   `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores`. Fixed the same
@@ -22,9 +23,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
   restart, which also deployed the named-identity phases.
 - **Store.** `workspace/dashboard` is 3.4 GB: 10 runs (six aa 200 ns, four cg) after the user deleted the five pdc
   1 us runs and two cg runs on 2026-11-16 (that deletion predates the tombstone code, so their names are not in
-  `retired_runs`); `parameterizations/` 189 MB, the records plus the fit scratch `77504a003e5e`'s retry recreated;
-  `martini3/` 18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. A stray empty
-  `runs/jobs.sqlite3` from 2026-11-06 was removed.
+  `retired_runs`); `parameterizations/` 189 MB -- five records now named (`records/<slug>.json` plus their revision
+  directories), with the fit scratch `77504a003e5e`'s retry recreated; `martini3/` 18 MB (the shared set every run
+  reads in place, still the flat `legacy` install); `jobs.sqlite3` 3.5 MB. A stray empty `runs/jobs.sqlite3` from
+  2026-11-06 was removed.
 - **Store cleanup applied 2026-11-16** (474 MB removed, 82 MB reclaimed): `parameterizations/work/` (455 MB of fit
   scratch -- a re-fit restages it, and only `engine_command[4]` in three records names the vanished path), `preview/`
   (14 MB, an orphaned 2026-10-14 cache nothing reads), `dashboard.log` and the `_live*` screenshots (5 MB, 2026-10-30),
@@ -50,6 +52,26 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 Named identity, phases 3-4: the store and the molecules are named too.** (3) A parameterization is
+`parameterizations/records/<slug>.json` with `<slug>.revisions/<n>/` (`5de549a`): the slug is the mapping name, a
+second model's save answers 409 with the existing name (explicit overwrite on confirmation), a rename moves record
+and revisions, and a legacy record stays readable by content hash (`legacy_hash`) -- the contract deletion of that
+branch is still to come. A run records `mapping: <slug>` + revision (hashes kept as provenance); readiness/prepare
+resolve name-first and refuse a revision whose stamped identity is not the snapshot's; fit scratch is
+`work/<slug>--<run>`. `cli/migrate_named_parameterizations.py` was applied to the live store the same day: dry-run
+`move=5`, apply moved all five (Maltose-0-20261109, DDM_CG_20261021, LMNG-334, Glucose-carbohydrate-paper-draft,
+Glucose-0), second run `unchanged=5`; `/api/mappings?view=summary` now stamps `parameterization_name`. (4) A molecule
+folder is `molecules/<id>/<version>/` (`ed3e995`): an unversioned folder is the legacy shape read as its own
+version (nothing in the store moved), imports always write a new `vN`, a selection is `{id, version, path, inputs,
+atom_count, metadata}` with no digests and `verify_selection` compares `(id, version)` structurally, mapping
+snapshots are `{molecule_id, version}` and still compare equal to a legacy digest snapshot, and the analysis
+reference identity hashes molecule+version+chemistry. Martini 3 is `martini3/<version>/` with a `martini3.json`
+witness (the live flat install still reads as `legacy`); `create_job` re-selects a run's molecule version from its
+mapping and `cg.prepare` refuses a mapping fitted on another version. Checks: fast **2898 passed / 1 xfailed**,
+browser **392 passed**, ruff clean. Residuals: `pdc.prepare` still hashes each Martini file as recorded evidence
+(nothing gates it); a versioned CG-only import's `micelle_template.json` is not discovered under its version
+directory; an in-place edit of a legacy unversioned molecule folder no longer invalidates mappings pinned
+`version: null` (deliberate -- the version directory is the change detector) until the folders are migrated.
 **2026-11-16 Named identity, phases 0-2: runs are names, analyses are sequences, provenance is names.** Approved by
 the user: casefolded uniqueness, strip change-detection digests, rewrite the digest invariants. (0)
 `dashboard/run_names.py` is the one rule -- `^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,78}[A-Za-z0-9])?$`, a strict superset of

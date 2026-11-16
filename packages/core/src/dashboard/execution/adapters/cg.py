@@ -734,6 +734,13 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     # model carries none (D1/D5). It used to sit inside `if profile in ('draft-smoke', ...)`, which
     # made "is a mapping staged at all" a property of a duration preset.
     data = draft_model.load(mapping_candidate, molecule_root=molecule_root)
+    # A mapping's beads were placed on one molecule version. Reusing it against another version's geometry would
+    # silently re-number atoms under the mapping, so a mismatch refuses rather than prepares the wrong system.
+    mapped_version = (data.get('molecule_snapshot') or {}).get('version')
+    run_version = (molecule_snapshot or {}).get('version')
+    if mapped_version and run_version and mapped_version != run_version:
+        raise ValueError(f'The mapping was fitted on molecule version {mapped_version}, but this run reads '
+                         f'{run_version}; select {mapped_version} or fit the mapping on this version')
     # What already existed when prepare ran is named, by path and digest, and read where it lives: the installed Martini
     # set, the water box, the radii convention and a ringed model's sugar reference (the atomistic force-field tree is
     # not among them -- see `shared_inputs`). The generated topologies below include these by a path relative to
