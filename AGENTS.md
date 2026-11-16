@@ -30,19 +30,19 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 ## Run contract
 - Run types: `aa_only`, `cg`, `pdc`, `osmotic`; a `cg` run's `parameterization.kind` (revision, reference, composition)
   picks its adapter and `STAGES`; `pdc`'s ten are `01_prepare` … `10_backmap`, named by `pdc.LEGS`/`stage_by_name`.
-- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path (layout 4;
-  a legacy digest entry is still verified), and `stage_scripts`/`python_modules` name the repository code with a version
+- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path (layout 4,
+  and every live manifest has been migrated), and `stage_scripts`/`python_modules` name the repository code with a version
   that a not-yet-run stage re-checks; `mdp_profiles` names each MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
-  and is recorded `skipped` from `skipped_stages`. Legacy trees are migrated by `cli/migrate_run_layout.py`.
-- `cli/migrate_run_types.py` rewrites retired types' manifests and job rows to `cg`, never their stages.
+  and is recorded `skipped` from `skipped_stages`.
+- Migrations (`cli/migrate_run_layout.py`, `migrate_run_types.py`, `migrate_named_analyses.py`, `migrate_named_records.py`) rewrite records once, verify their output, keep a `--rollback` ledger, and are never re-run by hand on already-migrated data.
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
 
 ## Invariants
 - One name is one saved mapping (`records/<slug>.json`): `save_draft` refuses a name another model holds (409 with
-  `existing`), a rename is an in-place save that moves the record and its revisions, and a legacy record stays
-  readable by content hash (`legacy_hash`) until the contract step.
+  `existing`), a rename is an in-place save that moves the record and its revisions, and only the name addresses it
+  (`legacy_hash` is a provenance stamp, not a lookup).
 - A parameterization is addressed by that name: `<slug>.revisions/<n>`, highest current, deleted by name; only
   `Make current` changes what a run consumes (the shown revision is display-only).
 - A mapping's identity must not depend on how its numbers were spelled: only `candidate_identity` normalises

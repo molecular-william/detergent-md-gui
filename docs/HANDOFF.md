@@ -52,6 +52,26 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 Named identity finished: the live store is migrated and the legacy readers are gone.** Scope A closed the
+two residuals (`pdc.prepare` records the Martini set by `martini3.VERSION` witness, and a versioned CG-only
+molecule's `micelle_template.json` is discovered under its version folder). Scope B (`cli/migrate_named_analyses.py`)
+was applied: every `<signature>/<attempt>` tree is now `<NNNN>-<YYYYMMDD>` (33 attempts; a second run `move=0
+unchanged=10`), superseded `frame-series` entries were retired from their job row while their bytes stayed, and a v2
+ledger with `--rollback` is in `workspace/.named-migration/analyses.json`. Scope C (`cli/migrate_named_records.py`)
+was applied: all 10 manifests are layout 4 and pass `run_inputs.verify_manifest`, all 10 job rows carry digest-free
+named snapshots, `martini3/v3.0.0-2121527/` is installed, five of six published references carry `edition: 1`, and
+the ledger is `.named-migration/records.json`. A first apply exposed a real gap -- two CG runs named their revision
+histograms under the *legacy content hash* of the store record -- fixed by rebasing store paths through each record's
+`legacy_hash` (a re-apply rewrote those two manifests; the third run reported `manifests:unchanged=10`).
+Then the contract deletion commit (`09f6cdb`) removed the `<signature>/<attempt>` readers, the digest
+molecule-selection and layout-2/3 verification branches, the store's hash/owners addressing (with
+`migrate_named_parameterizations.py`), the legacy work-dir reuse and the JS `content_hash` fallbacks, and Martini's
+flat-install fallback. Three branches stay on purpose: `mappings.context`'s `Snapshot` legacy equality (the eight
+saved drafts hash digest snapshots into their mapping identity), the unversioned `molecules/<id>/` shape (all twelve
+live folders), and `references.verify`'s legacy digest pin -- `dbc366ae772b`'s reference cannot be stamped until its
+missing `stages/07_reference/run.sh` is repaired, so its consumer `ce1318485197` keeps the old pin. Checks: fast
+**2902 passed / 1 xfailed**, browser **382 passed** plus the known assessment-rescore flake (green solo), ruff clean;
+dashboard restarted on the migrated store.
 **2026-11-16 Named identity, phases 3-4: the store and the molecules are named too.** (3) A parameterization is
 `parameterizations/records/<slug>.json` with `<slug>.revisions/<n>/` (`5de549a`): the slug is the mapping name, a
 second model's save answers 409 with the existing name (explicit overwrite on confirmation), a rename moves record
