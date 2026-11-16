@@ -183,9 +183,8 @@ def model_entry(record):
 
     A model is a mapping *and* the parameterization fitted to it. The mapping decides the beads and where they sit;
     its parameterization decides the bonded terms when it carries one, and a mapping without one is built on terms
-    derived from the Martini 3 references. The join is by **content hash and never by name**: a revision is keyed by
-    the mapping's content identity, so a renamed candidate keeps its fit -- and the record's `owners` list is inferred
-    from those hashes rather than being an address that could be matched on.
+    derived from the Martini 3 references. The join is by the mapping's **name**: a revision belongs to the record the
+    name addresses, and its content identity is recorded on the revision as provenance.
 
     `can_reuse` is the only reason a saved mapping is left out. It is the same verdict the CG half's picker reads and
     `models/molecules/draft.py` refuses a build on, so this list cannot offer a mapping the build would reject at
@@ -202,7 +201,7 @@ def model_entry(record):
     if (record.get('validation') or {}).get('can_reuse') is not True:
         return None
     content_hash = parameterization.content_identity(record)
-    current = parameterization.one(content_hash).get('current') or {}
+    current = parameterization.current(record) or {}
     fitted = None
     if current:
         fitted = {'revision': current.get('revision'), 'terms': parameterization.total_terms(current),

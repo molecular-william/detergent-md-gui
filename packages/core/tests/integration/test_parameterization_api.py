@@ -238,9 +238,9 @@ def test_a_body_without_a_mapping_is_a_bad_request(dashboard, started):
 def test_a_record_answers_its_summary_its_whole_history_and_its_jobs(dashboard):
     candidate = saved_mapping()
     job = fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
 
-    response = dashboard.client.get('/api/bonded-parameterizations', query_string={'content_hash': content_hash})
+    response = dashboard.client.get('/api/bonded-parameterizations', query_string={'name': name})
 
     assert response.status_code == 200
     body = response.json
@@ -283,7 +283,7 @@ def test_every_record_is_listed_when_the_caller_names_no_mapping(dashboard):
 def test_a_model_with_no_parameterization_answers_the_honest_absence(dashboard):
     """D5's second state: absence is something the panel renders, not an error it cannot act on."""
     response = dashboard.client.get('/api/bonded-parameterizations',
-                                   query_string={'content_hash': 'f' * 64})
+                                   query_string={'name': 'no-such-model'})
 
     assert response.status_code == 200
     assert response.json['summary']['parameterized'] is False
@@ -330,7 +330,7 @@ def test_a_job_queued_before_its_record_exists_is_still_this_models(dashboard):
     with pytest.raises(RuntimeError):
         fitting.start(candidate, engine='fast-forward', reference=REFERENCE, molecule_root=MOLECULES,
                       background=False, runner=writes_nothing)
-    assert parameterization.one(parameterization.content_identity(candidate))['revisions'] == []
+    assert parameterization.one(parameterization.address(candidate))['revisions'] == []
 
     response = dashboard.client.get('/api/bonded-parameterizations',
                                     query_string={'mapping_hash': mappings.candidate_identity(candidate)})
@@ -348,10 +348,10 @@ def test_the_job_box_lists_one_mappings_jobs_newest_first(dashboard):
     first = fit(candidate)
     second = fit(candidate)
     other = fit(variant(candidate))
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
 
     response = dashboard.client.get('/api/bonded-parameterizations/jobs',
-                                   query_string={'content_hash': content_hash})
+                                   query_string={'name': name})
 
     assert response.status_code == 200
     jobs = response.json['jobs']
@@ -382,14 +382,14 @@ def test_cancelling_a_job_nobody_queued_is_not_found(dashboard):
     assert dashboard.client.post('/api/bonded-parameterizations/jobs/ffffffffffffffff/cancel').status_code == 404
 
 
-# --- PATCH /api/bonded-parameterizations/<content_hash> -----------------------------------------------
+# --- PATCH /api/bonded-parameterizations/<name> -------------------------------------------------------
 
 def test_making_a_revision_current_requires_confirmation(dashboard):
     candidate = saved_mapping()
     fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
 
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
+    response = dashboard.client.patch(f'/api/bonded-parameterizations/{name}',
                                       json={'current': 1})
 
     assert response.status_code == 400
@@ -397,16 +397,16 @@ def test_making_a_revision_current_requires_confirmation(dashboard):
     assert parameterization.current(candidate)['revision'] == 1, 'nothing moved'
 
 
-def test_an_earlier_revision_is_made_current_again_by_a_content_hash(dashboard):
+def test_an_earlier_revision_is_made_current_again_by_the_record_name(dashboard):
     candidate = saved_mapping()
     fit(candidate)
     fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
-    # Saved, so the route can find the candidate from the hash alone -- which is what a panel holding only a
+    name = parameterization.address(candidate)
+    # Saved, so the route can find the candidate by the record name -- which is what a panel holding only a
     # record needs, and what keeps the re-point working for a candidate that has since been renamed.
     mappings.save_draft(candidate)
 
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
+    response = dashboard.client.patch(f'/api/bonded-parameterizations/{name}',
                                       json={'current': 1, 'confirm': True})
 
     assert response.status_code == 200
@@ -417,8 +417,8 @@ def test_an_earlier_revision_is_made_current_again_by_a_content_hash(dashboard):
     assert parameterization.current(candidate)['revision'] == 1
 
 
-def test_an_unknown_hash_cannot_be_made_current(dashboard):
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{"e" * 64}',
+def test_an_unknown_name_cannot_be_made_current(dashboard):
+    response = dashboard.client.patch('/api/bonded-parameterizations/no-such-model',
                                       json={'current': 1, 'confirm': True})
 
     assert response.status_code == 404
@@ -428,10 +428,10 @@ def test_an_unknown_hash_cannot_be_made_current(dashboard):
 def test_a_revision_that_does_not_exist_is_not_found(dashboard):
     candidate = saved_mapping()
     fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
     mappings.save_draft(candidate)
 
-    response = dashboard.client.patch(f'/api/bonded-parameterizations/{content_hash}',
+    response = dashboard.client.patch(f'/api/bonded-parameterizations/{name}',
                                       json={'current': 9, 'confirm': True})
 
     assert response.status_code == 404
@@ -457,14 +457,14 @@ def test_the_jobs_route_answers_a_job_by_its_own_id(dashboard):
     assert by_id[0]['status'] == 'completed'
     assert dashboard.client.get('/api/bonded-parameterizations/jobs',
                                 query_string={'job_id': '0' * 16}).json['jobs'] == []
-    # And the hash-addressed question still answers the whole history, newest first.
+    # And the name-addressed question still answers the whole history, newest first.
     history = dashboard.client.get('/api/bonded-parameterizations/jobs',
-                                   query_string={'content_hash': parameterization.content_identity(candidate)}).json['jobs']
+                                   query_string={'name': parameterization.address(candidate)}).json['jobs']
     assert [item['id'] for item in history] == [first['id']]
     assert second['id'] != first['id']
 
 
-# --- DELETE /api/bonded-parameterizations/<content_hash> ----------------------------------------------
+# --- DELETE /api/bonded-parameterizations/<name> ------------------------------------------------------
 
 
 def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_alone(dashboard):
@@ -476,7 +476,7 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     """
     candidate = saved_mapping()
     job = fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
     workspace = Path(dashboard.paths.workspace)
     drafts = Path(dashboard.paths.mapping_drafts)
     (drafts).mkdir(parents=True, exist_ok=True)
@@ -486,7 +486,7 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     name = parameterization.address(candidate)
     assert work.is_dir() and (workspace / 'parameterizations' / 'records' / f'{name}.json').is_file()
 
-    response = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+    response = dashboard.client.delete(f'/api/bonded-parameterizations/{name}',
                                        json={'confirm': True, 'revision': 1})
 
     assert response.status_code == 200, response.data
@@ -502,12 +502,12 @@ def test_deleting_a_parameterization_needs_confirmation_and_a_revision_that_stil
     """Two refusals, both about irreversibility: no confirmation, and a record that moved on since the panel read it."""
     candidate = saved_mapping()
     fit(candidate)
-    content_hash = parameterization.content_identity(candidate)
+    name = parameterization.address(candidate)
 
-    without = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}', json={})
+    without = dashboard.client.delete(f'/api/bonded-parameterizations/{name}', json={})
     assert without.status_code == 400 and 'requires confirmation' in without.json['error']
 
-    stale = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+    stale = dashboard.client.delete(f'/api/bonded-parameterizations/{name}',
                                     json={'confirm': True, 'revision': 9})
     assert stale.status_code == 409 and 'reload it before deleting' in stale.json['error']
 
@@ -515,21 +515,21 @@ def test_deleting_a_parameterization_needs_confirmation_and_a_revision_that_stil
     fit(candidate)
     current = parameterization.summary(candidate)['revision']
     assert current == 2
-    held = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
+    held = dashboard.client.delete(f'/api/bonded-parameterizations/{name}',
                                    json={'confirm': True, 'revision': 1})
     assert held.status_code == 409
-    assert parameterization.one(content_hash)['revision'] == 2, 'nothing was deleted by a refused call'
+    assert parameterization.one(name)['revision'] == 2, 'nothing was deleted by a refused call'
 
 
 def test_deleting_a_parameterization_that_does_not_exist_is_not_an_error(dashboard):
     """Idempotent, like the store's own delete: a caller asking about absence is answered, not faulted."""
-    response = dashboard.client.delete(f'/api/bonded-parameterizations/{"e" * 64}', json={'confirm': True})
+    response = dashboard.client.delete('/api/bonded-parameterizations/no-such-model', json={'confirm': True})
 
     assert response.status_code == 200
     assert response.json['deleted'] is False and response.json['revisions'] == []
 
 
-# --- POST /api/bonded-parameterizations/<content_hash>/terms --------------------------------------------------
+# --- POST /api/bonded-parameterizations/<name>/terms ----------------------------------------------------------
 
 
 def store(candidate, *, topology=TOPOLOGY, engine='fast-forward', aa_reference=None):
@@ -540,17 +540,17 @@ def store(candidate, *, topology=TOPOLOGY, engine='fast-forward', aa_reference=N
         'ensemble': {'frames': 5}, 'aa_reference': aa_reference, 'checks': {}})
 
 
-def terms_route(content_hash):
-    return f'/api/bonded-parameterizations/{content_hash}/terms'
+def terms_route(name):
+    return f'/api/bonded-parameterizations/{name}/terms'
 
 
 def test_a_record_answers_each_revisions_digest_for_the_optimistic_save(dashboard):
     saved = mappings.save_draft(saved_mapping())
     item = store(saved)
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
 
     body = dashboard.client.get('/api/bonded-parameterizations',
-                                query_string={'content_hash': content_hash}).json
+                                query_string={'name': name}).json
 
     assert body['revisions'][0]['sha256'] == parameterization.revision_sha256(item)
     assert body['revisions'][0]['revision'] == 1
@@ -560,15 +560,15 @@ def test_terms_saved_in_place_rewrite_the_current_revision_and_read_manual(dashb
     """The first edit of a fit revision is Save as new; the clone it makes is then editable in place."""
     saved = mappings.save_draft(saved_mapping())
     item = store(saved)
-    content_hash = parameterization.content_identity(saved)
-    cloned = dashboard.client.post(terms_route(content_hash), json={
+    name = parameterization.address(saved)
+    cloned = dashboard.client.post(terms_route(name), json={
         'mode': 'new', 'revision': 1, 'expected_revision': 1,
         'expected_sha256': parameterization.revision_sha256(item),
         'terms': [{'id': 'bonds:1', 'parameters': [0.32, 5500]}]})
     assert cloned.status_code == 200, cloned.get_json()
     clone = cloned.json['current']
 
-    response = dashboard.client.post(terms_route(content_hash), json={
+    response = dashboard.client.post(terms_route(name), json={
         'mode': 'in_place', 'revision': 2, 'expected_revision': 2,
         'expected_sha256': parameterization.revision_sha256(clone), 'confirm': True,
         'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
@@ -582,7 +582,7 @@ def test_terms_saved_in_place_rewrite_the_current_revision_and_read_manual(dashb
     assert {term['id']: term for term in current['edited_terms']}['bonds:1']['before'] == [0.32, 5500]
     # The panel re-reads the record: the edit is what the store answers, with the new digest.
     read = dashboard.client.get('/api/bonded-parameterizations',
-                                query_string={'content_hash': content_hash}).json
+                                query_string={'name': name}).json
     assert read['revisions'][1]['sha256'] == parameterization.revision_sha256(current)
     assert read['revisions'][1]['sha256'] != parameterization.revision_sha256(clone)
 
@@ -591,9 +591,9 @@ def test_save_in_place_is_refused_on_a_fresh_fit_revision_at_the_route(dashboard
     """The gate's sentence names the engine, and a refused save writes nothing."""
     saved = mappings.save_draft(saved_mapping())
     item = store(saved, engine='bartender')
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
 
-    response = dashboard.client.post(terms_route(content_hash), json={
+    response = dashboard.client.post(terms_route(name), json={
         'mode': 'in_place', 'revision': 1, 'expected_revision': 1,
         'expected_sha256': parameterization.revision_sha256(item), 'confirm': True,
         'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
@@ -607,10 +607,10 @@ def test_a_record_publishes_the_edit_gate_for_every_revision_and_for_the_current
     """Read time, so the digest the panel sends back does not move when the gate is published."""
     saved = mappings.save_draft(saved_mapping())
     item = store(saved)
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
 
     after_fit = dashboard.client.get('/api/bonded-parameterizations',
-                                     query_string={'content_hash': content_hash}).json
+                                     query_string={'name': name}).json
     assert after_fit['summary']['parameters_editable'] is True
     assert after_fit['summary']['save_in_place'] is False
     assert after_fit['summary']['save_in_place_reason'] == 'fitted by fast-forward; Save as new to edit it'
@@ -619,14 +619,14 @@ def test_a_record_publishes_the_edit_gate_for_every_revision_and_for_the_current
     assert revision['save_in_place_reason'] == 'fitted by fast-forward; Save as new to edit it'
     assert revision['sha256'] == parameterization.revision_sha256(item), 'the gate never enters the digest'
 
-    edited = dashboard.client.post(terms_route(content_hash), json={
+    edited = dashboard.client.post(terms_route(name), json={
         'mode': 'new', 'revision': 1, 'expected_revision': 1,
         'expected_sha256': revision['sha256'],
         'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
     assert edited.status_code == 200, edited.get_json()
 
     after_edit = dashboard.client.get('/api/bonded-parameterizations',
-                                      query_string={'content_hash': content_hash}).json
+                                      query_string={'name': name}).json
     assert after_edit['summary']['revision'] == 2
     assert after_edit['summary']['save_in_place'] is True
     assert after_edit['summary']['save_in_place_reason'] == ''
@@ -639,9 +639,9 @@ def test_a_record_publishes_the_edit_gate_for_every_revision_and_for_the_current
 def test_terms_saved_as_new_clone_the_shown_revision_and_make_it_current(dashboard):
     saved = mappings.save_draft(saved_mapping())
     item = store(saved)
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
 
-    response = dashboard.client.post(terms_route(content_hash), json={
+    response = dashboard.client.post(terms_route(name), json={
         'mode': 'new', 'revision': 1, 'expected_revision': 1,
         'expected_sha256': parameterization.revision_sha256(item),
         'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]})
@@ -658,14 +658,14 @@ def test_terms_saved_as_new_clone_the_shown_revision_and_make_it_current(dashboa
 def test_the_terms_route_names_its_refusals(dashboard):
     saved = mappings.save_draft(saved_mapping())
     item = store(saved)
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
     digest = parameterization.revision_sha256(item)
 
     def post(**overrides):
         body = {'mode': 'in_place', 'revision': 1, 'expected_revision': 1, 'expected_sha256': digest,
                 'confirm': True, 'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}
         body.update(overrides)
-        return dashboard.client.post(terms_route(content_hash), json=body)
+        return dashboard.client.post(terms_route(name), json=body)
 
     assert post(confirm=False).status_code == 400
     assert 'confirmation' in post(confirm=False).json['error']
@@ -684,7 +684,7 @@ def test_the_terms_route_names_its_refusals(dashboard):
     assert parameterization.get(saved, 1)['topology'] == item['topology']
 
     # The clone Save as new makes is hand-edited, so its term refusals are the model's own 400s.
-    clone = dashboard.client.post(terms_route(content_hash), json={
+    clone = dashboard.client.post(terms_route(name), json={
         'mode': 'new', 'revision': 1, 'expected_revision': 1, 'expected_sha256': digest,
         'terms': [{'id': 'bonds:1', 'parameters': [0.32, 5500]}]}).json['current']
     clone_digest = parameterization.revision_sha256(clone)
@@ -693,7 +693,7 @@ def test_the_terms_route_names_its_refusals(dashboard):
         body = {'mode': 'in_place', 'revision': 2, 'expected_revision': 2, 'expected_sha256': clone_digest,
                 'confirm': True, 'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}
         body.update(overrides)
-        return dashboard.client.post(terms_route(content_hash), json=body)
+        return dashboard.client.post(terms_route(name), json=body)
 
     assert post_clone(terms=[{'id': 'bonds:9', 'parameters': [0.3, 5000]}]).status_code == 400
     assert post_clone(terms=[{'id': 'bonds:1', 'parameters': [9, 5000]}]).status_code == 400
@@ -704,8 +704,8 @@ def test_the_terms_route_names_its_refusals(dashboard):
     assert post_clone(expected_revision=3).status_code == 409
 
 
-def test_an_unknown_content_hash_cannot_receive_terms(dashboard):
-    response = dashboard.client.post(terms_route('e' * 64), json={
+def test_an_unknown_name_cannot_receive_terms(dashboard):
+    response = dashboard.client.post(terms_route('no-such-model'), json={
         'mode': 'new', 'revision': 1, 'expected_revision': 1, 'expected_sha256': '0' * 64, 'terms': []})
 
     assert response.status_code == 404
@@ -719,17 +719,17 @@ def test_the_published_reference_seed_is_refused_at_the_route(dashboard):
     written -- the display-only reference is not a second way to get the same model.
     """
     saved = mappings.save_draft(saved_mapping())
-    content_hash = parameterization.content_identity(saved)
+    name = parameterization.address(saved)
     sentence = 'The published Martini 3 reference is read-only; a CG run consumes it directly.'
 
     for body in ({'mode': 'new', 'from_reference': True, 'expected_revision': 0, 'terms': []},
                  {'mode': 'in_place', 'from_reference': True, 'revision': 1, 'expected_revision': 0,
                   'confirm': True, 'terms': []}):
-        response = dashboard.client.post(terms_route(content_hash), json=body)
+        response = dashboard.client.post(terms_route(name), json=body)
         assert response.status_code == 400
         assert response.json['error'] == sentence
 
-    assert parameterization.one(content_hash)['revisions'] == [], 'no revision was seeded'
+    assert parameterization.one(name)['revisions'] == [], 'no revision was seeded'
 
 # --- addressing by name ---------------------------------------------------------------------------------
 
@@ -753,7 +753,7 @@ def test_the_mapping_store_stamps_the_record_name_so_the_panel_can_address_it(da
 
 
 def test_a_slug_addresses_make_current_and_the_panel_reads_it_back(dashboard):
-    """A PATCH/DELETE/terms address is the record name; the legacy content hash still resolves too."""
+    """A PATCH/DELETE/terms address is the record name."""
     candidate = saved_mapping()
     fit(candidate)
     fit(candidate)

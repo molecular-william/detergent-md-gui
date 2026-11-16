@@ -2,7 +2,6 @@
 import json
 
 import pytest
-from dashboard import files
 from dashboard.execution import run_inputs
 
 FIELDS = {'role', 'label', 'kind', 'root', 'path'}
@@ -101,29 +100,13 @@ def test_an_edited_record_is_refused(tmp_path):
         run_inputs.verify_manifest(run, manifest)
 
 
-def test_a_legacy_manifest_still_verifies_its_input_directory(tmp_path):
+def test_a_manifest_that_records_no_inputs_cannot_be_verified(tmp_path):
+    """A digest-era run has no claim this code can check, and says so rather than reading as verified."""
     run = tmp_path / 'run'
     (run / 'inputs').mkdir(parents=True)
-    (run / 'inputs' / 'a.txt').write_text('a\n')
-    manifest = {'input_snapshot_sha256': files.hashes(run / 'inputs')}
 
-    assert run_inputs.verify_manifest(run, manifest) is None
-    (run / 'inputs' / 'a.txt').write_text('b\n')
-    with pytest.raises(ValueError, match='changed or missing'):
-        run_inputs.verify_manifest(run, manifest)
-
-
-def test_a_legacy_entry_is_still_measured_by_its_digest(tmp_path):
-    repo = tmp_path / 'repo'
-    repo.mkdir()
-    source = repo / 'a.itp'
-    source.write_text('one\n')
-    entry = {'role': 'force_field', 'label': 'A', 'kind': 'published', 'root': 'repo',
-             'path': 'a.itp', 'sha256': files.sha256(source), 'bytes': 4}
-    source.write_text('two\n')
-
-    with pytest.raises(ValueError, match='force_field changed since this run was prepared'):
-        run_inputs.verify_entry(entry, repo_root=repo)
+    with pytest.raises(ValueError, match='records no named inputs'):
+        run_inputs.verify_manifest(run, {'input_snapshot_sha256': {}})
 
 
 def test_an_entry_cannot_escape_its_root(tmp_path):

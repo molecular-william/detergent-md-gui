@@ -44,7 +44,6 @@ import uuid
 from pathlib import Path
 
 from ... import files, paths, run_names
-from .. import mappings
 from ..molecules import draft as draft_model
 from . import parameterization as parameterizations
 
@@ -171,22 +170,11 @@ def work_dir(mapping, reference_run_id=None) -> Path:
     different AA reference is a different fit and must not read the other one's trajectory. The slug is
     the record name and cannot contain `--`, so the separator is unambiguous even when the run id
     contains a dash.
-
-    A directory built before names were addresses is `<content hash>-<AA run id>`; it is reused rather
-    than rebuilt, which is the difference between a re-fit of minutes and one of a mapped trajectory.
     """
     if reference_run_id is not None:
         run_names.validate(reference_run_id, what='AA reference run ID')
     reference = reference_run_id or 'no-reference'
-    name = f'{parameterizations.address(mapping)}--{reference}'
-    root = parameterizations.work_root()
-    if not (root / name).is_dir():
-        for legacy in (parameterizations.content_identity(mapping),
-                       mappings.legacy_content_identity(mapping)):
-            candidate = root / f'{legacy}-{reference}'
-            if candidate.is_dir():
-                return candidate
-    return root / name
+    return parameterizations.work_root() / f'{parameterizations.address(mapping)}--{reference}'
 
 
 # --- resolving the reference, starting, cancelling and reading a job ---------------------------------

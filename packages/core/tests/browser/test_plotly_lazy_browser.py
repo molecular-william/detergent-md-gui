@@ -178,7 +178,7 @@ def test_the_mapping_section_text_does_not_wait_for_the_bundle(dashboard, live_p
     publish(dashboard, 'aa11bb22cc33', analyses=[{
         'id': 'aa11bb22cc33-mapping-consistency', 'kind': 'mapping-consistency', 'status': 'completed',
         'created_at': dashboard.coordinator.now(),
-        'directory': 'analyses/mapping-consistency/hash/attempt1'}])
+        'directory': 'analyses/mapping-consistency/0001-20261001'}])
     page, errors = live_page
     held = []
 

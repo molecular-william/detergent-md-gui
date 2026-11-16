@@ -876,8 +876,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       const records = new Map();
       await Promise.all(list.map(async candidate => {
         const params = new URLSearchParams();
-        // The content identity first: it is what a revision is addressed by, and a rename keeps it.
-        if (candidate.mapping_content_hash) params.set('content_hash', candidate.mapping_content_hash);
+        // The name is the address; the candidate hash is provenance.
+        if (candidate.parameterization_name) params.set('name', candidate.parameterization_name);
         if (candidate.mapping_hash) params.set('mapping_hash', candidate.mapping_hash);
         if (![...params].length) return;
         try {

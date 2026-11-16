@@ -10,8 +10,7 @@ addressed by the mapping's *name*: `records/<slug>.json`, where the slug is `run
 display name, unique casefolded. The two content identities are still recorded on every revision, but
 they are provenance now rather than addresses: a reader that holds a run's manifest (which names its
 model by slug and keeps the identity hashes it was prepared with) compares them instead of selecting a
-file. A record written before the name store is still read by its `<content_hash>.json` name, so the
-legacy records keep working while the migration moves them.
+file. A record is read by the name it carries.
 
 The engine is recorded with what it saw, because a force constant without its ensemble is not a
 measurement: `-constraints 10000` decides whether a fitted pair becomes a constraint or a spring,
@@ -157,22 +156,15 @@ def address_from(label) -> str:
     return run_names.slug(label)
 
 
-def _is_hash(value) -> bool:
-    return isinstance(value, str) and re.fullmatch(r'[a-f0-9]{64}', value) is not None
-
-
 def _validate_id(value):
-    """A record address: a name, or a legacy content hash, and never a path out of the records root.
+    """A record address: a name, and never a path out of the records root.
 
     The name rule is `run_names`', the one every other path component in this repository uses, and the
     containment check is explicit because this value becomes a file name: the two together are the door a
-    `DELETE` or an edit arrives through. A 64-hex digest is still accepted as the legacy address, so a run
-    manifest or a stale panel holding one keeps resolving.
+    `DELETE` or an edit arrives through.
     """
     if not isinstance(value, str):
         raise ValueError('Invalid parameterization name')
-    if _is_hash(value):
-        return value
     try:
         run_names.validate(value, what='A parameterization name')
     except ValueError as exc:
@@ -191,80 +183,18 @@ def _record_path(name) -> Path:
     """
     root = records_root()
     path = root / f'{name}.json'
-    if path.is_file() or _is_hash(name) or not root.is_dir():
+    if path.is_file() or not root.is_dir():
         return path
     folded = name.casefold()
     for candidate in sorted(root.glob('*.json')):
-        if not _is_hash(candidate.stem) and candidate.stem.casefold() == folded:
+        if candidate.stem.casefold() == folded:
             return candidate
     return path
-
-
-def _record_for_hash(content):
-    """A record addressed by a name whose content identity is this digest, or None.
-
-    A run's manifest names its model by slug and keeps the identity hashes it was prepared with. The
-    record is found by the name; this is the fallback for a caller that holds only the digest -- and for
-    the fit jobs and panel requests written before addresses were names.
-    """
-    path = records_root() / f'{content}.json'
-    if path.is_file():
-        return path
-    root = records_root()
-    if not root.is_dir():
-        return None
-    for candidate in sorted(root.glob('*.json')):
-        if _is_hash(candidate.stem):
-            continue
-        try:
-            record = _read(candidate)
-        except ValueError:
-            continue
-        if record.get('mapping_content_hash') == content:
-            return candidate
-    return None
-
-
-def _legacy_by_owner(name):
-    """A pre-name record whose claim list names this slug, or None.
-
-    Before a record was addressed by its mapping's name, the claim list (`owners`) held the display
-    names. A reader holding a name and no mapping still finds such a record; once the migration moves it
-    this fallback answers nothing.
-    """
-    root = records_root()
-    if not root.is_dir():
-        return None
-    folded = name.casefold()
-    for candidate in sorted(root.glob('*.json')):
-        if not _is_hash(candidate.stem):
-            continue
-        try:
-            record = _read(candidate)
-        except ValueError:
-            continue
-        for owner in owners(record):
-            label = owner.get('name')
-            if isinstance(label, str) and run_names.slug(label).casefold() == folded:
-                return candidate
-    return None
 
 
 def _path(mapping) -> Path:
-    """This mapping's record, or a legacy one it still answers by, or where a new one goes.
-
-    Name first: `records/<slug>.json`. A record written before the name store is tried by content
-    identity second (current digest, then the digest of the un-normalised numbers), so the six live
-    records keep working while nothing writes a new hash-named file.
-    """
-    path = _record_path(address(mapping))
-    if path.is_file():
-        return path
-    for legacy in (content_identity(mapping), mappings.legacy_content_identity(mapping)):
-        candidate = records_root() / f'{legacy}.json'
-        if candidate.is_file():
-            return candidate
-    return path
+    """This mapping's record, or where a new one goes: `records/<slug>.json`."""
+    return _record_path(address(mapping))
 
 
 def conflict(mapping):
@@ -281,17 +211,12 @@ def conflict(mapping):
         record = _read(path)
     except ValueError:
         return path.stem
-    acceptable = {content_identity(mapping), mappings.legacy_content_identity(mapping)}
-    return None if record.get('mapping_content_hash') in acceptable else path.stem
+    return None if record.get('mapping_content_hash') == content_identity(mapping) else path.stem
 
 
 def exists(identifier) -> bool:
     """Whether a record file answers this address."""
-    value = _validate_id(identifier)
-    path = _record_path(value)
-    if not path.is_file() and _is_hash(value):
-        return _record_for_hash(value) is not None
-    return path.is_file()
+    return _record_path(_validate_id(identifier)).is_file()
 
 
 def revisions_root(identifier) -> Path:
@@ -438,12 +363,6 @@ def _empty(identities_) -> dict:
     return {**identities_, 'revision': 0, 'current': None, 'revisions': []}
 
 
-def owner_entry(mapping) -> dict:
-    """How a record names one of its mappings: the identity that separates two drafts, and a name to show."""
-    return {'mapping_hash': mappings.candidate_identity(mapping),
-            'name': mapping.get('name') or mapping.get('file')}
-
-
 def owners(record) -> list:
     """The saved mappings this record's content belongs to, oldest claim first."""
     listed = record.get('owners') if isinstance(record, dict) else None
@@ -451,43 +370,6 @@ def owners(record) -> list:
 
 
 
-
-
-def release(content_hash, *, mapping=None, name=None) -> dict:
-    """Drop one claim on a record. The revisions stay while another claim does; the last one going removes them.
-
-    This is what deleting a saved draft asks for, and it takes either a mapping or the draft's name: `mappings.store`
-    removes the file before it asks, so by then only the name is left, and the record's own claim list is what remembers
-    the rest. A record that names no mapping is a legacy one and answers `why`, so the caller can fall back to asking the
-    drafts on disk instead of guessing.
-    """
-    content = _validate_id(content_hash)
-    path = _record_path(content)
-    if not path.is_file() and _is_hash(content):
-        path = _record_for_hash(content) or path
-    if not path.is_file():
-        return {'content_hash': content, 'deleted': False, 'released': False}
-    record = _read(path)
-    listed = owners(record)
-    if not listed:
-        return {'content_hash': content, 'deleted': False, 'released': False, 'why': 'the record names no mapping'}
-    if mapping is not None:
-        target, label = owner_entry(mapping)['mapping_hash'], None
-    elif name is not None:
-        target, label = None, name
-    else:
-        raise ValueError('A release needs the mapping, or the saved name it went by')
-    remaining = [item for item in listed
-                 if not ((target is not None and item['mapping_hash'] == target) or (label is not None and item.get('name') == label))]
-    if len(remaining) == len(listed):
-        return {'content_hash': content, 'deleted': False, 'released': False, 'why': 'this mapping had not claimed it'}
-    if not remaining:
-        return delete(content)
-    record['owners'] = remaining
-    record['updated_at'] = files.now_iso()
-    files.atomic_json(path, record)
-    return {'content_hash': content, 'deleted': False, 'released': True,
-            'owners': [item.get('name') for item in remaining]}
 
 
 def empty_document(mapping) -> dict:
@@ -498,8 +380,7 @@ def empty_document(mapping) -> dict:
 def document(mapping) -> dict:
     """Every revision of this mapping, or an empty document when it has none.
 
-    The record is found by name first and by content identity second (the legacy address). A record at
-    this mapping's name whose identity is a different model's is refused rather than reported as a
+    A record at this mapping's name whose identity is a different model's is refused rather than reported as a
     mapping with no parameterization, because the two mean different things to a run -- one re-fits, the
     other is a fit that was made and lost (or another model's, sitting under a name this mapping wants).
     """
@@ -507,11 +388,7 @@ def document(mapping) -> dict:
     if not path.is_file():
         return empty_document(mapping)
     record = _read(path)
-    # A record written before numbers were normalised carries the legacy digest, and `_path` has already decided the
-    # file is this mapping's -- by its name, from this mapping. Accepting that digest here keeps such a record readable
-    # without letting a record address itself: either digest is one this mapping computes for itself.
-    acceptable = {content_identity(mapping), mappings.legacy_content_identity(mapping)}
-    if record.get('mapping_content_hash') not in acceptable:
+    if record.get('mapping_content_hash') != content_identity(mapping):
         raise ValueError('Parameterization record belongs to another mapping')
     # `owners` is a legacy claim list: the panel still shows which saved mappings a pre-name record's content belonged
     # to, and the deletion fallback reads it. A record written now carries no claims, because its name is the answer.
@@ -531,22 +408,14 @@ def _read(path) -> dict:
 def one(identifier) -> dict:
     """The record a name addresses, for a reader that holds no mapping.
 
-    The display selector works from a saved candidate's name; a run's manifest names its model by slug
-    and keeps the identity hashes it was prepared with. So this answers a slug first, then a legacy
-    content hash, and then a pre-name record whose claim list names this slug -- and an unknown address
-    answers with an empty document rather than an error, because "this model has no parameterization" is
-    the state a caller is asking about.
+    The display selector works from a saved candidate's name; a run's manifest names its model by slug.
+    An unknown address answers with an empty document rather than an error, because "this model has no
+    parameterization" is the state a caller is asking about.
     """
     value = _validate_id(identifier)
     path = _record_path(value)
-    if not path.is_file() and not _is_hash(value):
-        path = _legacy_by_owner(value) or path
-    if not path.is_file() and _is_hash(value):
-        path = _record_for_hash(value) or path
     if not path.is_file():
-        return {**_empty({'mapping_hash': None,
-                          'mapping_content_hash': value if _is_hash(value) else None}),
-                'name': value}
+        return {**_empty({'mapping_hash': None, 'mapping_content_hash': None}), 'name': value}
     record = _read(path)
     return {**record, 'owners': owners(record), 'name': path.stem}
 
@@ -576,8 +445,7 @@ def delete(identifier) -> dict:
     the whole history at once. What sits beside it under the same storage root is removed with it:
     the fit jobs that produced it (`fitting.jobs_root`, which is this root's `jobs/`), the
     (mapping, AA reference) working directories those jobs built (`work_root`), and the revision
-    directory. A record written before the name store is addressed by its content hash and its legacy
-    revision directory is removed too, so a delete does not leave an orphan behind.
+    directory.
 
     Idempotent by design: an address with no record removed nothing, and that is an answer rather than
     an error. The caller (`mappings.store.delete_draft`) asks after every save, and most mappings were
@@ -586,8 +454,6 @@ def delete(identifier) -> dict:
     """
     value = _validate_id(identifier)
     path = _record_path(value)
-    if not path.is_file() and _is_hash(value):
-        path = _record_for_hash(value) or path
     removed = {'name': path.stem if path.is_file() else value, 'content_hash': None,
                'deleted': False, 'revisions': [], 'jobs': [], 'work': [], 'distributions': None}
     content = None
@@ -603,26 +469,14 @@ def delete(identifier) -> dict:
             revisions = []
         path.unlink()
         removed.update(deleted=True, revisions=revisions)
-    removed['content_hash'] = content or (value if _is_hash(value) else None)
-    # A record read by name and written there leaves the old hash-named file as a read-only record. It is the same
-    # model's old address, so the deletion removes it too rather than leaving a file whose revisions are gone.
-    if isinstance(content, str) and content != removed['name']:
-        legacy = records_root() / f'{content}.json'
-        if legacy.is_file() and legacy != path:
-            try:
-                if _read(legacy).get('mapping_content_hash') == content:
-                    legacy.unlink()
-            except ValueError:
-                pass
-    # The revision directory is the record's name; a record that was addressed by hash before the move keeps
-    # its own directory, so both are removed when they differ.
-    for name in {removed['name'], removed['content_hash']} - {None}:
-        revisions = revisions_root(name)
-        if revisions.is_dir():
-            shutil.rmtree(revisions)
-            removed['distributions'] = revisions.name
+    removed['content_hash'] = content
+    # The revision directory is the record's name.
+    revisions = revisions_root(removed['name'])
+    if revisions.is_dir():
+        shutil.rmtree(revisions)
+        removed['distributions'] = revisions.name
     removed['jobs'] = _delete_jobs(removed['content_hash'], removed['name'])
-    removed['work'] = _delete_work(removed['name'], removed['content_hash'])
+    removed['work'] = _delete_work(removed['name'])
     removed['deleted'] = removed['deleted'] or bool(removed['jobs'] or removed['work'])
     return removed
 
@@ -657,25 +511,20 @@ def _delete_jobs(content, name) -> list:
     return removed
 
 
-def _delete_work(name, content=None) -> list:
+def _delete_work(name) -> list:
     """The pair directories this mapping's fits worked in, removed with it; their names are returned.
 
-    `fitting.work_dir` names a new directory `<slug>--<AA run id or no-reference>`; a directory built
-    before the name store is `<content hash>-<AA run id or no-reference>`. A slug cannot contain `--`,
-    so the new prefix is unambiguous, and the digest is the legacy one.
+    `fitting.work_dir` names a directory `<slug>--<AA run id or no-reference>`, and a slug cannot contain `--`,
+    so the prefix is unambiguous.
     """
     root = work_root()
     if not root.is_dir():
         return []
     removed = []
-    prefixes = [f'{name}--']
-    if content:
-        prefixes.append(f'{content}-')
-    for prefix in prefixes:
-        for path in sorted(root.glob(f'{prefix}*')):
-            if path.is_dir() and not path.is_symlink() and path.name not in removed:
-                shutil.rmtree(path)
-                removed.append(path.name)
+    for path in sorted(root.glob(f'{name}--*')):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+            removed.append(path.name)
     return removed
 
 
@@ -789,16 +638,13 @@ def _append_revision(record, mapping, checked, *, work=None, source=None) -> dic
     The one writer for a fit (``save``) and for both term saves: it stamps the identities and the computed
     ``sources``, numbers the revision, and attaches the coordinate/distribution records either
     from ``source`` (a clone of an earlier revision shares them) or from the fit's ``work`` directory.
-    The file it writes is `records/<slug>.json` even when the record was read from a legacy hash-named
-    file: the next reader finds it by name, and the old file is left as the read-only record it is.
+    The file it writes is `records/<slug>.json`.
     """
     name = address(mapping)
     record['name'] = name
-    # Ownership was how a content-addressed record knew which saved mappings it belonged to. A record now
-    # belongs to the one mapping whose name it carries, so a new write stamps no claim list; a legacy
-    # record keeps the one it already had for the deletion fallback.
-    # The identities a revision records, stamped here and not taken from the caller: a hash-addressed reader answers
-    # `matches` from them without holding the mapping.
+    # A record belongs to the one mapping whose name it carries, so a new write stamps no claim list.
+    # The identities a revision records, stamped here and not taken from the caller: they are provenance a run
+    # compares, and `matches` answers from them without holding the mapping.
     checked.update(identities(mapping))
     checked['sources'] = term_sources(checked, mapping)
     revision = record['revision'] + 1

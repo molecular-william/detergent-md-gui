@@ -16,8 +16,7 @@ Every entry has the same shape so a reader never asks which kind it is before it
 
 `write` puts the record in `inputs/inputs.json` and returns the entries. A manifest written from it is layout 4 and
 carries no `input_snapshot_sha256`: the record is a list of names, not a change-detection digest, and a change to a
-referenced file no longer refuses a run. A layout-2 or layout-3 manifest is verified exactly as it was -- by the digest
-of its `inputs/` directory, and by the digest each entry recorded -- so an old run keeps its own claim.
+referenced file no longer refuses a run. A run that records no names cannot be verified.
 """
 from __future__ import annotations
 
@@ -174,48 +173,27 @@ def resolve(entry, *, run_dir=None, repo_root=None, workspace_root=None, runs_ro
 def verify_entry(entry, *, run_dir=None, repo_root=None, workspace_root=None, runs_root=None):
     """Resolve one entry against its root, naming what is missing.
 
-    A layout-3 entry also carries a `sha256`; that one is measured exactly as it always was, so an old manifest
-    keeps its claim. A named entry is verified by being the file (or directory) its root says it is.
+    A named entry is verified by being the file (or directory) its root says it is.
     """
     path = resolve(entry, run_dir=run_dir, repo_root=repo_root, workspace_root=workspace_root, runs_root=runs_root)
-    if 'sha256' in entry:
-        if entry.get('files') is not None:
-            if not path.is_dir():
-                raise ValueError(f'input {entry["role"]} is missing: {path}')
-            measured = files.json_sha256(files.hashes(path))
-        else:
-            if not path.is_file():
-                raise ValueError(f'input {entry["role"]} is missing: {path}')
-            measured = files.sha256(path)
-        if measured != entry['sha256']:
-            raise ValueError(f'input {entry["role"]} changed since this run was prepared: {path}')
-        return path
     if not path.exists():
         raise ValueError(f'input {entry["role"]} is missing: {path}')
     return path
 
 
 def verify_manifest(run_dir, manifest):
-    """Verify what a manifest recorded, for a legacy run and for a record written by `write`.
+    """Verify the named record a manifest carries, resolving each input against its root.
 
-    A manifest without `inputs` is a run prepared before this record existed: its provenance is the digest of the
-    old `inputs/` directory, and a run type that recorded neither (pdc) has nothing to verify -- which is what it
-    always said. Layout 2 and layout 3 are verified by their recorded digests; layout 4 is verified by resolving each
-    name, because its entries carry no digest and its manifest no input snapshot.
+    The entries carry no digest and the manifest no input snapshot: layout 4 is verified by resolving each name. A
+    manifest that records no `inputs` was written before this record and has no claim this code can check.
     """
     run_dir = Path(run_dir)
     recorded = manifest.get('inputs')
     if recorded is None:
-        expected = manifest.get('input_snapshot_sha256')
-        if expected:
-            files.verify(run_dir / INPUTS_DIRECTORY, expected)
-        return None
+        raise ValueError('the manifest records no named inputs; a run prepared before layout 4 cannot be verified')
     document = json.loads((run_dir / INPUTS_DIRECTORY / RECORD_NAME).read_text())
     if document.get('inputs') != recorded:
         raise ValueError(f'{RECORD_NAME} does not match the manifest record')
-    if (manifest.get('layout_version') or 0) < LAYOUT:
-        if files.json_sha256(document) != manifest.get('input_snapshot_sha256'):
-            raise ValueError(f'{RECORD_NAME} does not match the recorded input snapshot digest')
     for entry in recorded:
         verify_entry(entry, run_dir=run_dir)
     return recorded

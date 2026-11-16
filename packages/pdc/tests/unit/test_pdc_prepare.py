@@ -361,9 +361,9 @@ def test_the_published_set_is_recorded_as_installed_and_no_grompp_stage_copies_i
 
     The set is the published Martini 3 lipid one: the bead types the detergent's own beads need, the solvents file
     that defines water as `W`, and the ions file that defines `NA` and `CL`. It is installed once under the workspace
-    (`dashboard.martini3`), and the run records each file by path and digest rather than carrying a copy. No leg
-    copies it into its working directory: the topology names it from where it is read, so the include resolves in
-    place from every stage that runs `grompp`.
+    (`dashboard.martini3`), and the run names each file at the versioned path it is read from rather than carrying a
+    copy. No leg copies it into its working directory: the topology names it from where it is read, so the include
+    resolves in place from every stage that runs `grompp`.
     """
     run = prepared(tmp_path)
     record = json.loads((run / 'manifest.json').read_text())
@@ -375,7 +375,9 @@ def test_the_published_set_is_recorded_as_installed_and_no_grompp_stage_copies_i
             'the test suite installs the set outside the workspace, so it has no workspace-relative spelling'
         assert Path(entry['path']) == martini3.path(name).resolve(), \
             'the record names the installed file every stage reads'
-    assert settings_of(run)['force_field']['files'].keys() == set(pdc.FORCEFIELD_FILES)
+    force_field = settings_of(run)['force_field']
+    assert set(force_field['files']) == set(pdc.FORCEFIELD_FILES)
+    assert force_field['version'] == martini3.VERSION, 'the set is named by its version witness, not by per-file digests'
     for name in GROMPP_STAGES:
         copied = script_of(name).read_text()
         for force_field in pdc.FORCEFIELD_FILES:
@@ -395,7 +397,9 @@ def test_the_run_records_where_its_parameters_came_from(tmp_path):
     assert force_field['doi'] == '10.1021/acscentsci.5c00755'
     assert force_field['commit'] and force_field['repository'].startswith('https://github.com/')
     assert set(force_field['files']) == set(pdc.FORCEFIELD_FILES)
-    assert all(entry['sha256'] and entry['bytes'] > 0 for entry in force_field['files'].values())
+    assert force_field['version'] == martini3.VERSION, 'the witness names the set, so no per-file digest is evidence'
+    assert force_field['root'] == str(martini3.root())
+    assert 'sha256' not in json.dumps(force_field), 'the version directory is the change detector'
     assert recorded['mapping'] is None or 'mapping' in recorded
 
 
@@ -554,3 +558,43 @@ def test_a_cg_only_molecule_builds_system_top(tmp_path):
     assert report['detergent_representation'] != 'one centre per molecule'
     assert report['detergent_model']['kind'] == 'cg'
     assert report['atoms'] == 4 * 3
+
+
+#: The same molecule imported under a version directory, with its template beside the version's files.
+VERSIONED_CG_TEMPLATE = 'molecules/OG/v1/micelle_template.json'
+
+
+def versioned_cg_tree(tmp_path: Path) -> Path:
+    root = cg_tree(tmp_path)
+    version = root / 'molecules' / 'OG' / 'v1'
+    version.mkdir()
+    for name in ('metadata.json', 'micelle_template.json', 'molecule.gro', 'molecule.itp'):
+        shutil.copy2(CG_FIXTURE / name, version / name)
+    metadata = json.loads((version / 'metadata.json').read_text())
+    (version / 'metadata.json').write_text(json.dumps({**metadata, 'version': 'v1'}))
+    return root
+
+
+def test_a_versioned_cg_molecule_is_offered_as_a_template(tmp_path):
+    """The catalogue read `molecules/*/micelle_template.json`, so a versioned molecule's template was invisible."""
+    entries = pdc._templates(versioned_cg_tree(tmp_path))
+
+    versioned = next(entry for entry in entries if entry['template'] == VERSIONED_CG_TEMPLATE)
+    assert versioned['molecule'] == 'OG' and versioned['residue'] == 'OG'
+    assert versioned['id'] == 'OG:OG:v1', 'two folders of one molecule must not answer to the same id'
+    assert versioned['files_present'], versioned['missing_files']
+
+
+def test_a_versioned_cg_template_builds_from_its_own_version(tmp_path):
+    """A template the catalogue offers must also prepare: the run reads the version's files, not the id folder's."""
+    root = versioned_cg_tree(tmp_path)
+    run = prepared_run(tmp_path, template=VERSIONED_CG_TEMPLATE, project_root=root, protein=None,
+                       settings={'aggregation_number': 4})
+
+    model = settings_of(run)['detergent_model']
+    assert model['kind'] == 'cg' and model['molecule'] == 'OG' and model['residue'] == 'OG'
+    entry = next(item for item in json.loads((run / 'manifest.json').read_text())['inputs']
+                 if item['role'] == 'detergent_model')
+    assert entry['path'] == 'molecules/OG/v1' and entry['label'] == 'molecules/OG'
+    assert (inputs_dir(run) / pdc.DETERGENT_TOPOLOGY).read_text().rstrip() == (
+        CG_FIXTURE / 'molecule.itp').read_text().rstrip()

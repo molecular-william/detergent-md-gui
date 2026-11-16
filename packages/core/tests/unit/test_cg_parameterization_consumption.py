@@ -575,27 +575,8 @@ def test_the_prepared_run_records_the_model_by_name_and_its_revision(tmp_path, m
     assert manifest(run)['bonded']['revision'] == 1
 
 
-def test_a_legacy_record_is_still_found_by_the_snapshots_content_hash(tmp_path, monkeypatch):
-    """The six live records are hash-named until the migration moves them: a run reads one by its identity."""
-    candidate = saved_mapping()
-    parameterization.save(candidate, REVISION)
-    name = parameterization.address(candidate)
-    record = json.loads((parameterization.records_root() / f'{name}.json').read_text())
-    (parameterization.records_root() / f'{name}.json').unlink()
-    (parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json').write_text(
-        json.dumps(record))
-
-    assert cg.chosen_revision(candidate, 1)['revision'] == 1
-    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
-    assert manifest(run)['parameterization']['revision'] == 1
-
-
 def test_a_fit_work_directory_is_keyed_by_the_records_name(tmp_path):
-    """A pair's work directory is `work/<slug>--<run>`: the slug is the record name, and it cannot contain `--`.
-
-    A directory built before names were addresses is `<content hash>-<run>` and is reused rather than rebuilt, which is
-    the difference between a re-fit of minutes and one of a mapped trajectory.
-    """
+    """A pair's work directory is `work/<slug>--<run>`: the slug is the record name, and it cannot contain `--`."""
     from dashboard.models.bonded import fitting
 
     candidate = saved_mapping()
@@ -605,10 +586,6 @@ def test_a_fit_work_directory_is_keyed_by_the_records_name(tmp_path):
     assert work.name == f'{parameterization.address(candidate)}--{"a" * 12}'
     assert '--' not in parameterization.address(candidate), 'a slug cannot contain the separator'
     assert fitting.work_dir(candidate).name.endswith('--no-reference')
-
-    legacy = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{"b" * 12}'
-    legacy.mkdir(parents=True)
-    assert fitting.work_dir(candidate, 'b' * 12) == legacy, 'the frames already built are reused'
 
 
 def test_a_record_under_the_name_that_no_longer_matches_the_snapshot_is_refused():

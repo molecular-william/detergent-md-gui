@@ -346,20 +346,6 @@ def test_a_selection_pinned_to_an_older_version_keeps_verifying(tmp_path):
         aa_molecules.verify_selection(root, pinned)
 
 
-def test_a_selection_written_before_versions_still_verifies_its_digests(tmp_path):
-    root = tmp_path / 'molecules'
-    folder = root / 'Example'
-    shutil.copytree(FIXTURES / 'aa_example', folder)
-    legacy = aa_molecules.selection(root, 'Example', 'aa_only', digests=True)
-
-    assert 'version' not in legacy and legacy['sha256'] and legacy['reference_sha256']
-    aa_molecules.verify_selection(root, legacy)
-
-    (folder / 'lig1.itp').write_text((folder / 'lig1.itp').read_text() + '\n; edited\n')
-    with pytest.raises(ValueError, match='changed'):
-        aa_molecules.verify_selection(root, legacy)
-
-
 def test_a_mapping_snapshot_names_the_version_and_a_legacy_one_still_opens(tmp_path):
     from dashboard.models.mappings import context as mapping_context
 

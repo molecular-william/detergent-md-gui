@@ -1,46 +1,38 @@
-"""`references.identity` reads the per-file map a molecule *selection* carries, in either spelling it is written in.
+"""`references.identity` reads the molecule and version a selection pinned, plus its chemistry.
 
-Two spellings exist -- `reference_sha256` (what `molecules/aa.py` writes) and the older `sha256` -- and one name is
-shared with something that is not a map: a reference block states `reference_sha256` as a single digest. The reader
-used an eager default (`snapshot.get('reference_sha256', snapshot['sha256'])`), so a selection carrying only the key
-it asked for raised `KeyError('sha256')`, and the scalar raised `AttributeError` on `.items()`. Both are now answered:
-the map is read from either spelling, and a scalar is refused with a sentence rather than an accident.
+A selection names its folder, not its bytes, so the identity is structural: two versions of one molecule must not share
+it, and a chemistry change must not keep it. The map-of-digests spelling is gone with the digest-era selection.
 """
 import hashlib
 import json
 
-import pytest
 from dashboard.analysis.runs import references
 
 METADATA = {'force_field': 'charmm36-jul2022', 'water_model': 'tip3p', 'molecule_type': 'protein', 'net_charge': 0}
-FILES = {'protein.pdb': '11' * 32, 'metadata.json': '22' * 32}
 
 
-def expected(digests):
-    body = {'files': {k: v for k, v in digests.items() if k != 'metadata.json'},
-            'chemistry': {k: METADATA[k] for k in ('force_field', 'water_model', 'molecule_type', 'net_charge')}}
+def expected(molecule_id='protein', version='v1', metadata=METADATA):
+    body = {'molecule': {'id': molecule_id, 'version': version},
+            'chemistry': {key: metadata[key] for key in ('force_field', 'water_model', 'molecule_type', 'net_charge')}}
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 
-def test_the_selection_spelling_is_read():
-    assert references.identity({'metadata': METADATA, 'reference_sha256': FILES}) == expected(FILES)
+def selection(version='v1', **changes):
+    return {'id': changes.pop('id', 'protein'), 'version': version, 'metadata': {**METADATA, **changes}}
 
 
-def test_the_older_spelling_is_the_same_identity():
-    """One map, two names: a record written before the rename must keep the identity it had."""
-    assert references.identity({'metadata': METADATA, 'sha256': FILES}) == expected(FILES)
+def test_the_identity_is_the_molecule_its_version_and_its_chemistry():
+    assert references.identity(selection()) == expected()
 
 
-def test_metadata_json_is_not_part_of_the_identity():
-    """It travels with the reference but describes the run, not the chemistry the mapping is measured against."""
-    assert references.identity({'metadata': METADATA,
-                                'reference_sha256': {'protein.pdb': FILES['protein.pdb']}}) == expected(
-        {'protein.pdb': FILES['protein.pdb'], 'metadata.json': 'ignored'})
+def test_two_versions_of_one_molecule_do_not_share_an_identity():
+    assert references.identity(selection('v1')) != references.identity(selection('v2'))
 
 
-def test_a_single_digest_is_refused_by_name():
-    """A reference block's `reference_sha256` is one digest; it is not this function's input, and says so."""
-    with pytest.raises(ValueError) as refused:
-        references.identity({'metadata': METADATA, 'reference_sha256': 'ab' * 32})
+def test_two_molecules_do_not_share_an_identity():
+    assert references.identity(selection(id='other')) != references.identity(selection())
 
-    assert 'per-file digests' in str(refused.value)
+
+def test_a_chemistry_change_moves_the_identity():
+    assert references.identity(selection(net_charge=1)) != references.identity(selection())
+    assert references.identity(selection(force_field='other')) != references.identity(selection())

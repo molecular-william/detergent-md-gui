@@ -574,10 +574,8 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     stages=run_dir/'stages'; stages.mkdir()
     common=stages/'common'; common.mkdir(); molecule=common/'molecule'; molecule.mkdir()
     # The store is the molecule's own version directory: the run names its files and reads them where they live
-    # instead of carrying a second copy. A selection written before version directories carries its files by digest,
-    # and that digest is still measured; a versioned selection names its version instead.
+    # instead of carrying a second copy.
     molecule_root=Path(molecule_root).resolve(); source=aa_molecules.selected_folder(molecule_root,molecule_snapshot)
-    if 'sha256' in molecule_snapshot: files.verify(source,molecule_snapshot['sha256'])
     # Preserve original filenames/includes; normalize only the run-local entry points.
     inputs=molecule_snapshot.get('inputs', {'topology':'molecule.itp', 'coordinates':'molecule.gro', 'coordinate_format':'gro'})
     preparation={'source_inputs':inputs, 'coordinate_conversion':None}
@@ -626,12 +624,11 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     # `molecules/<id>/` records `molecules/<id>/<file>` against the repository.
     force_field_entry=run_inputs.published_tree('force_field', tree, label=ff.label)
     force_field_path=run_inputs.resolve(force_field_entry)
-    # The files this selection reads, by name: a versioned selection names its inputs and the includes its topology
-    # pulls in, while a selection written before versions names the digest map it recorded.
-    recorded = (sorted(molecule_snapshot['sha256']) if 'sha256' in molecule_snapshot else [
+    # The files this selection reads, by name: its inputs and the includes its topology pulls in.
+    recorded = [
         *sorted(aa_molecules.topology_tree(source, inputs['topology'])[1]),
         inputs['coordinates'],
-        *(['metadata.json'] if (source/'metadata.json').is_file() else [])])
+        *(['metadata.json'] if (source/'metadata.json').is_file() else [])]
     references=[force_field_entry, *[
         run_inputs.published('molecule', source/relative,
                              label=f'{molecule_snapshot["path"].removeprefix("molecules/")}/{relative}',

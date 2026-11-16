@@ -71,7 +71,7 @@ def test_lazy_tabs_reuse_catalogues_and_preserve_edits(dashboard, browser, live_
     assert not [u for u in urls if u.startswith('/api/bonded-states')], urls
     records = [u for u in urls if u.startswith('/api/bonded-parameterizations?')]
     assert records, urls
-    assert all('content_hash=' in url for url in records), records
+    assert all('name=' in url for url in records), records
     assert urls.count('/api/mappings/'+saved['file']+'?') == 1
     assert not errors
     # A fresh direct link to Bonded does not construct the mapping editor.

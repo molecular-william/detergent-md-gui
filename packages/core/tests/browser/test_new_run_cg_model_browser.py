@@ -70,8 +70,8 @@ def stub(page, submissions=None):
 
     def records(route):
         query = parse_qs(urlsplit(route.request.url).query)
-        content = (query.get('content_hash') or [''])[0]
-        route.fulfill(json=RING if content == CANDIDATES[0]['mapping_content_hash'] else TAIL)
+        name = (query.get('name') or [''])[0]
+        route.fulfill(json=RING if name == CANDIDATES[0]['parameterization_name'] else TAIL)
 
     def reference(route):
         # DDM has no published Martini 3 entry, which is an answer rather than a failure.

@@ -6,7 +6,7 @@ the report's own caveats. A third case is the two states a run's record itself c
 production leg.
 
 The record is written here the way `analysis.worker` leaves one behind -- an immutable attempt under
-`analyses/pdc-structure/<signature>/<attempt>/` whose `result.json` names the content-addressed output directory --
+`analyses/pdc-structure/<NNNN-YYYYMMDD>/` whose `result.json` names the content-addressed output directory --
 and nothing in it is read from the developer's workspace.
 """
 import json
@@ -75,7 +75,7 @@ RECORD = {
 def publish(dashboard, record=None):
     """Leave behind what `analysis.worker` leaves behind for a completed pdc-structure attempt."""
     published = record if record is not None else RECORD
-    attempt = dashboard.coordinator.RUNS / JOB / 'analyses/pdc-structure/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / JOB / 'analyses/pdc-structure/0001-20261001'
     output = attempt / 'output/abc123'
     output.mkdir(parents=True)
     (output / 'pdc-structure.json').write_text(json.dumps(published))

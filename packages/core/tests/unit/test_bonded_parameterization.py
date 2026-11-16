@@ -46,9 +46,6 @@ def test_a_rename_moves_the_record_and_a_changed_bead_does_not():
     they record move to the new name's slug. A bead that moved to another atom is a different model
     under a name the old one still holds: neither reading it as the old model nor saving it under that
     name is allowed, because the two histories would be one name.
-
-    A legacy record addressed by content hash is still found by that hash: the store reads the name
-    first and the digest second, so the records written before this change keep working.
     """
     candidate = mapping()
     parameterization.save(candidate, revision())
@@ -197,28 +194,23 @@ def test_the_record_lives_in_the_workspace_the_application_selected(dashboard):
     assert list(dashboard.paths.workspace.glob('bonded_states/*.json')) == [], 'not beside the old states'
 
 
-def test_a_record_is_read_by_its_name_and_a_legacy_one_by_its_hash():
+def test_a_record_is_read_by_its_name():
     """A saved candidate, the panel and a run's manifest name the model; the record answers that name.
 
-    A hash is still a reader's address -- a run manifest keeps the identity it was prepared with, and a
-    record written before names were addresses is named by one -- so the store answers the digest too,
-    finding the named record whose identity it is. An unknown address is the no-parameterization state
-    rather than an error, and a name that would escape the records root is refused.
+    An unknown address is the no-parameterization state rather than an error, and a name that would
+    escape the records root is refused.
     """
     candidate = mapping()
     parameterization.save(candidate, revision())
     content = parameterization.content_identity(candidate)
 
     by_name = parameterization.one(parameterization.address(candidate))
-    by_hash = parameterization.one(content)
     state = parameterization.view(by_name)
 
-    assert by_name['name'] == 'DDM' and by_hash['name'] == 'DDM'
-    assert by_hash['mapping_content_hash'] == content
+    assert by_name['name'] == 'DDM'
     assert state['parameterized'] is True and state['revision'] == 1
     assert state['revisions'] == [1] and state['name'] == 'DDM'
     assert state['mapping_content_hash'] == content
-    assert parameterization.view(parameterization.one('a' * 64))['parameterized'] is False
     # A slug-shaped address with no record is the honest absence; a path or a separator is refused at the door.
     assert parameterization.view(parameterization.one('no-such-model'))['parameterized'] is False
     with pytest.raises(ValueError):
@@ -232,7 +224,7 @@ def test_matches_answers_for_a_rename_and_for_a_changed_bead():
     provenance, the content identity is compatibility."""
     candidate = mapping()
     parameterization.save(candidate, revision())
-    record = parameterization.one(parameterization.content_identity(candidate))
+    record = parameterization.one(parameterization.address(candidate))
 
     assert parameterization.matches(record, candidate_hash=mappings.candidate_identity(mapping(name='DDM · renamed'))) is False
     assert parameterization.matches(record, content_hash=parameterization.content_identity(mapping(name='DDM · renamed'))) is True
@@ -280,38 +272,6 @@ def test_the_source_identity_is_the_mappings_content_and_not_its_file():
     identities = parameterization.identities(candidate)
     assert identities['mapping_content_hash'] == mappings.content_identity(candidate)
     assert identities['mapping_hash'] == mappings.candidate_identity(candidate)
-
-
-def test_a_record_written_before_numbers_were_normalised_is_still_this_mappings():
-    """The identity bug the fit panel showed: one mapping, two digests, and a revision filed under the wrong one.
-
-    A candidate is read out of JSON by the browser and posted back, and JavaScript writes a stored `1.0` as `1`.
-    While the identity hashed the two spellings differently, a fit queued from the panel was keyed by the posted
-    digest while every other reader asked by the file's -- so the panel reported "no parameterization" for a mapping
-    it had just fitted. The identity now normalises the number, and a record already on disk under the old digest is
-    still found, which is what this pins.
-    """
-    candidate = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}])
-    saved = parameterization.save(candidate, revision())
-    path = parameterization.records_root() / f"{parameterization.address(candidate)}.json"
-
-    # Rewrite the record the way it was written before the change: under the legacy digest, saying so itself.
-    legacy = mappings.legacy_content_identity(candidate)
-    assert legacy != parameterization.content_identity(candidate), 'the two digests must differ for this to test anything'
-    record = json.loads(path.read_text())
-    record['mapping_content_hash'] = legacy
-    for item in record.get('revisions') or []:
-        item['mapping_content_hash'] = legacy
-    path.unlink()
-    (parameterization.records_root() / f'{legacy}.json').write_text(json.dumps(record))
-
-    assert parameterization.current(mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}]))['revision'] == 1
-    assert parameterization.current(candidate)['revision'] == saved['revision']
-
-    # The half that fixes the panel: the same mapping posted back the way a browser sends it -- an integer, not a
-    # float -- is the same mapping, so a fit queued from the panel is addressed by the digest the file produces.
-    as_posted = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1}])
-    assert parameterization.content_identity(as_posted) == parameterization.content_identity(candidate)
 
 
 # --- editing a stored revision's terms ------------------------------------------------------------------------

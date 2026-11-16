@@ -13,7 +13,7 @@ from ..repository import JsonRepository
 from . import verdict
 from .context import as_structure
 from .graph import validate
-from .identity import candidate_identity, content_identity, legacy_content_identity
+from .identity import candidate_identity, content_identity
 
 
 class DuplicateMapping(ValueError):
@@ -174,12 +174,10 @@ def delete_draft(name):
     the repository's containment check, so a name that escapes the drafts root is refused
     here rather than by a route-level pattern.
 
-    The owner's rule is that deleting a mapping deletes its bond interactions. A record now belongs to
-    the one mapping whose *name* it carries, so the name is read off the draft before the file goes --
+    The owner's rule is that deleting a mapping deletes its bond interactions. A record belongs to the
+    one mapping whose *name* it carries, so the name is read off the draft before the file goes --
     afterwards the draft can no longer say which model it was -- and that mapping's record and its
-    revisions are removed with it. A record written before names were addresses has no name of its own;
-    the legacy claim list and the content identities are still asked for it, so such a record is not
-    orphaned.
+    revisions are removed with it.
     """
     path = _repository().path(name)
     if not path.is_file():
@@ -228,16 +226,12 @@ def _content_holders(content):
 
 
 def _forget_parameterization(data):
-    """Delete the parameterization of the draft `data`, by name first and by content for a legacy record.
+    """Delete the parameterization of the draft `data`, by the name the record carries.
 
     A record exists under the mapping's display name, and the name is the answer: deleting the mapping
     deletes what that name addresses, whether or not another draft somewhere carries the same content
     (the store refuses saving that content twice, so the only way two drafts share it is a file written
     by hand). A name that answers another model's record is not this draft's to remove.
-
-    A record written before names were addresses has no name of its own. For it the old question is
-    still asked -- the claim list this draft drops, then whether another draft on disk still carries
-    the content -- because the revisions must not be removed from under a surviving mapping.
     """
     if data is None:
         return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
@@ -245,9 +239,8 @@ def _forget_parameterization(data):
                 'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
     try:
         content = content_identity(data)
-        legacy = legacy_content_identity(data)
     except (TypeError, ValueError):
-        content = legacy = None
+        content = None
     # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
     # module is imported while the package is still initialising.
     from ..bonded import parameterization
@@ -255,32 +248,12 @@ def _forget_parameterization(data):
     addressed = parameterization.address_from(label) if label else None
     if addressed and parameterization.exists(addressed):
         record = parameterization.one(addressed)
-        if content is not None and (parameterization.matches(record, content_hash=content)
-                                    or parameterization.matches(record, content_hash=legacy)):
+        if content is not None and parameterization.matches(record, content_hash=content):
             return {**parameterization.delete(addressed), 'retained_by': [], 'reason': None}
         return {'content_hash': content, 'deleted': False,
                 'retained_by': parameterization.one(addressed).get('owners', []),
                 'revisions': [], 'jobs': [], 'work': [],
                 'reason': 'another saved mapping holds this parameterization name'}
-    if content is None:
-        return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
-                'jobs': [], 'work': [],
-                'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
-    # Only a record actually named by the content hash is the legacy shape this fallback deletes. A name-addressed
-    # record whose identity happens to be this content belongs to *that* mapping's name, not to this draft's.
-    legacy_path = parameterization.records_root() / f'{content}.json'
-    if not legacy_path.is_file():
-        return {'content_hash': content, 'deleted': False, 'retained_by': [], 'revisions': [],
-                'jobs': [], 'work': [],
-                'reason': 'no parameterization record answers this draft’s name'}
-    # The record's own claim list is the authority for the legacy address: this draft drops its claim, and the revisions
-    # go when the last one does. A record written before claims existed has none to drop, and the drafts on disk are asked.
-    outcome = parameterization.release(content, name=label)
-    if outcome.get('deleted') or outcome.get('released'):
-        return {**outcome, 'retained_by': outcome.get('owners', []), 'reason': None}
-    holders = _content_holders(content)
-    if holders:
-        return {'content_hash': content, 'deleted': False, 'retained_by': holders, 'revisions': [],
-                'jobs': [], 'work': [],
-                'reason': 'another saved mapping still carries this content'}
-    return {**parameterization.delete(content), 'retained_by': [], 'reason': None}
+    return {'content_hash': content, 'deleted': False, 'retained_by': [], 'revisions': [],
+            'jobs': [], 'work': [],
+            'reason': 'no parameterization record answers this draft’s name'}

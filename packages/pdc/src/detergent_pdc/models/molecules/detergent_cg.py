@@ -207,8 +207,8 @@ def adopt_stored(draft: dict, candidate: dict) -> dict | None:
     A mapping may carry a fitted parameterization of its own (`bonded.parameterization`): revisions keyed by the
     mapping's content identity, one of them current. When it does, a build simulates *that* -- the terms a fit
     produced against an AA reference -- instead of re-deriving terms from the Martini 3 references and the geometry,
-    which is what "the run simulates my fit" means. The revision is resolved by the content identity of the candidate
-    the draft was derived from, so a renamed mapping keeps its fit and a mapping whose beads changed does not.
+    which is what "the run simulates my fit" means. The revision is resolved by the candidate's name, and the record's
+    identity is compared with the candidate's: a renamed mapping keeps its fit and a mapping whose beads changed does not.
 
     The resolver lives here rather than in an adapter because two callers make the same claim: `pdc.prepare` writes
     the topology the run simulates, and the New run preview draws the bonds its card shows as the model's own. A
@@ -219,7 +219,7 @@ def adopt_stored(draft: dict, candidate: dict) -> dict | None:
     system and a reader must be able to tell them apart.
     """
     content = parameterization.content_identity(candidate)
-    record = parameterization.one(content)
+    record = parameterization.document(candidate)
     revision = record.get('current') if isinstance(record, dict) else None
     if not revision or not revision.get('topology'):
         return None

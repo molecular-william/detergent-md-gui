@@ -22,8 +22,8 @@ class _Coordinator:
 
 
 def _attempt(root, attempt_id, *, figure=True, mtime=1_000_000.0):
-    """A published attempt laid out the way the worker lays one out: output/<key>/ under a signature."""
-    signature = root / 'analyses/overlap/signature' / attempt_id
+    """A published attempt laid out the way the worker lays one out: output/<key>/ under its sequenced directory."""
+    signature = root / 'analyses/overlap' / attempt_id
     output = signature / 'output/key'
     output.mkdir(parents=True)
     record = signature / 'result.json'
@@ -51,11 +51,11 @@ def test_the_published_attempt_is_found_through_the_output_directory_its_record_
     """Two content-addressed levels: the attempt's `result.json` names the output root and the report is relative to
     that. A reader that assumes `output/<hash>` directly reads nothing at all."""
     job = {'id': 'aaaaaaaaaaaa'}
-    _attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one')
+    _attempt(tmp_path / 'aaaaaaaaaaaa', '0001-20261001')
 
     attempt, published, report, figure = newest_overlap(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-one'
+    assert attempt.name == '0001-20261001'
     assert published['overlaps'] == [0.9]
     assert report.name == 'overlap.json'
     assert figure is not None and figure.name == 'overlap.html'
@@ -66,20 +66,20 @@ def test_an_attempt_whose_figure_is_gone_falls_through_to_an_older_one(tmp_path)
     broken frame, and an older attempt that still stands may answer."""
     job = {'id': 'aaaaaaaaaaaa'}
     root = tmp_path / 'aaaaaaaaaaaa'
-    _attempt(root, 'attempt-old', mtime=1_000_000.0)
-    _attempt(root, 'attempt-new', figure=False, mtime=2_000_000.0)
+    _attempt(root, '0001-20261001', mtime=1_000_000.0)
+    _attempt(root, '0002-20261002', figure=False, mtime=2_000_000.0)
 
     attempt, _, _, figure = newest_overlap(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-old' and figure is not None
+    assert attempt.name == '0001-20261001' and figure is not None
 
 
 def test_when_no_attempt_has_a_figure_the_newest_is_still_reported_without_one(tmp_path):
     """Not `None`: the analysis *did* publish, so the card owes the reader that fact and the reason it cannot draw
     anything, rather than the sentence it uses for a run that was never analysed."""
     job = {'id': 'aaaaaaaaaaaa'}
-    _attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one', figure=False)
+    _attempt(tmp_path / 'aaaaaaaaaaaa', '0001-20261001', figure=False)
 
     attempt, published, _, figure = newest_overlap(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-one' and figure is None and published['residue'] == 'DDM'
+    assert attempt.name == '0001-20261001' and figure is None and published['residue'] == 'DDM'

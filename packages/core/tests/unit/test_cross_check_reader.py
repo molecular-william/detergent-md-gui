@@ -20,7 +20,7 @@ class _Coordinator:
 
 
 def _attempt(root, attempt_id, *, report=True, mtime=1_000_000.0):
-    signature = root / 'analyses/bonded-cross-check/signature' / attempt_id
+    signature = root / 'analyses/bonded-cross-check' / attempt_id
     output = signature / 'output/key'
     output.mkdir(parents=True)
     record = signature / 'result.json'
@@ -43,11 +43,11 @@ def test_a_run_with_no_published_cross_check_answers_none(tmp_path):
 
 def test_the_published_attempt_is_found_through_the_output_directory_its_record_names(tmp_path):
     job = {'id': 'aaaaaaaaaaaa'}
-    _attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one')
+    _attempt(tmp_path / 'aaaaaaaaaaaa', '0001-20261001')
 
     attempt, published, report = newest_cross_check(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-one'
+    assert attempt.name == '0001-20261001'
     assert published['disagreements'] == [['B01', 'B02']]
     assert report.name == 'bonded-cross-check.json'
 
@@ -57,17 +57,17 @@ def test_an_attempt_whose_report_is_gone_is_skipped_for_an_older_one(tmp_path):
     analysis, and the card pointing at it would render a table with nothing in it."""
     job = {'id': 'aaaaaaaaaaaa'}
     root = tmp_path / 'aaaaaaaaaaaa'
-    _attempt(root, 'attempt-old', mtime=1_000_000.0)
-    _attempt(root, 'attempt-new', report=False, mtime=2_000_000.0)
+    _attempt(root, '0001-20261001', mtime=1_000_000.0)
+    _attempt(root, '0002-20261002', report=False, mtime=2_000_000.0)
 
     attempt, _, _ = newest_cross_check(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-old'
+    assert attempt.name == '0001-20261001'
 
 
 def test_nothing_published_at_all_still_answers_none(tmp_path):
     job = {'id': 'aaaaaaaaaaaa'}
-    _attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one', report=False)
+    _attempt(tmp_path / 'aaaaaaaaaaaa', '0001-20261001', report=False)
 
     assert newest_cross_check(_Coordinator(tmp_path), job) is None
 
@@ -75,7 +75,7 @@ def test_nothing_published_at_all_still_answers_none(tmp_path):
 # The dihedral fit is read the same way, one level over.
 
 def _dihedral_attempt(root, attempt_id, *, report=True):
-    signature = root / 'analyses/dihedral-fit/signature' / attempt_id
+    signature = root / 'analyses/dihedral-fit' / attempt_id
     output = signature / 'output/key'
     output.mkdir(parents=True)
     (signature / 'result.json').write_text(json.dumps({'output_directory': 'output/key'}))
@@ -94,10 +94,10 @@ def test_a_published_dihedral_fit_is_found_and_its_absence_answers_none(tmp_path
     (tmp_path / 'aaaaaaaaaaaa').mkdir()
     assert newest_dihedral_fit(_Coordinator(tmp_path), job) is None
 
-    _dihedral_attempt(tmp_path / 'aaaaaaaaaaaa', 'attempt-one')
+    _dihedral_attempt(tmp_path / 'aaaaaaaaaaaa', '0001-20261001')
     attempt, published, report = newest_dihedral_fit(_Coordinator(tmp_path), job)
 
-    assert attempt.name == 'attempt-one'
+    assert attempt.name == '0001-20261001'
     assert published['criterion'] == 'bic'
     assert published['disagreements'] == [['B01', 'B02', 'B03', 'B04']]
     assert report.name == 'dihedral-fit.json'

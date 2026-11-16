@@ -3,14 +3,12 @@
 The checks here are the module's promises, not its file list: an install that records its version and upstream, a
 version that is never rewritten (a second ensure, a moved upstream and a refresh all leave its bytes alone), a
 named version that is refused rather than substituted, and an include that is a *relative* path resolving from the
-directory the topology is read in -- which is the whole reason the install exists rather than a copy per stage. A
-flat install from before version directories is read as its own version and keeps its own digest claim.
+directory the topology is read in -- which is the whole reason the install exists rather than a copy per stage.
 """
 import json
-import shutil
 
 import pytest
-from dashboard import files, martini3, paths
+from dashboard import martini3, paths
 from dashboard.execution import run_inputs
 
 LIBRARIES = ('martini_v3.0.0.itp', 'martini_v3.0.0_solvents_v1.itp', 'martini_v3.0.0_ions_v1.itp')
@@ -32,9 +30,7 @@ def upstream(tmp_path):
 
 
 @pytest.fixture
-def installation(tmp_path, monkeypatch):
-    monkeypatch.setattr(martini3, '_verified', set())
-    monkeypatch.setattr(martini3, '_expected_cache', {})
+def installation(tmp_path):
     return tmp_path / 'martini3'
 
 
@@ -93,46 +89,21 @@ def test_an_installed_version_is_never_rewritten_by_a_moved_upstream(upstream, i
     (upstream / 'references/M3-Lipid-Parameters/ITPs/martini_v3.0.0.itp').write_text('; a new release\n')
 
     assert martini3.ensure(installation=installation, project_root=upstream) == directory
-    assert martini3.ensure(installation=installation, project_root=upstream, refresh=True) == directory
     assert (directory / 'martini_v3.0.0.itp').read_text() != '; a new release\n', 'an installed version was rewritten'
 
 
-def test_a_flat_install_from_before_versions_is_read_as_its_own_version(upstream, installation):
-    """The old shape: the files sit directly under martini3/ and its manifest is a digest map. It still verifies."""
+def test_a_flat_install_is_not_a_version_and_the_named_version_is_installed_beside_it(upstream, installation):
+    """The files directly under martini3/ are not a version: only a witness in its own directory is read."""
     installation.mkdir()
-    expected = martini3._expected(upstream)
-    for name, record in expected.items():
-        shutil.copyfile(upstream / record['source'], installation / name)
-    files.atomic_json(installation / martini3.MANIFEST_NAME,
-                      {'source': martini3.SOURCE, 'files': expected, 'installed_at': '2026-01-01T00:00:00+00:00'})
+    (installation / martini3.MANIFEST_NAME).write_text(json.dumps({'source': martini3.SOURCE, 'files': {}}))
+    (installation / 'martini_v3.0.0.itp').write_text('; a flat install\n')
 
-    assert martini3.versions(installation=installation) == (martini3.LEGACY_VERSION,)
-    assert martini3.ensure(installation=installation, project_root=upstream) == installation
-    assert martini3.resolve(installation=installation) == installation
-    assert martini3.relative('martini_v3.0.0.itp', installation=installation,
-                             project_root=upstream) == 'martini3/martini_v3.0.0.itp'
+    assert martini3.versions(installation=installation) == ()
+    directory = martini3.ensure(installation=installation, project_root=upstream)
 
-    (installation / 'martini_v3.0.0.itp').write_text('; somebody edited the installed set\n')
-    martini3._verified.clear()
-    with pytest.raises(ValueError, match='changed since it was installed'):
-        martini3.resolve(installation=installation)
-
-
-def test_a_flat_install_that_the_upstream_moved_past_refuses_and_only_a_refresh_adopts_it(upstream, installation):
-    installation.mkdir()
-    expected = martini3._expected(upstream)
-    for name, record in expected.items():
-        shutil.copyfile(upstream / record['source'], installation / name)
-    files.atomic_json(installation / martini3.MANIFEST_NAME,
-                      {'source': martini3.SOURCE, 'files': expected, 'installed_at': '2026-01-01T00:00:00+00:00'})
-    martini3.ensure(installation=installation, project_root=upstream)
-    (upstream / 'references/M3-Lipid-Parameters/ITPs/martini_v3.0.0.itp').write_text('; a new release\n')
-
-    with pytest.raises(ValueError, match='no longer matches the set installed'):
-        martini3.ensure(installation=installation, project_root=upstream)
-
-    martini3.ensure(installation=installation, project_root=upstream, refresh=True)
-    assert (installation / 'martini_v3.0.0.itp').read_text() == '; a new release\n'
+    assert directory == installation / martini3.VERSION
+    assert martini3.versions(installation=installation) == (martini3.VERSION,)
+    assert (installation / 'martini_v3.0.0.itp').read_text() == '; a flat install\n', 'the flat files were rewritten'
 
 
 def test_an_include_is_a_relative_path_that_resolves_where_the_topology_is_read(tmp_path, upstream, installation):

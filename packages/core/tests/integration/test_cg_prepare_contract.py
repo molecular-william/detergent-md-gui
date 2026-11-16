@@ -100,7 +100,8 @@ def test_the_run_carries_an_inputs_tree_and_a_manifest(prepared):
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['stage_plan'] == RECORD['stage_plan'], 'the plan comes from the adapter that wrote it'
     assert manifest['tools'] == RECORD['tools']
-    assert manifest['input_snapshot_sha256'], 'the snapshot the resume path verifies against'
+    assert manifest['layout_version'] == 4 and 'input_snapshot_sha256' not in manifest
+    assert isinstance(manifest['inputs'], list), 'the manifest names the shared inputs it read'
 
 
 def test_the_adapters_own_record_does_not_survive_into_inputs(prepared):

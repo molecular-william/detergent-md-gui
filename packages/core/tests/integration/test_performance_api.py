@@ -71,8 +71,8 @@ def test_the_figure_list_holds_one_set_per_analysis_not_one_per_attempt(dashboar
     dashboard.coordinator.database().insert(job)
     run = dashboard.coordinator.run_path(job)
     import os
-    for signature, epoch in (('aaaa', 1_700_000_000), ('bbbb', 1_700_100_000)):
-        directory = run / f'analyses/snapshots/{signature}/1111/output/2222/snapshots'
+    for attempt, epoch in (('0001-20261001', 1_700_000_000), ('0002-20261002', 1_700_100_000)):
+        directory = run / f'analyses/snapshots/{attempt}/output/2222/snapshots'
         directory.mkdir(parents=True, exist_ok=True)
         for name in ('CG-first.svg', 'CG-middle.svg'):
             (directory / name).write_text('<svg/>')
@@ -86,8 +86,8 @@ def test_the_figure_list_holds_one_set_per_analysis_not_one_per_attempt(dashboar
     answer = dashboard.client.get(f'/api/jobs/{job["id"]}/figures?refresh=1').json
 
     paths = [entry['path'] for entry in answer['artifacts']]
-    assert paths == ['analyses/snapshots/bbbb/1111/output/2222/snapshots/CG-first.svg',
-                     'analyses/snapshots/bbbb/1111/output/2222/snapshots/CG-middle.svg',
+    assert paths == ['analyses/snapshots/0002-20261002/output/2222/snapshots/CG-first.svg',
+                     'analyses/snapshots/0002-20261002/output/2222/snapshots/CG-middle.svg',
                      'stages/5_assessment/score_matrix_LIG1.png'], paths
     assert answer['superseded'] == 1, 'the superseded set is counted, not silently dropped'
 

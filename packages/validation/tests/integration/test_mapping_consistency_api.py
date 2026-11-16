@@ -28,9 +28,9 @@ def job(dashboard, jid, **overrides):
     return record
 
 
-def publish(dashboard, jid, attempt='attempt1', comparison=None, output='output/abc123', record=True):
+def publish(dashboard, jid, attempt='0001-20261001', comparison=None, output='output/abc123', record=True):
     """Leave behind what `analysis.worker` leaves behind for a completed comparison."""
-    directory = dashboard.coordinator.RUNS / jid / 'analyses/mapping-consistency/hash' / attempt
+    directory = dashboard.coordinator.RUNS / jid / 'analyses/mapping-consistency' / attempt
     (directory / output / 'analysis').mkdir(parents=True)
     (directory / output / 'analysis/mapping_consistency.json').write_text(
         json.dumps(comparison if comparison is not None else COMPARISON))
@@ -55,9 +55,9 @@ SURFACES = {
 }
 
 
-def publish_surfaces(dashboard, jid, attempt='attempt1', output='output/abc123', surfaces=None):
+def publish_surfaces(dashboard, jid, attempt='0001-20261001', output='output/abc123', surfaces=None):
     """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
-    directory = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash' / attempt
+    directory = dashboard.coordinator.RUNS / jid / 'analyses/surfaces' / attempt
     published = surfaces if surfaces is not None else SURFACES
     surfaces_dir = directory / output / 'analysis/surfaces'
     surfaces_dir.mkdir(parents=True)
@@ -86,9 +86,9 @@ def test_a_published_surfaces_analysis_comes_with_its_numbers(dashboard):
     assert 'SAS mesh' in surfaces['rendering']
     # The removed interactive figure is not a payload field; the pair JSON is the Shape pane's data.
     assert 'figure' not in surfaces
-    assert surfaces['aa_cg_comparison'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
+    assert surfaces['aa_cg_comparison'] == ('analyses/surfaces/0001-20261001/output/abc123/'
                                             'analysis/surfaces/surface-comparison-aa-cg.json')
-    assert surfaces['statistics']['AA']['xvg'] == ('analyses/surfaces/hash/attempt1/output/abc123/'
+    assert surfaces['statistics']['AA']['xvg'] == ('analyses/surfaces/0001-20261001/output/abc123/'
                                                     'analysis/surfaces/aa/sasa.xvg')
     assert surfaces['statistics']['Simulated CG']['xvg'].endswith(
         'output/abc123/analysis/surfaces/simulated-cg/sasa.xvg')
@@ -128,7 +128,7 @@ def test_the_published_comparison_is_what_answers(dashboard):
     assert response.status_code == 200
     body = response.json
     assert body['comparison']['comparison'] == 'AA vs CG'
-    assert body['attempt'] == 'attempt1'
+    assert body['attempt'] == '0001-20261001'
     assert body['source'].endswith('analysis/mapping_consistency.json')
     assert body['molecule'] == 'Sucrose' and body['reference_run_id'] == '03875cf39790'
     assert body['summary']['displacement_rmsd_nm'] == 0.0149
@@ -167,15 +167,15 @@ def test_the_newest_attempt_answers_when_several_exist(dashboard):
     import os
 
     job(dashboard, '0f1e2d3c4b5a')
-    first = publish(dashboard, '0f1e2d3c4b5a', attempt='attempt1')
-    second = publish(dashboard, '0f1e2d3c4b5a', attempt='attempt2',
+    first = publish(dashboard, '0f1e2d3c4b5a', attempt='0001-20261001')
+    second = publish(dashboard, '0f1e2d3c4b5a', attempt='0002-20261002',
                      comparison={**COMPARISON, 'displacement': {'rmsd_nm': 0.0198}})
     os.utime(first / 'result.json', (1_700_000_000, 1_700_000_000))
     os.utime(second / 'result.json', (1_700_000_100, 1_700_000_100))
 
     response = dashboard.client.get('/api/jobs/0f1e2d3c4b5a/mapping-consistency')
 
-    assert response.json['attempt'] == 'attempt2'
+    assert response.json['attempt'] == '0002-20261002'
     assert response.json['comparison']['displacement']['rmsd_nm'] == 0.0198
 
 
@@ -369,7 +369,7 @@ def test_the_source_hook_stages_the_store_for_a_consuming_run(tmp_path):
 
 
 def publish_ff(dashboard, jid, record):
-    directory = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/hash/attempt1'
+    directory = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/0001-20261001'
     output = directory / 'output/abc123'
     output.mkdir(parents=True)
     (output / 'ff-interactions.json').write_text(json.dumps(record))
@@ -386,7 +386,7 @@ def test_the_ff_route_serves_the_published_record(dashboard):
     body = dashboard.client.get('/api/jobs/aa11bb22cc33/ff-interactions').json
 
     assert body['available'] is True and body['source'] == 'consumed'
-    assert body['attempt'] == 'attempt1' and body['terms'][0]['name'] == 'B01_B02'
+    assert body['attempt'] == '0001-20261001' and body['terms'][0]['name'] == 'B01_B02'
     assert body['published_at']
 
 

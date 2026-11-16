@@ -14,12 +14,9 @@ Three properties are deliberate:
   its version, its upstream commit/doi and when it was installed. A version is never rewritten: a new publish is a
   new version directory. The version is the witness that replaced a per-file digest check -- a reader names the
   set it read, and `ensure` refuses a version that is missing or whose witness disagrees rather than answering
-  with another one. A flat install from before versions (the files directly under `martini3/` with a digest
-  manifest) is read as version `legacy` and keeps its own claim: each file is still measured against the digests it
-  recorded.
-* **Cheap after the first check.** The legacy digest pass costs 18 MB; it is cached per process against its own
-  stamp. A versioned install is proved by its witness and the presence of the files it names, so a run costs a
-  JSON read, not a hash of every ITP.
+  with another one.
+* **Cheap after the first check.** A versioned install is proved by its witness and the presence of the files it
+  names, so a run costs a JSON read, not a hash of every ITP.
 
 The relative include is the reason this module exists at all: GROMACS resolves `#include` from the working directory,
 so a topology names the shared file by a path computed from where the topology will be read (`include`).
@@ -43,9 +40,6 @@ MANIFEST_NAME = 'martini3.json'
 #: Points the install somewhere else than the workspace. Symmetric with `DASHBOARD_WORKSPACE`; the test suite uses it
 #: to install once per session instead of once per temporary workspace.
 ENVIRONMENT_VARIABLE = 'DASHBOARD_MARTINI3'
-
-#: The version a flat install from before version directories is read as.
-LEGACY_VERSION = 'legacy'
 
 #: Where the vendored upstream lives, relative to the project root.
 UPSTREAM_ITPS = 'references/M3-Lipid-Parameters/ITPs'
@@ -76,12 +70,6 @@ SOURCE = {
 #: silent rewrite of the bytes a run already simulated with.
 VERSION = f'v3.0.0-{SOURCE["commit"]}'
 
-#: Legacy digest checks done in this process, keyed by (install directory, manifest signature).
-_verified: set[tuple[str, str]] = set()
-#: The upstream listing, keyed by (project root, stamp). `_expected` hashes 18 MB; that is worth doing once.
-_expected_cache: dict[tuple[str, tuple], dict] = {}
-
-
 def root() -> Path:
     """Where the set is installed: the workspace's `martini3/`, unless a caller points it elsewhere."""
     override = os.environ.get(ENVIRONMENT_VARIABLE)
@@ -89,8 +77,6 @@ def root() -> Path:
 
 
 def _version_key(version: str):
-    if version == LEGACY_VERSION:
-        return ()
     return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
                  for part in re.split(r'(\d+)', str(version)) if part)
 
@@ -105,7 +91,7 @@ def _witness(path: Path):
 
 
 def _installed(base: Path) -> dict[str, Path]:
-    """The versions installed under a base: versioned directories by their witness, and a flat install as `legacy`."""
+    """The versions installed under a base, by their witness."""
     base = Path(base)
     found: dict[str, Path] = {}
     if base.is_dir():
@@ -119,8 +105,6 @@ def _installed(base: Path) -> dict[str, Path]:
             if version != path.name:
                 raise ValueError(f'the Martini 3 install at {path} states version {version!r}, not its directory name')
             found[version] = path
-    if (base / MANIFEST_NAME).is_file():
-        found.setdefault(LEGACY_VERSION, base)
     return found
 
 
@@ -190,11 +174,11 @@ def system_topology(directory, itp, residue, title, *, force_field, solvents) ->
             f'[ molecules ]\n{residue} 1\n')
 
 
-def ensure(*, installation=None, project_root=None, refresh: bool = False, version=None) -> Path:
+def ensure(*, installation=None, project_root=None, version=None) -> Path:
     """Install the set if this workspace has none, prove the one it has, and return its directory.
 
-    A version is append-only: an installed one is never rewritten, so `refresh` installs the version this code
-    names when it is absent and cannot adopt new upstream bytes under an old name. A named version that is not
+    A version is append-only: an installed one is never rewritten, so this installs the version this code names
+    when it is absent and cannot adopt new upstream bytes under an old name. A named version that is not
     installed, or whose witness disagrees, is refused; another version is never served in its place.
     """
     base = Path(installation) if installation is not None else root()
@@ -204,10 +188,6 @@ def ensure(*, installation=None, project_root=None, refresh: bool = False, versi
     if VERSION in installed:
         _prove(installed[VERSION], VERSION)
         return installed[VERSION]
-    if LEGACY_VERSION in installed and installed == {LEGACY_VERSION: base}:
-        # The flat install is the set this workspace has: it keeps its own digest claim and is never replaced by
-        # another version behind the caller's back.
-        return _legacy_ensure(base, project_root, refresh)
     if installed:
         known = ', '.join(sorted(installed, key=_version_key))
         raise ValueError(f'the Martini 3 set installed at {base} has no version {VERSION!r} (installed: {known}); '
@@ -230,36 +210,6 @@ def _upstream_file(name: str, project_root=None) -> Path:
     return source
 
 
-def _expected(project_root=None) -> dict:
-    """Upstream identity of every file of the set: `{name: {sha256, bytes, source}}`, hashed once per stamp."""
-    base = Path(project_root or paths.current().project_root)
-    stamp = tuple((name, *_stat(_upstream_file(name, project_root)))
-                  for name in names(project_root))
-    key = (str(base), stamp)
-    cached = _expected_cache.get(key)
-    if cached is None:
-        cached = {}
-        for name in names(project_root):
-            source = _upstream_file(name, project_root)
-            cached[name] = {'sha256': files.sha256(source), 'bytes': source.stat().st_size,
-                            'source': _relative(source, base)}
-        _expected_cache.clear()
-        _expected_cache[key] = cached
-    return cached
-
-
-def _stat(path: Path) -> tuple[int, int]:
-    stat = path.stat()
-    return stat.st_size, stat.st_mtime_ns
-
-
-def _relative(path: Path, base: Path) -> str:
-    try:
-        return path.resolve().relative_to(base.resolve()).as_posix()
-    except ValueError:
-        return path.resolve().as_posix()
-
-
 @contextmanager
 def _locked(base: Path):
     with (Path(base) / '.install.lock').open('w') as handle:
@@ -268,14 +218,6 @@ def _locked(base: Path):
             yield
         finally:
             fcntl.lockf(handle, fcntl.LOCK_UN)
-
-
-def _install(base: Path, expected: dict, project_root=None) -> None:
-    for name in expected:
-        destination = Path(base) / name
-        temporary = destination.with_name(f'.{name}.{os.getpid()}.tmp')
-        shutil.copyfile(_upstream_file(name, project_root), temporary)
-        os.replace(temporary, destination)
 
 
 def _install_version(base: Path, version: str, project_root=None) -> Path:
@@ -302,48 +244,12 @@ def _install_version(base: Path, version: str, project_root=None) -> Path:
     return target
 
 
-def _legacy_ensure(base: Path, project_root=None, refresh: bool = False) -> Path:
-    """The flat install, verified exactly as it was: its own digest manifest against the upstream set."""
-    base = Path(base)
-    expected = _expected(project_root)
-    signature = files.json_sha256({'source': SOURCE, 'files': expected})
-    cached = (str(base), signature)
-    if cached in _verified:
-        # The digests were checked once in this process; a file that has gone missing since still has to be noticed,
-        # because a reader would otherwise open nothing.
-        _verify_present(base, expected)
-        return base
-    with _locked(base):
-        recorded = json.loads((base / MANIFEST_NAME).read_text())
-        if refresh:
-            _install(base, expected, project_root)
-            files.atomic_json(base / MANIFEST_NAME, {'source': SOURCE, 'files': expected,
-                                                     'installed_at': files.now_iso()})
-        elif recorded.get('files') != expected:
-            _refuse_divergence(base, recorded.get('files') or {}, expected)
-        else:
-            _verify_installed(base, expected)
-    _verified.add(cached)
-    return base
-
-
 def _prove(target: Path, version: str) -> None:
     """Refuse an install whose witness is missing or names another version/upstream, or whose files are gone."""
     target = Path(target)
     record = _witness(target)
     if record is None:
         raise ValueError(f'the Martini 3 install at {target} has no {MANIFEST_NAME} witness')
-    if version == LEGACY_VERSION:
-        recorded = record.get('files')
-        if not isinstance(recorded, dict) or not recorded:
-            raise ValueError(f'the Martini 3 install at {target} records no files to verify')
-        for name, entry in recorded.items():
-            installed = target / str(name)
-            if not installed.is_file():
-                raise ValueError(f'the installed Martini 3 set is missing {installed}')
-            if files.sha256(installed) != (entry or {}).get('sha256'):
-                raise ValueError(f'the installed Martini 3 file changed since it was installed: {installed}')
-        return
     if record.get('version') != version:
         raise ValueError(f'the Martini 3 install at {target} states version {record.get("version")!r}, '
                          f'not {version!r}')
@@ -355,26 +261,3 @@ def _prove(target: Path, version: str) -> None:
     missing = [str(name) for name in recorded if not (target / str(name)).is_file()]
     if missing:
         raise ValueError(f'the installed Martini 3 set is missing {", ".join(missing)} at {target}')
-
-
-def _verify_installed(target: Path, expected: dict) -> None:
-    _verify_present(target, expected)
-    for name, record in expected.items():
-        destination = Path(target) / name
-        if files.sha256(destination) != record['sha256']:
-            raise ValueError(f'the installed Martini 3 file changed since it was installed: {destination}')
-
-
-def _verify_present(target: Path, expected: dict) -> None:
-    for name in expected:
-        if not (Path(target) / name).is_file():
-            raise ValueError(f'the installed Martini 3 set is missing {Path(target) / name}')
-
-
-def _refuse_divergence(target: Path, recorded: dict, expected: dict) -> None:
-    changed = sorted(name for name in set(recorded) | set(expected)
-                     if (recorded.get(name) or {}).get('sha256') != (expected.get(name) or {}).get('sha256'))
-    raise ValueError(
-        f'the Martini 3 upstream no longer matches the set installed at {target} '
-        f'({", ".join(changed) or "unknown difference"}); reinstall deliberately with '
-        f'martini3.ensure(refresh=True) or by removing {target}')

@@ -526,17 +526,16 @@ def catalogue(root, *, generate_metadata=False):
             if path.is_dir() and not path.is_symlink() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', path.name)]
 
 
-def selection(root, molecule_id, run_type='aa_cg', *, version=None, digests=False):
+def selection(root, molecule_id, run_type='aa_cg', *, version=None):
     """One run's molecule selection: where it is, which version, and the metadata a run needs.
 
     The selection names the molecule and its version; it deliberately carries no per-file digest, because the
-    version directory is the change detector. `digests=True` builds the shape an older run recorded -- files by
-    digest and no version -- so a queued run keeps verifying exactly as it always did.
+    version directory is the change detector.
     """
-    return _selection(inspect(root, molecule_id, version=version, generate_metadata=True), run_type, digests)
+    return _selection(inspect(root, molecule_id, version=version, generate_metadata=True), run_type)
 
 
-def _selection(record, run_type='aa_cg', digests=False):
+def _selection(record, run_type='aa_cg'):
     if run_type == 'cg':
         capability = record['capabilities']['cg']
         if not capability['executable']: raise ValueError('; '.join(capability['blockers']))
@@ -549,11 +548,6 @@ def _selection(record, run_type='aa_cg', digests=False):
         raise ValueError('; '.join(record['blockers']))
     snapshot = {key: record[key] for key in ('id', 'version', 'path', 'metadata', 'inputs')}
     snapshot['atom_count'] = record['atom_count']
-    if digests:
-        # The shape written before versions: a name, no version, and one digest per file.
-        snapshot.pop('version', None)
-        snapshot.update(name=record['name'], sha256=record['sha256'],
-                        reference_sha256=record['reference_sha256'])
     if 'adapter_sources' in record:
         snapshot['adapter_sources'] = record['adapter_sources']
     if run_type == 'cg':
@@ -566,10 +560,10 @@ def _selection(record, run_type='aa_cg', digests=False):
 
 
 def verify_selection(root, snapshot):
-    """Refuse a selection whose molecule, version or shape no longer reads as it did when it was queued.
+    """Refuse a selection whose molecule or version no longer reads as it did when it was queued.
 
-    A selection that carries per-file digests was written before version directories: it is verified against the
-    folder the old catalogue read (the id folder itself) and its own digests, exactly as it always was.
+    An unversioned folder names itself as version `None`: it is still its own version, so it is verified against the
+    id folder itself and an import of a new version beside it cannot move a queued run onto different files.
     """
     if not isinstance(snapshot, dict):
         raise ValueError('A molecule selection must be an object')
@@ -578,16 +572,13 @@ def verify_selection(root, snapshot):
     # the AA branch about it would report a molecule whose files are fine as a changed molecule.
     run_type = 'cg' if snapshot.get('kind') == 'cg' else (
         'aa_only' if snapshot.get('adapter') == 'aa-charmm36' else 'aa_cg')
-    legacy_shape = ('sha256' in snapshot or 'reference_sha256' in snapshot
-                    or ('version' in snapshot and snapshot.get('version') is None))
-    if legacy_shape:
-        # The digest shape, or the unversioned folder named as its own version: both read the id folder itself, so an
-        # import of a new version beside it cannot move a queued run onto different files.
+    if 'version' in snapshot and snapshot.get('version') is None:
+        # The unversioned folder named as its own version: it reads the id folder itself, so an import of a new
+        # version beside it cannot move a queued run onto different files.
         folder = Path(root) / snapshot['id']
         if folder.is_symlink() or not folder.is_dir():
             raise ValueError('Molecule directory is unavailable or is a symlink')
-        expected = _selection(_inspect_folder(snapshot['id'], folder, None, True), run_type,
-                              digests='sha256' in snapshot or 'reference_sha256' in snapshot)
+        expected = _selection(_inspect_folder(snapshot['id'], folder, None, True), run_type)
     else:
         expected = selection(root, snapshot['id'], run_type, version=snapshot.get('version'))
     if expected != snapshot:

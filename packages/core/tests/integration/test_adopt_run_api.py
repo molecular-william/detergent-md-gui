@@ -6,8 +6,6 @@ AA run -- or names the reason it cannot -- so Bond Interactions can use a refere
 """
 import json
 
-from dashboard import files
-
 RUN = 'a1b2c3d4e5f6'
 
 
@@ -17,9 +15,9 @@ def pasted(dashboard):
     (run / 'inputs').mkdir(parents=True)
     document = {'inputs': []}
     (run / 'inputs' / 'inputs.json').write_text(json.dumps(document))
-    manifest = {'id': RUN, 'run_type': 'aa_only', 'status': 'completed', 'layout_version': 2,
+    manifest = {'id': RUN, 'run_type': 'aa_only', 'status': 'completed', 'layout_version': 4,
                 'molecule_id': 'Fixture', 'stage_plan': ['AA solvation'], 'stages': [],
-                'inputs': [], 'input_snapshot_sha256': files.json_sha256(document)}
+                'inputs': []}
     (run / 'manifest.json').write_text(json.dumps(manifest))
     return run
 

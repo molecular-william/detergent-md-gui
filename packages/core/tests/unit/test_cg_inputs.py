@@ -55,7 +55,7 @@ NOT_COPIED = ('3_initial_CG/martini_v3.0.0.itp',
 def fitted(candidate, files=('1_B01_1_B02_distances_distr.dat', 'B01_B02_B05_angles_distr.dat',
                              'B01_B11_bonds_distr.dat')):
     """Save a revision the way a real fit does: with the AA reference's histograms in its working directory."""
-    work = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{REFERENCE["source_run_id"]}'
+    work = parameterization.work_root() / f'{parameterization.address(candidate)}--{REFERENCE["source_run_id"]}'
     stage = work / '3_initial_CG'
     stage.mkdir(parents=True, exist_ok=True)
     for name in files:

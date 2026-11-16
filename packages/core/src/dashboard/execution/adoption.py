@@ -44,13 +44,27 @@ def _analyses(run):
     """The run's own analysis attempts, from the manifest each attempt directory carries.
 
     The task list is part of the job row, and a directory-only copy would otherwise show the Run view's analysis
-    checklist as empty. Each attempt directory carries the manifest the coordinator wrote, at whichever depth its
-    layout gives it (analyses/<kind>/<NNNN-date>/ now, analyses/<kind>/<signature>/<attempt>/ before), so the walk is
-    depth-agnostic rather than pinned to one shape; a task the sender left queued/running is adopted as failed,
-    because no worker here owns it.
+    checklist as empty. Two shapes are readable: a sequenced attempt `analyses/<kind>/<NNNN-date>/`, which holds its
+    manifest, and a stable kind's published root `analyses/<kind>/`. A tree written before sequences (a copied run's
+    stale `analyses/<kind>/<signature>/<attempt>/`) is not an attempt and must not become a ghost task. A task the
+    sender left queued/running is adopted as failed, because no worker here owns it.
     """
+    from ..analysis.runs import figures
     tasks = {}
-    for manifest in sorted((run / 'analyses').rglob('manifest.json')):
+    manifests = []
+    root = run / 'analyses'
+    if root.is_dir():
+        for kind_dir in sorted(root.iterdir()):
+            if kind_dir.is_symlink() or not kind_dir.is_dir():
+                continue
+            if (kind_dir / 'manifest.json').is_file():
+                manifests.append(kind_dir / 'manifest.json')
+            for attempt in sorted(kind_dir.iterdir()):
+                if attempt.is_symlink() or not attempt.is_dir() or figures.SEQUENCE.fullmatch(attempt.name) is None:
+                    continue
+                if (attempt / 'manifest.json').is_file():
+                    manifests.append(attempt / 'manifest.json')
+    for manifest in manifests:
         try:
             task = json.loads(manifest.read_text())
         except (OSError, ValueError):
@@ -79,7 +93,7 @@ def _record(run, manifest):
         'run_type': manifest.get('run_type'),
         'status': status,
         'stage': 'complete' if status == 'completed' else None,
-        'layout_version': manifest.get('layout_version') or 2,
+        'layout_version': manifest.get('layout_version'),
         'molecule_id': molecule,
         'molecule_snapshot': manifest.get('molecule_snapshot'),
         'settings': manifest.get('settings') or {},

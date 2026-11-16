@@ -56,7 +56,7 @@ def publish(dashboard, jid, comparison=None, analyses=None):
     if analyses is not None:
         record['analyses'] = analyses
     dashboard.coordinator.database().replace([record])
-    attempt = runs / jid / 'analyses/mapping-consistency/hash/attempt1'
+    attempt = runs / jid / 'analyses/mapping-consistency/0001-20261001'
     output = attempt / 'output/abc123/analysis'
     output.mkdir(parents=True)
     (output / 'mapping_consistency.json').write_text(json.dumps(comparison or COMPARISON))
@@ -94,7 +94,7 @@ CROSS_CHECK = {
 
 def publish_cross_check(dashboard, jid):
     """Leave behind what `analysis.worker` leaves behind for a completed bonded cross-check."""
-    attempt = dashboard.coordinator.RUNS / jid / 'analyses/bonded-cross-check/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/bonded-cross-check/0001-20261001'
     output = attempt / 'output/abc123'
     output.mkdir(parents=True)
     (output / 'bonded-cross-check.json').write_text(json.dumps(CROSS_CHECK))
@@ -134,7 +134,7 @@ SURFACE_PAIR = {
 
 def publish_surfaces(dashboard, jid):
     """Leave behind what `analysis.worker` leaves behind for a completed surfaces analysis."""
-    attempt = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/surfaces/0001-20261001'
     output = attempt / 'output/abc123'
     surfaces = output / 'analysis/surfaces'
     surfaces.mkdir(parents=True)
@@ -169,7 +169,7 @@ OVERLAP = {
 
 def publish_overlap(dashboard, jid):
     """Leave behind what `analysis.worker` leaves behind for a completed overlap analysis."""
-    attempt = dashboard.coordinator.RUNS / jid / 'analyses/overlap/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/overlap/0001-20261001'
     output = attempt / 'output/abc123'
     output.mkdir(parents=True)
     (output / 'overlap.json').write_text(json.dumps(OVERLAP))

@@ -36,7 +36,6 @@ AREAS = {
     'bonded': (
         'unit/test_bonded*', 'unit/test_bartender_fit.py', 'unit/test_dihedral_fit.py',
         'unit/test_prepare_ring_constraints.py', 'unit/test_parameterization_*', 'unit/test_fitted_reference.py',
-        'unit/test_migrate_named_parameterizations.py',
         'unit/test_cg_parameterization_consumption.py', 'unit/test_cg_reference_distributions.py',
         'unit/test_cg_assessment_validation.py',
         'unit/test_migrate_parameterization_owners.py', 'unit/test_cg_models.py',
@@ -114,7 +113,8 @@ AREAS = {
         'unit/test_agents_contract.py', 'unit/test_tool_probe.py', 'unit/test_tools.py', 'unit/test_devices.py',
         'unit/test_gpu_launchers.py', 'unit/test_mdrun_gpu*.py', 'unit/test_protocol.py', 'unit/test_profiles.py',
         'unit/test_domain_errors.py', 'unit/test_named_defaults.py', 'unit/test_migrate_digests.py',
-        'unit/test_migrate_run_layout.py', 'unit/test_migrate_run_types.py', 'unit/test_mdp_writer.py',
+        'unit/test_migrate_run_layout.py', 'unit/test_migrate_run_types.py', 'unit/test_migrate_named_analyses.py',
+        'unit/test_migrate_named_records.py', 'unit/test_mdp_writer.py',
         'unit/test_martini3.py',
         'unit/test_module_layout.py', 'unit/test_module_visibility.py', 'unit/test_test_areas.py',
         'unit/test_test_modules.py',

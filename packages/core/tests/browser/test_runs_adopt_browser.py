@@ -20,9 +20,9 @@ def paste(dashboard, run_id=RUN, *, run_type='aa_only', **extra):
     (run / 'inputs').mkdir(parents=True)
     document = {'inputs': []}
     (run / 'inputs' / 'inputs.json').write_text(json.dumps(document))
-    manifest = {'id': run_id, 'run_type': run_type, 'status': 'completed', 'layout_version': 2,
+    manifest = {'id': run_id, 'run_type': run_type, 'status': 'completed', 'layout_version': 4,
                 'molecule_id': 'Fixture', 'stage_plan': ['AA solvation'], 'stages': [],
-                'inputs': [], 'input_snapshot_sha256': files.json_sha256(document)}
+                'inputs': []}
     manifest.update(extra)
     files.atomic_json(run / 'manifest.json', manifest)
     return run

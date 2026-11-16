@@ -648,7 +648,7 @@ def test_a_molecule_scopes_its_mappings_and_offers_its_published_reference(dashb
     page.wait_for_timeout(400)
     assert term_posts == [], term_posts
     # No parameterization record is read for a reference: the published model states its own ITP and has no revision.
-    assert not [url for url in record_reads if detail['mapping_content_hash'] in url], record_reads
+    assert not [url for url in record_reads if detail['mapping_hash'] in url], record_reads
 
     # Leaving the reference for the saved mapping restores the pane; a draft still has no stored revision to save.
     pane_id(page, 'bonded-parameterization-display').select_option(f'draft:{sucrose["file"]}')

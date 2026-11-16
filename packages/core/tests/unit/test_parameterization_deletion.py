@@ -1,10 +1,8 @@
 """Deleting a mapping takes its parameterization with it, by the name the record carries.
 
 The owner's rule is one sentence: "when a CG mapping is deleted, all its corresponding bond interactions are also
-deleted." A record is now addressed by the mapping's name, so deleting the mapping removes what that name addresses:
-its record, its revisions, its fit jobs and the working directories those fits built. A record written before names
-were addresses has no name of its own; it still goes when the deleted draft is the last one carrying its content, which
-is the old holder question asked for the legacy shape only.
+deleted." A record is addressed by the mapping's name, so deleting the mapping removes what that name addresses:
+its record, its revisions, its fit jobs and the working directories those fits built.
 
 Nothing here reads a developer's workspace: the drafts land in a root this test owns and the parameterization in the
 isolated workspace the `dashboard` fixture selects.
@@ -81,20 +79,6 @@ def test_deleting_the_mapping_removes_its_record_every_revision_jobs_and_work(dr
     assert (jobs / f'{"b" * 16}.json').exists()
 
 
-def test_a_legacy_work_directory_is_removed_with_its_mapping_too(drafts):
-    """A pair fitted before names were addresses worked in `<content hash>-<run>`; it goes with the mapping."""
-    candidate = mapping(name='solo')
-    parameterization.save(candidate, revision())
-    content = parameterization.content_identity(candidate)
-    work = parameterization.work_root() / f'{content}-{"b" * 12}'
-    work.mkdir(parents=True)
-
-    removed = candidate_store.delete_draft(save_draft(drafts, 'solo'))
-
-    assert removed['parameterization']['work'] == [work.name]
-    assert not work.exists()
-
-
 def test_deleting_a_name_that_a_different_model_holds_keeps_that_record(drafts):
     """A name answers one model; deleting a draft that happens to share content is not that model's deletion."""
     candidate = mapping(name='first')
@@ -108,23 +92,6 @@ def test_deleting_a_name_that_a_different_model_holds_keeps_that_record(drafts):
     assert 'name' in kept['reason']
     assert (parameterization.records_root() / 'first.json').exists()
     assert parameterization.one('first')['revision'] == 1
-
-
-def test_a_legacy_record_no_name_answers_is_removed_with_the_last_holder(drafts):
-    """The old shape is still deleted the old way: its hash record goes when no draft carries its content."""
-    candidate = mapping()
-    content = parameterization.content_identity(candidate)
-    legacy = {**parameterization.identities(candidate), 'revision': 1,
-              'current': {'revision': 1}, 'revisions': [{'revision': 1}]}
-    path = parameterization.records_root() / f'{content}.json'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(legacy))
-
-    result = candidate_store.delete_draft(save_draft(drafts, 'solo', beads=candidate['beads']))
-
-    assert result['parameterization']['deleted'] is True
-    assert result['parameterization']['revisions'] == [1]
-    assert not path.exists()
 
 
 def test_deleting_a_parameterization_that_is_not_there_is_not_an_error():

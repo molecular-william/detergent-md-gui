@@ -13,9 +13,9 @@ The analyses themselves are not run: a worker standing in for the subprocess is 
 producer does about its sources is pinned where the producer lives.
 """
 import json
-import os
 import re
 import time
+from pathlib import Path
 
 from tests.harness import support
 
@@ -210,29 +210,28 @@ def test_an_edited_payload_mints_the_next_attempt_number(dashboard, monkeypatch)
 
 
 
-def test_the_published_reader_lists_a_sequenced_attempt_and_a_legacy_one(dashboard, monkeypatch):
-    """Both trees answer the same reader: the sequenced attempt holds its record at the attempt root, the legacy one
-    one level deeper inside its signature, and an attempt whose published file is gone falls through to the other."""
+def test_the_published_reader_answers_the_newest_attempt_whose_file_stands(dashboard, monkeypatch):
+    """The sequenced attempt holds its record at its root, and an attempt whose published file is gone falls
+    through to the older one that still stands."""
     from dashboard.web.routes.analyses import newest_cross_check
 
     coordinator, run = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
-    legacy = run / 'analyses' / 'bonded-cross-check' / 'signature' / 'attempt-one'
     report = {'molecule': 'DDM', 'disagreements': [['B01', 'B02']]}
-    _publish(legacy, report)
-    os.utime(legacy / 'result.json', (1_000_000.0, 1_000_000.0))
-
-    task, _ = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
-    sequenced = run / task['directory']
-    _publish(sequenced, report)
+    older, _ = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+    settle(coordinator, older)
+    _publish(run / older['directory'], report)
+    newer, _ = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {'threshold': 0.2})
+    settle(coordinator, newer)
+    _publish(run / newer['directory'], report)
 
     found = newest_cross_check(coordinator, coordinator.lookup(JID))
-    assert found is not None and found[0].name == sequenced.name, 'the newer attempt is the answer'
+    assert found is not None and found[0].name == Path(newer['directory']).name, 'the newer attempt is the answer'
 
-    (sequenced / 'output' / 'key' / 'bonded-cross-check.json').unlink()
+    (run / newer['directory'] / 'output' / 'key' / 'bonded-cross-check.json').unlink()
     found = newest_cross_check(coordinator, coordinator.lookup(JID))
 
-    assert found is not None and found[0].name == 'attempt-one', 'the legacy tree is still readable'
+    assert found is not None and found[0].name == Path(older['directory']).name,         'the older attempt that still stands is the answer'
 
 
 def _publish(attempt, report):

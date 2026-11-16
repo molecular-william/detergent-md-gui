@@ -15,27 +15,15 @@ EDITION = 1
 
 
 def identity(snapshot):
-    """The identity of a molecule *selection*, from its per-file digests and its chemistry.
+    """The identity of a molecule *selection*: the molecule and the version it pinned, plus its chemistry.
 
-    Two spellings are read because two exist: `reference_sha256` is what `molecules/aa.py` writes into a selection, and
-    `sha256` is the older name for the same map. What is *not* accepted is the scalar of the same name that a reference
-    block carries (`bonded/fitting.py`): that is a digest of one published `reference.json`, and feeding it here was an
-    `AttributeError` on `.items()`. The eager default that used to sit here was worse -- `snapshot.get('reference_sha256',
-    snapshot['sha256'])` raised `KeyError('sha256')` for a snapshot that had the one key it was looking for.
+    A selection names its folder, not its bytes, so its identity is the molecule and the version. Two versions of one
+    molecule must not share an identity, or every reference picker matches both and a fit measured on v1 is offered for
+    v2's run.
     """
     metadata=snapshot['metadata']
-    digests=(snapshot.get('reference_files_sha256') or snapshot.get('reference_sha256')
-             or snapshot.get('sha256') or {})
-    if not isinstance(digests, dict):
-        raise ValueError('A molecule selection states per-file digests; this is a single digest')
     chemistry={k:metadata[k] for k in ('force_field','water_model','molecule_type','net_charge')}
-    if not digests:
-        # A versioned selection names its folder, not its bytes: its identity is the molecule and the version it pinned,
-        # plus the chemistry. Two versions of one molecule must not share an identity, or every reference picker matches
-        # both and a fit measured on v1 is offered for v2's run.
-        return hashlib.sha256(json.dumps({'molecule':{'id':snapshot.get('id'),'version':snapshot.get('version')},
-            'chemistry':chemistry},sort_keys=True).encode()).hexdigest()
-    return hashlib.sha256(json.dumps({'files':{k:v for k,v in digests.items() if k!='metadata.json'},
+    return hashlib.sha256(json.dumps({'molecule':{'id':snapshot.get('id'),'version':snapshot.get('version')},
         'chemistry':chemistry},sort_keys=True).encode()).hexdigest()
 
 
@@ -109,27 +97,17 @@ def referenced_sources(context):
         if measured!=context.get('force_field_sha256'):raise ValueError('Force-field tree changed since this run was prepared: '+str(tree))
         sources.append({'role':'force_field','label':tree.name,'kind':'directory',**_locator(tree),
                         'sha256':files.json_sha256(measured),'files':len(measured)})
-    folder=context.get('molecule_directory');snapshot=context.get('molecule_snapshot') or {}
+    folder=context.get('molecule_directory')
     if folder:
         folder=Path(folder)
-        digests=snapshot.get('sha256') or {}
-        if digests:
-            for relative,digest in sorted(digests.items()):
-                path=folder/relative
-                if path.is_symlink() or not path.is_file():raise ValueError('Molecule file is missing: '+str(path))
-                measured=files.sha256(path)
-                if measured!=digest:raise ValueError('Molecule file changed since this run was prepared: '+relative)
-                sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
-                                'sha256':measured,'bytes':path.stat().st_size})
-        else:
-            # A versioned selection names its folder, not its bytes. The version directory is the promise; the
-            # publication still records every file it read, one by one, as evidence of what this reference was built
-            # from -- the record is provenance, and nothing compares it before a run starts.
-            for path in sorted(item for item in folder.rglob('*') if item.is_file() and not item.is_symlink()):
-                relative=path.relative_to(folder).as_posix()
-                measured=files.sha256(path)
-                sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
-                                'sha256':measured,'bytes':path.stat().st_size})
+        # A selection names its folder, not its bytes. The version directory is the promise; the publication still
+        # records every file it read, one by one, as evidence of what this reference was built from -- the record is
+        # provenance, and nothing compares it before a run starts.
+        for path in sorted(item for item in folder.rglob('*') if item.is_file() and not item.is_symlink()):
+            relative=path.relative_to(folder).as_posix()
+            measured=files.sha256(path)
+            sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
+                            'sha256':measured,'bytes':path.stat().st_size})
     return sources
 
 

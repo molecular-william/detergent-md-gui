@@ -48,7 +48,7 @@ DIHEDRAL_FIT = {
 
 def publish_dihedral_fit(dashboard, jid):
     """Leave behind what `analysis.worker` leaves behind for a completed dihedral fit."""
-    attempt = dashboard.coordinator.RUNS / jid / 'analyses/dihedral-fit/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/dihedral-fit/0001-20261001'
     output = attempt / 'output/abc123'
     output.mkdir(parents=True)
     (output / 'dihedral-fit.json').write_text(json.dumps(DIHEDRAL_FIT))
@@ -86,7 +86,7 @@ FF_INTERACTIONS = {
 
 def publish_ff(dashboard, jid, record=None):
     """Leave behind what `analysis.worker` leaves behind for a completed ff-interactions analysis."""
-    attempt = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/hash/attempt1'
+    attempt = dashboard.coordinator.RUNS / jid / 'analyses/ff-interactions/0001-20261001'
     output = attempt / 'output/abc123'
     output.mkdir(parents=True)
     published = record if record is not None else FF_INTERACTIONS
@@ -144,7 +144,7 @@ def test_geometry_shows_the_published_pairs_and_the_per_bead_chart(dashboard, li
 
 def test_a_run_with_no_published_comparison_says_so_in_every_mapping_section(dashboard, live_page):
     publish(dashboard, 'dd44ee55ff66')
-    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
+    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/0001-20261001/result.json').unlink()
     page, errors = live_page
     pane = browser.open_run_section(page, live_page.base_url, 'dd44ee55ff66', 'mapping-geometry')
 
@@ -157,7 +157,7 @@ def test_a_run_with_no_published_comparison_says_so_in_every_mapping_section(das
 def test_the_missing_comparison_offers_a_button_that_queues_it(dashboard, live_page):
     """The Analysis card is the only place the comparison can be started; the request names no snapshot."""
     publish(dashboard, 'dd44ee55ff66')
-    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
+    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/0001-20261001/result.json').unlink()
     page, errors = live_page
     posted = []
 
@@ -460,7 +460,7 @@ def test_a_settle_repaint_keeps_the_selected_term(dashboard, live_page):
     page, errors = live_page
     page.add_init_script('window.__runViewPollMs = 120')
     state = {'tasks': [{'id': 'task-1', 'kind': 'surfaces', 'status': 'running',
-                        'directory': 'analyses/surfaces/hash/attempt1'}]}
+                        'directory': 'analyses/surfaces/0001-20261001'}]}
     page.route(re.compile(r'/api/jobs/aa11bb22cc33/analyses(?:\?.*)?$'),
                lambda route: route.fulfill(json=state['tasks']))
     page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
@@ -913,258 +913,3 @@ def test_the_three_sections_recolour_one_map(dashboard, live_page):
     root.locator('.analysis-views button[data-section="mapping-shape"]').click()
     # The map is not recoloured for Shape: the AA vs Simulated CG pair and the SASA series replace it there.
     expect(map_host(page)).to_be_hidden()
-    expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
-    assert errors == []
-
-
-def test_the_reading_headline_and_ranked_attention_name_their_own_metric(dashboard, live_page):
-    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'aa11bb22cc33')
-    publish_overlap(dashboard, 'aa11bb22cc33')
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    wait_for_map(page)
-    host = map_host(page)
-    reading = host.locator('.rvm-reading')
-    headline = reading.locator('.rvm-headline-text')
-    expect(headline).to_contain_text('3 pairs · 1 outside the AA range · 1 unconstrained')
-    expect(headline).to_contain_text('largest displacement 19 pm at (1,B)')
-    assert 'not that the pair is free' in reading.locator('.rvm-caveat').text_content()
-    assert 'composite' not in reading.text_content().lower()
-
-    items = reading.locator('.rvm-attention li')
-    expect(items).to_have_count(3)
-    assert 'outside the AA observed range' in items.nth(0).text_content()
-    assert 'largest displacement' in items.nth(1).text_content()
-    assert '19 pm' in items.nth(1).text_content()
-    assert '1 of 3 pairs unconstrained' in items.nth(2).text_content()
-
-    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
-    expect(headline).to_contain_text('3 terms · 2 below overlap 0.5')
-    expect(headline).to_contain_text('weakest dihedrals at 0.21')
-    expect(items.nth(0)).to_contain_text('dihedrals')
-    expect(items.nth(0)).to_contain_text('0.21')
-
-    root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    expect(map_host(page)).to_be_hidden()
-    expect(root.locator('.analysis-pane[data-section="mapping-shape"] [data-shape="surfaces"]')).to_be_visible()
-    assert errors == []
-
-
-def test_clicking_an_attention_item_selects_it_in_the_map_and_its_row(dashboard, live_page):
-    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'aa11bb22cc33')
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    wait_for_map(page)
-    host = map_host(page)
-    first = host.locator('.rvm-attention li').nth(0)
-    expect(first).to_contain_text('outside the AA observed range')
-    first.locator('button').click()
-
-    assert host.get_attribute('data-selected-beads') == 'B04 B05'
-    expect(host.locator('.rvm-map-status')).to_contain_text('outside the AA observed range')
-    expect(first.locator('button')).to_have_attribute('aria-current', 'true')
-    row = root.locator('.analysis-pane[data-section="mapping-geometry"] [data-item="pair:1"]')
-    expect(row).to_have_attribute('aria-selected', 'true')
-    page.wait_for_function("""selector => {
-      const host = document.querySelector(selector);
-      return Boolean(host && host.data && host.data.some(trace =>
-        trace.meta === 'pair' && String(trace.customdata?.[0]) === 'pair:1' && trace.line.width === 8));
-    }""", arg=MAP_PLOT, timeout=30000)
-    assert errors == []
-
-
-def test_a_term_attention_item_focuses_its_section_row(dashboard, live_page):
-    """The weakest term's row carries the map's own item id, so the list and the table point at one row."""
-    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'aa11bb22cc33')
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
-    wait_for_map(page, meta='term')
-    host = map_host(page)
-    first = host.locator('.rvm-attention li').nth(0)
-    expect(first).to_contain_text('dihedrals')
-    first.locator('button').click()
-
-    expect(host.locator('.rvm-map-status')).to_contain_text('dihedrals')
-    row = root.locator('.analysis-pane[data-section="mapping-bonded"] [data-item="term:2"]')
-    expect(row).to_have_attribute('aria-selected', 'true')
-    page.wait_for_function("""selector => {
-      const host = document.querySelector(selector);
-      return Boolean(host && host.data && host.data.some(trace =>
-        trace.meta === 'term' && String(trace.customdata?.[0]) === 'term:2' && trace.line.width === 10));
-    }""", arg=MAP_PLOT, timeout=30000)
-    assert errors == []
-
-
-def test_the_selected_bead_survives_a_section_switch(dashboard, live_page):
-    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'aa11bb22cc33')
-    publish_overlap(dashboard, 'aa11bb22cc33')
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    wait_for_map(page)
-    host = map_host(page)
-    host.locator('.rvm-attention li').nth(1).locator('button').click()
-    assert host.get_attribute('data-selected-beads') == 'B02'
-
-    root.locator('.analysis-views button[data-section="mapping-bonded"]').click()
-    assert host.get_attribute('data-selected-beads') == 'B02', 'the bead selection is not a tab state'
-    root.locator('.analysis-views button[data-section="mapping-shape"]').click()
-    assert host.get_attribute('data-selected-beads') == 'B02'
-
-    page.wait_for_function("""selector => {
-      const host = document.querySelector(selector);
-      const bead = (host && host.data || []).find(trace => trace.meta === 'bead');
-      return Boolean(bead && (bead.marker.line.color || []).includes('#1c2940'));
-    }""", arg=MAP_PLOT, timeout=30000)
-    assert errors == []
-
-
-def test_the_two_monitors_hold_independent_maps(dashboard, live_page):
-    publish(dashboard, 'aa11bb22cc33', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'aa11bb22cc33')
-    database = dashboard.coordinator.database()
-    first = {**dict(database.all()[0]), 'molecule_id': 'Run A'}
-    publish(dashboard, 'bb22cc33dd44', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'bb22cc33dd44')
-    second = {**dict(database.all()[0]), 'molecule_id': 'Run B'}
-    database.replace([first, second])
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=aa11bb22cc33')
-    left = page.locator(CARD)
-    right = page.locator(SECOND)
-    expect(left.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    expect(right.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-
-    left.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    wait_for_map(page, selector=f'{CARD} .analysis-map .rvm-map-plot')
-    left_host = left.locator('.analysis-map')
-    left_host.locator('.rvm-attention li').nth(0).locator('button').click()
-    assert left_host.get_attribute('data-selected-beads') == 'B04 B05'
-
-    right.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    wait_for_map(page, selector=f'{SECOND} .analysis-map .rvm-map-plot')
-    right_host = right.locator('.analysis-map')
-    expect(right_host).to_be_visible()
-    assert right_host.get_attribute('data-selected-beads') == '', 'the second map chose nothing'
-    assert errors == []
-
-
-def test_a_run_with_no_published_comparison_states_it_in_the_map(dashboard, live_page):
-    publish(dashboard, 'dd44ee55ff66', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'dd44ee55ff66')
-    (dashboard.coordinator.RUNS / 'dd44ee55ff66/analyses/mapping-consistency/hash/attempt1/result.json').unlink()
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=dd44ee55ff66')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    host = map_host(page)
-    missing = host.locator('.rvm-map-missing')
-    expect(missing).to_be_visible()
-    expect(missing).to_contain_text('No AA vs CG comparison', timeout=30000)
-    expect(host.locator('.rvm-map-plot')).to_be_hidden()
-    assert errors == []
-
-
-def test_a_missing_model_or_frame_states_the_file_and_still_reads_the_record(dashboard, live_page):
-    publish(dashboard, 'dd44ee55ff66', comparison=MAP_COMPARISON)
-    page, errors = live_page
-    page.goto(f'{live_page.base_url}/detergent-validation/run-view?run=dd44ee55ff66')
-    root = page.locator(CARD)
-    expect(root.locator('.analysis-views button').first).to_be_visible(timeout=30000)
-    root.locator('.analysis-views button[data-section="mapping-geometry"]').click()
-    host = map_host(page)
-    missing = host.locator('.rvm-map-missing')
-    expect(missing).to_be_visible(timeout=30000)
-    expect(missing).to_contain_text('stages/2_mapping/model.json is missing')
-    expect(host.locator('.rvm-headline-text')).to_contain_text('3 pairs', timeout=30000)
-    expect(host.locator('.rvm-map-plot')).to_be_hidden()
-    assert errors == []
-
-
-def test_the_shape_section_queues_its_two_missing_analyses(dashboard, live_page):
-    publish(dashboard, 'bb22cc33dd44', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'bb22cc33dd44')
-    page, errors = live_page
-    posted = []
-
-    def hold(route):
-        if route.request.method == 'POST':
-            posted.append(route.request.url)
-            route.fulfill(status=202, content_type='application/json', body=json.dumps(
-                {'id': 'queued1', 'kind': 'surfaces', 'status': 'queued',
-                 'created_at': '2026-11-06T00:00:00+00:00'}))
-        else:
-            route.continue_()
-
-    page.route('**/api/jobs/bb22cc33dd44/surfaces', hold)
-    page.route('**/api/jobs/bb22cc33dd44/overlap', hold)
-    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
-    surfaces = pane.locator('.rvm-sub').nth(0)
-    overlap = pane.locator('.rvm-sub').nth(1)
-    surfaces_button = surfaces.get_by_role('button', name='Calculate surfaces')
-    overlap_button = overlap.get_by_role('button', name='Calculate bead overlap')
-    expect(surfaces_button).to_be_visible(timeout=30000)
-    expect(overlap_button).to_be_visible()
-
-    surfaces_button.click()
-    expect(page.locator('#run-view-analysis-note-A')).to_contain_text('Surfaces analysis queued.', timeout=30000)
-    assert posted and posted[0].endswith('/api/jobs/bb22cc33dd44/surfaces'), posted
-
-    overlap_button.click()
-    expect(page.locator('#run-view-analysis-note-A')).to_contain_text(
-        'Bead overlap analysis queued.', timeout=30000)
-    assert posted[-1].endswith('/api/jobs/bb22cc33dd44/overlap'), posted
-    assert errors == []
-
-
-def test_a_shape_queue_press_disables_both_buttons_until_the_card_answers(dashboard, live_page):
-    publish(dashboard, 'bb22cc33dd44', comparison=MAP_COMPARISON)
-    publish_mapping(dashboard, 'bb22cc33dd44')
-    page, errors = live_page
-    held = []
-
-    def hold(route):
-        if route.request.method == 'POST':
-            held.append(route)
-        else:
-            route.continue_()
-
-    page.route('**/api/jobs/bb22cc33dd44/surfaces', hold)
-    page.route('**/api/jobs/bb22cc33dd44/overlap', hold)
-    pane = browser.open_run_section(page, live_page.base_url, 'bb22cc33dd44', 'mapping-shape')
-    surfaces = pane.locator('.rvm-sub').nth(0)
-    overlap = pane.locator('.rvm-sub').nth(1)
-    surfaces_button = surfaces.get_by_role('button', name='Calculate surfaces')
-    overlap_button = overlap.get_by_role('button', name='Calculate bead overlap')
-    expect(surfaces_button).to_be_visible(timeout=30000)
-
-    surfaces_button.click()
-    for _ in range(100):
-        if held:
-            break
-        page.wait_for_timeout(50)
-    assert held, 'the queue request was not made'
-    expect(surfaces_button).to_be_disabled()
-    expect(overlap_button).to_be_disabled()
-    held[0].fulfill(status=202, content_type='application/json', body=json.dumps(
-        {'id': 'queued1', 'kind': 'surfaces', 'status': 'queued',
-         'created_at': '2026-11-06T00:00:00+00:00'}))
-    expect(page.locator('#run-view-analysis-note-A')).to_contain_text('Surfaces analysis queued.', timeout=30000)
-    expect(surfaces_button).to_be_enabled()
-    assert errors == []

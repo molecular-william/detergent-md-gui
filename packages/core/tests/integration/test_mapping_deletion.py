@@ -1,10 +1,9 @@
 """Deleting a saved mapping's draft takes its bond interactions with it, and the route says so.
 
 The owner's rule: "when a CG mapping is deleted, all its corresponding bond interactions are also
-deleted." The read side of that rule is `GET /api/bonded-parameterizations?content_hash=`, which is
-what the CG Bond Interactions panel asks: after the last draft holding a content hash is deleted it
-must answer nothing for that hash, and while another saved draft still carries the content it must
-still answer the revisions.
+deleted." The read side of that rule is `GET /api/bonded-parameterizations?name=`, which is what the
+CG Bond Interactions panel asks: after the mapping is deleted it must answer nothing for that name, and
+its recorded content identity is gone with it.
 
 These tests drive the real store and the real route -- no stubbed deletion -- in the workspace the
 `dashboard` fixture built under `tmp_path`; the developer's `workspace/` is never read.
@@ -51,8 +50,8 @@ def save(client, name='DDM'):
     return saved.json
 
 
-def parameterization_of(client, content_hash):
-    response = client.get('/api/bonded-parameterizations', query_string={'content_hash': content_hash})
+def parameterization_of(client, name):
+    response = client.get('/api/bonded-parameterizations', query_string={'name': name})
     assert response.status_code == 200
     return response.json
 
@@ -62,7 +61,7 @@ def test_the_delete_route_removes_the_parameterization_and_the_read_side_answers
     draft = save(client)
     content = draft['mapping_content_hash']
     parameterization.save(draft, revision())
-    assert parameterization_of(client, content)['summary']['parameterized'] is True
+    assert parameterization_of(client, draft['parameterization_name'])['summary']['parameterized'] is True
 
     response = client.delete('/api/mappings/drafts/' + draft['file'])
 
@@ -72,7 +71,7 @@ def test_the_delete_route_removes_the_parameterization_and_the_read_side_answers
     assert response.json['parameterization']['content_hash'] == content
     assert response.json['parameterization']['revisions'] == [1]
 
-    after = parameterization_of(client, content)
+    after = parameterization_of(client, draft['parameterization_name'])
     assert after['summary']['parameterized'] is False
     assert after['revisions'] == []
     assert after['jobs'] == []
@@ -96,7 +95,7 @@ def test_a_second_save_of_the_same_assignment_is_refused_naming_the_first(client
     assert [item['file'] for item in listed] == [first['file']], 'the refusal wrote nothing'
 
     parameterization.save(first, revision())
-    assert parameterization_of(client, first['mapping_content_hash'])['summary']['parameterized'] is True
+    assert parameterization_of(client, first['parameterization_name'])['summary']['parameterized'] is True
 
 
 def test_a_mapping_hash_does_not_answer_for_a_deleted_draft_either(client):

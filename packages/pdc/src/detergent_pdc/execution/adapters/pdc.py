@@ -416,33 +416,61 @@ def catalog(project_root):
 
 
 def _templates(root):
+    """The pdc templates on disk, one entry per molecule and version that holds one.
+
+    A molecule folder is `molecules/<id>/` or `molecules/<id>/<version>/`, and the version directories are
+    `aa_molecules`' to state: discovery walks each molecule's stated versions through `resolve` rather than
+    globbing `molecules/*/micelle_template.json`, which only ever saw the legacy shape. The legacy folder is still
+    listed beside a molecule's versions, because an import never replaces one; a versioned entry's id carries the
+    version so two folders of one molecule cannot collide in the panel.
+    """
+    from dashboard.models.molecules import aa as aa_molecules
+    root = Path(root)
+    molecule_root = root / 'molecules'
+    if not molecule_root.is_dir():
+        return []
+    template_name = 'micelle_template.json'
     templates = []
-    for path in sorted(root.glob('molecules/*/micelle_template.json')):
-        try:
-            record = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
+    for id_folder in sorted(molecule_root.iterdir()):
+        if id_folder.is_symlink() or not id_folder.is_dir():
             continue
-        molecule = path.parent.name
-        missing = [name for name in ('coordinates', 'topology')
-                   if not (path.parent / str(record.get(name, ''))).is_file()]
-        beads = record.get('beads') or [{}]
-        cg = _cg_molecule(path.parent)
-        templates.append({'id': f'{molecule}:{record.get("residue") or molecule}',
-                          'name': record.get('name') or molecule,
-                          'residue': record.get('residue') or molecule,
-                          'molecule': molecule,
-                          'template': str(path.relative_to(root)),
-                          'registered_type': str(beads[0].get('type') or ''),
-                          'files_present': not missing,
-                          'missing_files': missing,
-                          'limitations': (['the template names files that are missing: ' + ', '.join(missing)]
-                                          if missing else
-                                          ['the build places the molecule\'s own beads: this CG-only molecule is used '
-                                           'without a mapping and without a conformation library']
-                                          if cg else
-                                          ['the template states one bead at its own origin and no bead shape: a build '
-                                           'with a mapping takes its beads from the mapping, and a build without one '
-                                           'places one centre per molecule'])})
+        try:
+            versions = aa_molecules.versions(molecule_root, id_folder.name)
+            folders = [(id_folder, None)] + [
+                (aa_molecules.resolve(molecule_root, id_folder.name, version)[0], version)
+                for version in versions]
+        except ValueError:
+            continue
+        for folder, version in folders:
+            path = folder / template_name
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                record = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            molecule = id_folder.name
+            residue = record.get('residue') or molecule
+            missing = [name for name in ('coordinates', 'topology')
+                       if not (folder / str(record.get(name, ''))).is_file()]
+            beads = record.get('beads') or [{}]
+            cg = _cg_molecule(folder)
+            templates.append({'id': f'{molecule}:{residue}' if version is None else f'{molecule}:{residue}:{version}',
+                              'name': record.get('name') or molecule,
+                              'residue': residue,
+                              'molecule': molecule,
+                              'template': str(path.relative_to(root)),
+                              'registered_type': str(beads[0].get('type') or ''),
+                              'files_present': not missing,
+                              'missing_files': missing,
+                              'limitations': (['the template names files that are missing: ' + ', '.join(missing)]
+                                              if missing else
+                                              ['the build places the molecule\'s own beads: this CG-only molecule is '
+                                               'used without a mapping and without a conformation library']
+                                              if cg else
+                                              ['the template states one bead at its own origin and no bead shape: a '
+                                               'build with a mapping takes its beads from the mapping, and a build '
+                                               'without one places one centre per molecule'])})
     return templates
 
 
@@ -734,6 +762,30 @@ def _cg_molecule(folder):
     return isinstance(metadata, dict) and metadata.get('kind') == 'cg'
 
 
+def _molecule_id(folder, root):
+    """The molecule a template's folder belongs to: `molecules/<id>/`, not a version directory's own name.
+
+    Which directories under `molecules/<id>/` are versions is `aa_molecules`' to say, so the id is found by
+    resolving each molecule's stated versions and comparing the answer, rather than by counting path parts. A folder
+    outside `molecules/` keeps its own name: it is not a catalogue molecule, and nothing else names it.
+    """
+    from dashboard.models.molecules import aa as aa_molecules
+    folder = Path(folder)
+    molecule_root = Path(root) / 'molecules'
+    if molecule_root.is_dir() and not molecule_root.is_symlink():
+        for id_folder in sorted(molecule_root.iterdir()):
+            if id_folder.is_symlink() or not id_folder.is_dir():
+                continue
+            try:
+                versions = aa_molecules.versions(molecule_root, id_folder.name)
+            except ValueError:
+                continue
+            versioned = (aa_molecules.resolve(molecule_root, id_folder.name, version)[0] for version in versions)
+            if folder == id_folder or folder in versioned:
+                return id_folder.name
+    return folder.name
+
+
 def _cg_draft(folder):
     """The detergent draft a CG molecule folder supplies: its beads, positions and topology, with no mapping.
 
@@ -879,16 +931,17 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             continue
         (stage_root / Path(stage.relative).parent).mkdir(parents=True, exist_ok=True)
 
-    # What the run reads that already existed is named by path and digest rather than copied: the workspace's installed
-    # Martini 3 libraries, the detergent template's own topology, the protein and the mapping. The force field's record
-    # keeps the same digests, read from the same files, so the manifest and the input record cannot disagree.
+    # What the run reads that already existed is named by path rather than copied: the workspace's installed Martini 3
+    # libraries, the detergent template's own topology, the protein and the mapping. The force field is recorded by the
+    # version its own witness (martini3.json) proves, not by re-hashing every file: `martini3.ensure` has already refused
+    # a version whose witness disagrees, and the inputs name the versioned paths the stages read.
     references = []
-    forced = {}
+    installation = martini3.ensure()
     for name in FORCEFIELD_FILES:
-        source = martini3.path(name)
-        references.append(run_inputs.installed('force_field', source, label=name))
-        forced[name] = {'sha256': files.sha256(source), 'bytes': source.stat().st_size}
-    numbers['force_field'] = {**FORCEFIELD_SOURCE, 'files': forced, 'root': str(martini3.root())}
+        references.append(run_inputs.installed('force_field', installation / name, label=name))
+    version = installation.name
+    numbers['force_field'] = {**FORCEFIELD_SOURCE, 'version': version, 'files': list(FORCEFIELD_FILES),
+                              'root': str(martini3.root())}
     references.append(run_inputs.published('detergent_template', template_path.parent / record.topology,
                                            label=str(record.topology), repo_root=root))
     if protein_path is not None:
@@ -954,18 +1007,19 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         # stage reads one geometry file either way; what a mapping would add -- a fitted parameterization and a
         # conformation library matched bead for bead -- is stated as a limitation rather than invented.
         folder = template_path.parent
+        molecule = _molecule_id(folder, root)
         draft = _cg_draft(folder)
         (inputs / DETERGENT_TOPOLOGY).write_text(draft['topology'])
         (inputs / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
-        model = {'mapping': None, 'kind': 'cg', 'molecule': folder.name, 'residue': draft['residue'],
+        model = {'mapping': None, 'kind': 'cg', 'molecule': molecule, 'residue': draft['residue'],
                  'beads': len(draft['beads']), 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
-                 'source': f'the CG molecule {folder.name}, read from its own topology and coordinates'}
+                 'source': f'the CG molecule {molecule}, read from its own topology and coordinates'}
         topology_file = folder / draft['inputs']['topology']
         if _contains(root, topology_file):
             references.append(run_inputs.published_tree('detergent_model', folder,
-                                                        label=f'molecules/{folder.name}', repo_root=root))
+                                                        label=f'molecules/{molecule}', repo_root=root))
         else:
-            references.append(run_inputs.absolute('detergent_model', topology_file, label=f'molecules/{folder.name}'))
+            references.append(run_inputs.absolute('detergent_model', topology_file, label=f'molecules/{molecule}'))
         model_tail_beads = [str(bead['name']) for bead in draft['beads']
                             if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
         tail_beads_source = ("the CG molecule's own topology: beads of the aliphatic carbon series, because the "

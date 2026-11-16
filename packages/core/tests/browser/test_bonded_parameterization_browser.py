@@ -16,8 +16,8 @@ Four rules from this repository's history are held here rather than assumed:
 3. **A failure is shown as what it recorded.** The failed job's `error` and `log_tail` are both read off the page.
 4. **Every id is unique in the document**, which is checked over the whole rendered page and not only this panel.
 
-The record is addressed by the mapping's **content** hash, so the fixture reads that hash back from the route the
-panel reads it from (`/api/mappings/<file>`) instead of recomputing it and hoping the two agree.
+The record is addressed by the mapping's **name**: the store stamps a slug, and the fixture reads it back from the
+candidate the panel reads (`/api/mappings/<file>`) instead of recomputing it and hoping the two agree.
 """
 import json
 import re
@@ -166,9 +166,9 @@ def job(status='running', *, error=None, log_tail=None, **extra):
 
 
 def save(dashboard, name='E3 maltose mapping', molecule='DDM'):
-    """One saved candidate in the test's own workspace, and the two hashes the panel will address it by.
+    """One saved candidate in the test's own workspace, the record name it is addressed by, and its candidate hash.
 
-    Two models that differ only in `name` are the same *content*, and a record is selected by content identity --
+    Two models that differ only in `name` are the same *content*, and the store refuses saving that content twice --
     so a test that needs two distinct models asks for two distinct molecules rather than two names. The candidate is
     built the way the editor builds it -- scoped to the molecule and its snapshot -- because the catalogue route the
     panel now reads filters on both.
@@ -179,7 +179,7 @@ def save(dashboard, name='E3 maltose mapping', molecule='DDM'):
     candidate.update(name=name, molecule_id=molecule)
     saved = mappings.save_draft(candidate)
     detail = dashboard.client.get(f'/api/mappings/{saved["file"]}').get_json()
-    return saved, detail['mapping_content_hash'], detail['mapping_hash']
+    return saved, detail['parameterization_name'], detail['mapping_hash']
 
 
 def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, posts=None, patches=None,
@@ -363,10 +363,10 @@ def test_the_merged_fit_card_offers_its_target_the_engines_its_references_and_th
     page.locator('#bonded-torsion-model').select_option('legacy')
     expect(scale).to_be_disabled()
 
-    # The record was asked for by both identities the panel holds, and the empty state says which it is.
+    # The record was asked for by the address and the provenance the panel holds, and the empty state says which it is.
     reads = [url for url in asked if '/api/bonded-parameterizations?' in url]
     assert reads, asked
-    assert f'content_hash={content}' in reads[0] and f'mapping_hash={candidate}' in reads[0], reads[0]
+    assert f'name={content}' in reads[0] and f'mapping_hash={candidate}' in reads[0], reads[0]
     expect(pane(page, 'A').locator('#bonded-model-badge')).to_have_text('no parameterization')
     expect(page.locator('#bonded-result')).to_be_hidden()
     expect(page.locator('#bonded-revisions')).to_have_count(0)
@@ -526,7 +526,7 @@ def test_the_fit_button_posts_the_models_snapshot_and_the_options_the_panel_show
     # The snapshot itself, not its file name: the fit runs against the mapping the reader was looking at.
     assert payload['mapping']['file'] == saved['file']
     assert payload['mapping']['beads'], 'the request carried no beads, so it is not the candidate snapshot'
-    assert payload['mapping']['mapping_content_hash'] == content
+    assert payload['mapping']['mapping_content_hash'] == mappings.content_identity(saved)
     assert errors == [], errors
 
 
@@ -622,12 +622,12 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     outstanding. Without the token the late answer draws the old job's box over the new mapping's model card --
     the failure `run-view-monitor.js` was fixed for, in this panel's own shape.
     """
-    first, first_content, _ = save(dashboard, 'First model')
-    second, second_content, _ = save(dashboard, 'Second model', molecule='Sucrose')
-    assert first_content != second_content, 'the two fixtures are the same content, so this test compares nothing'
+    first, first_name, _ = save(dashboard, 'First model')
+    second, second_name, _ = save(dashboard, 'Second model', molecule='Sucrose')
+    assert first_name != second_name, 'the two fixtures share an address, so this test compares nothing'
     page, errors = live_page
     page.add_init_script('window.__bondedPollMs = 150')
-    records = {first_content: answer(jobs=[job()]), second_content: answer([revision(1)])}
+    records = {first_name: answer(jobs=[job()]), second_name: answer([revision(1)])}
     page.route(re.compile(r'/api/bonded-parameterizations/engines$'),
                lambda route: route.fulfill(json={'engines': list(ENGINES)}))
     page.route(re.compile(r'/api/references'),
@@ -635,7 +635,7 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     page.route(re.compile(r'/api/bonded-parameterizations/jobs\?'),
                lambda route: route.fulfill(json={'jobs': [job()]}))
     page.route(re.compile(r'/api/bonded-parameterizations\?'),
-               lambda route: route.fulfill(json=records[re.search(r'content_hash=([a-f0-9]+)', route.request.url).group(1)]))
+               lambda route: route.fulfill(json=records[re.search(r'name=([A-Za-z0-9_-]+)', route.request.url).group(1)]))
     # The delay is in the page, on the first mapping's job reads only: a route handler that slept would block
     # the very click this test needs to make while the answer is outstanding.
     page.add_init_script("""(() => {
@@ -803,9 +803,9 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
     then polls this target's record for a job that is not its own. The `busy` flag belongs to the answer that was
     dropped too: the card the reader is looking at has to be usable afterwards.
     """
-    first, first_content, _ = save(dashboard, 'First model')
-    second, second_content, _ = save(dashboard, 'Second model', molecule='Sucrose')
-    assert first_content != second_content, 'the two fixtures are the same content, so this test compares nothing'
+    first, first_name, _ = save(dashboard, 'First model')
+    second, second_name, _ = save(dashboard, 'Second model', molecule='Sucrose')
+    assert first_name != second_name, 'the two fixtures share an address, so this test compares nothing'
     page, errors = live_page
     stub(page, answer([revision(1)]))
     page.add_init_script("""(() => {
@@ -1288,7 +1288,7 @@ def test_the_panel_renders_a_revision_the_store_itself_made(dashboard, live_page
     fit ends with -- so what the panel reads is a stored record and not a fixture shaped like one; this used to run the
     reference-free engine instead, which made no MD and no frames and so was the only engine a test could run.
     """
-    saved, content, candidate = save(dashboard)
+    saved, _, candidate = save(dashboard)
     stored = parameterization.save(saved, revision(1))
     assert stored['revision'] == 1
 
@@ -1433,7 +1433,7 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
     behaviour: what goes is the revision history, the fit jobs that produced it, the frames those jobs built and the
     reference histograms recorded with them. The mapping stays, and the panel says so before and after.
     """
-    first, first_content, _ = save(dashboard, 'First model')
+    first, first_name, _ = save(dashboard, 'First model')
     page, errors = live_page
     record = answer([revision(1)], current=1)
     stub(page, record)
@@ -1444,7 +1444,7 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
         # The panel re-reads this model's record, which is now the honest absence: the mapping is untouched.
         page.route(re.compile(r'/api/bonded-parameterizations\?'),
                    lambda later: later.fulfill(json={'summary': summary(None, []), 'revisions': [], 'jobs': []}))
-        route.fulfill(json={'content_hash': first_content, 'deleted': True, 'revisions': [1],
+        route.fulfill(json={'name': first_name, 'deleted': True, 'revisions': [1],
                             'jobs': ['0123456789abcdef'], 'work': [], 'distributions': None})
 
     def accept(dialog):

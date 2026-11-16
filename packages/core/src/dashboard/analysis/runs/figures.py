@@ -1,11 +1,8 @@
 """Which of a run's published figures a reader is being shown, and which were superseded.
 
-A figure lives where its analysis published it, and the spelling depends on when the attempt was written:
-
-* `analyses/<kind>/<NNNN>-<YYYYMMDD>/<output>/...` -- the sequence layout. The attempt is its own published set:
-  another run of the analysis is another answer.
-* `analyses/<kind>/<signature>/<attempt>/<output>/...` -- a legacy tree, read as it stands and never rewritten. Every
-  attempt of one signature is one analysis result, so the signature directory is the set.
+A figure lives where its analysis published it: `analyses/<kind>/<NNNN>-<YYYYMMDD>/<output>/...`, where the
+sequenced attempt is its own published set and another run of the analysis is another answer. A stable kind publishes
+one set at its kind root (`analyses/frame-series`), which is a record rather than an attempt.
 
 Every attempt leaves its own copy beside the newer one. Measured on this workspace's own sucrose CG run: 38 images,
 33 of them the same three snapshot SVGs from eleven runs of the same analysis, so listing the index answers a
@@ -26,8 +23,7 @@ than have them disappear.
 import re
 
 #: A sequenced attempt directory: `NNNN-YYYYMMDD`. The coordinator mints the next number per run and kind, so the
-#: directory an attempt lives in is the directory a reader is shown. A name that does not match is a legacy
-#: `<signature>` directory, which holds one or more attempts of one analysis.
+#: directory an attempt lives in is the directory a reader is shown.
 SEQUENCE = re.compile(r'^(\d{4,})-(\d{8})$')
 
 #: A figure one assessment attempt wrote: a CG run's `5_assessment` or a numbered run's `09_final_assessment`,
@@ -42,15 +38,12 @@ FIGURE_SUFFIXES = ('.png', '.svg')
 
 
 def attempts(paths):
-    """The analysis attempts these run-relative paths belong to, one entry per attempt, from both layouts.
+    """The analysis attempts these run-relative paths belong to, one entry per attempt.
 
-    `{attempt directory: {'kind', 'published', 'paths'}}`:
-
-    * `analyses/<kind>/<NNNN>-<YYYYMMDD>/...` -- the attempt is its own published set. The newest attempt of a kind
-      is the answer a reader is shown, and each attempt stays reachable on disk.
-    * `analyses/<kind>/<signature>/<attempt>/...` -- a tree written before the sequence layout. Every attempt of one
-      signature is one analysis result, so the signature is the published set; the attempt directory is read through
-      the record's own `directory` and is never rewritten.
+    `{attempt directory: {'kind', 'published', 'paths'}}`. An attempt is
+    `analyses/<kind>/<NNNN>-<YYYYMMDD>/...`: it is its own published set, the newest attempt of a kind is the answer
+    a reader is shown, and each attempt stays reachable on disk. Anything else under `analyses/` -- a stable kind's
+    published root, a file a stage wrote -- is not an attempt here.
 
     One reader uses this to find the attempts that hold a published `result.json`, another to decide which published
     set a figure belongs to, so the two readers cannot disagree about the shapes a run may hold.
@@ -58,12 +51,10 @@ def attempts(paths):
     found = {}
     for path in paths or ():
         parts = str(path).split('/')
-        if len(parts) < 4 or parts[0] != 'analyses':
+        if len(parts) < 4 or parts[0] != 'analyses' or SEQUENCE.fullmatch(parts[2]) is None:
             continue
-        sequenced = SEQUENCE.fullmatch(parts[2]) is not None
-        attempt = '/'.join(parts[:3] if sequenced else parts[:4])
-        published = '/'.join(parts[:3])
-        entry = found.setdefault(attempt, {'kind': parts[1], 'published': published, 'paths': []})
+        attempt = '/'.join(parts[:3])
+        entry = found.setdefault(attempt, {'kind': parts[1], 'published': attempt, 'paths': []})
         entry['paths'].append(str(path))
     return found
 
@@ -71,11 +62,10 @@ def attempts(paths):
 def current_figures(entries):
     """`(kept, superseded)`: the figures to show, and how many published sets a newer one replaced.
 
-    A "set" is the directory an analysis published into: an attempt under the sequence layout, or the legacy
-    `analyses/<kind>/<signature>/` whose attempts are the same analysis run more than once. Two sets of one kind are
-    two different analyses (different settings, different payloads), and the newer of them is the one the run
-    currently shows -- the newest series in the index, and the older ones are counted rather than dropped in silence
-    so a reader can go and look.
+    A "set" is the directory an analysis published into: one sequenced attempt. Two sets of one kind are two
+    different analyses (different settings, different payloads), and the newer of them is the one the run currently
+    shows -- the newest series in the index, and the older ones are counted rather than dropped in silence so a
+    reader can go and look.
 
     An assessment attempt is a set by the same reading: `stages/5_assessment` is attempt 0 and `stages/5_assessment@n`
     is attempt n, the newest one is what the run currently shows, and each earlier one is counted as superseded.

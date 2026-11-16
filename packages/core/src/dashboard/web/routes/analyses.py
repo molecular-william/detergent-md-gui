@@ -18,11 +18,10 @@ def newest_published(c, job, kind, artifact, *, figure_key=None, require_figure=
                      tolerate_missing_figure=False, fall_through=True):
     """The newest attempt of `kind` whose published file still stands. `(attempt, published, path)`, or `None`.
 
-    An attempt lives in `analyses/<kind>/<NNNN>-<YYYYMMDD>/` -- or in the legacy
-    `analyses/<kind>/<signature>/<attempt>/` tree, which stays readable as it is. Either way its `result.json`
-    names the output directory, and the file a reader wants is relative to that. An attempt whose file is gone is
-    not a published analysis and is skipped for an older one that still stands. `fall_through=False` answers the
-    newest attempt instead, with `published=None`, so a caller can name the attempt that went missing.
+    An attempt lives in `analyses/<kind>/<NNNN>-<YYYYMMDD>/` and its `result.json` names the output directory, so
+    the file a reader wants is relative to that. An attempt whose file is gone is not a published analysis and is
+    skipped for an older one that still stands. `fall_through=False` answers the newest attempt instead, with
+    `published=None`, so a caller can name the attempt that went missing.
 
     `figure_key` names a field in the published file that holds a figure path; the figure then joins the answer as
     a fourth element, `None` when that file is gone. `require_figure` skips attempts whose figure is gone and
@@ -31,11 +30,9 @@ def newest_published(c, job, kind, artifact, *, figure_key=None, require_figure=
     """
     root = c.run_path(job)
     kind_dir = root / 'analyses' / kind
-    # Both shapes' records are candidates; `figures.attempts` is what decides which directory each belongs to, so
-    # this reader cannot fall behind a layout the writer changes.
-    found = figures.attempts(path.relative_to(root).as_posix()
-                             for pattern in ('*/result.json', '*/*/result.json')
-                             for path in kind_dir.glob(pattern))
+    # `figures.attempts` is what decides which directory an attempt is, so this reader cannot fall behind a layout
+    # the writer changes.
+    found = figures.attempts(path.relative_to(root).as_posix() for path in kind_dir.glob('*/result.json'))
     records = sorted((root / attempt / 'result.json' for attempt in found
                       if (root / attempt / 'result.json').is_file()),
                      key=lambda path: path.stat().st_mtime, reverse=True)

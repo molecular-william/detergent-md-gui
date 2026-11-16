@@ -7,7 +7,7 @@ until the copy is verified against the receiving checkout.
 import json
 
 import pytest
-from dashboard import files, paths
+from dashboard import paths
 from dashboard.cli import import_run
 from dashboard.execution import adoption
 from dashboard.execution.coordination import errors
@@ -20,8 +20,7 @@ def make_workspace(root, run_id='a1b2c3d4e5f6'):
     (run / 'inputs').mkdir(parents=True)
     document = {'inputs': []}
     (run / 'inputs' / 'inputs.json').write_text(json.dumps(document))
-    manifest = {'run_type': 'aa_only', 'inputs': [], 'input_snapshot_sha256': files.json_sha256(document),
-                'stages': []}
+    manifest = {'run_type': 'aa_only', 'layout_version': 4, 'inputs': [], 'stages': []}
     (run / 'manifest.json').write_text(json.dumps(manifest))
     Store(workspace / 'jobs.sqlite3').insert({'id': run_id, 'status': 'completed', 'run_type': 'aa_only',
                                               'created': '2026-10-29T00:00:00+00:00'})
@@ -69,9 +68,9 @@ def pasted_workspace(root, run_id='a1b2c3d4e5f6', *, status='completed', run_typ
     (run / 'inputs').mkdir(parents=True)
     document = {'inputs': []}
     (run / 'inputs' / 'inputs.json').write_text(json.dumps(document))
-    manifest = {'id': run_id, 'run_type': run_type, 'status': status, 'layout_version': 2,
+    manifest = {'id': run_id, 'run_type': run_type, 'status': status, 'layout_version': 4,
                 'molecule_id': 'Fixture', 'stage_plan': ['AA solvation'], 'stages': [],
-                'inputs': [], 'input_snapshot_sha256': files.json_sha256(document)}
+                'inputs': []}
     manifest.update(manifest_extra)
     (run / 'manifest.json').write_text(json.dumps(manifest))
     return workspace
@@ -104,15 +103,29 @@ def test_a_run_still_marked_running_is_not_adopted(tmp_path):
 def test_adoption_rebuilds_the_analysis_attempts(tmp_path):
     workspace = pasted_workspace(tmp_path)
     run = workspace / 'runs' / 'a1b2c3d4e5f6'
-    for attempt, status in (('aaaa', 'completed'), ('bbbb', 'running')):
-        directory = run / 'analyses' / 'overlap' / 'signature' / attempt
+    for attempt, date, status in (('aaaa', '0001-20261101', 'completed'), ('bbbb', '0002-20261102', 'running')):
+        directory = run / 'analyses' / 'overlap' / date
         directory.mkdir(parents=True)
         (directory / 'manifest.json').write_text(json.dumps(
             {'id': attempt, 'kind': 'overlap', 'status': status,
-             'directory': f'analyses/overlap/signature/{attempt}', 'created_at': f'2026-11-0{attempt == "bbbb" and 2 or 1}'}))
+             'directory': f'analyses/overlap/{date}', 'created_at': f'2026-11-0{date[-1]}'}))
+
+    # A stable kind publishes at its root and is an attempt too; a pre-sequence tree is not, and a stale one must
+    # not become a ghost task the run does not owe.
+    stable = run / 'analyses' / 'frame-series'
+    stable.mkdir(parents=True)
+    (stable / 'manifest.json').write_text(json.dumps(
+        {'id': 'cccc', 'kind': 'frame-series', 'status': 'completed', 'stable': True,
+         'directory': 'analyses/frame-series', 'created_at': '2026-11-03'}))
+    stale = run / 'analyses' / 'overlap' / 'signature' / 'old'
+    stale.mkdir(parents=True)
+    (stale / 'manifest.json').write_text(json.dumps(
+        {'id': 'dddd', 'kind': 'overlap', 'status': 'completed',
+         'directory': 'analyses/overlap/signature/old', 'created_at': '2026-11-04'}))
 
     job, _ = adoption.build(paths.Paths(workspace=workspace), 'a1b2c3d4e5f6')
     by_id = {task['id']: task for task in job['analyses']}
+    assert set(by_id) == {'aaaa', 'bbbb', 'cccc'}
     assert by_id['aaaa']['status'] == 'completed'
     assert by_id['bbbb']['status'] == 'failed' and 'restarted' in by_id['bbbb']['error']
 

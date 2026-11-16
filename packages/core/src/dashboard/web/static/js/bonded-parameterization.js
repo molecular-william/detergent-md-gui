@@ -24,12 +24,12 @@
  *   GET    /api/mappings?view=summary&molecule_id=                     -> {candidates}     (its saved mappings)
  *   GET    /api/mappings/<file>                                        -> the candidate snapshot
  *   GET    /api/bonded-parameterizations/engines                      -> {engines: [{value, label, needs_reference}]}
- *   GET    /api/bonded-parameterizations?content_hash=&mapping_hash=  -> {summary, revisions, jobs}
- *   GET    /api/bonded-parameterizations/jobs?job_id=                 -> {jobs}   (polled while live)
+ *   GET    /api/bonded-parameterizations?name=&mapping_hash=          -> {summary, revisions, jobs}
+ *   GET    /api/bonded-parameterizations/jobs?name=&job_id=           -> {jobs}   (polled while live)
  *   POST   /api/bonded-parameterizations                              -> the job record
  *   POST   /api/bonded-parameterizations/jobs/<id>/cancel             -> the job record
- *   POST   /api/bonded-parameterizations/<content_hash>/terms         -> the record (in_place / new)
- *   PATCH  /api/bonded-parameterizations/<content_hash>               -> the record
+ *   POST   /api/bonded-parameterizations/<name>/terms                 -> the record (in_place / new)
+ *   PATCH  /api/bonded-parameterizations/<name>                       -> the record
  *
  * Three rules this module exists to keep:
  *
@@ -160,9 +160,8 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
 
   const hash = () => (mapping && mapping.mapping_content_hash) || '';
   // The record's address is its name: the store stamps a saved candidate with the slug its display name suggests, and
-  // a record answers with its own name. The hash stays as the fallback so a reading written before names were
-  // addresses (a recorded run, a legacy record) still resolves.
-  const address = () => (mapping && mapping.parameterization_name) || (summary && summary.name) || hash();
+  // a record answers with its own name.
+  const address = () => (mapping && mapping.parameterization_name) || (summary && summary.name) || '';
   const currentNumber = () => (summary && summary.revision) ?? null;
   const currentRevision = () => revisions.find(item => item && item.revision === currentNumber()) || null;
   const shownRevision = () => revisions.find(item => item && item.revision === shownRevisionNumber)
@@ -266,11 +265,9 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
   async function readRecord(token) {
     if (!mapping || readOnly) return;
     const params = new URLSearchParams();
-    // The name first: it is the address, and it is what a fit queued under this model is stamped with. The two hashes
-    // stay as provenance, so a record written before names were addresses and a job queued before a record exists are
-    // still answered.
+    // The name is the address, and it is what a fit queued under this model is stamped with. The candidate hash stays
+    // as provenance, so a job queued before a record exists is still answered.
     if (mapping.parameterization_name) params.set('name', mapping.parameterization_name);
-    if (mapping.mapping_content_hash) params.set('content_hash', mapping.mapping_content_hash);
     if (mapping.mapping_hash) params.set('mapping_hash', mapping.mapping_hash);
     let answer;
     try {
@@ -1032,10 +1029,8 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
   async function readRecord(token) {
     if (!mapping) return;
     const params = new URLSearchParams();
-    // The name is the address; the two hashes are provenance and the fallback for a legacy record or a job queued
-    // under a model that has no record yet.
+    // The name is the address; the candidate hash is provenance for a job queued under a model that has no record yet.
     if (mapping.parameterization_name) params.set('name', mapping.parameterization_name);
-    if (mapping.mapping_content_hash) params.set('content_hash', mapping.mapping_content_hash);
     if (mapping.mapping_hash) params.set('mapping_hash', mapping.mapping_hash);
     let answer;
     try {

@@ -3,7 +3,7 @@
 The defect this holds shut was visible on the page before it was visible in a test: a run's figure list showed the
 same three snapshot SVGs once per attempt, because an analysis publishes its figures again every time it runs.
 """
-from dashboard.analysis.runs.figures import current_figures
+from dashboard.analysis.runs.figures import attempts, current_figures
 
 
 def figure(path, when='2026-10-01T00:00:00+00:00'):
@@ -11,8 +11,8 @@ def figure(path, when='2026-10-01T00:00:00+00:00'):
 
 
 def test_only_the_newest_set_of_a_kind_is_shown():
-    older = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg', '2026-10-01T00:00:00+00:00')
-    newer = figure('analyses/snapshots/bbbb/2222/output/y/snapshots/CG-first.svg', '2026-10-02T00:00:00+00:00')
+    older = figure('analyses/snapshots/0001-20261001/output/x/snapshots/CG-first.svg', '2026-10-01T00:00:00+00:00')
+    newer = figure('analyses/snapshots/0002-20261002/output/y/snapshots/CG-first.svg', '2026-10-02T00:00:00+00:00')
 
     kept, superseded = current_figures([older, newer])
 
@@ -22,8 +22,8 @@ def test_only_the_newest_set_of_a_kind_is_shown():
 
 def test_each_analysis_kind_keeps_its_own_newest_set():
     """Two kinds are two answers; only repeats of one kind are the same picture twice."""
-    snapshots = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg')
-    overview = figure('analyses/trajectory-overview/cccc/3333/output/z/trajectory-overview.png')
+    snapshots = figure('analyses/snapshots/0001-20261001/output/x/snapshots/CG-first.svg')
+    overview = figure('analyses/trajectory-overview/0002-20261002/output/z/trajectory-overview.png')
 
     kept, superseded = current_figures([snapshots, overview])
 
@@ -33,7 +33,7 @@ def test_each_analysis_kind_keeps_its_own_newest_set():
 
 def test_a_figure_a_stage_wrote_belongs_to_no_attempt_and_is_always_shown():
     stage = figure('stages/5_assessment/score_matrix_LIG1.png')
-    attempt = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg')
+    attempt = figure('analyses/snapshots/0001-20261001/output/x/snapshots/CG-first.svg')
 
     kept, superseded = current_figures([stage, attempt])
 
@@ -103,15 +103,15 @@ def test_a_figure_outside_the_assessment_is_not_superseded_by_a_rescore():
     assert superseded == 1
 
 
-def test_the_set_with_the_newest_file_wins_even_when_another_signature_has_one_too():
-    """A signature's figures are written together, so the newest file in a set dates that set.
+def test_the_set_with_the_newest_file_wins_even_when_another_attempt_has_one_too():
+    """An attempt's figures are written together, so the newest file in a set dates that set.
 
-    Deliberately the case that reads backwards: the *older* signature here holds the newest file, and it is the one
-    that wins -- a reader wants the set that was published last, not the one whose name sorts first.
+    Deliberately the case that reads backwards: the *older* attempt here holds the newest file, and it is the one
+    that wins -- a reader wants the set that was published last, not the one whose number sorts first.
     """
-    latest = [figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg', '2026-10-01T00:00:00+00:00'),
-              figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-last.svg', '2026-10-05T00:00:00+00:00')]
-    earlier = [figure('analyses/snapshots/bbbb/2222/output/y/snapshots/CG-first.svg', '2026-10-03T00:00:00+00:00')]
+    latest = [figure('analyses/snapshots/0001-20261001/output/x/snapshots/CG-first.svg', '2026-10-01T00:00:00+00:00'),
+              figure('analyses/snapshots/0001-20261001/output/x/snapshots/CG-last.svg', '2026-10-05T00:00:00+00:00')]
+    earlier = [figure('analyses/snapshots/0002-20261003/output/y/snapshots/CG-first.svg', '2026-10-03T00:00:00+00:00')]
 
     kept, superseded = current_figures(earlier + latest)
 
@@ -130,16 +130,12 @@ def test_a_sequenced_attempt_is_its_own_published_set():
     assert superseded == 1
 
 
-def test_a_legacy_signatures_attempts_stay_one_set_beside_a_sequenced_attempt():
-    """The legacy tree is read as it stands: its attempts are one analysis result, and a later sequenced attempt is
-    another set entirely. The newest set is what the run shows."""
-    legacy = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg', '2026-12-01T00:00:00+00:00')
-    rerun = figure('analyses/snapshots/aaaa/2222/output/x/snapshots/CG-second.svg', '2026-11-01T00:00:00+00:00')
-    sequenced = figure('analyses/snapshots/0001-20261101/output/y/snapshots/CG-first.svg',
-                       '2026-10-01T00:00:00+00:00')
+def test_only_a_sequenced_directory_is_an_analysis_attempt():
+    """A tree written before sequences is not an attempt: nothing reads it as one, and no figure is grouped by it."""
+    found = attempts(['analyses/snapshots/0001-20261001/output/x.svg',
+                      'analyses/snapshots/aaaa/1111/output/y.svg',
+                      'analyses/frame-series/run-frames.pdb'])
 
-    kept, superseded = current_figures([legacy, rerun, sequenced])
-
-    assert [entry['path'] for entry in kept] == [legacy['path'], rerun['path']]
-    assert superseded == 1, 'the sequenced attempt is the one superseded set'
+    assert list(found) == ['analyses/snapshots/0001-20261001']
+    assert found['analyses/snapshots/0001-20261001']['paths'] == ['analyses/snapshots/0001-20261001/output/x.svg']
 

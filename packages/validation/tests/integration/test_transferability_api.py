@@ -34,12 +34,12 @@ def publish(dashboard, jid, molecule, beads, rows, terms=(), other_ring=()):
               for letter, bead_type in beads]
     mapped += [{'letter': letter, 'residue': 2, 'name': f'S2{letter}', 'type': bead_type}
                for letter, bead_type in other_ring]
-    (run / 'analyses/mapping-consistency/hash/attempt1/output/abc123/analysis').mkdir(parents=True)
+    attempt = run / 'analyses/mapping-consistency/0001-20261001'
+    (attempt / 'output/abc123/analysis').mkdir(parents=True)
     (run / 'manifest.json').write_text(json.dumps(
         {'mapping_candidate': {'name': f'{molecule} mapping', 'molecule_id': molecule, 'beads': mapped}}))
-    (run / 'analyses/mapping-consistency/hash/attempt1/output/abc123/analysis/mapping_consistency.json'
-     ).write_text(json.dumps(comparison(rows, molecule, terms)))
-    (run / 'analyses/mapping-consistency/hash/attempt1/result.json').write_text(json.dumps(
+    (attempt / 'output/abc123/analysis/mapping_consistency.json').write_text(json.dumps(comparison(rows, molecule, terms)))
+    (attempt / 'result.json').write_text(json.dumps(
         {'result': {'artifact': 'analysis/mapping_consistency.json', 'comparison': 'AA vs CG',
                     'diagnostic_only': True},
          'output_directory': 'output/abc123', 'wall_seconds': 13.3}))

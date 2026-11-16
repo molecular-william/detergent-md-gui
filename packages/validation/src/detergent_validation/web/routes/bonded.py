@@ -23,25 +23,24 @@ from flask import Blueprint, abort, jsonify, request
 blueprint = Blueprint('bonded', __name__)
 
 
-def _parameterization_record(name=None, content_hash=None, mapping_hash=None):
-    """The stored record a name or hash addresses: by name first, then by content identity, then by provenance.
+def _parameterization_record(name=None, mapping_hash=None):
+    """The stored record a name addresses, or a stored history that answers the candidate's provenance.
 
     `parameterization.one` answers an empty document for a well-formed address with no record, because "this
     model carries no parameterization" is a state a caller asks about and not a fault -- the panel renders it
     as the honest absence (D5). A `mapping_hash` is the *candidate* identity, which a rename changes, so it is
     answered by scanning the history through `parameterization.matches`, exactly as the store's own readers do.
     """
-    record = parameterization.one(parameterization.address_from(name)) if name else (
-        parameterization.one(content_hash) if content_hash else None)
+    record = parameterization.one(parameterization.address_from(name)) if name else None
     if record is None or not record.get('revisions'):
         for candidate in parameterization.records():
-            if parameterization.matches(candidate, candidate_hash=mapping_hash, content_hash=content_hash):
+            if parameterization.matches(candidate, candidate_hash=mapping_hash):
                 return candidate
     if record is not None:
         return record
-    # No record, and no stored history answers either hash: the empty document the store itself answers with,
+    # No record, and no stored history answers the candidate hash: the empty document the store itself answers with,
     # so the panel renders "this model carries no parameterization" rather than an error it cannot act on.
-    return {'mapping_hash': mapping_hash, 'mapping_content_hash': content_hash,
+    return {'mapping_hash': mapping_hash, 'mapping_content_hash': None,
             'revision': 0, 'current': None, 'revisions': [],
             'name': parameterization.address_from(name) if name else None}
 
@@ -50,28 +49,19 @@ def _parameterization_mapping(identifier):
     """The saved candidate whose revisions these are, so an earlier one can be made current again.
 
     `make_current(mapping, revision)` takes a mapping, and a `PATCH` names only the record's address: the mapping
-    store is asked which of its candidates is stored under this name, or -- for the legacy hash address -- which
-    carries this content identity. The name rule is the store's own (`parameterization_name`), not a second one.
+    store is asked which of its candidates is stored under this name. The name rule is the store's own
+    (`parameterization_name`), not a second one.
     """
-    by_name = None if re.fullmatch(r'[a-f0-9]{64}', identifier) else parameterization.address_from(identifier)
+    by_name = parameterization.address_from(identifier)
     for candidate in mappings.list_candidates(summary=True):
         if candidate.get('error'):
             continue
-        if by_name is not None:
-            if (candidate.get('parameterization_name') or '').casefold() == by_name.casefold():
-                try:
-                    return mappings.get(candidate['file'])
-                except (OSError, ValueError) as exc:
-                    abort(400, str(exc))
-            continue
-        if candidate.get('mapping_content_hash') != identifier:
-            continue
-        try:
-            return mappings.get(candidate['file'])
-        except (OSError, ValueError) as exc:
-            abort(400, str(exc))
-    abort(404, (f'No saved mapping is stored under {identifier}' if by_name is not None
-                else f'No saved mapping carries content hash {identifier}'))
+        if (candidate.get('parameterization_name') or '').casefold() == by_name.casefold():
+            try:
+                return mappings.get(candidate['file'])
+            except (OSError, ValueError) as exc:
+                abort(400, str(exc))
+    abort(404, f'No saved mapping is stored under {identifier}')
 
 
 def _message(error):
@@ -104,13 +94,12 @@ def parameterization_engines():
 def parameterization_jobs():
     """The job box's list: newest first, optionally one mapping's, which it polls while a fit runs.
 
-    Which jobs are this mapping's is `fitting.jobs`'s question; the name (or legacy content hash) this
-    request carries is handed to it, and an address no stored job carries answers the empty list, never
-    every job.
+    Which jobs are this mapping's is `fitting.jobs`'s question; the name this request carries is handed to
+    it, and an address no stored job carries answers the empty list, never every job.
     """
     name = request.args.get('name')
     return jsonify(jobs=bonded_fitting.jobs(
-        content_hash=request.args.get('content_hash'), job_id=request.args.get('job_id'),
+        job_id=request.args.get('job_id'),
         name=parameterization.address_from(name) if name else None))
 
 
@@ -127,22 +116,20 @@ def parameterization_job_cancel(job_id):
 def parameterization_list():
     """One record with its whole history, or every record when the caller names no mapping.
 
-    Addressed by `name` (the record's address: the slug of the mapping's display name), then by the legacy
-    `content_hash` (compatibility: a record written before names were addresses is still found) or by
+    Addressed by `name` (the record's address: the slug of the mapping's display name), or by
     `mapping_hash` (provenance: which saved candidate a revision was made for). `revisions` is the stored
     history itself and not a summary of it, because a revision's terms are what the panel's compare view reads and
     no other route carries them.
     """
     name = request.args.get('name')
-    content_hash = request.args.get('content_hash')
     mapping_hash = request.args.get('mapping_hash')
-    if not name and not content_hash and not mapping_hash:
+    if not name and not mapping_hash:
         return jsonify(records=parameterization.records())
-    record = _parameterization_record(name, content_hash, mapping_hash)
+    record = _parameterization_record(name, mapping_hash)
     # The jobs are the model's this request named, not whatever the record happens to carry: the store's
-    # empty document has no content identity when only a candidate hash was asked about, and an absent
-    # hash is no filter at all. `fitting.jobs` owns the matching (content = compatibility, candidate =
-    # provenance) and applies its limit after it.
+    # empty document names no model when only a candidate hash was asked about, and an absent hash is no filter
+    # at all. `fitting.jobs` owns the matching (name = the record, candidate = provenance) and applies its limit
+    # after it.
     # Each revision carries the digest the panel must send back to save it: an in-place write keeps the revision
     # number, so the digest -- not the number -- is what detects a revision that changed since this read. It is
     # computed here and never stored, or it would include itself. The gate is read-time too: `edit_gate` answers
@@ -160,7 +147,6 @@ def parameterization_list():
                    revisions=revisions,
                    jobs=bonded_fitting.jobs(
                        name=parameterization.address_from(name) if name else None,
-                       content_hash=content_hash or record.get('mapping_content_hash'),
                        mapping_hash=mapping_hash or record.get('mapping_hash')))
 
 

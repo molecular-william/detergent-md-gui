@@ -567,9 +567,8 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const records = new Map();
     await Promise.all(candidates.map(async candidate => {
       const query = new URLSearchParams();
-      // The record's name is its address; the hashes stay as provenance for a legacy record.
+      // The record's name is its address; the candidate hash is provenance.
       if (candidate.parameterization_name) query.set('name', candidate.parameterization_name);
-      if (candidate.mapping_content_hash) query.set('content_hash', candidate.mapping_content_hash);
       if (candidate.mapping_hash) query.set('mapping_hash', candidate.mapping_hash);
       if (![...query].length) { records.set(candidate.file, {revisions: []}); return; }
       try {

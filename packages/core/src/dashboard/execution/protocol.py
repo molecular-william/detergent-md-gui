@@ -57,10 +57,8 @@ def _provenance(document, entries):
     code = {key: {stage: {'name': entry.get('name'), 'version': entry.get('version')}
                   for stage, entry in (document.get(key) or {}).items()}
             for key in ('stage_scripts', 'python_modules')}
-    inputs = ([{'role': entry.get('role'), 'root': entry.get('root'), 'path': entry.get('path')} for entry in entries]
-              if entries is not None else
-              [{'role': None, 'root': 'run', 'path': path}
-               for path in (document.get('input_snapshot_sha256') or {})])
+    inputs = [{'role': entry.get('role'), 'root': entry.get('root'), 'path': entry.get('path')}
+              for entry in (entries or ())]
     reference = {'run_id': None, 'edition': None}
     candidates = [document.get('shared_reference'), document.get('aa_reference')]
     for key in ('parameterization', 'bonded'):
@@ -78,16 +76,15 @@ def _provenance(document, entries):
     return {'code': code, 'inputs': inputs, 'reference': reference}
 
 
-def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None, references=None,
+def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None, references=(),
                             scripts=None, skipped=None, modules=None):
     """Write the manifest every prepared run carries, so all run types agree.
 
-    `metadata` carries what is specific to the run; this adds what every prepared run records. A caller that passes
-    `references` has each input named in place: layout 4 records `role/label/kind/root/path` and no input snapshot,
-    so nothing starts or refuses on a digest. A caller that passes none still mirrors its whole stage tree into
-    `inputs/` and gets the old layout-2 directory digest -- a legacy shape, kept for the callers that still use it.
+    `metadata` carries what is specific to the run; this adds what every prepared run records. `references` names
+    each shared input in place: layout 4 records `role/label/kind/root/path` and no input snapshot, so nothing starts
+    or refuses on a digest.
 
-    `inputs/` must exist before the call when `references` is given, because the record is written there.
+    `inputs/` must exist before the call, because the record is written there.
 
     The environment recorded beside it also carries `devices`: every GPU this host reported at prepare,
     so a report written later can still say what the host had. A caller that records no environment still
@@ -95,17 +92,9 @@ def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None,
     """
     run_dir = Path(run_dir)
     document = dict(metadata)
-    entries = None
-    if references is None:
-        # A run type that still mirrors its whole stage tree into `inputs/`: layout 2, the old directory digest.
-        document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
-                        input_snapshot_sha256=files.hashes(run_dir / 'inputs'),
-                        prepared_at=datetime.now(timezone.utc).isoformat())
-    else:
-        # The name record: shared inputs by path, generated data in `inputs/`, no input snapshot.
-        entries = run_inputs.write(run_dir, references)
-        document.update(layout_version=run_inputs.LAYOUT, stage_plan=list(plan), stages=[], tools=tools,
-                        inputs=entries, prepared_at=datetime.now(timezone.utc).isoformat())
+    entries = run_inputs.write(run_dir, references or ())
+    document.update(layout_version=run_inputs.LAYOUT, stage_plan=list(plan), stages=[], tools=tools,
+                    inputs=entries, prepared_at=datetime.now(timezone.utc).isoformat())
     if modules is not None:
         # The Python modules a stage executes: the same name+version record as a script, kept apart because these are
         # imported into an interpreter rather than executed as a file.
@@ -201,7 +190,7 @@ def plan_pairs(metadata) -> list[list[str]]:
 
 
 def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=None,
-                        discard=('manifest.json',), references=None, scripts=None, skipped=None, modules=None):
+                        discard=('manifest.json',), references=(), scripts=None, skipped=None, modules=None):
     """Turn a filled stage directory into a prepared run: `inputs/` beside it, and the manifest at the root.
 
     The choreography every run type performs and only one of them used to own: a type fills `stages/`, and this copies

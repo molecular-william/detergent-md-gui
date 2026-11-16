@@ -468,12 +468,9 @@ class Coordinator:
                 prepared = json.loads((work/'manifest.json').read_text())
                 if job.get('molecule_snapshot'):
                     if aa_only:
-                        # A prepared run that names its inputs by reference verifies the record; the legacy layout
-                        # has the molecule copy the digest names.
-                        if prepared.get('inputs') is not None:
-                            run_inputs.verify_manifest(work, prepared)
-                        else:
-                            files.verify(workflow.stage_root(work)/'common/molecule', job['molecule_snapshot']['sha256'])
+                        # A prepared run names its inputs by reference, and this verifies the record before a stage
+                        # reads bytes the run did not write.
+                        run_inputs.verify_manifest(work, prepared)
                     elif (job.get('run_type') == 'cg'
                           and (job.get('parameterization') or {}).get('kind', 'revision') == 'revision'
                           and not job.get('shared_reference')):
