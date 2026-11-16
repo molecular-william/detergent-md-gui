@@ -32,6 +32,7 @@ import { $, api, post, whenLive, liveApi, liveShown, pollMilliseconds, artifactU
 import { setPanelBusy } from './panel-busy.js';
 import { RunFigureViewer } from './figures.js';
 import { renderDistanceDiagnostics } from './runs-diagnostics.js';
+import { renderStageSettings } from './stage-settings.js';
 import { analysisMapFor, analysisNoticeFor, analysisSectionsFor } from './run-view-analysis-extension.js';
 
 //: How long a queued or running analysis is left alone between asks. The Trajectory block's own seam, so a browser test
@@ -51,25 +52,40 @@ export function analysisMarkup(side) {
     <div class="card run-view-analysis" id="${id('run-view-analysis')}" role="group"
          aria-labelledby="${id('run-view-analysis-title')}">
       <h3 class="run-view-analysis-title" id="${id('run-view-analysis-title')}">Analysis</h3>
-      <p class="hint run-view-analysis-note" id="${id('run-view-analysis-note')}" role="status"
-         >Choose a run to see its analysis graphs.</p>
-      <div class="toolbar run-view-analysis-actions">
-        <button type="button" class="secondary" id="${id('run-view-analysis-recompute')}"
-                >Recompute</button>
-        <button type="button" class="secondary" id="${id('run-view-analysis-overview')}" hidden
-                >Trajectory overview</button>
-        <button type="button" class="secondary" id="${id('run-view-analysis-rescore')}" hidden
-                >Re-score assessment</button>
+      <div class="analysis-mode-tabs" role="tablist" aria-label="Analysis views">
+        <button type="button" role="tab" id="${id('run-view-analysis-mode-figures')}"
+                data-mode="figures" aria-selected="true"
+                aria-controls="${id('run-view-analysis-figures-panel')}">Figures</button>
+        <button type="button" role="tab" id="${id('run-view-analysis-mode-settings')}"
+                data-mode="stage-settings" aria-selected="false" tabindex="-1"
+                aria-controls="${id('run-view-analysis-settings-panel')}">Stage settings</button>
       </div>
-      <div class="analysis-tasks" id="${id('run-view-analysis-tasks')}" aria-live="polite"></div>
-      <div class="analysis-views" role="tablist" aria-label="Analysis sections" hidden></div>
-      <div class="analysis-map" hidden></div>
-      <p class="analysis-notice" role="status" hidden></p>
-      <div class="analysis-panes">
-        <section class="analysis-pane" data-section="figures" role="tabpanel">
-          <div class="analysis-plots" id="${id('run-view-analysis-plots')}"></div>
-          <div class="analysis-diagnostics" id="${id('run-view-analysis-diagnostics')}"></div>
-        </section>
+      <div class="analysis-mode-panel" id="${id('run-view-analysis-figures-panel')}" role="tabpanel"
+           aria-labelledby="${id('run-view-analysis-mode-figures')}" data-mode="figures">
+        <p class="hint run-view-analysis-note" id="${id('run-view-analysis-note')}" role="status"
+           >Choose a run to see its analysis graphs.</p>
+        <div class="toolbar run-view-analysis-actions">
+          <button type="button" class="secondary" id="${id('run-view-analysis-recompute')}"
+                  >Recompute</button>
+          <button type="button" class="secondary" id="${id('run-view-analysis-overview')}" hidden
+                  >Trajectory overview</button>
+          <button type="button" class="secondary" id="${id('run-view-analysis-rescore')}" hidden
+                  >Re-score assessment</button>
+        </div>
+        <div class="analysis-tasks" id="${id('run-view-analysis-tasks')}" aria-live="polite"></div>
+        <div class="analysis-views" role="tablist" aria-label="Analysis sections" hidden></div>
+        <div class="analysis-map" hidden></div>
+        <p class="analysis-notice" role="status" hidden></p>
+        <div class="analysis-panes">
+          <section class="analysis-pane" data-section="figures" role="tabpanel">
+            <div class="analysis-plots" id="${id('run-view-analysis-plots')}"></div>
+            <div class="analysis-diagnostics" id="${id('run-view-analysis-diagnostics')}"></div>
+          </section>
+        </div>
+      </div>
+      <div class="analysis-mode-panel" id="${id('run-view-analysis-settings-panel')}" role="tabpanel"
+           aria-labelledby="${id('run-view-analysis-mode-settings')}" data-mode="stage-settings" hidden>
+        <div class="stage-settings" id="${id('run-view-analysis-stage-settings')}"></div>
       </div>
     </div>`;
 }
@@ -87,6 +103,10 @@ export function createAnalysis({root, side}) {
   const notice = card ? card.querySelector('.analysis-notice') : null;
   const panes = card ? card.querySelector('.analysis-panes') : null;
   const figuresPane = card ? card.querySelector('.analysis-pane[data-section="figures"]') : null;
+  const modeTabs = card ? card.querySelector('.analysis-mode-tabs') : null;
+  const figuresModePane = card ? card.querySelector('.analysis-mode-panel[data-mode="figures"]') : null;
+  const settingsModePane = card ? card.querySelector('.analysis-mode-panel[data-mode="stage-settings"]') : null;
+  const stageSettings = $(id('run-view-analysis-stage-settings'));
 
   let job = null;
   let token = 0;
@@ -101,8 +121,57 @@ export function createAnalysis({root, side}) {
   let map = null;                       // that map's controller once it is mounted
   let mapPending = null;                // the in-flight mount, so two activations mount once
   let mapMode = '';                     // the last section the map was asked to show
+  let settingsFor = null;               // the run whose settings this card has already read
 
   const setNote = text => { note.textContent = text || ''; };
+
+  // ----------------------------------------------------------------------------------------- the mode tabs
+
+  //: Figures is today's card; Stage settings is the same groups the Runs panel draws, read from the full job record
+  //: the first time this run's tab is opened. The two panes are siblings, so the figures tab's own section strip and
+  //: its viewer are untouched by the second tab.
+  function setMode(name) {
+    const mode = name === 'stage-settings' ? 'stage-settings' : 'figures';
+    for (const button of modeTabs ? modeTabs.querySelectorAll('[role="tab"]') : []) {
+      const selected = button.dataset.mode === mode;
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    if (figuresModePane) figuresModePane.hidden = mode !== 'figures';
+    if (settingsModePane) settingsModePane.hidden = mode !== 'stage-settings';
+    if (mode === 'stage-settings' && job) loadStageSettings();
+  }
+
+  async function loadStageSettings() {
+    if (!stageSettings || !job || settingsFor === job.id) return;
+    const mine = token;
+    const runId = job.id;
+    settingsFor = runId;
+    stageSettings.replaceChildren();
+    const reading = document.createElement('p');
+    reading.className = 'hint';
+    reading.textContent = 'Reading this run\'s stage settings…';
+    stageSettings.append(reading);
+    try {
+      const detail = await api(`/api/jobs/${encodeURIComponent(runId)}`);
+      if (mine !== token) return;
+      renderStageSettings(stageSettings, detail);
+    } catch (error) {
+      if (mine !== token) return;
+      settingsFor = null;               // a failed read is retried when the tab is next opened
+      stageSettings.replaceChildren();
+      const failed = document.createElement('p');
+      failed.className = 'hint';
+      failed.textContent = `This run's stage settings could not be read: ${error.message}`;
+      stageSettings.append(failed);
+    }
+  }
+
+  if (modeTabs) {
+    for (const button of modeTabs.querySelectorAll('[role="tab"]')) {
+      button.onclick = () => setMode(button.dataset.mode);
+    }
+  }
 
   // -------------------------------------------------------------------------------------------- the list and the figures
 
@@ -518,6 +587,9 @@ export function createAnalysis({root, side}) {
     recompute.disabled = true;
     sections = [];
     mounted = new Set();
+    settingsFor = null;
+    stageSettings?.replaceChildren();
+    setMode('figures');
     clearMap();
     if (views) { views.replaceChildren(); views.hidden = true; }
     if (notice) { notice.hidden = true; notice.textContent = ''; }

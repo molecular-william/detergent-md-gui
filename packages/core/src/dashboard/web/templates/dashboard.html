@@ -120,14 +120,6 @@
   <div class="run-table-scroll" tabindex="0" aria-label="Run table; scroll horizontally on smaller screens">
     <table id="jobs" class="run-table"><caption class="sr-only">Simulation runs and their resources</caption><colgroup><col class="col-identity"><col class="col-status"><col class="col-molecule"><col class="col-method"><col class="col-created"><col class="col-duration"><col class="col-actions"></colgroup><thead><tr><th scope="col">Run / progress</th><th scope="col">Status</th><th scope="col">Molecule</th><th scope="col">Method</th><th scope="col">Created</th><th scope="col">Duration</th><th scope="col">Actions</th></tr></thead><tbody id="empty-jobs"><tr><td colspan="7">Loading runs…</td></tr></tbody></table>
   </div>
-  <div id="console-parking" hidden>
-  <section id="console-panel" aria-label="Run console">
-    <label hidden>Run <select id="console-run"><option value="">Choose a run</option></select></label>
-    <div class="toolbar"><button class="secondary" id="pause-console" aria-pressed="false">Pause updates</button><button class="secondary" id="copy-console">Copy visible log</button><a id="download-console" class="button secondary" hidden>Download full log</a><span id="console-status" role="status"></span></div>
-    <pre id="console-output" tabindex="0" aria-label="Console output">Choose a run to inspect its console.</pre>
-    <p class="hint">Showing up to 256 KB. Scroll up to read; return to the bottom to follow new output. Pausing affects this display only.</p>
-  </section>
-  </div>
   <dialog id="adopt-runs-dialog" class="adopt-dialog" aria-label="Register copied runs">
     <form id="adopt-runs-form">
       <h3>Register copied runs</h3>
@@ -277,6 +269,16 @@
         applied to all three dynamics stages</span><span class="setting-control"><input name="mass_repartition_factor"
         type="number" min="1" max="10" step="0.1" placeholder="off"><button type="button"
         class="secondary use-default" data-field="mass_repartition_factor">Default</button></span></label>
+      {# The first dynamics stage a reader can change is the minimisation it starts from. Its three numbers are the
+         reviewed aa-em-v1 profile's own; an untouched run still writes that profile byte for byte. #}
+      <details class="stage-editor aa-setting" id="stage-aa-minimization" name="aa-stages" open>
+        <summary><span class="stage-name">Energy minimization</span><span class="stage-facts" id="stage-aa-minimization-facts"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Maximum steps<span class="setting-control"><input name="aa_minimization_steps" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="aa_minimization_steps">Default</button></span></label>
+          <label>Force tolerance <span class="hint">kJ mol⁻¹ nm⁻¹</span><span class="setting-control"><input name="aa_minimization_emtol" type="number" min="0.001" max="100000" step="0.001"><button type="button" class="secondary use-default" data-field="aa_minimization_emtol">Default</button></span></label>
+          <label>Initial step <span class="hint">nm · steepest descents</span><span class="setting-control"><input name="aa_minimization_emstep" type="number" min="0.0001" max="1" step="0.0001"><button type="button" class="secondary use-default" data-field="aa_minimization_emstep">Default</button></span></label>
+        </div></div>
+      </details>
       <details class="stage-editor aa-setting" id="stage-aa-nvt" name="aa-stages" open>
         <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts" id="stage-aa-nvt-facts"></span></summary>
         <div class="stage-body"><div class="settings-grid">
@@ -726,9 +728,9 @@
       <p class="job-error notice" hidden></p>
       <div class="run-resources">
         <a class="button secondary job-view-run" href="#">View run</a>
-        <details class="job-artifacts"><summary>Artifacts</summary><div class="resource-content"><p class="hint artifact-summary"></p><div class="toolbar"><label>Find artifact<input class="artifact-search" type="search"></label><button class="secondary artifacts-prev">Previous files</button><span class="artifacts-page"></span><button class="secondary artifacts-next">Next files</button></div><div class="artifact-list"></div></div></details>
-        <details class="job-records"><summary>Commands and stage records</summary><div class="resource-content"><p class="job-validation hint">Scientific validation: not established. Completion proves execution only.</p><pre class="job-command"></pre><div class="job-stages"></div></div></details>
-        <details class="job-console"><summary>Console</summary><div class="resource-content console-host"></div></details>
+        {# The values this run actually recorded, grouped by stage. Read-only: the run is the record, and a queued
+           run's row shows what it will consume from the record the queue route normalized. #}
+        <details class="job-stage-settings"><summary>Stage settings</summary><div class="resource-content"><div class="stage-settings-host" aria-live="polite"><p class="hint">Open to read the values this run recorded.</p></div></div></details>
       </div>
     </td></tr>
   </tbody>

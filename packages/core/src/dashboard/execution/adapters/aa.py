@@ -266,6 +266,9 @@ DEFAULTS=dict(aa_nvt_ps=100,aa_npt_ps=1000,aa_production_ps=10000,
               # A checkpoint every ten minutes of wall time: the user's cadence for this project, recorded by every
               # run so a failed leg loses at most that much sampling to Restart.
               mdrun_cpt=10,
+              # The reviewed aa-em-v1 minimization numbers: a run that names none renders the reviewed file byte
+              # for byte, and one that names a value replaces only that option.
+              aa_minimization_steps=20000,aa_minimization_emtol=1000,aa_minimization_emstep=0.01,
               box_shape=aa_box.DEFAULT_SHAPE,
               force_field=forcefields.DEFAULT,
               # The force-field entry's own value: the paper's `all-bonds`, not the manual's `h-bonds`.
@@ -297,6 +300,11 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),
+               # The minimization stage's three numbers, whose defaults are the reviewed aa-em-v1 profile's. A
+               # minimisation has no duration to convert, so the step cap is stated directly rather than derived.
+               'aa_minimization_steps':('Maximum steps',1,1000000),
+               'aa_minimization_emtol':('Force tolerance (kJ/mol/nm)',.001,100000),
+               'aa_minimization_emstep':('Initial step (nm)',.0001,1),
                # The three dynamics stages' own timesteps. A femtosecond is the unit the form states and the MDP
                # writes ps, so `mdp_values` divides by 1000. 2 fs is the protocol's step (standing decision); the
                # floor stays at 0.5 fs, and there is no ceiling: a topology with repartitioned hydrogen masses is
@@ -391,7 +399,8 @@ def normalize_settings(settings=None, profile='standard'):
                    'aa_seed':'AA seed must be an integer',
                    'aa_nvt_nstlist':'aa_nvt_nstlist must be an integer',
                    'aa_npt_nstlist':'aa_npt_nstlist must be an integer',
-                   'aa_production_nstlist':'aa_production_nstlist must be an integer'})
+                   'aa_production_nstlist':'aa_production_nstlist must be an integer',
+                   'aa_minimization_steps':'aa_minimization_steps must be an integer'})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
     if result.get('vsite', 'none') != 'none' and result.get('mdrun_update') == 'gpu':
         raise ValueError('mdrun_update gpu cannot be used with a pdb2gmx virtual-site topology: GROMACS '
@@ -467,7 +476,14 @@ def mdp_values(settings, profile):
     first: the duration does not change when the timestep does, only how many steps reach it.
     """
     values = {'force_field': settings['force_field'], 'constraints': settings['constraints']}
-    if profile in ('aa-ions-v1', 'aa-em-v1'):
+    if profile == 'aa-ions-v1':
+        return values
+    if profile == 'aa-em-v1':
+        # The three numbers the New run form's Energy minimization editor owns. Their defaults are the reviewed
+        # profile's, so an untouched run writes 20000 / 1000 / 0.01 exactly as the reviewed file states them.
+        values.update({'nsteps': settings['aa_minimization_steps'],
+                       'emtol': settings['aa_minimization_emtol'],
+                       'emstep': settings['aa_minimization_emstep']})
         return values
     stage = _STAGE_SETTING[profile]
     dt_ps = settings[f'aa_{stage}_dt_fs'] / 1000

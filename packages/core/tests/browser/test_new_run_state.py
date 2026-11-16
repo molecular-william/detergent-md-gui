@@ -18,6 +18,7 @@ def test_a_changed_timestep_survives_a_reload(dashboard, live_page):
 
     expect(page.locator('[name=aa_nvt_dt_fs]')).to_have_value('2', timeout=30000)
     expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 2 fs · 50 000 steps · nstlist 20')
+    page.locator('#stage-aa-nvt > summary').click()
     page.locator('[name=aa_nvt_dt_fs]').fill('1')
     expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 1 fs · 100 000 steps · nstlist 20')
 

@@ -195,6 +195,7 @@ def test_the_run_type_shows_only_the_settings_that_leg_builds(dashboard, live_pa
         expect(page.locator(f'#stage-aa-{stage}')).to_be_hidden()
     page.locator('#run-type').select_option('aa_only')
     expect(page.locator('#new-constraints-group')).to_be_visible()
+    page.locator('#stage-aa-nvt > summary').click()
     expect(page.locator('[name=aa_nvt_ps]')).to_be_visible()
     expect(page.locator('[name=cg_equil_ps]').locator('xpath=ancestor::label')).to_be_hidden()
     expect(page.locator('[name=constraints]')).to_be_enabled()

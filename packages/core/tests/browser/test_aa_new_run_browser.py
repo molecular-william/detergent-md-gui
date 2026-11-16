@@ -23,6 +23,8 @@ DEFAULTS = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000, 'tem
             'aa_nvt_nstlist': 20, 'aa_npt_nstlist': 20, 'aa_production_nstlist': 20,
             'aa_nvt_verlet_buffer_tolerance': -1, 'aa_npt_verlet_buffer_tolerance': -1,
             'aa_production_verlet_buffer_tolerance': -1,
+            # The reviewed aa-em-v1 minimisation profile the Energy minimization editor starts from.
+            'aa_minimization_steps': 20000, 'aa_minimization_emtol': 1000, 'aa_minimization_emstep': 0.01,
             # The thermostat (every stage) and the barostat (NPT stages only), and the one run-wide hydrogen mass
             # factor, which is blank by default.
             'aa_nvt_tcoupl': 'V-rescale', 'aa_nvt_tau_t': 1,
@@ -112,6 +114,10 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
 
     expect(page.locator('#stage-aa-nvt-facts')).to_have_text(
         '100 ps · 2 fs · 50 000 steps · nstlist 20', timeout=30000)
+    # The minimisation editor is the accordion's open stage now; the first dynamics stage starts collapsed.
+    assert page.locator('#stage-aa-minimization').evaluate('(el) => el.open') is True
+    assert page.locator('#stage-aa-nvt').evaluate('(el) => el.open') is False
+    page.locator('#stage-aa-nvt > summary').click()
     assert page.locator('#stage-aa-nvt').evaluate('(el) => el.open') is True
     assert page.locator('#stage-aa-npt').evaluate('(el) => el.open') is False
     assert page.locator('#stage-aa-production').evaluate('(el) => el.open') is False
@@ -203,6 +209,13 @@ def test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row(dashboard,
 
     # Below the breakpoint the scoped spans must not beat the full-width rule: both halves stack.
     page.set_viewport_size({'width': 1000, 'height': 900})
+    # Wait for the narrower layout to settle: the half must be full width and the settings half below it, not
+    # measured mid-reflow while the two-column spans are still in place.
+    page.wait_for_function("""() => {
+      const inputs = document.querySelector('#run-form > .new-run-inputs').getBoundingClientRect();
+      const settings = document.querySelector('#run-form > .new-run-settings').getBoundingClientRect();
+      return Math.abs(settings.width - inputs.width) <= 2 && settings.y >= inputs.y + inputs.height - 1;
+    }""", timeout=30000)
     stacked = page.locator('#run-form > .new-run-inputs').bounding_box()
     stacked_settings = page.locator('#run-form > .new-run-settings').bounding_box()
     assert abs(stacked_settings['width'] - stacked['width']) <= 2, (stacked, stacked_settings)
@@ -281,6 +294,8 @@ def test_the_coupling_hmr_timestep_and_label_are_editable_and_post(dashboard, li
     page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}))")
     page.goto(f'{live_page.base_url}/detergent-validation/new-run')
 
+    # The minimisation editor opens first, so the NVT stage is opened before its controls are used.
+    page.locator('#stage-aa-nvt > summary').click()
     # The old 4 fs ceiling is gone; the floor stays.
     timestep = page.locator('[name=aa_nvt_dt_fs]')
     expect(timestep).to_have_value('2', timeout=30000)
@@ -441,4 +456,45 @@ def test_start_stays_usable_while_a_readiness_recheck_is_slow(dashboard, live_pa
     box = page.locator('#start-run').bounding_box()
     page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
     expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert not errors, errors
+
+def test_the_energy_minimization_editor_states_posts_and_restores_its_reviewed_values(dashboard, live_page):
+    """The AA minimisation editor is the reviewed aa-em-v1 profile's three numbers, and they behave like a stage.
+
+    Its facts line states them while the editor is collapsed, changing the step cap refreshes it and reaches the
+    queue payload, and the generic Default button restores the value `/api/defaults` advertised.
+    """
+    dashboard.coordinator.database().replace([])
+    page, errors = live_page
+    stub(page)
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+
+    expect(page.locator('[name=aa_minimization_steps]')).to_have_value('20000', timeout=30000)
+    expect(page.locator('[name=aa_minimization_emtol]')).to_have_value('1000')
+    expect(page.locator('[name=aa_minimization_emstep]')).to_have_value('0.01')
+    expect(page.locator('#stage-aa-minimization-facts')).to_have_text(
+        '20 000 steps · 1 000 kJ/mol/nm · 0.01 nm')
+
+    # A changed step cap refreshes the facts line before the run is queued.
+    page.locator('[name=aa_minimization_steps]').fill('30000')
+    expect(page.locator('#stage-aa-minimization-facts')).to_have_text(
+        '30 000 steps · 1 000 kJ/mol/nm · 0.01 nm')
+
+    # The Default button restores the reviewed value, and the facts line follows it.
+    page.locator('#stage-aa-minimization button[data-field="aa_minimization_steps"]').click()
+    expect(page.locator('[name=aa_minimization_steps]')).to_have_value('20000')
+    expect(page.locator('#stage-aa-minimization-facts')).to_have_text(
+        '20 000 steps · 1 000 kJ/mol/nm · 0.01 nm')
+
+    # A changed step cap is what the queued run carries.
+    page.locator('[name=aa_minimization_steps]').fill('30000')
+    submissions = []
+    page.route(f'{live_page.base_url}/', lambda route: (
+        submissions.append(route.request.post_data_json), route.fulfill(status=201, json={'id': '666666666666'}))[1])
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    body = submissions[0]
+    assert body['aa_minimization_steps'] == '30000'
+    assert (body['aa_minimization_emtol'], body['aa_minimization_emstep']) == ('1000', '0.01')
     assert not errors, errors

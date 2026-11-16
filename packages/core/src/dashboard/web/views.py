@@ -23,6 +23,7 @@ from ..execution import workflow
 from ..execution.adapters import cg
 from ..execution.coordination.manifest import stage_log_path as resolve_stage_log
 from . import progress as stage_progress
+from . import stage_settings
 
 VISIBLE_FIELDS = frozenset((
     'id','label','detergent','molecule_name','molecule_id','method','profile',
@@ -376,6 +377,17 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
     result = {k: v for k, v in job.items()
               if k not in HIDDEN_FIELDS and (not summary or k in VISIBLE_FIELDS)}
     result['metadata_warnings'] = []
+    supplied_manifest = manifest or {}
+    # The job record is the authority for a run whose manifest is partial or predates `run_type`; the stage helpers
+    # resolve an adapter by this field, and a view must not report a readable run as one with no run type.
+    manifest = {**supplied_manifest, 'run_type': supplied_manifest.get('run_type') or job.get('run_type')}
+    # The segments are arithmetic over the settings the run recorded, so the list payload carries them: a row's bar
+    # is drawn before the row is expanded. The groups are the detail's, and a summary request does not ask for them.
+    if summary:
+        result['stage_segments'] = stage_settings.segments(job, manifest)[0]
+    else:
+        result['stage_settings'] = stage_settings.payload(job, manifest)
+        result['stage_segments'] = result['stage_settings']['segments']
     if run_dir is None or not usable_run_id(job):
         return result | {'status': 'failed', 'error': UNREPAIRABLE, 'can_cancel': False,
                          'can_delete': False, 'can_retry': False, 'stages': [],
@@ -383,10 +395,6 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
                          'workflow_stages': plan_names(job),
                          'elapsed_seconds': None, 'analyses': [], 'consistency': None}
     run_dir = Path(run_dir)
-    supplied_manifest = manifest or {}
-    # The job record is the authority for a run whose manifest is partial or predates `run_type`; the stage helpers
-    # resolve an adapter by this field, and a view must not report a readable run as one with no run type.
-    manifest = {**supplied_manifest, 'run_type': supplied_manifest.get('run_type') or job.get('run_type')}
     result.update(ownership or {})
     result['gpu_name'] = gpu_name(manifest, job)
     result['trajectory_bytes'] = layout.trajectory_bytes(run_dir)

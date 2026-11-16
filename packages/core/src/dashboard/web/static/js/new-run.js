@@ -70,6 +70,7 @@ const CG_STAGES = [
 //: a Verlet tolerance or coupling time changes no fact, but it is persisted and refreshed like the numbers it sits by.
 const STAGE_SUMMARY_FIELDS = [
   ...AA_STAGES.flatMap(stage => [`aa_${stage}_ps`, `aa_${stage}_dt_fs`, `aa_${stage}_nstlist`]),
+  'aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep',
   'cg_minimization_steps', 'cg_minimization_nstlist', 'cg_minimization_verlet_buffer_tolerance',
   'cg_equil_ps', 'cg_equil_dt_fs', 'cg_equil_nstlist', 'cg_equil_verlet_buffer_tolerance',
   'cg_equil_tau_t', 'cg_equil_tau_p', 'cg_equil_compressibility',
@@ -96,6 +97,19 @@ const groupedNumber = number => number.toLocaleString('en-GB').replace(/,/g, ' '
  */
 function syncStageSummaries(form) {
   if (!form) return;
+  // AA minimisation: the reviewed profile's step cap, force tolerance and uphill step. Its facts line lets the
+  // closed editor still state the three numbers a run would change.
+  const minimization = document.getElementById('stage-aa-minimization-facts');
+  if (minimization) {
+    const steps = stageNumber(form, 'aa_minimization_steps');
+    const emtol = stageNumber(form, 'aa_minimization_emtol');
+    const emstep = stageNumber(form, 'aa_minimization_emstep');
+    const parts = [];
+    if (steps !== null) parts.push(`${groupedNumber(steps)} steps`);
+    if (emtol !== null) parts.push(`${groupedNumber(emtol)} kJ/mol/nm`);
+    if (emstep !== null) parts.push(`${groupedNumber(emstep)} nm`);
+    minimization.textContent = parts.join(' · ');
+  }
   for (const stage of AA_STAGES) {
     const host = document.getElementById(`stage-aa-${stage}-facts`);
     if (!host) continue;
@@ -229,7 +243,8 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     'mdrun_tunepme', ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
   // The topology choice is the AA leg's: a CG run consumes a reference that already ran.
   const AA_TOPOLOGY_FIELDS = ['vsite'];
-  const AA_ONLY_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS];
+  const AA_ONLY_FIELDS = [...AA_FIELDS, 'aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep',
+    ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS];
   const REVISION_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, ...CG_FIELDS, 'force_field'];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
   // `fieldsFor` rather than by visibility -- because a preset and a clone must not lose a setting to a toggle.

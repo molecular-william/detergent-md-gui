@@ -61,6 +61,20 @@
 .job-progress[data-indeterminate="true"] .job-progress-fill { width:100%; background:linear-gradient(90deg,#cfe3d8 0%,#36a269 50%,#cfe3d8 100%); background-size:200% 100%; animation:job-progress-sweep 1.4s linear infinite; }
 @keyframes job-progress-sweep { from { background-position:0 0; } to { background-position:-200% 0; } }
 .job-progress-text { font-size:10px; display:block; }
+/* The AA bar: four contiguous stage segments, each already sized by the server's step arithmetic. A stage's own
+   fraction fills only its segment; earlier stages are full and later ones muted. Every other type keeps the single
+   fill above. */
+.job-progress.segmented { display:flex; height:8px; border-radius:4px; overflow:hidden; }
+.job-progress-seg { display:block; height:100%; background:linear-gradient(to right, var(--segment-color) var(--fill), #e2e8f0 var(--fill)); }
+.job-progress-seg.done { background:var(--segment-color); }
+.job-progress-seg.future { background:#e2e8f0; }
+/* Stage settings: the read-only values a run recorded, grouped by the stage that recorded them. */
+.stage-settings-host h4 { margin:10px 0 4px; font-size:12px; color:var(--ink); }
+.stage-settings-host h4:first-child { margin-top:0; }
+.stage-settings-table { width:100%; border-collapse:collapse; font-size:12px; }
+.stage-settings-table th, .stage-settings-table td { padding:3px 10px 3px 0; border-bottom:1px solid var(--line);
+  text-align:left; vertical-align:top; }
+.stage-settings-table th { color:var(--muted); font-weight:500; white-space:nowrap; }
 .run-table .run-actions .toolbar { gap:5px; margin:0; }
 .run-table .run-actions button { font-size:11px; padding:5px 8px!important; }
 .run-table .resume-control { display:flex; align-items:end; gap:6px; margin-top:10px; max-width:235px; }
@@ -78,8 +92,6 @@
 .run-resources > details[open] { flex-basis:100%; order:1; }
 .run-resources > details[open] > summary { background:#edf3ff; }
 .run-resources > details > .resource-content { padding:12px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; }
-.run-resources #console-panel { margin:0; padding:0; }
-.run-resources #console-panel .toolbar { margin-top:0; }
 
 /* A directory copied into runs/ has no job row, so the table cannot list it. The banner says so once and its
    dialog registers selected directories; it is hidden entirely when there is nothing to register. */

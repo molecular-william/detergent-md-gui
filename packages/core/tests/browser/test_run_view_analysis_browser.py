@@ -352,3 +352,69 @@ def test_the_card_stops_polling_while_the_run_view_is_hidden_and_reads_on_return
     assert len(hits) > settled, 'the card did not read immediately on return'
     expect(tasks(page)).to_contain_text('phase two')
     assert errors == [], errors
+
+def seed_aa(dashboard, run_id=A_RUN):
+    """One completed atomistic run with the fields the card reads and no figures of its own."""
+    owner = dashboard.coordinator
+    owner.database().insert({'id': run_id, 'run_type': 'aa_only', 'label': 'Minimisation run',
+                             'detergent': 'DDM', 'method': 'gromacs', 'status': 'completed',
+                             'stage': 'complete', 'created': owner.now(), 'analyses': []})
+    (owner.RUNS / run_id).mkdir(parents=True, exist_ok=True)
+
+
+def test_the_analysis_card_switches_between_figures_and_stage_settings(dashboard, live_page):
+    """The card's own two-tab strip: Figures is today's content, and Stage settings reads the run's groups once.
+
+    The settings are the same groups the Runs panel draws, so the card asks the full job record the first time the
+    tab is opened for a run and keeps the answer while the reader moves between the tabs.
+    """
+    seed_aa(dashboard)
+    page, errors = live_page
+    detail = {'id': A_RUN, 'stage_settings': {'segments': None, 'total_steps': None, 'groups': [
+        {'stage': '00_energy_minimisation', 'label': 'Energy minimization', 'fields': [
+            {'key': 'aa_minimization_steps', 'label': 'Maximum steps', 'value': 20000},
+            {'key': 'temperature_k', 'label': 'Temperature', 'value': 310, 'unit': 'K'}]},
+        {'stage': '01_nvt', 'label': 'NVT equilibration', 'fields': [
+            {'key': 'aa_nvt_ps', 'label': 'Duration', 'value': 100, 'unit': 'ps'}]},
+    ]}}
+    asked = []
+
+    def record(route):
+        asked.append(route.request.url)
+        route.fulfill(json=detail)
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}$'), record)
+    page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={A_RUN}')
+    expect(page.locator('#runview')).to_be_visible()
+    card = page.locator('#run-view-analysis-A')
+
+    figures_tab = card.get_by_role('tab', name='Figures', exact=True)
+    settings_tab = card.get_by_role('tab', name='Stage settings', exact=True)
+    expect(card.locator('.analysis-mode-tabs')).to_have_attribute('role', 'tablist')
+    expect(figures_tab).to_have_attribute('aria-selected', 'true')
+    expect(card.locator('.analysis-mode-panel[data-mode="figures"]')).to_be_visible()
+    expect(card.locator('.analysis-mode-panel[data-mode="stage-settings"]')).to_be_hidden()
+
+    settings_tab.click()
+    expect(settings_tab).to_have_attribute('aria-selected', 'true')
+    expect(figures_tab).to_have_attribute('aria-selected', 'false')
+    expect(card.locator('.analysis-mode-panel[data-mode="stage-settings"]')).to_be_visible()
+    expect(card.locator('.analysis-mode-panel[data-mode="figures"]')).to_be_hidden()
+    settings = card.locator('#run-view-analysis-stage-settings-A')
+    expect(settings).to_contain_text('Energy minimization')
+    expect(settings).to_contain_text('20000')
+    expect(settings).to_contain_text('310 K')
+    expect(settings).to_contain_text('NVT equilibration')
+    # The panel is labelled by its tab, whose text is its accessible name.
+    panel = card.get_by_role('tabpanel', name='Stage settings', exact=True)
+    expect(panel).to_have_attribute('aria-labelledby', 'run-view-analysis-mode-settings-A')
+
+    figures_tab.click()
+    expect(card.locator('.analysis-mode-panel[data-mode="figures"]')).to_be_visible()
+    expect(settings_tab).to_have_attribute('aria-selected', 'false')
+
+    # Returning to the tab reuses the first read; the compact list payload never carries the groups.
+    settings_tab.click()
+    expect(settings).to_contain_text('20000')
+    assert len(asked) == 1, f'the card asked for the full record {len(asked)} times'
+    assert errors == [], errors

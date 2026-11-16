@@ -321,9 +321,13 @@ def test_cg_dynamics_states_the_reviewed_neighbour_list():
 
 
 def test_a_run_value_the_profile_fixes_is_refused():
-    """An override would be one reviewed profile run under another's name."""
-    with pytest.raises(ValueError, match='nsteps'):
-        render('aa-em-v1', {'nsteps': 5})
+    """An override would be one reviewed profile run under another's name.
+
+    aa-em-v1 opens its three minimization numbers to the run, because the New run form edits them; its integrator
+    is still the reviewed physics and a run may not name it.
+    """
+    with pytest.raises(ValueError, match='integrator'):
+        render('aa-em-v1', {'integrator': 'md'})
 
 
 def test_a_missing_run_number_is_refused_instead_of_written_as_none():

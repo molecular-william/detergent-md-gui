@@ -276,6 +276,11 @@ the trajectory stride is recomputed the same way, so an untouched run is byte-id
 refuses it. The timestep has a floor of 0.5 fs and **no upper bound**: a topology with larger hydrogen masses can step
 further, and GROMACS' stability is the real limit.
 
+**Energy minimisation** is its own editor: **maximum steps** (`aa_minimization_steps`, 20 000), **force
+tolerance** (`aa_minimization_emtol`, 1000 kJ mol⁻¹ nm⁻¹) and **initial step** (`aa_minimization_emstep`, 0.01 nm).
+The reviewed `aa-em-v1` profile declares those three as the run's, so the values reach `03_minimization/run.mdp`
+and an untouched run still renders the reviewed file byte for byte.
+
 **Hydrogen mass repartitioning** is one optional run setting (`mass_repartition_factor`, blank = off), because masses
 belong to the topology rather than to a stage: a named factor writes GROMACS' `mass-repartition-factor` into all
 three dynamics MDPs and no other stage, so every leg states the same masses. It has no default key — a blank field
@@ -379,13 +384,15 @@ not the stage records, because an interrupted stage can leave a trajectory its r
 states the run's **highest observed throughput**, parsed from the `Performance:` lines of its own stage logs under
 `logs/` (the largest ns/day GROMACS printed, read from each log's tail and remembered per file's size and mtime), so
 two runs' speed is comparable without opening either; a run whose logs record none states no number. Each run card
-shows the workflow stages from its manifest and indexes files created inside the run directory. Artifact links are path-checked; SVG files are previewed in the card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
+shows the workflow stages from its manifest and, expanded, one **Stage settings** disclosure with the values the run recorded, grouped by stage (`web/stage_settings.py`; only recorded keys are shown). For an `aa_only` run the progress bar is four contiguous segments -- minimisation, NVT, NPT, production -- whose widths are each stage's step count over their total (`aa_minimization_steps`, then `ps * 1000 / dt_fs`); the current stage fills by its own log percent, earlier stages are full and later ones muted. CG, pdc and osmotic runs keep the single fill. The Artifacts, Commands and stage records, and Console disclosures are retired; the run directory remains the artifact record (`GET /api/jobs/<id>/artifacts`) and stage records remain in the manifest and the Analysis card. The default `snapshots` analysis stays retired: a run holds only the structures and trajectories its own stages wrote, and a frame series is on demand — `frame-series` samples a chosen segment into one multi-model PDB (`analysis/runs/frame_series.py`), never on a cadence.
 
 ### Run view
 One run, its structures and its CG chain segments, registered in **both** workspaces and scoped per
 workspace by `web/sections.py`'s `run_types` (validation: `aa_only`, `cg`, `osmotic`;
 protein-detergent: `pdc`). The panel asks `/api/jobs` for each in-scope type by name (`?run_type=`), so it
-renders this workspace's runs rather than narrowing a page. AA and CG structures come from the artifact route;
+renders this workspace's runs rather than narrowing a page. The Analysis card has two modes -- **Figures** and
+**Stage settings** -- and reads the latter from `GET /api/jobs/<id>` the first time it is opened for a run; it is
+the same grouped record the Runs row shows. AA and CG structures come from the artifact route;
 a CG structure is sized from the model's own size classes and coloured by type family through
 `static/js/ngl-beads.js`, with the legend drawn from the same table. The bond rule is one helper
 (`static/js/run-view-structure.js`): a file carrying CONECT is drawn from those records and never guessed at,
@@ -494,12 +501,9 @@ Each monitor's Analysis card also carries the sections a feature registers (the 
 
 The sections are also perspectives on one **comparison map** above them. The engine hosts it (`registerRunViewAnalysisMap` in the same extension module) and hides it on Figures; the validation map fetches the published record plus `stages/2_mapping/model.json`/`mapped.gro`, resolves `(1,A)`, `B01` and the mapping name onto one bead key, and draws the Bonded Interactions Plotly scene — displacement and pair lines for Geometry, terms coloured by overlap for Bonded terms. The section tabs call `setMode`; the bead selection survives the switch. Selecting a term row in Bonded terms (a bond, an angle or a dihedral) dispatches `rvm-term-select` to the map, whose one `selectTerm` state draws the same line or arc at the selected width, halo and status sentence; the pane remembers the term across a tab switch and re-announces it, and the selection clears when the published comparison attempt changes. A headline and top-three ranked attention list, computed per perspective with no composite score, sit under the map; in the full-width card (`#run-view-monitors.one-column`, the second monitor minimized) the scene and that reading box sit side by side with the map head across both, while a half-width card keeps them stacked. Bonded terms groups the bonds and the angles in separate `<details>` closed by default (dihedral rows stay flat), and "Our fit against the independent estimate" is a closed `<details>` too; a map attention item opens the group that holds the row it focuses. Selecting a term also shows the Fast-Forward panel: the reference and simulated distributions from the on-demand `ff-interactions` record (`GET /api/jobs/<id>/ff-interactions`), with **FF Hellinger distance**, **FF score** and the dashboard **overlap coefficient** labelled as three different numbers. The analysis reads text `.dat`/`.out`; a reference-seeded run resolves the side from the parameterization store and records that source, and a missing side is stated rather than drawn as a one-sided comparison.
 
-Shape and volume draws one Plotly scene from the published `surface-comparison-aa-cg.json` with the AA and Simulated CG meshes and their markers, toggled by two checkboxes that are that scene's legend, and the SASA table (Model, Mean SASA, SD -- no frames or duration) beside it in the full-width card and below it otherwise; the bead-overlap figure keeps its own smaller 640x300 frame. The card's analysis list is a checklist (`analysis-check`): one item per kind, ticked when that kind's latest attempt completed, an empty box and the last console line when it failed (no Log link; the console remains in the artifacts), and a Cancel control while it is unsettled. Every Plotly host is observed, so a width change (the monitor toggle) resizes its graph.
+Shape and volume draws one Plotly scene from the published `surface-comparison-aa-cg.json` with the AA and Simulated CG meshes and their markers, toggled by two checkboxes that are that scene's legend, and the SASA table (Model, Mean SASA, SD -- no frames or duration) beside it in the full-width card and below it otherwise; the bead-overlap figure keeps its own smaller 640x300 frame. The card's analysis list is a checklist (`analysis-check`): one item per kind, ticked when that kind's latest attempt completed, an empty box and the last log line when it failed (no Log link; the stage log remains in the run's artifacts), and a Cancel control while it is unsettled. Every Plotly host is observed, so a width change (the monitor toggle) resizes its graph.
 
 Shape is the exception: it replaces the map with the surfaces analysis's primary pair, drawn from `surface-comparison-aa-cg.json` — AA and Simulated CG meshes in two panels on the same probe/extent — plus a 2D SASA-vs-time chart from the per-model `sasa.xvg` files. The route rebases both the pair and the xvg paths to run-root artifacts; an attempt from before the pair existed shows its own SASA table and series plus an actionable sentence and **Recalculate surfaces**, with no figure (the surfaces analysis no longer writes the HTML comparison). The bead-overlap analysis stays a separately labelled block (`Bead overlap · separate analysis (not surface area)`), and **Calculate surfaces**/**Calculate bead overlap** queue the empty-body kinds. The overlap analysis compares the **mapped** AA trajectory (`2_mapping/mapped.*`) with the CG leg, not the all-atom reference, and reads each side's own residue name (`overlap.publish`).
-
-### Console
-Select a run, pause display updates, copy the visible excerpt, or download its full log. New runs download a stage-log ZIP. Pausing affects the display only.
 
 ### New run
 Shows the exact packaged input paths, executable availability, and missing workflow requirements. The same readiness check runs server-side on submission and retry. Unsupported methods and incomplete workflows cannot be queued. The dashboard accepts registered molecule directories; arbitrary uploads and SMILES are not offered.
@@ -835,11 +839,13 @@ code it describes; if the two disagree, the code is right and this is stale.
 a three-leg script stage (`cg_simulation.sh`: min, eq, md) has no single GROMACS estimate and a tool stage
 (`assess.sh`) prints no step at all. It streams the log -- leg markers stand at the start of legs -- and reports
 `percent: null` rather than 0 when a leg has not printed yet. The ETA is GROMACS' own text, so the two numbers answer
-different questions.
+different questions. The Runs row draws that record as one bar; for an `aa_only` run it draws `stage_segments`
+instead -- four segments in plan order whose widths are the stages' step counts over their total, with
+`progress.stage`/`progress.percent` filling the current one.
 
-`coordinator.automatic_analyses` is the one resolver the queueing path asks -- `kinds.for_every_run()` plus
-`kinds.default_for(run_type)`. `for_every_run()` is empty because the snapshot analysis is retired; `frame-series`
-is on demand only; a `cg` revision run still owes `dihedral-fit` and `bonded-cross-check`, which a reference or composition run records `skipped`.
+`coordinator.automatic_analyses` is the one resolver the queueing path asks: `kinds.default_for(run_type)`.
+The engine's own list is empty (the snapshot analysis is retired); `frame-series` is on demand only; a `cg` revision
+run still owes `dihedral-fit` and `bonded-cross-check`, which a reference or composition run records `skipped`.
 
 The owed kinds are worked through **one at a time**, because `queue` takes one analysis per run and refuses a second
 with `RunBusy` while the first holds the worker. `analysis_coordinator.drain` queues what it can and names the rest in

@@ -1,8 +1,8 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds,
          liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
-import { createConsoleViewer } from './console.js';
+import { renderStageSettings, renderProgressSegments } from './stage-settings.js';
 
-// Owns run cards, filtering, artifact loading, and polling. Form changes are callbacks.
+// Owns run cards, filtering, stage settings and polling. Form changes are callbacks.
 // How much of a run is trajectory: the number that tells a reader what deleting it would free. GiB, as the
 // workspace's own limits are stated; a run holding none says so instead of showing a misleading zero.
 function trajectorySize(bytes) {
@@ -149,12 +149,24 @@ export function createRuns({ onClone, onDeleted }) {
   refreshFilterSummary();
 
   const cards = new Map();
-  const consoleViewer = createConsoleViewer({ getCards: () => cards.values() });
   function duration(seconds) {
     if (seconds === null || seconds === undefined) return 'Not recorded';
     const n = Math.floor(seconds); return `${Math.floor(n / 3600)}h ${Math.floor(n % 3600 / 60)}m ${n % 60}s`;
   }
   function stageDurationSeconds(start,end) { if (!start || !end) return null; const a=Date.parse(start), b=Date.parse(end); return Number.isFinite(a)&&Number.isFinite(b)&&b>=a ? (b-a)/1000 : null; }
+  // A bar a previous render drew as segments goes back to the one fill when this answer is not segmented (or not
+  // drawable at all), so a row that stops qualifying does not keep a stale stage bar.
+  function resetProgressBar(bar) {
+    if (!bar) return;
+    bar.classList.remove('segmented');
+    delete bar.dataset.segments;
+    if (!$('.job-progress-fill', bar)) {
+      bar.replaceChildren();
+      const fill = document.createElement('span');
+      fill.className = 'job-progress-fill';
+      bar.append(fill);
+    }
+  }
   // Two different empty tables: a repository with no runs says how to start one, and a narrowed table that matches
   // nothing says so and offers the way back. Reading "no runs yet" after ticking a box would be a false statement
   // about the workspace.
@@ -173,29 +185,20 @@ export function createRuns({ onClone, onDeleted }) {
     showEmpty(jobs);
     const ids = new Set(jobs.map(job => job.id));
     for (const [id, card] of cards) if (!ids.has(id)) {
-      if (card.contains($('#console-panel'))) { consoleViewer.detach(); }
       card.remove(); cards.delete(id);
     }
-    for (const option of $$('#console-run option')) if (option.value && option.value !== consoleViewer.selectedRun && !ids.has(option.value)) option.remove();
-    // Console selection can refer to a run on another page.
     let previousCard = $('#empty-jobs');
     for (const job of jobs) {
       let card = cards.get(job.id);
       if (!card) {
         card = $('#job-template').content.firstElementChild.cloneNode(true);
         card.dataset.id = job.id; cards.set(job.id, card); $('#jobs').append(card);
-        // The card's three remaining disclosures. The analysis panel is gone: its figures, queue buttons and task list
-        // are the Run view's Analysis card, which owns its own state rather than reading this card's storage.
-        const legacyDetails = {artifacts: 0, records: 1};
-        for (const kind of ['artifacts', 'records', 'console']) {
-          const detail = $('.job-' + kind, card);
-          const legacy = legacyDetails[kind];
-          detail.open = storage.get(`resource.${job.id}.${kind}`, legacy !== undefined ? storage.get(`details.${job.id}.${legacy}`, false) : false);
-          detail.addEventListener('toggle', () => {
-            storage.set(`resource.${job.id}.${kind}`, detail.open);
-            if (kind === 'console' && detail.open) consoleViewer.mount(card);
-          });
-        }
+        // The one remaining disclosure: the values the run recorded, grouped by stage. It renders lazily on open and
+        // refreshes on a polled update, so a queued run shows what it will consume without a second read per row.
+        const stageSettings = $('.job-stage-settings', card);
+        if (stageSettings) stageSettings.addEventListener('toggle', () => {
+          if (stageSettings.open) refreshStageSettings(card, card.job).catch(error => notice(error.message));
+        });
         for (const action of ['cancel','retry']) $('.job-'+action,card).onclick = async () => {
           try { await post(action === 'cancel' ? `/control/${job.id}/cancel` : `/retry/${job.id}`, {}); await refreshJobs(); }
           catch(error) { notice(error.message); }
@@ -226,14 +229,6 @@ export function createRuns({ onClone, onDeleted }) {
           try { await post(`/api/jobs/${job.id}/resume`,{stage:$('.resume-stage',card).value}); notice('Run resumed; current stage files will be executed.'); await refreshJobs(); }
           catch(error) { notice(error.message); }
         };
-        card.artifactPage = 1;
-        $('.artifacts-prev',card).onclick = () => { card.artifactPage--; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
-        $('.artifacts-next',card).onclick = () => { card.artifactPage++; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
-        $('.artifact-search',card).oninput = () => { card.artifactPage = 1; refreshArtifactViews(card,job).catch(error=>notice(error.message)); };
-        $('.job-artifacts',card).addEventListener('toggle', () => {
-          if ($('.job-artifacts',card).open) refreshArtifactViews(card,card.job).catch(error=>notice(error.message));
-        });
-        $('.job-records',card).addEventListener('toggle',()=>{if($('.job-records',card).open)refreshRecords(card,card.job);});
         $('.job-delete', card).onclick = async event => {
           if (!window.confirm('Delete this run, its console log, and all generated artifacts? This cannot be undone.')) return;
           const button = event.currentTarget; button.disabled = true;
@@ -241,11 +236,10 @@ export function createRuns({ onClone, onDeleted }) {
             await api(`/api/jobs/${job.id}`, {method: 'DELETE'});
             invalidateResource('/api/references'); invalidateResource('/api/storage');
             onDeleted(job.id);
-            cards.delete(job.id); if (consoleViewer.selectedRun === job.id) consoleViewer.select('');
+            cards.delete(job.id);
             card.remove(); notice('Run deleted.'); await refreshJobs();
           } catch (error) { notice(error.message); button.disabled = false; }
         };
-        if (![...$('#console-run').options].some(option=>option.value === job.id)) { const option = document.createElement('option'); option.value = job.id; option.textContent = `${job.detergent} · ${job.id}`; $('#console-run').append(option); }
       }
       card.job=job;
       if (previousCard.nextElementSibling !== card) previousCard.after(card); previousCard = card;
@@ -284,8 +278,8 @@ export function createRuns({ onClone, onDeleted }) {
       const resumeSelect = $('.resume-stage',card), previousStage = resumeSelect.value;
       resumeSelect.replaceChildren(...(job.resume_stages || []).map(name=>new Option(name,name)));
       if ((job.resume_stages || []).includes(previousStage)) resumeSelect.value = previousStage; else if (job.resume_stages?.length) resumeSelect.value = job.resume_stages.at(-1);
-      setText($('.job-validation',card),'Scientific validation: not established. ' + (job.metadata_warnings || []).join(' '));
-      if($('.job-records',card).open)refreshRecords(card,job);
+      // A polled update reaches an open Stage settings row too: the keyed fetch below is a no-op unless the run moved.
+      if ($('.job-stage-settings', card)?.open) refreshStageSettings(card, job).catch(error => notice(error.message));
       // How far the running stage has got. GROMACS' ETA answers "when will this leg end"; a three-leg script stage
       // (min, eq, md) has two thirds of its life before the ETA says anything, and a tool stage never says anything --
       // so the bar counts what the stage's own log states: legs done, and the step within the current one.
@@ -293,13 +287,20 @@ export function createRuns({ onClone, onDeleted }) {
       const progressBar = $('.job-progress', card), progressText = $('.job-progress-text', card);
       if (progress && progress.legs) {
         progressBar.hidden = false;
+        // AA runs draw four stage segments from the list payload; every other type keeps the single stage bar.
+        const segmented = renderProgressSegments(progressBar, job);
+        if (!segmented) resetProgressBar(progressBar);
         const percent = progress.percent;
         const where = `${progress.stage} · ${progress.leg}${progress.steps ? ` ${progress.step ?? 0}/${progress.steps}` : ''}`;
         // The stage bar is still the stage's own fraction; the plan suffix is what makes the queued run's settings
         // visible while it runs. A skipped stage is not counted as active.
         const active = (job.workflow_stages || []).filter(name => !job.workflow_skips?.[name]).length;
         const plan = job.workflow_skips && active ? ` · ${active} active stages` : '';
-        if (percent == null) {
+        if (segmented) {
+          // The segments own the bar, its aria value and the current stage's fill; the text line still names the leg.
+          progressBar.removeAttribute('data-indeterminate');
+          setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs}${plan}`);
+        } else if (percent == null) {
           progressBar.removeAttribute('aria-valuenow');
           progressBar.dataset.indeterminate = 'true';
           $('.job-progress-fill', progressBar).style.width = '100%';
@@ -313,6 +314,7 @@ export function createRuns({ onClone, onDeleted }) {
           setText(progressText, `${where} · leg ${progress.leg_index} of ${progress.legs} · ${percent}%${plan}`);
         }
       } else {
+        resetProgressBar(progressBar);
         progressBar.hidden = true; setText(progressText, '');
       }
       const stageKey = JSON.stringify([job.stages || [],job.status,job.stage,job.workflow_stages,job.workflow_skips]);
@@ -351,46 +353,29 @@ export function createRuns({ onClone, onDeleted }) {
         card.dataset.stages = stageKey;
       }
     }
-    const consoleCard = cards.get(consoleViewer.selectedRun);
-    if (consoleCard && $('.job-console', consoleCard).open && !consoleCard.contains($('#console-panel'))) consoleViewer.mount(consoleCard);
   }
-  async function refreshRecords(card, job) {
-    const key=JSON.stringify([job.detail_revision,job.revision]);
-    if(card.recordsKey===key || card.recordsPending===key)return;
-    card.recordsPending=key;
+  // The row's own full record, read only when its Stage settings disclosure is open. The list payload carries the
+  // progress and the segments; the settings are not duplicated there, so this is the one read a row makes for itself.
+  async function refreshStageSettings(card, job) {
+    const host = $('.stage-settings-host', card);
+    if (!host || !job) return;
+    const key = JSON.stringify([job.detail_revision, job.revision]);
+    if (card.settingsKey === key || card.settingsPending === key) return;
+    card.settingsPending = key;
     try {
-      const detail=await api('/api/jobs/'+job.id);
-      if(card.recordsPending!==key)return;
-      job=detail;
-      setText($('.job-command', card), (job.command || 'Command not recorded') + (job.error ? '\n\n' + job.error : ''));
-        const records = $('.job-stages', card); records.replaceChildren();
-        for (const stage of job.stages || []) {
-          const line = document.createElement('p'); line.className = 'hint';
-          line.textContent = `${stage.name} · ${stage.status} · ${stage.started_at || 'Start not recorded'} → ${stage.ended_at || 'End not recorded'} · exit ${stage.exit_code ?? '—'} · duration ${duration(stage.resource_usage?.wall_seconds)}`; records.append(line);
-          const evidence = document.createElement('pre'); evidence.textContent = JSON.stringify({command:stage.command, inputs:stage.inputs, input_hashes:stage.inputs_sha256, outputs:stage.outputs, output_hashes:stage.outputs_sha256, environment:stage.environment, log:stage.log, resources:stage.resource_usage, error:stage.error, source_run:stage.source_run},null,2); records.append(evidence);
-        }
-      card.recordsKey=key;
-    } catch(error) { if(card.recordsPending===key)setText($('.job-command',card),error.message); }
-    finally { if(card.recordsPending===key)card.recordsPending=null; }
+      const detail = await api('/api/jobs/' + job.id);
+      if (card.settingsPending !== key) return;
+      renderStageSettings(host, detail);
+      card.settingsKey = key;
+    } catch (error) {
+      if (card.settingsPending === key) {
+        host.replaceChildren();
+        const line = document.createElement('p'); line.className = 'hint'; line.textContent = error.message;
+        host.append(line);
+      }
+    } finally { if (card.settingsPending === key) card.settingsPending = null; }
   }
   let runPage = 1, jobsEtag = '', pollDelay = pollMilliseconds();
-  async function refreshArtifactViews(card,job) {
-    if(!$('.job-artifacts',card).open) return;
-    const generation = (card.artifactGeneration || 0)+1; card.artifactGeneration = generation;
-    const query = new URLSearchParams({page:card.artifactPage || 1, limit:25, search:$('.artifact-search',card).value});
-    // A search or page typed while a fetch is in flight must not be overwritten by the answer to the older question.
-    const result = await api(`/api/jobs/${job.id}/artifacts?${query}`);
-    if (generation !== card.artifactGeneration) return;
-    const list = $('.artifact-list',card); list.replaceChildren();
-    for (const artifact of result.artifacts) {
-      const row = document.createElement('div'), link = document.createElement('a');
-      link.href = `/api/jobs/${job.id}/artifacts/${artifact.path.split('/').map(encodeURIComponent).join('/')}`;
-      link.textContent = `${artifact.path} · ${artifact.bytes.toLocaleString()} bytes`; link.download = artifact.path.split('/').pop(); row.append(link); list.append(row);
-    }
-    setText($('.artifact-summary',card),`${result.total} matching files`);
-    setText($('.artifacts-page',card),`Page ${result.page}`);
-    $('.artifacts-prev',card).disabled = result.page <= 1; $('.artifacts-next',card).disabled = result.page*result.limit >= result.total;
-  }
   async function refreshJobs(conditional=false) {
     const query = new URLSearchParams({view:'summary',page:runPage,limit:20,search:$('#run-search').value});
     // One repeated parameter per ticked box. The poll and the user's own read go through this one builder, so a
@@ -420,7 +405,7 @@ export function createRuns({ onClone, onDeleted }) {
     clearTimeout(pollTimer);
     if ($('#'+panelIds().runs).hidden || !liveVisible()) { pollTimer=setTimeout(poll,HIDDEN_WAKE_MS); return; }
     polling=true;
-    try { await refreshJobs(true); await consoleViewer.refresh(); pollDelay=pollMilliseconds(); setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }
+    try { await refreshJobs(true); pollDelay=pollMilliseconds(); setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }
     catch(error) { pollDelay=Math.min(pollDelay*2,60000); setText($('#connection'),`Updates unavailable: ${error.message}. Retrying in ${pollDelay/1000}s.`); }
     finally { polling=false; pollTimer=setTimeout(poll,pollDelay); }
   }
@@ -533,7 +518,7 @@ export function createRuns({ onClone, onDeleted }) {
     }
   };
 
-  return { refreshJobs, refreshConsole: consoleViewer.refresh, refreshStorage, refreshUnregistered,
+  return { refreshJobs, refreshStorage, refreshUnregistered,
     // The panel's own first read, returned so the mount's busy state lasts until the table is filled: a mount that
     // resolves before `/api/jobs` answers would clear the loading line in the same tick it appeared. The filter
     // vocabulary is read first because the boxes are drawn from it, so the first table is already the one the saved

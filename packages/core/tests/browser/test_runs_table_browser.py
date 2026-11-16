@@ -73,7 +73,7 @@ def test_the_renamed_stage_reads_the_same_under_both_spellings(dashboard, live_p
     assert errors == [], errors
 
 
-def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
+def test_runs_views_checkpoints_and_stage_settings(dashboard, live_page):
     runs = dashboard.coordinator.RUNS
     stages = ['AA reference', 'trajectory mapping', 'CG topology (ff_inter)', 'CG simulation', 'CG assessment (ff_assess)', 'SASA analysis']
     jobs = [{'id': f'{i:012x}', 'label': label, 'detergent': 'DDM', 'method': 'fast_forward',
@@ -85,18 +85,23 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     dashboard.coordinator.database().replace(jobs)
     for job in jobs:
         directory = runs/job['id']; (directory/'logs').mkdir(parents=True)
-        (directory/'logs/console.log').write_text(''.join(f"{job['label']} line {i}\n" for i in range(100)))
         states = ['completed'] * 6 if job['status'] == 'completed' else ['reused', 'completed', 'completed', 'running', 'pending', 'pending'] if job['status'] == 'running' else ['completed', 'completed', 'failed', 'pending', 'pending', 'pending']
         files.atomic_json(directory/'manifest.json', {'stage_plan': stages, 'stages': [{'name': name, 'status': status} for name, status in zip(stages, states)]})
-        (directory/'result.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#edf3ff"/><text x="30" y="100">Reference comparison</text></svg>')
+    settings = {'id': '000000000001', 'stage_settings': {'groups': [{
+        'stage': 'AA minimization', 'label': 'AA minimization', 'fields': [
+            {'key': 'aa_minimization_steps', 'label': 'Maximum steps', 'value': 20000},
+            {'key': 'aa_emtol', 'label': 'Force tolerance', 'value': 1000, 'unit': 'kJ/mol/nm'}]}],
+        'segments': None, 'total_steps': None}}
     page, errors = live_page
+    page.route(re.compile(r'/api/jobs/000000000001$'), lambda route: route.fulfill(json=settings))
     url = f'{live_page.base_url}/detergent-validation/runs'
     page.goto(url)
     expect(page).to_have_title('Detergent MD · Laboratory')
     expect(page.locator('#jobs > tbody.job')).to_have_count(3)
     expect(page.locator('#jobs > thead')).to_contain_text('Molecule')
     expect(page.locator('.job-compare,.job-snapshots,#compare-runs')).to_have_count(0)
-    expect(page.locator('#console-panel')).not_to_be_visible()
+    # The three per-run disclosures and their console pane are gone; Stage settings is the one that remains.
+    expect(page.locator('.job-artifacts,.job-records,.job-console,#console-panel')).to_have_count(0)
     complete = page.locator('.job[data-id="000000000001"]')
     active = page.locator('.job[data-id="000000000002"]')
     failed = page.locator('.job[data-id="000000000003"]')
@@ -109,41 +114,20 @@ def test_runs_views_checkpoints_and_inline_console(dashboard, live_page):
     # remember. The old storage key is simply ignored rather than migrated.
     expect(page.locator('[data-run-view]')).to_have_count(0)
     expect(page.locator('#runs')).not_to_have_attribute('data-view', re.compile('table|grouped|dense'))
-    complete.locator('.job-artifacts > summary').click()
-    expect(complete.locator('.artifact-list')).to_contain_text('result.svg')
-    complete.locator('.job-records > summary').click()
-    expect(complete.locator('.job-stages')).to_contain_text('AA reference')
     # The analysis panel is gone from this card: its figures, queue buttons and task list are the Run view's
     # Analysis card, drawn beside the run they belong to. `test_run_view_analysis_browser.py` drives that card.
     expect(complete.locator('.job-analysis')).to_have_count(0)
-    complete.locator('.job-console > summary').click()
-    expect(complete.locator('#console-output')).to_contain_text('Completed control line 99')
-    page.locator('#pause-console').click()
-    log = runs/jobs[0]['id']/'logs/console.log'
-    with log.open('a') as out: out.write('added while paused\n')
-    page.evaluate('refreshConsole()')
-    expect(page.locator('#console-output')).not_to_contain_text('added while paused')
-    page.locator('#pause-console').click(); page.evaluate('refreshConsole()')
-    expect(page.locator('#console-output')).to_contain_text('added while paused')
-    page.locator('#copy-console').click()
-    expect(page.locator('#console-status')).to_have_text('Visible log copied')
-    with page.expect_download() as download: page.locator('#download-console').click()
-    assert download.value.suggested_filename.endswith('.zip')
-    active.locator('.job-console > summary').click()
-    expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
-    expect(complete.locator('.job-console')).not_to_have_attribute('open','')
+    # Expanding the row draws the values the run recorded, grouped by the stage that recorded them.
+    complete.locator('.job-stage-settings > summary').click()
+    host = complete.locator('.stage-settings-host')
+    expect(host.locator('h4')).to_have_text('AA minimization')
+    expect(host).to_contain_text('Maximum steps')
+    expect(host).to_contain_text('20000')
+    expect(host).to_contain_text('Force tolerance')
+    expect(host).to_contain_text('1000 kJ/mol/nm')
+    # A poll while the disclosure is open re-renders it from the same keyed answer rather than clearing it.
     page.evaluate('refreshJobs()')
-    expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
-    page.reload()
-    expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
-    # Filtering the current console out must park the viewer, not destroy it.
-    page.locator('#run-search').fill('Completed control')
-    expect(page.locator('.job')).to_have_count(1)
-    expect(page.locator('#console-parking #console-panel')).to_have_count(1)
-    page.locator('#run-search').fill('')
-    expect(page.locator('.job')).to_have_count(3)
-    active.locator('.job-console > summary').click() if not active.locator('.job-console').evaluate('(el)=>el.open') else None
-    expect(active.locator('#console-output')).to_contain_text('Active screening line 99')
+    expect(host).to_contain_text('Maximum steps')
     page.set_viewport_size({'width':390, 'height':844})
     # The table itself scrolls inside its frame; the page must not gain a horizontal scrollbar because of it.
     browser.assert_no_horizontal_scroll(page)
@@ -201,6 +185,58 @@ def test_a_running_stage_reports_the_leg_it_is_in_and_how_far_through(dashboard,
     expect(page.locator(f'.job[data-id="{job_id}"] .job-progress-text')).to_contain_text('leg 3 of 3')
     assert '83%' in bar.locator('.job-progress-fill').get_attribute('style'), \
         bar.locator('.job-progress-fill').get_attribute('style')
+    assert errors == [], errors
+
+
+def test_an_aa_run_draws_four_progress_segments_and_a_pdc_run_keeps_the_single_fill(dashboard, live_page):
+    """AA runs draw the four-stage plan as segments; a pdc run's legs stay inside one stage bar.
+
+    The list payload carries `stage_segments` (the server's own step arithmetic) and the current progress. The
+    widths are the fractions the payload states, not a second calculation in the browser, so a segment cannot disagree
+    with the steps behind it. A pdc run has no segments and keeps today's single fill.
+    """
+    aa = {
+        'id': '0000000000aa', 'label': 'AA run', 'detergent': 'DDM', 'method': 'gromacs', 'run_type': 'aa_only',
+        'status': 'running', 'stage': 'AA NVT equilibration', 'created': '2026-11-16T10:00:00+00:00',
+        'progress': {'stage': 'AA NVT equilibration', 'leg': 'nvt', 'leg_index': 1, 'legs': 1,
+                     'percent': 50, 'steps': 500, 'step': 250},
+        'stage_segments': [
+            {'stage': 'AA minimization', 'label': 'Minimization', 'kind': 'min', 'steps': 20000, 'fraction': 0.2},
+            {'stage': 'AA NVT equilibration', 'label': 'NVT equilibration', 'kind': 'nvt', 'steps': 10000, 'fraction': 0.3},
+            {'stage': 'AA NPT equilibration', 'label': 'NPT equilibration', 'kind': 'npt', 'steps': 10000, 'fraction': 0.3},
+            {'stage': 'AA NPT production', 'label': 'NPT production', 'kind': 'production', 'steps': 20000, 'fraction': 0.2},
+        ],
+    }
+    pdc = {
+        'id': '0000000000bb', 'label': 'pdc run', 'detergent': 'DDM', 'method': 'gromacs', 'run_type': 'pdc',
+        'status': 'running', 'stage': 'CG simulation', 'created': '2026-11-16T10:00:00+00:00',
+        'progress': {'stage': 'CG simulation', 'leg': 'md', 'leg_index': 3, 'legs': 3,
+                     'percent': 83, 'steps': 400, 'step': 200},
+        'stage_segments': None,
+    }
+    page, errors = live_page
+    page.route(re.compile(r'/api/jobs\?'),
+               lambda route: route.fulfill(json={'jobs': [aa, pdc], 'total': 2, 'page': 1, 'limit': 20}))
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    bar = page.locator('.job[data-id="0000000000aa"] .job-progress')
+    expect(bar).to_have_class(re.compile('segmented'))
+    segments = bar.locator('.job-progress-seg')
+    expect(segments).to_have_count(4)
+    assert segments.evaluate_all('(els) => els.map(el => el.style.width)') == [
+        '20%', '30%', '30%', '20%'], 'the widths are the payload fractions'
+    assert segments.evaluate_all('(els) => els.map(el => el.dataset.kind)') == [
+        'min', 'nvt', 'npt', 'production']
+    expect(segments.nth(0)).to_have_class(re.compile('done'))
+    expect(segments.nth(1)).to_have_class(re.compile('current'))
+    expect(segments.nth(2)).to_have_class(re.compile('future'))
+    expect(bar).to_have_attribute('aria-valuenow', '35')
+
+    single = page.locator('.job[data-id="0000000000bb"] .job-progress')
+    expect(single.locator('.job-progress-seg')).to_have_count(0)
+    expect(single).not_to_have_class(re.compile('segmented'))
+    assert '83%' in single.locator('.job-progress-fill').get_attribute('style')
+    expect(single).to_have_attribute('aria-valuenow', '83')
     assert errors == [], errors
 
 
@@ -270,7 +306,7 @@ def test_a_run_card_states_how_much_of_it_is_trajectory(dashboard, live_page):
 
 
 def test_view_run_sits_with_the_run_sections_rather_than_beside_the_title(dashboard, live_page):
-    """The card's doors share one row: View run first, then Artifacts, the records and the console.
+    """The card's doors share one row: View run first, then the run's Stage settings.
 
     The link used to sit in the summary cell beside the title, which read as an ornament on the heading rather than
     as the door to the run's own panel; it keeps the deep link and the same card scope, so the handler needs no move.
@@ -292,9 +328,9 @@ def test_view_run_sits_with_the_run_sections_rather_than_beside_the_title(dashbo
     expect(link).to_have_attribute('href', f'/detergent-validation/run-view?run={job_id}')
     assert card.locator('.run-summary .job-view-run').count() == 0, 'the link is still riding the title'
     door = link.bounding_box()
-    artifacts = card.locator('.run-resources .job-artifacts > summary').bounding_box()
-    assert abs(door['y'] - artifacts['y']) < 8, f'View run is not on the Artifacts row: {door} vs {artifacts}'
-    assert door['x'] < artifacts['x'], 'View run is the first door, left of the sections'
+    settings = card.locator('.run-resources .job-stage-settings > summary').bounding_box()
+    assert abs(door['y'] - settings['y']) < 8, f'View run is not on the Stage settings row: {door} vs {settings}'
+    assert door['x'] < settings['x'], 'View run is the first door, left of the sections'
     assert errors == [], errors
 
 

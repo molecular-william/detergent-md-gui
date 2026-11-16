@@ -210,10 +210,11 @@ def test_every_prepared_mdp_is_its_recorded_profile_at_the_run_numbers(repo, pre
 
 
 def test_a_run_with_non_default_stage_settings_renders_them(repo, tmp_path):
-    """A timestep, neighbour list and buffer tolerance the run names reach its own stage's MDP.
+    """A timestep, neighbour list, buffer tolerance and minimization numbers reach their own stage's MDP.
 
     The prepare path is the one the form posts through, so the assertion is what the stage will read: half the
-    timestep doubles the step count for the same duration, and the other two values are the stage's own.
+    timestep doubles the step count for the same duration, the other two values are the stage's own, and stage 3's
+    reviewed minimization profile carries the run's three numbers rather than the reviewed 20000 / 1000 / 0.01.
     """
     from dashboard.execution.mdp import render
 
@@ -223,7 +224,9 @@ def test_a_run_with_non_default_stage_settings_renders_them(repo, tmp_path):
     aa.prepare_run(run, _molecule_root(repo), selected,
                    {'aa_production_ps': 2, 'output_interval_ps': 1, 'box_nm': 4.0,
                     'aa_nvt_dt_fs': 1, 'aa_nvt_nstlist': 10,
-                    'aa_production_verlet_buffer_tolerance': 0.01})
+                    'aa_production_verlet_buffer_tolerance': 0.01,
+                    'aa_minimization_steps': 50, 'aa_minimization_emtol': 10,
+                    'aa_minimization_emstep': 0.005})
     manifest = manifest_of(run)
     for relative, profile in manifest['mdp_profiles'].items():
         expected = render(profile, aa.mdp_values(manifest['settings'], profile))
@@ -234,3 +237,6 @@ def test_a_run_with_non_default_stage_settings_renders_them(repo, tmp_path):
     assert 'nstlist = 10' in nvt
     assert 'dt = 0.002' in (run / 'stages/05_npt/run.mdp').read_text(), 'a stage that named none keeps its default'
     assert 'verlet-buffer-tolerance = 0.01' in (run / 'stages/06_production/run.mdp').read_text()
+    minimization = (run / 'stages/03_minimization/run.mdp').read_text()
+    assert 'nsteps = 50' in minimization and 'emtol = 10' in minimization
+    assert 'emstep = 0.005' in minimization, 'the Energy minimization editor reaches stage 3'

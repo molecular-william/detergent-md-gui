@@ -6,6 +6,20 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Runs panel: stage settings, segmented AA progress, and an AA minimization editor.** The three per-run
+disclosures (Artifacts, Commands and stage records, Console) and the console pane plus console.js are removed. Each
+run card now has a read-only **Stage settings** disclosure (web/stage_settings.py; only recorded keys, grouped by
+stage, labels from SETTING_SPECS) and, for aa_only, a four-segment progress bar (min/NVT/NPT/production; width =
+steps/total; the current stage fills by its own log percent). CG/pdc/osmotic keep the single fill. The Run view
+Analysis card has Figures/Stage settings mode tabs (settings fetched from GET /api/jobs/<id> on first open). New run
+has an Energy minimization editor (aa_minimization_steps/_emtol/_emstep, defaults 20000/1000/0.01); aa-em-v1 now
+declares those in its variable tuple, so prepare_run writes them with no special case and an untouched run still
+renders the reviewed file byte for byte. Server contract: GET /api/jobs (list) carries stage_segments, the detail
+carries stage_settings.groups + stage_segments. Net +841 lines (tracked +230; new stage_settings.py 192 + helper 96 +
+tests 323). Checks: fast **2785 passed / 1 xfailed**, browser **383 passed**, slow **22 passed / 1 xfailed**, ruff
+clean. Known cosmetic: the reviewed nsteps comment still says '(20000 steps)' when a run names another cap. The
+dashboard was not restarted because a Glucose 201 ns run was still active; restart after it finishes.
+
 **2026-11-16 deferred audit cleanup landed; it is additive, not a line reduction.** The seven deferred items were
 implemented with parity tests. Net +430 lines: production source +45 (the new analysis/runs/readers.py is 122 lines,
 outweighing the 77 deleted tracked source lines), harness +113, new parity tests +345, tracked test files -73. The

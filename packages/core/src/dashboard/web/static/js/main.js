@@ -41,7 +41,7 @@ export async function boot(specs = {}, extensions = []) {
   for (const url of extensions) pending[url] = import(url);
 
   // The engine's panels are built from static imports, so everything below this line runs synchronously before the
-  // first await. That matters for the console hooks: a module script's top-level `await` does NOT defer the page's
+  // first await. That matters for the window hooks: a module script's top-level `await` does NOT defer the page's
   // `load` event, so a hook published after an await is missing when a browser test (or a person at a console) calls
   // it from `load`. The feature panels are created after the imports resolve; `pdcSetRun` is promise-backed until then
   // and is replaced by the instance's own method once that instance exists, so both callers see one panel.
@@ -70,7 +70,6 @@ export async function boot(specs = {}, extensions = []) {
   const mappings = createMappings();
   const hooks = {
     refreshJobs: runs.refreshJobs,          // re-poll the run list without waiting for the timer
-    refreshConsole: runs.refreshConsole,    // refresh the console pane without a visibility change
     setCloneSource: newRun.setCloneSource,  // open the clone form on a chosen run
     selectTab,                              // move to a panel by its DOM id
     pdcSetRun: pdcReady ? ((...args) => pdcReady.then(panel => panel.setRun(...args))) : undefined,

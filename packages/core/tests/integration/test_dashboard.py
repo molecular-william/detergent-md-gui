@@ -155,7 +155,8 @@ def test_run_page_contains_table_and_resource_controls(dashboard):
     page = response.get_data(as_text=True)
     assert 'workflow-timeline' in page
     assert 'Molecule</th>' in page
-    assert 'job-console' in page
+    assert 'job-stage-settings' in page
+    assert 'job-console' not in page
     assert 'Capture AA snapshots' not in page
     assert 'Select for comparison' not in page
 
