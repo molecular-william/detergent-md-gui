@@ -15,16 +15,17 @@ state, what is next, what is open, and the measurements and incidents a reader h
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
   `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores` (open item).
-- **Store.** `workspace/dashboard` is 25 GB: 16 runs (five pdc 1 us runs 21.7 GB, four aa 200 ns 1.9 GB, seven cg
-  1.0 GB); `parameterizations/` 465 MB (26 MB of records, 439 MB of fit scratch in `work/`); `martini3/` 18 MB (the
-  shared set every run reads in place); `preview/` 14 MB (a 2026-10-14 cache nothing builds or reads); `jobs.sqlite3`
-  85 MB of which 96% is free pages; `dashboard.log` 5 MB from 2026-10-30 (the unit logs to the journal).
-- **Cleanup is pending, and none of it has been applied.** Safe without touching an output: the 439 MB of
-  `parameterizations/work/` (a re-fit restages it; only `engine_command[4]` in three records names it), `preview/`,
-  `dashboard.log` and the `_live*` screenshots, `jobs.json` and `jobs.sqlite` (pre-sqlite leftovers, no reader),
-  `workspace-migration.json` (2026-09-24), the empty `model_registry/` and `uploads/`, and a `VACUUM` of the job
-  database (~82 MB, idle only). Derived, the user's call: `runs/*/analyses` (0.22 GB) and `runs/*/logs` (435 MB of
-  captured console). Simulation outputs -- 21.7 GB of pdc runs -- are evidence and are never deleted here.
+- **Store.** `workspace/dashboard` is 24 GB after the cleanup below: 16 runs (five pdc 1 us runs 21.7 GB, four aa
+  200 ns 1.9 GB, seven cg 1.0 GB); `parameterizations/` 27 MB (the records and their own revisions); `martini3/`
+  18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. Inside `runs/`: 415 MB of captured console
+  and 225 MB of derived analyses.
+- **Store cleanup applied 2026-11-16** (474 MB removed, 82 MB reclaimed): `parameterizations/work/` (455 MB of fit
+  scratch -- a re-fit restages it, and only `engine_command[4]` in three records names the vanished path), `preview/`
+  (14 MB, an orphaned 2026-10-14 cache nothing reads), `dashboard.log` and the `_live*` screenshots (5 MB, 2026-10-30),
+  `jobs.json`/`jobs.sqlite` and `workspace-migration.json` (0.8 MB, no reader); `jobs.sqlite3` was VACUUMED from
+  85.7 MB to 3.5 MB (96% of it was free pages). `model_registry/` and `uploads/` are kept: empty, but they are path
+  roots the code reads. The remaining 24 GB is evidence: 21.7 GB of pdc simulation outputs, 415 MB of captured
+  console and 225 MB of derived analyses -- prunable only if the user asks.
 - **Fixed on 2026-11-16** (each commit carries its own rationale and checks): the bonded writer kept six digits and
   answered 500 on Save as new (`e6aba99`); a reference CG run drew no bonds or colours and refused its overview
   (`5786b1c`); CG production accepts 0.5-50 fs (`0788ed4`); the CG surface draws rings at the table's own scale
@@ -40,7 +41,8 @@ state, what is next, what is open, and the measurements and incidents a reader h
    a plan in `docs/plans/` and settle the one science decision -- which mapping the published entry is compared through.
 2. **`dbc366ae772b` missing `run.sh`**: re-publish that reference or leave the DDM mapping refused. Re-publishing
    rewrites a completed run's provenance, so it is the user's call.
-3. **The store cleanup above**: agree the list, then run it with no run in flight (the VACUUM last).
+3. **Derived store pruning**, if the disk matters: 225 MB of analyses and 415 MB of console logs are rebuilt or
+   re-derived on demand, while the 21.7 GB of pdc outputs is evidence and archiving it is its own decision.
 4. Then the queue in the table below: NGL's eager load, Plotly's warm, the sugar comparison subpanel.
 
 ## Open items
@@ -64,7 +66,7 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 | Cross-run AA vs CG comparison | asked 2026-11-16 after run `0c5f5738089c`: the AA-vs-CG panels are single-run (they read `1_AA-reference/` + `2_mapping/` + `4_CG_sim/` inside one run), so a CG-only reference run can only be put *beside* an AA run, never compared with it | build it as a new kind: the AA run named in the request (its `stages/07_reference/lig.{gro,xtc}`), this run's `4_CG_sim/prod/lig_CG.{gro,xtc}`, and the bead-atom correspondence from the sugar package's own candidate; needs a payload/UI "compare this run with run X" and one science decision (which mapping the published entry is compared through) |
 | `dbc366ae772b` AA reference lacks `07_reference/run.sh` | `reference.json` records its digest, so `files.verify` refuses the DDM mapping `10c318949` with `Cannot reuse changed or missing artifact`; the other six revisions verify | decide whether to re-publish that reference (a new record over the files it has) or leave it refused |
 | CG assessment writes a NaN overall score | `77504a003e5e` (Glucose-CG-200ns, 4 beads incl. a virtual site) failed at stage 5: `report_interactions.out` line 2 is `Overall Score : nan ± nan` while the score matrix is finite (off-diagonals 1.00); `validate_run` refuses it as nonfinite | find which term has no samples (the run holds a 10 fs equilibration and a 30 fs production leg, so a short or empty distribution is plausible); the stage log is `logs/5_assessment.log` |
-| Workspace store cleanup | 25 GB as measured above; nothing removed yet | run the safe list, then VACUUM, with no run in flight; decide the derived `analyses`/`logs` pruning and anything about the 21.7 GB of simulation outputs |
+| Workspace store cleanup | applied 2026-11-16: 474 MB removed (fit scratch, orphaned preview, stale logs and pre-sqlite files) and the job database VACUUMED 85.7 -> 3.5 MB; what remains is evidence | decide whether to prune the derived analyses (225 MB) and console logs (415 MB), or archive the 21.7 GB of pdc outputs |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
 | A fit's unsaved torsion choice | the revision records what the job started with, but `refine_bonded` reads the mapping's saved `model.json`; measured on `10c318949` revision 1 | decide: pass the job's options to the refiner, record the mapping's options, or let a successful fit save the pair to the mapping |
