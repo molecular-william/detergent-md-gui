@@ -523,11 +523,13 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
         && model.id === (wanted.composition_id || wanted.id)) || null;
     }
     const file = wanted.mapping_candidate || wanted.mapping;
-    if (!file) return null;
+    const address = wanted.mapping;
+    if (!file && !address) return null;
+    const belongs = model => (file && model.file === file) || (address && model.address === address);
     const revision = wanted.revision == null ? null : Number(wanted.revision);
-    return catalog.find(model => model.kind === 'revision' && model.file === file
+    return catalog.find(model => model.kind === 'revision' && belongs(model)
                                  && (revision === null ? model.current : model.revision === revision))
-        || catalog.find(model => model.kind === 'draft' && model.file === file)
+        || catalog.find(model => model.kind === 'draft' && belongs(model))
         || null;
   }
   /** What the select answers when nothing is chosen: the first mapping's current revision, else its draft, else the
@@ -565,6 +567,8 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const records = new Map();
     await Promise.all(candidates.map(async candidate => {
       const query = new URLSearchParams();
+      // The record's name is its address; the hashes stay as provenance for a legacy record.
+      if (candidate.parameterization_name) query.set('name', candidate.parameterization_name);
       if (candidate.mapping_content_hash) query.set('content_hash', candidate.mapping_content_hash);
       if (candidate.mapping_hash) query.set('mapping_hash', candidate.mapping_hash);
       if (![...query].length) { records.set(candidate.file, {revisions: []}); return; }
@@ -634,6 +638,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
           option.dataset.revision = String(item.revision);
           option.dataset.coordinates = hasCoordinates(item) ? 'stored' : 'none';
           catalog.push({key: option.value, kind: 'revision', file: candidate.file, name, revision: item.revision,
+                        address: record?.summary?.name || candidate.parameterization_name || '',
                         current: item.revision === current, hasCoordinates: hasCoordinates(item), revisionRecord: item});
           group.append(option);
         }
@@ -644,6 +649,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
         option.dataset.mapping = candidate.file;
         option.dataset.coordinates = 'none';
         catalog.push({key: option.value, kind: 'draft', file: candidate.file, name, revision: null,
+                      address: record?.summary?.name || candidate.parameterization_name || '',
                       current: false, hasCoordinates: false, revisionRecord: null});
         group.append(option);
       }
@@ -695,7 +701,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       return {kind: 'composition', composition_id: model.id,
               composition_revision: model.model?.revision ?? 0};
     }
+    // The model is named by its record name; the saved candidate file stays beside it because the queue route
+    // resolves the snapshot through the mapping store with it. A mapping with no record yet still has a name, so a
+    // run records the model it consumed either way.
     return {kind: 'revision',
+            mapping: model?.address || '',
             mapping_candidate: model?.file || '',
             revision: model?.revision ?? null,
             starting_coordinates: startingSelect?.value || 'stored'};

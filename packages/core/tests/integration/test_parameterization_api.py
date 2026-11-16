@@ -37,9 +37,14 @@ REFERENCE = {'run_id': 'a' * 12, 'directory': '/nonexistent/reference', 'referen
 
 
 def variant(candidate, label='a'):
-    """A different bead assignment: a renamed candidate keeps its content identity, an edited one does not."""
+    """A different model: another bead assignment under another name.
+
+    The name is the record's address now, so an edited assignment that kept the name would be a collision
+    (409, not a second record): a variant is another model and therefore another name.
+    """
     changed = copy.deepcopy(candidate)
     changed['beads'][0]['label'] = label
+    changed['name'] = f"{candidate.get('name') or 'mapping'} variant {label}"
     return changed
 
 
@@ -478,7 +483,8 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     saved = drafts / 'mapping_candidate_ddm.json'
     saved.write_text(json.dumps(candidate))
     work = Path(job['work'])
-    assert work.is_dir() and (workspace / 'parameterizations' / 'records' / f'{content_hash}.json').is_file()
+    name = parameterization.address(candidate)
+    assert work.is_dir() and (workspace / 'parameterizations' / 'records' / f'{name}.json').is_file()
 
     response = dashboard.client.delete(f'/api/bonded-parameterizations/{content_hash}',
                                        json={'confirm': True, 'revision': 1})
@@ -486,7 +492,7 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     assert response.status_code == 200, response.data
     report = response.json
     assert report['deleted'] is True and report['revisions'] == [1] and report['jobs'] == [job['id']]
-    assert not (workspace / 'parameterizations' / 'records' / f'{content_hash}.json').exists()
+    assert not (workspace / 'parameterizations' / 'records' / f'{name}.json').exists()
     assert not work.exists()
     # The model the user made is untouched, and so is the catalogue that lists it.
     assert saved.is_file() and json.loads(saved.read_text())['beads'] == candidate['beads']
@@ -724,3 +730,83 @@ def test_the_published_reference_seed_is_refused_at_the_route(dashboard):
         assert response.json['error'] == sentence
 
     assert parameterization.one(content_hash)['revisions'] == [], 'no revision was seeded'
+
+# --- addressing by name ---------------------------------------------------------------------------------
+
+def test_a_record_is_read_by_the_name_the_store_stamps_on_the_candidate(dashboard):
+    """The panel asks by the mapping's name; the record answers with the name it is stored under."""
+    candidate = saved_mapping()
+    fit(candidate)
+    name = parameterization.address(candidate)
+
+    response = dashboard.client.get('/api/bonded-parameterizations', query_string={'name': candidate['name']})
+
+    assert response.status_code == 200
+    assert response.json['summary']['parameterized'] is True
+    assert response.json['summary']['name'] == name == 'DDM-carbohydrate-paper-draft'
+
+
+def test_the_mapping_store_stamps_the_record_name_so_the_panel_can_address_it(dashboard):
+    saved = mappings.save_draft(saved_mapping())
+
+    assert saved['parameterization_name'] == parameterization.address(saved)
+
+
+def test_a_slug_addresses_make_current_and_the_panel_reads_it_back(dashboard):
+    """A PATCH/DELETE/terms address is the record name; the legacy content hash still resolves too."""
+    candidate = saved_mapping()
+    fit(candidate)
+    fit(candidate)
+    saved = mappings.save_draft(candidate)
+    name = saved['parameterization_name']
+
+    response = dashboard.client.patch(f'/api/bonded-parameterizations/{name}',
+                                      json={'current': 1, 'confirm': True})
+
+    assert response.status_code == 200, response.get_json()
+    assert response.json['current']['revision'] == 1
+    assert [entry['revision'] for entry in response.json['revisions']] == [1, 2]
+    assert parameterization.current(candidate)['revision'] == 1
+
+    removed = dashboard.client.delete(f'/api/bonded-parameterizations/{name}',
+                                      json={'confirm': True, 'revision': 1})
+
+    assert removed.status_code == 200, removed.get_json()
+    assert removed.json['deleted'] is True and removed.json['name'] == name
+    assert parameterization.one(name)['revisions'] == []
+
+
+def test_a_fit_under_a_name_another_model_holds_is_refused_and_overwrite_replaces_it(dashboard):
+    """The uniqueness rule: a name answers one model, and replacing its record is a caller's explicit choice."""
+    first = saved_mapping()
+    fit(first)
+    changed = copy.deepcopy(first)
+    changed['rings'][0]['scale'] = 1.3
+
+    with pytest.raises(parameterization.NameConflict) as refusal:
+        fit(changed)
+
+    assert refusal.value.existing == parameterization.address(first)
+    assert len(fitting.jobs()) == 1, 'the refusal happens before a job exists'
+
+    job = fit(changed, overwrite=True)
+
+    assert job['status'] == 'completed'
+    assert parameterization.document(changed)['revisions'][0]['mapping_content_hash'] == \
+        parameterization.identities(changed)['mapping_content_hash']
+
+
+def test_the_fit_route_answers_a_name_collision_with_the_record_to_open(dashboard, monkeypatch):
+    def refuses(*args, **kwargs):
+        raise parameterization.NameConflict('DDM')
+
+    monkeypatch.setattr(fitting, 'start', refuses)
+    run_id, _ = reference_run(dashboard.paths.workspace)
+
+    response = dashboard.client.post('/api/bonded-parameterizations',
+                                     json={'mapping': saved_mapping(), 'engine': 'fast-forward',
+                                           'aa_reference': run_id})
+
+    assert response.status_code == 409
+    assert response.json['existing'] == 'DDM'
+    assert 'already stored as DDM' in response.json['error']

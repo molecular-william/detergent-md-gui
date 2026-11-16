@@ -11,10 +11,12 @@ It lives under `models/bonded/` because its only durable output *is* a revision 
 tool, for the same reason `analysis.runs.bartender_fit` reaches it that way: models -> execution is
 not a direction this tree takes at import time.
 
-What a job works in is a *pair*, not a job: `work/<mapping content hash>-<AA run id>/` holds the
-mapped frames, the engine's output and the checks, and a second fit of the same mapping against the
-same reference reuses the frames. That is what "building the mapped trajectory if the AA reference
-has none" means -- minutes of CPU, no MD, and paid once per pair rather than once per fit.
+What a job works in is a *pair*, not a job: `work/<mapping slug>--<AA run id>/` holds the mapped
+frames, the engine's output and the checks, and a second fit of the same mapping against the same
+reference reuses the frames. That is what "building the mapped trajectory if the AA reference has
+none" means -- minutes of CPU, no MD, and paid once per pair rather than once per fit. A directory
+built before names were addresses is `<content hash>-<AA run id>/` and is still reused, so a re-fit
+does not rebuild a trajectory that is already there.
 
 Three engines, each saying which ensemble it saw (D3):
 
@@ -111,7 +113,7 @@ def _update(job_id, **fields) -> dict:
         return record
 
 
-def jobs(mapping=None, *, content_hash=None, mapping_hash=None, job_id=None, limit=None) -> list:
+def jobs(mapping=None, *, content_hash=None, mapping_hash=None, name=None, job_id=None, limit=None) -> list:
     """Every fit job known, newest first, optionally only one mapping's.
 
     The panel's own list. It is deliberately not the run store: nothing here will ever be simulated,
@@ -129,6 +131,9 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, job_id=None, lim
     holds. A poll that asks by the mapping's hash is right only while the job's own hash agrees with it,
     and a disagreement (an identity that moved, two copies of one mapping) left the box showing the
     record it queued forever, with no answer saying why.
+
+    `name` is the store's own address for a model: a job is stamped with the record name it was queued
+    for, so the store's deletion finds a job even when the mapping's content has since changed.
     """
     root = jobs_root()
     records = []
@@ -147,31 +152,40 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, job_id=None, lim
         content_hash = parameterizations.content_identity(mapping)
     if job_id:
         records = [record for record in records if record.get('id') == job_id]
-    if content_hash or mapping_hash:
+    folded = name.casefold() if isinstance(name, str) and name else None
+    if content_hash or mapping_hash or folded:
         records = [record for record in records
                    if (content_hash and record.get('mapping_content_hash') == content_hash)
-                   or (mapping_hash and record.get('mapping_hash') == mapping_hash)]
+                   or (mapping_hash and record.get('mapping_hash') == mapping_hash)
+                   or (folded and isinstance(record.get('parameterization_name'), str)
+                       and record['parameterization_name'].casefold() == folded)]
     records.sort(key=lambda record: record.get('created_at') or '', reverse=True)
     return records[:limit] if limit else records
 
 
 
 def work_dir(mapping, reference_run_id=None) -> Path:
-    """The working directory of one (mapping, AA reference) pair.
+    """The working directory of one (mapping, AA reference) pair: `work/<slug>--<AA run id>`.
 
     The reference is part of the key because the frames are its own: the same mapping against a
-    different AA reference is a different fit and must not read the other one's trajectory.
+    different AA reference is a different fit and must not read the other one's trajectory. The slug is
+    the record name and cannot contain `--`, so the separator is unambiguous even when the run id
+    contains a dash.
+
+    A directory built before names were addresses is `<content hash>-<AA run id>`; it is reused rather
+    than rebuilt, which is the difference between a re-fit of minutes and one of a mapped trajectory.
     """
     if reference_run_id is not None:
         run_names.validate(reference_run_id, what='AA reference run ID')
-    # The same fallback the record store makes: a pair staged before numbers were normalised is reused rather than
-    # rebuilt, which is the difference between a re-fit of minutes and one of a mapped trajectory.
-    name = f'{parameterizations.content_identity(mapping)}-{reference_run_id or "no-reference"}'
+    reference = reference_run_id or 'no-reference'
+    name = f'{parameterizations.address(mapping)}--{reference}'
     root = parameterizations.work_root()
     if not (root / name).is_dir():
-        legacy = root / f'{mappings.legacy_content_identity(mapping)}-{reference_run_id or "no-reference"}'
-        if legacy.is_dir():
-            return legacy
+        for legacy in (parameterizations.content_identity(mapping),
+                       mappings.legacy_content_identity(mapping)):
+            candidate = root / f'{legacy}-{reference}'
+            if candidate.is_dir():
+                return candidate
     return root / name
 
 
@@ -224,7 +238,7 @@ def resolve_reference(aa_reference, *, runs_root=None) -> dict:
 
 
 def start(mapping, *, engine, aa_reference=None, options=None, reference=None, molecule_root=None,
-          runs_root=None, timeout=None, background=True, runner=None) -> dict:
+          runs_root=None, timeout=None, background=True, runner=None, overwrite=False) -> dict:
     """Queue a fit and return its record.
 
     `reference` is a reference the caller has already resolved (`resolve_reference`, or the
@@ -237,9 +251,17 @@ def start(mapping, *, engine, aa_reference=None, options=None, reference=None, m
 
     `runner` is the command runner a job executes its tools through. It is a parameter rather than a
     patched module global so that a test stands in for an engine without touching anything else.
+
+    `overwrite` is the caller's explicit answer when the mapping's name already holds another model's
+    record: the fit replaces it instead of the two models' revisions being mixed. Without it the name
+    collision is refused here, before any minutes are spent, rather than at the save that would have to
+    choose.
     """
     if engine not in parameterizations.ENGINES:
         raise ValueError(f'Unknown fitting engine: {engine!r}')
+    existing = parameterizations.conflict(mapping)
+    if existing and not overwrite:
+        raise parameterizations.NameConflict(existing)
     loaded = draft_model.load(mapping, molecule_root=molecule_root)
     resolved = reference if reference is not None else (
         resolve_reference(aa_reference, runs_root=runs_root) if aa_reference else None)
@@ -251,6 +273,8 @@ def start(mapping, *, engine, aa_reference=None, options=None, reference=None, m
         'id': job_id,
         'status': 'queued',
         'mapping_name': mapping.get('name') or mapping.get('file') or 'mapping',
+        'parameterization_name': parameterizations.address(mapping),
+        'overwrite': bool(overwrite),
         'molecule_id': mapping.get('molecule_id'),
         **parameterizations.identities(mapping),
         'engine': engine,
@@ -529,7 +553,7 @@ def execute(job_id, *, mapping, loaded=None, reference=None, runner=None, timeou
         'notes': extra.get('notes') or [],
     }
     revision = parameterizations.save(mapping, payload, expected_revision=record.get('expected_revision'),
-                                      work=record.get('work'))
+                                      work=record.get('work'), overwrite=bool(record.get('overwrite')))
     _finished(job_id, 'save', f'revision {revision["revision"]}')
     return _update(job_id, status='completed', ended_at=files.now_iso(), error=None,
                    revision=revision['revision'],

@@ -12,6 +12,7 @@ import inspect
 import json
 
 import pytest
+from dashboard import run_names
 from dashboard.execution import run_scripts
 from dashboard.execution.adapters import cg
 from dashboard.models.bonded import parameterization
@@ -175,9 +176,15 @@ def test_a_stored_run_stages_the_revision_frame_and_stage_two_is_the_coordinates
 
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['starting_coordinates'] == 'stored'
-    assert manifest['parameterization'] == {'kind': 'revision', 'mapping': mapping.get('file'),
-                                            'revision': revision['revision'], 'engine': 'fast-forward',
-                                            'aa_reference': revision['aa_reference']}
+    parameterization_record = manifest['parameterization']
+    # The record is addressed by its name now, with the hashes it was resolved from kept as provenance.
+    assert parameterization_record['kind'] == 'revision'
+    assert parameterization_record['mapping'] == run_names.slug(mapping['name'])
+    assert parameterization_record['mapping_candidate'] is None
+    assert parameterization_record['revision'] == revision['revision']
+    assert parameterization_record['engine'] == 'fast-forward'
+    assert parameterization_record['aa_reference'] == revision['aa_reference']
+    assert parameterization_record['mapping_hash'] and parameterization_record['mapping_content_hash']
     plan = dict(manifest['stage_plan'])
     assert plan['trajectory mapping'] == '2_mapping/stage_coordinates.sh'
     assert (run / 'coordinates/mapped.gro').is_file() and (run / 'coordinates/mapped.xtc').is_file()

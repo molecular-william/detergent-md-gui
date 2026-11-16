@@ -18,13 +18,15 @@ from tests.harness import browser
 
 CANDIDATES = [
     {'name': 'DDM · ring mapping', 'file': 'ddm-ring.json', 'mapping_hash': 'a' * 64,
+     'parameterization_name': 'DDM-ring-mapping',
      'mapping_content_hash': 'b' * 64, 'validation': {'issues': [], 'can_reuse': True}},
     {'name': 'DDM · tail mapping', 'file': 'ddm-tail.json', 'mapping_hash': 'c' * 64,
+     'parameterization_name': 'DDM-tail-mapping',
      'mapping_content_hash': 'd' * 64, 'validation': {'issues': [], 'can_reuse': True}},
 ]
 
 RING = {
-    'summary': {'revision': 2, 'parameterized': True},
+    'summary': {'revision': 2, 'parameterized': True, 'name': 'DDM-ring-mapping'},
     'revisions': [
         {'revision': 2, 'engine': 'fast-forward', 'created_at': '2026-11-09T10:00:00+00:00',
          'coordinates': {'directory': 'records/x/2', 'files': [{'name': 'mapped.gro'}, {'name': 'mapped.xtc'}]},
@@ -34,7 +36,8 @@ RING = {
     ],
     'jobs': [],
 }
-TAIL = {'summary': {'revision': 0, 'parameterized': False}, 'revisions': [], 'jobs': []}
+TAIL = {'summary': {'revision': 0, 'parameterized': False, 'name': 'DDM-tail-mapping'},
+        'revisions': [], 'jobs': []}
 
 DEFAULT_VALUES = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000, 'temperature_k': 300,
                   'pressure_bar': 1, 'output_interval_ps': 10, 'box_nm': 4, 'aa_seed': 1,
@@ -140,8 +143,11 @@ def test_a_revision_is_posted_nested_and_the_aa_source_is_read_only(dashboard, l
     assert len(submissions) == 1, submissions
     body = submissions[0]
     assert body['run_type'] == 'cg' and body['molecule_id'] == 'DDM'
-    assert body['parameterization'] == {'kind': 'revision', 'mapping_candidate': 'ddm-ring.json',
+    assert body['parameterization'] == {'kind': 'revision', 'mapping': 'DDM-ring-mapping',
+                                        'mapping_candidate': 'ddm-ring.json',
                                         'revision': 2, 'starting_coordinates': 'stored'}, body['parameterization']
+    assert body['parameterization']['mapping'] == CANDIDATES[0]['parameterization_name'], \
+        'the model is named by the record name the store stamps on the candidate'
     assert 'sugar_entry' not in str(body['parameterization'])
     for retired in ('method', 'mapping_candidate', 'reference_run_id', 'sugar_entry', 'profile'):
         assert retired not in body, f'{retired} is still sent: {body}'

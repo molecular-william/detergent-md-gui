@@ -159,6 +159,10 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
   // --- readings ---------------------------------------------------------------------------------------------------
 
   const hash = () => (mapping && mapping.mapping_content_hash) || '';
+  // The record's address is its name: the store stamps a saved candidate with the slug its display name suggests, and
+  // a record answers with its own name. The hash stays as the fallback so a reading written before names were
+  // addresses (a recorded run, a legacy record) still resolves.
+  const address = () => (mapping && mapping.parameterization_name) || (summary && summary.name) || hash();
   const currentNumber = () => (summary && summary.revision) ?? null;
   const currentRevision = () => revisions.find(item => item && item.revision === currentNumber()) || null;
   const shownRevision = () => revisions.find(item => item && item.revision === shownRevisionNumber)
@@ -242,7 +246,7 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
                  + ' runs already queued keep the revision they recorded.')) return;
     const token = generation;
     try {
-      await api('/api/bonded-parameterizations/' + encodeURIComponent(hash()), {
+      await api('/api/bonded-parameterizations/' + encodeURIComponent(address()), {
         method: 'PATCH', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({current: revision.revision, confirm: true}),
       });
@@ -262,6 +266,10 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
   async function readRecord(token) {
     if (!mapping || readOnly) return;
     const params = new URLSearchParams();
+    // The name first: it is the address, and it is what a fit queued under this model is stamped with. The two hashes
+    // stay as provenance, so a record written before names were addresses and a job queued before a record exists are
+    // still answered.
+    if (mapping.parameterization_name) params.set('name', mapping.parameterization_name);
     if (mapping.mapping_content_hash) params.set('content_hash', mapping.mapping_content_hash);
     if (mapping.mapping_hash) params.set('mapping_hash', mapping.mapping_hash);
     let answer;
@@ -338,14 +346,14 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
     const shown = shownRevision();
     if (!shown) throw new Error('This model has no stored revision to save');
     if (mode === 'new' && shown.parameters_editable === false) throw new Error(gateReason());
-    if (!hash()) throw new Error('Choose a saved mapping first');
+    if (!address()) throw new Error('Choose a saved mapping first');
     const body = {mode, revision: shown.revision,
                   expected_revision: Number((summary && summary.revision) || 0),
                   terms: edits};
     if (mode === 'in_place') body.confirm = true;
     if (!shown.sha256) throw new Error('Reload the revision before saving: its digest was not read');
     body.expected_sha256 = shown.sha256;
-    const record = await post('/api/bonded-parameterizations/' + encodeURIComponent(hash()) + '/terms', body);
+    const record = await post('/api/bonded-parameterizations/' + encodeURIComponent(address()) + '/terms', body);
     // The answer is the stored record; the pane reloads through the route it already reads (the record is the
     // answer, not the route's echo of it).
     return {record, revision: record.revision, file: (mapping && mapping.file) || ''};
@@ -357,7 +365,7 @@ export function setupPane({root, suffix, onTerms, onRecord, onChanged = () => {}
 
   return {load, show, saveTerms, makeCurrent, revisionCount: () => revisions.length,
           isBusy: () => fitBusy(shownFile()) || fitBusy(contentHash()),
-          contentHash, currentRevisionNumber: currentNumber, shownRevision,
+          address, contentHash, currentRevisionNumber: currentNumber, shownRevision,
           canSaveInPlace, gateReason, file: shownFile, readOnly: () => readOnly,
           renderModel, syncMakeCurrent};
 }
@@ -1024,6 +1032,9 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
   async function readRecord(token) {
     if (!mapping) return;
     const params = new URLSearchParams();
+    // The name is the address; the two hashes are provenance and the fallback for a legacy record or a job queued
+    // under a model that has no record yet.
+    if (mapping.parameterization_name) params.set('name', mapping.parameterization_name);
     if (mapping.mapping_content_hash) params.set('content_hash', mapping.mapping_content_hash);
     if (mapping.mapping_hash) params.set('mapping_hash', mapping.mapping_hash);
     let answer;
@@ -1091,7 +1102,29 @@ export function setupFitCard({loadMapping, onFitted = () => {}, onMessage = () =
     setText(fitStatus, `Queueing a ${chosen.label || chosen.value} fit of ${mapping.name || mapping.file}…`);
     const token = generation;
     try {
-      const started = await post('/api/bonded-parameterizations', body);
+      let started;
+      try {
+        started = await post('/api/bonded-parameterizations', body);
+      } catch (error) {
+        // The model's name already holds another model's record. The server refuses rather than mixing the two
+        // histories; the reader chooses -- overwrite that record with this fit, or keep it and rename the mapping.
+        if (error.status !== 409 || !error.existing) throw error;
+        const agreed = window.confirm(
+          `A parameterization is already stored under the name "${error.existing}", and it belongs to a different `
+          + 'model.\n\nOverwrite it with this fit (its revisions are replaced), or cancel and rename this mapping '
+          + 'first?');
+        if (!agreed) {
+          busy = false;
+          if (token === generation) {
+            updateFit();
+            setText(fitStatus, `The fit was not queued: "${error.existing}" already answers a different model's `
+              + 'parameterization. Rename this mapping, or fit again to overwrite it.');
+          }
+          return;
+        }
+        body.overwrite = true;
+        started = await post('/api/bonded-parameterizations', body);
+      }
       busy = false;
       // A queue answer that arrives after the reader moved on is about a target that is no longer on screen: dropping
       // it keeps this target's card, job box and poll its own. `updateFit` still restates the *current* panel's hint,

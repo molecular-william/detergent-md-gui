@@ -2,6 +2,7 @@
 from flask import Blueprint, abort, jsonify, request
 
 from ...models import mappings
+from ...models.bonded import parameterization
 from ...models.mappings import (
     context as molecule_context,
 )
@@ -152,6 +153,10 @@ def mapping_save():
     try:
         return jsonify(mappings.save_draft(payload, context=context, in_place=bool(payload.get('in_place')))), 201
     except mappings.DuplicateMapping as exc:
+        return jsonify(error=str(exc), existing=exc.existing), 409
+    except parameterization.NameConflict as exc:
+        # A rename to a name whose parameterization record belongs to another model: 409 with the name to keep, and
+        # nothing was written. The editor can save under another name, or the fit panel can overwrite the record.
         return jsonify(error=str(exc), existing=exc.existing), 409
 
 

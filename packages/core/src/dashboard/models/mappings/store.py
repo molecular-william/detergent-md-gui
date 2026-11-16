@@ -7,13 +7,13 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from ... import paths
+from ... import paths, run_names
 from ..molecules.packaged import SOURCE, molecule
 from ..repository import JsonRepository
 from . import verdict
 from .context import as_structure
 from .graph import validate
-from .identity import candidate_identity, content_identity
+from .identity import candidate_identity, content_identity, legacy_content_identity
 
 
 class DuplicateMapping(ValueError):
@@ -62,6 +62,9 @@ def _read_candidate(path, name, structure):
     data['sha256'] = hashlib.sha256(raw.encode()).hexdigest()
     data['mapping_hash'] = candidate_identity(data)
     data['mapping_content_hash'] = content_identity(data)
+    # The name this mapping's parameterization record is stored under. Stamped by the store rather than derived by
+    # the panel, so the one name rule has one implementation and every reader of a candidate can address its record.
+    data['parameterization_name'] = run_names.slug(data.get('name') or name)
     data['validation'] = deepcopy(_validation(raw, structure, bool(data.get('schema_version') == 3)))
     return data
 
@@ -80,7 +83,7 @@ def list_candidates(summary=False, *, context=None):
             if context and (data.get('molecule_id') != context.get('molecule_id') or data.get('molecule_snapshot') != context.get('snapshot')):
                 continue
             if summary:
-                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','mapping_content_hash','validation','molecule_id') if k in data}
+                data = {k: data[k] for k in ('file','name','status','sha256','mapping_hash','mapping_content_hash','parameterization_name','validation','molecule_id') if k in data}
             result.append(data)
         except (ValueError, OSError) as exc:
             result.append({'file': name, 'name': name, 'error': str(exc)})
@@ -108,12 +111,36 @@ def save_draft(data, *, context=None, in_place=False):
         filename = data.get('file')
         if not filename or not (storage_root() / filename).is_file():
             raise ValueError('In-place save needs an existing candidate to overwrite')
+        # A rename is this same save with a new display name, and the parameterization belongs to the mapping: its
+        # record, revisions and recorded histogram directories follow the name. The target is checked before the
+        # write so a name another model holds answers 409 with that name and the draft is left untouched.
+        from ..bonded import parameterization
+        previous = _stored_name(filename)
+        renamed = bool(previous) and previous != draft.get('name')
+        if renamed:
+            try:
+                existing = parameterization.conflict(draft)
+            except ValueError:
+                existing = None
+            if existing:
+                raise parameterization.NameConflict(existing)
         _repository().write(filename, draft, replace=True)
+        if renamed:
+            parameterization.rename(previous, draft.get('name'))
         return get(filename, context=context)
     filename = f'mapping_candidate_{uuid.uuid4().hex}.json'
     _repository().write(filename, draft, replace=False)
     path = storage_root() / filename
     return get(path.name, context=context)
+
+
+def _stored_name(filename):
+    """The display name a saved draft had before an in-place save, for the parameterization it belongs to."""
+    try:
+        data = json.loads((storage_root() / filename).read_text())
+    except (OSError, ValueError):
+        return None
+    return data.get('name') if isinstance(data, dict) else None
 
 
 def _identical_mapping(draft, exclude=None):
@@ -147,39 +174,33 @@ def delete_draft(name):
     the repository's containment check, so a name that escapes the drafts root is refused
     here rather than by a route-level pattern.
 
-    The owner's rule is that deleting a mapping deletes its bond interactions, and the store's own
-    doctrine makes that a question rather than a cascade: a parameterization is keyed by the mapping's
-    *content* identity, which a copy saved under another name shares. So the identity is read off the
-    draft before the file goes -- afterwards the draft can no longer say which model it was -- and the
-    parameterization is forgotten only if nothing else still holds that content (`_forget_parameterization`).
+    The owner's rule is that deleting a mapping deletes its bond interactions. A record now belongs to
+    the one mapping whose *name* it carries, so the name is read off the draft before the file goes --
+    afterwards the draft can no longer say which model it was -- and that mapping's record and its
+    revisions are removed with it. A record written before names were addresses has no name of its own;
+    the legacy claim list and the content identities are still asked for it, so such a record is not
+    orphaned.
     """
     path = _repository().path(name)
     if not path.is_file():
         raise KeyError(name)
-    content = _draft_content_identity(path)
+    data = _draft_data(path)
     path.unlink()
-    return {'deleted': name, 'parameterization': _forget_parameterization(content, name)}
+    return {'deleted': name, 'parameterization': _forget_parameterization(data)}
 
 
-def _draft_content_identity(path):
-    """The content identity the store stamps on a candidate it reads, for a draft that is about to go.
+def _draft_data(path):
+    """The JSON a draft that is about to go holds, read without the graph validation `get` runs.
 
-    `_read_candidate` computes exactly this (`content_identity`, the name blanked), but it is repeated
-    here rather than called: reading through `get` also runs the graph validation against the packaged
-    molecule, so a draft of another molecule would answer an error about a file this store is deleting
-    either way. An unreadable draft answers None -- nothing addresses its bond interactions, so nothing
-    is removed and the report says so.
+    Reading through `get` also validates against the packaged molecule, so a draft of another molecule
+    would answer an error about a file this store is deleting either way. An unreadable draft answers
+    None -- nothing addresses its bond interactions, so nothing is removed and the report says so.
     """
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict):
-        return None
-    try:
-        return content_identity(data)
-    except (TypeError, ValueError):
-        return None
+    return data if isinstance(data, dict) else None
 
 
 def _content_holders(content):
@@ -206,24 +227,55 @@ def _content_holders(content):
     return sorted(holders)
 
 
-def _forget_parameterization(content, name=None):
-    """Delete the parameterization of `content` unless another saved mapping still carries it.
+def _forget_parameterization(data):
+    """Delete the parameterization of the draft `data`, by name first and by content for a legacy record.
 
-    The guard is the whole decision. Two saved drafts can hold identical content -- a copy under
-    another name -- and therefore one content hash and one set of revisions; deleting either one must
-    not destroy the other's bond interactions. So the record is removed only when no remaining mapping
-    carries that content, and when one does the answer names the holders and says why it was kept.
+    A record exists under the mapping's display name, and the name is the answer: deleting the mapping
+    deletes what that name addresses, whether or not another draft somewhere carries the same content
+    (the store refuses saving that content twice, so the only way two drafts share it is a file written
+    by hand). A name that answers another model's record is not this draft's to remove.
+
+    A record written before names were addresses has no name of its own. For it the old question is
+    still asked -- the claim list this draft drops, then whether another draft on disk still carries
+    the content -- because the revisions must not be removed from under a surviving mapping.
     """
+    if data is None:
+        return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
+                'jobs': [], 'work': [],
+                'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
+    try:
+        content = content_identity(data)
+        legacy = legacy_content_identity(data)
+    except (TypeError, ValueError):
+        content = legacy = None
+    # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
+    # module is imported while the package is still initialising.
+    from ..bonded import parameterization
+    label = data.get('name') or data.get('file')
+    addressed = parameterization.address_from(label) if label else None
+    if addressed and parameterization.exists(addressed):
+        record = parameterization.one(addressed)
+        if content is not None and (parameterization.matches(record, content_hash=content)
+                                    or parameterization.matches(record, content_hash=legacy)):
+            return {**parameterization.delete(addressed), 'retained_by': [], 'reason': None}
+        return {'content_hash': content, 'deleted': False,
+                'retained_by': parameterization.one(addressed).get('owners', []),
+                'revisions': [], 'jobs': [], 'work': [],
+                'reason': 'another saved mapping holds this parameterization name'}
     if content is None:
         return {'content_hash': None, 'deleted': False, 'retained_by': [], 'revisions': [],
                 'jobs': [], 'work': [],
                 'reason': 'the draft could not be read, so no content identity addresses its bond interactions'}
-    # Imported here and not at module scope: `bonded.parameterization` imports this package, and this
-    # module is imported while the package is still initialising.
-    from ..bonded import parameterization
-    # The record's own claim list is the authority: this draft drops its claim, and the revisions go when the last one
-    # does. A record written before claims existed has none to drop, and for that case the drafts on disk are asked.
-    outcome = parameterization.release(content, name=name)
+    # Only a record actually named by the content hash is the legacy shape this fallback deletes. A name-addressed
+    # record whose identity happens to be this content belongs to *that* mapping's name, not to this draft's.
+    legacy_path = parameterization.records_root() / f'{content}.json'
+    if not legacy_path.is_file():
+        return {'content_hash': content, 'deleted': False, 'retained_by': [], 'revisions': [],
+                'jobs': [], 'work': [],
+                'reason': 'no parameterization record answers this draft’s name'}
+    # The record's own claim list is the authority for the legacy address: this draft drops its claim, and the revisions
+    # go when the last one does. A record written before claims existed has none to drop, and the drafts on disk are asked.
+    outcome = parameterization.release(content, name=label)
     if outcome.get('deleted') or outcome.get('released'):
         return {**outcome, 'retained_by': outcome.get('owners', []), 'reason': None}
     holders = _content_holders(content)

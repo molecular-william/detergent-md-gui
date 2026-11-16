@@ -283,7 +283,8 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
         return notice('A fit of this model is running: cancel it before deleting the parameterization.', side);
       }
       const hash = parameterization.contentHash();
-      if (!hash) return notice('This model has no parameterization to delete.', side);
+      const address = parameterization.address();
+      if (!hash || !address) return notice('This model has no parameterization to delete.', side);
       // The revision *number*, not the revision: the route compares it against the record it is about to remove.
       const current = parameterization.currentRevisionNumber();
       const holds = count === 1 ? 'Its single bond interaction revision goes with it'
@@ -295,7 +296,7 @@ export function setupBondedWorkspace(mappingData, {loadMapping}) {
       if (!agreed) return;
       let answer;
       try {
-        answer = await api('/api/bonded-parameterizations/' + encodeURIComponent(hash), {
+        answer = await api('/api/bonded-parameterizations/' + encodeURIComponent(address), {
           method: 'DELETE', headers: {'Content-Type': 'application/json'},
           // The revision the pane was showing: a record that moved on since answers 409 instead of losing newer work.
           body: JSON.stringify({confirm: true, revision: current}),

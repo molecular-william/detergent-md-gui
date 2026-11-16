@@ -52,3 +52,45 @@ def test_content_identity_ignores_candidate_name():
     }
     renamed = {**candidate, 'name': 'Different label'}
     assert mappings.content_identity(candidate) == mappings.content_identity(renamed)
+
+
+def test_renaming_a_saved_draft_moves_its_parameterization(dashboard):
+    """A rename is an in-place save, and the revisions belong to the mapping: the record follows the name."""
+    from dashboard.models.bonded import parameterization
+
+    from tests.harness.support import parameterization_revision as revision
+    from tests.harness.support import saved_mapping
+
+    saved = mappings.save_draft(saved_mapping())
+    parameterization.save(saved, revision())
+    old_name = saved['parameterization_name']
+
+    renamed = mappings.save_draft({**saved, 'name': 'DDM renamed'}, in_place=True)
+
+    assert renamed['parameterization_name'] == 'DDM-renamed' != old_name
+    assert parameterization.one('DDM-renamed')['revision'] == 1
+    assert parameterization.one(old_name)['revisions'] == [], 'the old address is not a second copy'
+    assert parameterization.current(renamed)['revision'] == 1
+
+
+def test_a_rename_to_a_name_another_model_holds_is_refused_and_writes_nothing(dashboard):
+    """The name answers one model; renaming onto another's record answers with that name and saves nothing."""
+    from dashboard.models.bonded import parameterization
+
+    from tests.harness.support import parameterization_revision as revision
+    from tests.harness.support import saved_mapping
+
+    first = mappings.save_draft(saved_mapping())
+    parameterization.save(first, revision())
+    changed = saved_mapping()
+    changed['rings'][0]['scale'] = 1.3
+    other = mappings.save_draft({**changed, 'name': 'Other model'})
+    parameterization.save(other, revision())
+    before = (mapping_store.storage_root() / first['file']).read_text()
+
+    with pytest.raises(parameterization.NameConflict) as refusal:
+        mappings.save_draft({**first, 'name': 'Other model'}, in_place=True)
+
+    assert refusal.value.existing == 'Other-model'
+    assert (mapping_store.storage_root() / first['file']).read_text() == before, 'the refused rename wrote nothing'
+    assert parameterization.one(other['parameterization_name'])['revision'] == 1

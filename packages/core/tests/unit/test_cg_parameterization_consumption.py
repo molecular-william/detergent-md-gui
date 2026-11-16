@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.cg_names import CGNames
 from dashboard.models import mappings
@@ -37,14 +38,13 @@ REVISION = {'engine': 'fast-forward', 'topology': '[ moleculetype ]\nDDM 1\n\n[ 
 
 
 def another_mapping():
-    """The same molecule and beads, a different model.
+    """The same molecule and beads under another name, so it is a model with no parameterization.
 
-    A ring's dilation is part of the mapping's identity and not part of its name, so changing one
-    gives a mapping that is still valid, still DDM, and carries no parameterization of its own --
-    which is the only way to ask `prepare` to fit. Renaming a bead instead would break the virtual
-    site that names it.
+    A record is addressed by the mapping's name now, so a model that must carry no revision of its own
+    is another name: a ring's dilation alone would be the same address and would find the first model's
+    record. Renaming a bead instead would break the virtual site that names it.
     """
-    candidate = saved_mapping()
+    candidate = saved_mapping(name='DDM scaled draft')
     candidate['rings'][0]['scale'] = 1.2
     return candidate
 
@@ -63,7 +63,7 @@ def fitted(candidate, revision=None,
     beside the revision. They are the baseline `ff_assess` scores a CG run against, so a run that consumes this revision
     stages them.
     """
-    work = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{REFERENCE["source_run_id"]}'
+    work = parameterization.work_root() / f'{parameterization.address(candidate)}--{REFERENCE["source_run_id"]}'
     stage = work / '3_initial_CG'
     stage.mkdir(parents=True, exist_ok=True)
     for name in files:
@@ -195,7 +195,7 @@ def test_a_fit_against_another_reference_is_named_in_the_runs_own_limitations(tm
     limitations = ' '.join(manifest(run)['limitations'])
     assert 'do not share a reference' in limitations, 'the revision was fitted against a54ac8f64710'
 
-    other = saved_mapping()
+    other = saved_mapping(name='DDM other reference')
     other['beads'] = copy.deepcopy(other['beads'])
     fitted(other, {**REVISION, 'aa_reference': {**REVISION['aa_reference'],
                                                 'run_id': REFERENCE['source_run_id']}})
@@ -226,7 +226,7 @@ def test_a_record_the_run_cannot_read_is_a_blocker_and_not_a_promise_to_fit(tmp_
     stage 3": that is a promise the run cannot keep. The error is named instead."""
     candidate = saved_mapping()
     fitted(candidate)
-    path = parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json'
+    path = parameterization.records_root() / f'{parameterization.address(candidate)}.json'
     path.write_text('{not json')
     state = cg._parameterization_state({'mapping_candidate': candidate})
 
@@ -309,7 +309,7 @@ def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
         assert path.is_file()
         assert parameterizations_digest(path) == entry['sha256']
     # A revision fitted without a working directory records none, and says so by answering None rather than [].
-    plain = saved_mapping()
+    plain = saved_mapping(name='DDM plain bartender')
     plain['rings'][0]['scale'] = 1.2
     parameterization.save(plain, {**REVISION, 'engine': 'bartender'})
     assert parameterization.distributions(plain) is None
@@ -318,13 +318,13 @@ def test_the_fits_reference_histograms_are_recorded_with_the_revision(tmp_path):
 def test_deleting_the_mapping_takes_the_recorded_histograms_and_reports_them(tmp_path):
     candidate = saved_mapping()
     fitted(candidate)
-    content = parameterization.content_identity(candidate)
-    assert parameterization.revisions_root(content).is_dir()
+    name = parameterization.address(candidate)
+    assert parameterization.revisions_root(name).is_dir()
 
-    removed = parameterization.delete(content)
+    removed = parameterization.delete(name)
 
-    assert removed['distributions'] == f'{content}.revisions'
-    assert not parameterization.revisions_root(content).exists()
+    assert removed['distributions'] == f'{name}.revisions'
+    assert not parameterization.revisions_root(name).exists()
 
 
 def test_the_consuming_run_names_the_baseline_in_place_and_the_assessment_reads_it(tmp_path, monkeypatch):
@@ -550,3 +550,76 @@ def test_the_consuming_stage_records_the_baseline_and_refuses_a_changed_one(tmp_
                             capture_output=True, text=True)
     assert result.returncode != 0 and 'does not match the digest' in result.stderr
 
+
+# --- the model by name ---------------------------------------------------------------------------------
+
+def test_the_prepared_run_records_the_model_by_name_and_its_revision(tmp_path, monkeypatch):
+    """A run names the model it consumed: the record's name, the revision, and the identities as provenance.
+
+    The snapshot stays in the manifest (`mapping_candidate`), and the record's name is what a later reader resolves
+    first. The two hashes are the statement of which content the run was prepared under, so readiness can refuse a
+    record that no longer matches them.
+    """
+    candidate = saved_mapping()
+    fitted(candidate)
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+
+    payload = manifest(run)['parameterization']
+
+    assert payload['kind'] == 'revision'
+    assert payload['mapping'] == parameterization.address(candidate) == 'DDM-carbohydrate-paper-draft'
+    assert payload['mapping_candidate'] == candidate.get('file')
+    assert payload['revision'] == 1
+    assert payload['mapping_content_hash'] == parameterization.identities(candidate)['mapping_content_hash']
+    assert payload['mapping_hash'] == parameterization.identities(candidate)['mapping_hash']
+    assert manifest(run)['bonded']['revision'] == 1
+
+
+def test_a_legacy_record_is_still_found_by_the_snapshots_content_hash(tmp_path, monkeypatch):
+    """The six live records are hash-named until the migration moves them: a run reads one by its identity."""
+    candidate = saved_mapping()
+    parameterization.save(candidate, REVISION)
+    name = parameterization.address(candidate)
+    record = json.loads((parameterization.records_root() / f'{name}.json').read_text())
+    (parameterization.records_root() / f'{name}.json').unlink()
+    (parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json').write_text(
+        json.dumps(record))
+
+    assert cg.chosen_revision(candidate, 1)['revision'] == 1
+    run = prepared(tmp_path, monkeypatch, mapping_candidate=candidate)
+    assert manifest(run)['parameterization']['revision'] == 1
+
+
+def test_a_fit_work_directory_is_keyed_by_the_records_name(tmp_path):
+    """A pair's work directory is `work/<slug>--<run>`: the slug is the record name, and it cannot contain `--`.
+
+    A directory built before names were addresses is `<content hash>-<run>` and is reused rather than rebuilt, which is
+    the difference between a re-fit of minutes and one of a mapped trajectory.
+    """
+    from dashboard.models.bonded import fitting
+
+    candidate = saved_mapping()
+    work = fitting.work_dir(candidate, 'a' * 12)
+
+    assert work.parent == parameterization.work_root()
+    assert work.name == f'{parameterization.address(candidate)}--{"a" * 12}'
+    assert '--' not in parameterization.address(candidate), 'a slug cannot contain the separator'
+    assert fitting.work_dir(candidate).name.endswith('--no-reference')
+
+    legacy = parameterization.work_root() / f'{parameterization.content_identity(candidate)}-{"b" * 12}'
+    legacy.mkdir(parents=True)
+    assert fitting.work_dir(candidate, 'b' * 12) == legacy, 'the frames already built are reused'
+
+
+def test_a_record_under_the_name_that_no_longer_matches_the_snapshot_is_refused():
+    """Resolving by name is what a reused name could get wrong: the identity is compared, and a mismatch blocks."""
+    candidate = saved_mapping()
+    fitted(candidate)
+    changed = copy.deepcopy(candidate)
+    changed['rings'][0]['scale'] = 1.3
+
+    with pytest.raises(ValueError, match='belongs to another mapping'):
+        cg.chosen_revision(changed, 1)
+    state = cg._parameterization_state({'mapping_candidate': changed})
+    assert state['parameterized'] is False and 'cannot be read' in state['statement']
+    assert 'belongs to another mapping' in state['error']

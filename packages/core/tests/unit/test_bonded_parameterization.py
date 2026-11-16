@@ -39,22 +39,30 @@ def test_revisions_accumulate_and_the_newest_is_current():
     assert parameterization.summary(candidate)['revision'] == 2
 
 
-def test_a_renamed_candidate_keeps_its_revisions_and_a_reassigned_one_does_not():
-    """The doctrine `bonded.states.belongs_to` keeps: provenance by name, compatibility by content.
+def test_a_rename_moves_the_record_and_a_changed_bead_does_not():
+    """The record belongs to the mapping whose name it carries, and a rename carries it along.
 
-    Only the content identity selects the record file. A rename therefore keeps its fitted revisions
-    -- which is what makes "revisions of this mapping" survive the same save that mints a new name --
-    while a bead that moved to another atom is a different model, and a fit of the old one must not be
-    handed to it.
+    A rename is an in-place save of the same mapping, so the record, its revisions and the directories
+    they record move to the new name's slug. A bead that moved to another atom is a different model
+    under a name the old one still holds: neither reading it as the old model nor saving it under that
+    name is allowed, because the two histories would be one name.
+
+    A legacy record addressed by content hash is still found by that hash: the store reads the name
+    first and the digest second, so the records written before this change keep working.
     """
     candidate = mapping()
     parameterization.save(candidate, revision())
+    assert parameterization.rename('DDM', 'DDM · renamed') == 'DDM-renamed'
     renamed = mapping(name='DDM · renamed')
     assert parameterization.current(renamed)['revision'] == 1
+    assert parameterization.current(candidate) is None, 'the old address is not a second copy'
 
-    changed = json.loads(json.dumps(candidate))
+    changed = json.loads(json.dumps(renamed))
     changed['beads'][0]['name'] = 'B99'
-    assert parameterization.current(changed) is None
+    with pytest.raises(ValueError, match='belongs to another mapping'):
+        parameterization.current(changed)
+    with pytest.raises(parameterization.NameConflict):
+        parameterization.save(changed, revision())
 
 
 def test_a_record_that_belongs_to_another_mapping_is_refused_rather_than_read_as_absent():
@@ -62,7 +70,7 @@ def test_a_record_that_belongs_to_another_mapping_is_refused_rather_than_read_as
     over the top of one it failed to read."""
     candidate = mapping()
     parameterization.save(candidate, revision())
-    path = parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json'
+    path = parameterization.records_root() / f'{parameterization.address(candidate)}.json'
     record = json.loads(path.read_text())
     record['mapping_content_hash'] = 'ff' * 32
     path.write_text(json.dumps(record))
@@ -184,28 +192,39 @@ def test_the_revision_digest_changes_with_the_terms_and_not_with_the_clock():
 def test_the_record_lives_in_the_workspace_the_application_selected(dashboard):
     candidate = mapping()
     parameterization.save(candidate, revision())
-    path = dashboard.paths.workspace / 'parameterizations' / 'records' / f'{parameterization.content_identity(candidate)}.json'
-    assert path.is_file()
+    path = dashboard.paths.workspace / 'parameterizations' / 'records' / f'{parameterization.address(candidate)}.json'
+    assert path.is_file() and path.stem == 'DDM'
     assert list(dashboard.paths.workspace.glob('bonded_states/*.json')) == [], 'not beside the old states'
 
 
-def test_a_record_can_be_read_by_hash_because_the_panel_works_from_hashes():
-    """A hash-addressed reader and a run's manifest hold hashes, not the mapping document: the store answers
-    both without one, and an unknown hash is the no-parameterization state rather than an error."""
+def test_a_record_is_read_by_its_name_and_a_legacy_one_by_its_hash():
+    """A saved candidate, the panel and a run's manifest name the model; the record answers that name.
+
+    A hash is still a reader's address -- a run manifest keeps the identity it was prepared with, and a
+    record written before names were addresses is named by one -- so the store answers the digest too,
+    finding the named record whose identity it is. An unknown address is the no-parameterization state
+    rather than an error, and a name that would escape the records root is refused.
+    """
     candidate = mapping()
     parameterization.save(candidate, revision())
     content = parameterization.content_identity(candidate)
 
-    record = parameterization.one(content)
-    state = parameterization.view(record)
+    by_name = parameterization.one(parameterization.address(candidate))
+    by_hash = parameterization.one(content)
+    state = parameterization.view(by_name)
 
-    assert record['mapping_content_hash'] == content
+    assert by_name['name'] == 'DDM' and by_hash['name'] == 'DDM'
+    assert by_hash['mapping_content_hash'] == content
     assert state['parameterized'] is True and state['revision'] == 1
-    assert state['revisions'] == [1]
+    assert state['revisions'] == [1] and state['name'] == 'DDM'
     assert state['mapping_content_hash'] == content
     assert parameterization.view(parameterization.one('a' * 64))['parameterized'] is False
-    with pytest.raises(ValueError, match='Invalid mapping content identity'):
-        parameterization.one('nope')
+    # A slug-shaped address with no record is the honest absence; a path or a separator is refused at the door.
+    assert parameterization.view(parameterization.one('no-such-model'))['parameterized'] is False
+    with pytest.raises(ValueError):
+        parameterization.one('../records')
+    with pytest.raises(ValueError):
+        parameterization.one('has a space')
 
 
 def test_matches_answers_for_a_rename_and_for_a_changed_bead():
@@ -227,11 +246,12 @@ def test_matches_answers_for_a_rename_and_for_a_changed_bead():
 def test_the_records_are_listed_newest_first_and_a_broken_one_is_skipped():
     first = mapping()
     parameterization.save(first, revision())
-    second = mapping(rings=[{'beads': ['B01', 'B02'], 'scale': 1.2}])
+    second = mapping(name='DDM ring', rings=[{'beads': ['B01', 'B02'], 'scale': 1.2}])
     parameterization.save(second, revision())
 
     listed = parameterization.records()
 
+    assert {record['name'] for record in listed} == {'DDM', 'DDM-ring'}
     assert {record['mapping_content_hash'] for record in listed} == {
         parameterization.content_identity(first), parameterization.content_identity(second)}
     (parameterization.records_root() / f'{"f" * 64}.json').write_text('{not json')
@@ -273,7 +293,7 @@ def test_a_record_written_before_numbers_were_normalised_is_still_this_mappings(
     """
     candidate = mapping(rings=[{'name': 'R1', 'atoms': [1, 2, 3], 'scale': 1.0}])
     saved = parameterization.save(candidate, revision())
-    path = parameterization.records_root() / f"{parameterization.content_identity(candidate)}.json"
+    path = parameterization.records_root() / f"{parameterization.address(candidate)}.json"
 
     # Rewrite the record the way it was written before the change: under the legacy digest, saying so itself.
     legacy = mappings.legacy_content_identity(candidate)
@@ -407,7 +427,7 @@ def test_a_stored_transcription_is_readable_and_read_only_and_a_refused_save_wri
     """
     candidate = mapping()
     parameterization.save(candidate, revision())
-    path = parameterization.records_root() / f'{parameterization.content_identity(candidate)}.json'
+    path = parameterization.records_root() / f'{parameterization.address(candidate)}.json'
     record = json.loads(path.read_text())
     transcription = {'engine': 'martini-reference', 'engine_default_source': 'martini-reference',
                      'transcription': {'entry': 'SUCR'}, 'ensemble': {'frames': None}}

@@ -217,8 +217,11 @@ def stub(page, record, *, jobs=None, engines=ENGINES, references=REFERENCES, pos
         # record through the GET below, which `on_terms` has mutated to the saved state.
         route.fulfill(json={'revision': number})
 
-    page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}/terms$'), save_terms)
-    page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}$'), patch)
+    # The record's address is its name now: a 64-hex legacy hash still resolves, but the panel writes the slug
+    # the store stamps on the candidate.
+    page.route(re.compile(r'/api/bonded-parameterizations/[A-Za-z0-9_-]+/terms$'), save_terms)
+    # The address is a record name; the fixed routes (`engines`, `jobs`) are not names and must not be shadowed.
+    page.route(re.compile(r'/api/bonded-parameterizations/(?!engines$|jobs$)[A-Za-z0-9_-]+$'), patch)
     page.route(re.compile(r'/api/bonded-parameterizations\?'),
                lambda route: route.fulfill(json=record))
     page.route(re.compile(r'/api/references'),
@@ -1042,7 +1045,7 @@ def test_make_current_is_the_one_mutation_and_the_selector_labels_the_history(da
     assert len(patches) == 1, patches
     method, path, body = patches[0]
     assert method == 'PATCH', method
-    assert path == f'/bonded-parameterizations/{content}', path
+    assert path == f'/bonded-parameterizations/{saved["parameterization_name"]}', path
     assert json.loads(body) == {'current': 1, 'confirm': True}, body
 
     # The record follows, and the shown revision is now the one a run consumes.
@@ -1132,7 +1135,7 @@ def test_saving_a_parameter_in_place_posts_the_current_revision_and_reloads_manu
     assert len(saved_posts) == 1, saved_posts
     method, path, body = saved_posts[0]
     assert method == 'POST', method
-    assert path == f'/bonded-parameterizations/{content}/terms', path
+    assert path == f'/bonded-parameterizations/{saved["parameterization_name"]}/terms', path
     assert body == {'mode': 'in_place', 'revision': 1, 'expected_revision': 1,
                     'expected_sha256': f'{1:064x}', 'confirm': True,
                     'terms': [{'id': 'bonds:1', 'parameters': [0.33, 6000]}]}, body
@@ -1448,7 +1451,7 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
         dialogs.append(dialog.message)
         dialog.accept()
 
-    page.route(re.compile(r'/api/bonded-parameterizations/[a-f0-9]{64}$'), remove)
+    page.route(re.compile(r'/api/bonded-parameterizations/(?!engines$|jobs$)[A-Za-z0-9_-]+$'), remove)
     page.on('dialog', accept)
     open_panel(page, live_page, first['file'])
     expect(page.locator('#bonded-delete-parameterization')).to_be_enabled()
@@ -1461,7 +1464,7 @@ def test_the_panel_deletes_the_parameterization_and_leaves_the_mapping(dashboard
 
     assert len(deletes) == 1, deletes
     method, path, body = deletes[0]
-    assert (method, path) == ('DELETE', f'/bonded-parameterizations/{first_content}'), deletes
+    assert (method, path) == ('DELETE', f'/bonded-parameterizations/{first["parameterization_name"]}'), deletes
     assert json.loads(body) == {'confirm': True, 'revision': 1}, body
     assert len(dialogs) == 1, dialogs
     warning = dialogs[0]

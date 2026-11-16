@@ -23,15 +23,16 @@ from flask import Blueprint, abort, jsonify, request
 blueprint = Blueprint('bonded', __name__)
 
 
-def _parameterization_record(content_hash=None, mapping_hash=None):
-    """The stored record a hash addresses: by content identity first, then by any revision's provenance.
+def _parameterization_record(name=None, content_hash=None, mapping_hash=None):
+    """The stored record a name or hash addresses: by name first, then by content identity, then by provenance.
 
-    `parameterization.one` answers an empty document for a well-formed hash with no record, because "this model
-    carries no parameterization" is a state a caller asks about and not a fault -- the panel renders it as the
-    honest absence (D5). A `mapping_hash` is the *candidate* identity, which a rename changes, so it is answered
-    by scanning the history through `parameterization.matches`, exactly as the store's own readers do.
+    `parameterization.one` answers an empty document for a well-formed address with no record, because "this
+    model carries no parameterization" is a state a caller asks about and not a fault -- the panel renders it
+    as the honest absence (D5). A `mapping_hash` is the *candidate* identity, which a rename changes, so it is
+    answered by scanning the history through `parameterization.matches`, exactly as the store's own readers do.
     """
-    record = parameterization.one(content_hash) if content_hash else None
+    record = parameterization.one(parameterization.address_from(name)) if name else (
+        parameterization.one(content_hash) if content_hash else None)
     if record is None or not record.get('revisions'):
         for candidate in parameterization.records():
             if parameterization.matches(candidate, candidate_hash=mapping_hash, content_hash=content_hash):
@@ -41,24 +42,36 @@ def _parameterization_record(content_hash=None, mapping_hash=None):
     # No record, and no stored history answers either hash: the empty document the store itself answers with,
     # so the panel renders "this model carries no parameterization" rather than an error it cannot act on.
     return {'mapping_hash': mapping_hash, 'mapping_content_hash': content_hash,
-            'revision': 0, 'current': None, 'revisions': []}
+            'revision': 0, 'current': None, 'revisions': [],
+            'name': parameterization.address_from(name) if name else None}
 
 
-def _parameterization_mapping(content_hash):
+def _parameterization_mapping(identifier):
     """The saved candidate whose revisions these are, so an earlier one can be made current again.
 
-    `make_current(mapping, revision)` takes a mapping, and a `PATCH` names only a content hash: the mapping
-    store is asked which of its candidates carries this content identity, which is what makes the re-point
-    work for a candidate that has since been renamed.
+    `make_current(mapping, revision)` takes a mapping, and a `PATCH` names only the record's address: the mapping
+    store is asked which of its candidates is stored under this name, or -- for the legacy hash address -- which
+    carries this content identity. The name rule is the store's own (`parameterization_name`), not a second one.
     """
+    by_name = None if re.fullmatch(r'[a-f0-9]{64}', identifier) else parameterization.address_from(identifier)
     for candidate in mappings.list_candidates(summary=True):
-        if candidate.get('error') or candidate.get('mapping_content_hash') != content_hash:
+        if candidate.get('error'):
+            continue
+        if by_name is not None:
+            if (candidate.get('parameterization_name') or '').casefold() == by_name.casefold():
+                try:
+                    return mappings.get(candidate['file'])
+                except (OSError, ValueError) as exc:
+                    abort(400, str(exc))
+            continue
+        if candidate.get('mapping_content_hash') != identifier:
             continue
         try:
             return mappings.get(candidate['file'])
         except (OSError, ValueError) as exc:
             abort(400, str(exc))
-    abort(404, f'No saved mapping carries content hash {content_hash}')
+    abort(404, (f'No saved mapping is stored under {identifier}' if by_name is not None
+                else f'No saved mapping carries content hash {identifier}'))
 
 
 def _message(error):
@@ -91,11 +104,14 @@ def parameterization_engines():
 def parameterization_jobs():
     """The job box's list: newest first, optionally one mapping's, which it polls while a fit runs.
 
-    Which jobs are this mapping's is `fitting.jobs`'s question; the content hash this request carries is
-    handed to it, and a hash no stored job carries answers the empty list, never every job.
+    Which jobs are this mapping's is `fitting.jobs`'s question; the name (or legacy content hash) this
+    request carries is handed to it, and an address no stored job carries answers the empty list, never
+    every job.
     """
-    return jsonify(jobs=bonded_fitting.jobs(content_hash=request.args.get('content_hash'),
-                                            job_id=request.args.get('job_id')))
+    name = request.args.get('name')
+    return jsonify(jobs=bonded_fitting.jobs(
+        content_hash=request.args.get('content_hash'), job_id=request.args.get('job_id'),
+        name=parameterization.address_from(name) if name else None))
 
 
 @blueprint.post('/api/bonded-parameterizations/jobs/<job_id>/cancel')
@@ -111,16 +127,18 @@ def parameterization_job_cancel(job_id):
 def parameterization_list():
     """One record with its whole history, or every record when the caller names no mapping.
 
-    Addressed by `content_hash` (compatibility: a renamed candidate keeps its revisions) or by `mapping_hash`
-    (provenance: which saved candidate a revision was made for). `revisions` is the stored history itself and
-    not a summary of it, because a revision's terms are what the panel's compare view reads and no other route
-    carries them.
+    Addressed by `name` (the record's address: the slug of the mapping's display name), then by the legacy
+    `content_hash` (compatibility: a record written before names were addresses is still found) or by
+    `mapping_hash` (provenance: which saved candidate a revision was made for). `revisions` is the stored
+    history itself and not a summary of it, because a revision's terms are what the panel's compare view reads and
+    no other route carries them.
     """
+    name = request.args.get('name')
     content_hash = request.args.get('content_hash')
     mapping_hash = request.args.get('mapping_hash')
-    if not content_hash and not mapping_hash:
+    if not name and not content_hash and not mapping_hash:
         return jsonify(records=parameterization.records())
-    record = _parameterization_record(content_hash, mapping_hash)
+    record = _parameterization_record(name, content_hash, mapping_hash)
     # The jobs are the model's this request named, not whatever the record happens to carry: the store's
     # empty document has no content identity when only a candidate hash was asked about, and an absent
     # hash is no filter at all. `fitting.jobs` owns the matching (content = compatibility, candidate =
@@ -141,6 +159,7 @@ def parameterization_list():
     return jsonify(summary=parameterization.view(record),
                    revisions=revisions,
                    jobs=bonded_fitting.jobs(
+                       name=parameterization.address_from(name) if name else None,
                        content_hash=content_hash or record.get('mapping_content_hash'),
                        mapping_hash=mapping_hash or record.get('mapping_hash')))
 
@@ -181,14 +200,20 @@ def parameterization_start():
         except FileNotFoundError:
             abort(404, f'No AA reference run {aa_reference} in this workspace')
     # `start` refuses an unknown option value or an unloadable mapping with a `ValueError`, which `app.py` already
-    # answers as `400`: a second translation here would be a second place to keep the two agree.
-    job = bonded_fitting.start(mapping, engine=engine, reference=reference, options=options,
-                               molecule_root=_molecule_root(payload.get('molecule_root')), timeout=timeout)
+    # answers as `400`: a second translation here would be a second place to keep the two agree. A name another
+    # model's record already answers is the one refusal with a choice in it, so it answers 409 and names the record:
+    # the caller renames the mapping, or asks again with `overwrite` to replace that record's revisions with this fit.
+    try:
+        job = bonded_fitting.start(mapping, engine=engine, reference=reference, options=options,
+                                   molecule_root=_molecule_root(payload.get('molecule_root')), timeout=timeout,
+                                   overwrite=payload.get('overwrite') is True)
+    except parameterization.NameConflict as exc:
+        return jsonify(error=str(exc), existing=exc.existing), 409
     return jsonify(job), 201
 
 
-@blueprint.delete('/api/bonded-parameterizations/<content_hash>')
-def parameterization_delete(content_hash):
+@blueprint.delete('/api/bonded-parameterizations/<identifier>')
+def parameterization_delete(identifier):
     """Remove a model's parameterization, and nothing else.
 
     The *mapping* is not this route's to remove: it is the user's model, the file a run is queued from, and this panel
@@ -205,7 +230,7 @@ def parameterization_delete(content_hash):
     if payload.get('confirm') is not True:
         abort(400, 'Deleting a parameterization requires confirmation')
     try:
-        record = parameterization.one(content_hash)
+        record = parameterization.one(identifier)
     except ValueError as exc:
         abort(400, _message(exc))
     expected = payload.get('revision')
@@ -214,11 +239,11 @@ def parameterization_delete(content_hash):
             abort(400, 'A revision number is required when one is named')
         if (record.get('current') or {}).get('revision') != expected:
             abort(409, 'This parameterization changed; reload it before deleting')
-    return jsonify(parameterization.delete(content_hash))
+    return jsonify(parameterization.delete(identifier))
 
 
-@blueprint.patch('/api/bonded-parameterizations/<content_hash>')
-def parameterization_current(content_hash):
+@blueprint.patch('/api/bonded-parameterizations/<identifier>')
+def parameterization_current(identifier):
     """Point a model at an earlier revision, without rewriting the history that came after it.
 
     `confirm: true` is required because the next run prepared from this model stages the revision this call
@@ -230,15 +255,15 @@ def parameterization_current(content_hash):
     revision = payload.get('current')
     if isinstance(revision, bool) or not isinstance(revision, int):
         abort(400, 'A revision number is required')
-    mapping = _parameterization_mapping(content_hash)
+    mapping = _parameterization_mapping(identifier)
     try:
         parameterization.make_current(mapping, revision)
     except (KeyError, ValueError) as exc:
         abort(404, _message(exc))
-    return jsonify(parameterization.one(content_hash))
+    return jsonify(parameterization.one(identifier))
 
-@blueprint.post('/api/bonded-parameterizations/<content_hash>/terms')
-def parameterization_terms(content_hash):
+@blueprint.post('/api/bonded-parameterizations/<identifier>/terms')
+def parameterization_terms(identifier):
     """Edit a stored revision's bonded parameters.
 
     `mode='in_place'` rewrites the revision the panel shows and is accepted only while it is the record's current
@@ -271,7 +296,7 @@ def parameterization_terms(content_hash):
         abort(400, 'expected_sha256 is required to save a stored revision')
     if not isinstance(expected_sha256, str) or not re.fullmatch(r'[a-f0-9]{64}', expected_sha256):
         abort(400, 'expected_sha256 must be a revision digest')
-    mapping = _parameterization_mapping(content_hash)
+    mapping = _parameterization_mapping(identifier)
     try:
         record = parameterization.save_terms(
             mapping, mode=mode, edits=terms, revision=revision,

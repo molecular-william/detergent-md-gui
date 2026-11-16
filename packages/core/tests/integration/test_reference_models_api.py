@@ -142,4 +142,4 @@ def test_summary_rows_name_the_molecule_and_still_omit_beads(dashboard):
     assert row['molecule_id'] == 'Maltose'
     assert 'beads' not in row
     assert set(row) == {'file', 'name', 'status', 'sha256', 'mapping_hash', 'mapping_content_hash',
-                        'validation', 'molecule_id'}
+                        'validation', 'molecule_id', 'parameterization_name'}

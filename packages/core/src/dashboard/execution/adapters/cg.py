@@ -205,6 +205,41 @@ def stored_coordinates(mapping_candidate, revision):
     return parameterizations.coordinates(mapping_candidate, revision.get('revision'))
 
 
+def _identity_stamps(mapping, payload=None):
+    """Every identity the run's snapshot and its recorded payload say the consumed revision may carry.
+
+    The record is resolved by name, so a fit of another model under the same name is the failure this
+    set exists to catch: a revision is this model's only when one of its stamped identities is one this
+    snapshot computes. The legacy digests are included because a record written before the numbers were
+    normalised still carries them, and the payload's own stamp is included because it is what the run
+    recorded when it was prepared.
+    """
+    stamps = set(parameterizations.identities(mapping).values())
+    stamps |= {mappings.legacy_candidate_identity(mapping), mappings.legacy_content_identity(mapping)}
+    if isinstance(payload, dict) and isinstance(payload.get('mapping_content_hash'), str):
+        stamps.add(payload['mapping_content_hash'])
+    return stamps
+
+
+def _check_consumed_identity(metadata, chosen):
+    """Refuse a resolved revision whose identity no longer matches the snapshot's stamped hashes.
+
+    Resolving by name is what makes a rename keep its revisions; it is also what could hand a run another
+    model's record when a name was reused. The identity the revision recorded is compared with the
+    snapshot's, so a mismatch is refused with the reason rather than simulated.
+    """
+    if chosen is None:
+        return
+    mapping = metadata.get('mapping_candidate') if isinstance(metadata, dict) else None
+    if not isinstance(mapping, dict):
+        return
+    payload = metadata.get('parameterization') if isinstance(metadata.get('parameterization'), dict) else {}
+    stamps = _identity_stamps(mapping, payload)
+    if chosen.get('mapping_content_hash') not in stamps and chosen.get('mapping_hash') not in stamps:
+        raise ValueError('This model\'s parameterization changed since the run was prepared: the record the name '
+                         'resolves no longer matches the mapping the run recorded')
+
+
 def consumes_parameterization(metadata) -> bool:
     """Whether a run uses its model's parameterization instead of fitting in stage 3.
 
@@ -670,6 +705,7 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     # mapping's current one; `starting_coordinates` is `None` for a caller that did not choose, and
     # such a run keeps the historical re-map shape.
     chosen = chosen_revision(mapping_candidate, revision)
+    _check_consumed_identity({'mapping_candidate': mapping_candidate}, chosen)
     starting_coordinates = starting_coordinates or 'remap'
     if starting_coordinates not in STARTING_COORDINATES:
         raise ValueError(f'Unknown starting coordinates: {starting_coordinates!r}')
@@ -793,11 +829,17 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
         metadata['mapping_sha256'] = hashlib.sha256(json.dumps(mapping_candidate, sort_keys=True).encode()).hexdigest()
     metadata.update(profile=profile, scientifically_validated=False, settings=settings, stage_plan=[[name, relative] for name, relative in stage_plan],
                     mdp_profiles=dict(MDP_PROFILES))
-    # The parameterization this run consumed, in the shape a reader asks for it: which kind, which model, which
-    # revision, which engine wrote the terms, and the AA reference the revision was fitted against.
+    # The parameterization this run consumed, in the shape a reader asks for it: which kind, the model's *name*,
+    # which revision, which engine wrote the terms, and the AA reference the revision was fitted against. The
+    # snapshot and its identity hashes stay as provenance: readiness resolves the record by name first and by those
+    # hashes second, and refuses a record whose identity no longer matches them.
     metadata['starting_coordinates'] = starting_coordinates if chosen is not None else None
-    metadata['parameterization'] = ({'kind': 'revision', 'mapping': (mapping_candidate or {}).get('file'),
+    metadata['parameterization'] = ({'kind': 'revision',
+                                     'mapping': parameterizations.address(mapping_candidate or {}),
+                                     'mapping_candidate': (mapping_candidate or {}).get('file'),
                                      'revision': chosen['revision'], 'engine': chosen.get('engine'),
+                                     'mapping_hash': chosen.get('mapping_hash'),
+                                     'mapping_content_hash': chosen.get('mapping_content_hash'),
                                      'aa_reference': chosen.get('aa_reference')} if chosen is not None else None)
     metadata['cg_names'] = {'residue_name': names.residue_name, 'initial_itp': names.initial_itp, 'final_itp': names.final_itp}
     # Which of the two stage-3 shapes this run has, recorded as one fact the stage contract and every
@@ -962,7 +1004,8 @@ def parameterization_readiness(metadata) -> dict:
             blockers.append(f'This model belongs to {bound}, not {metadata["molecule_id"]}')
         try:
             chosen = chosen_revision(mapping, payload.get('revision'))
-        except KeyError as exc:
+            _check_consumed_identity(metadata, chosen)
+        except (KeyError, ValueError) as exc:
             blockers.append(str(exc))
         if chosen is None:
             blockers.append('This mapping carries no parameterization revision; fit one in Bond Interactions '
