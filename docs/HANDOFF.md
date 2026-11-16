@@ -6,6 +6,28 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Run 0c5f5738089c: a reference CG run's beads had no bonds or colours, and its overview was refused.**
+Two unrelated defects, both measured on that run. (1) `layout.cg_topology` only looked under `stages/3_initial_CG/`,
+which a mapping writes; a reference or derived CG run has no mapping stage -- `sugar_cg` stages the published entry as
+`inputs/GLC.itp` and records it as `FINAL_ITP` -- so `recorded_topology` answered None and the structure route wrote
+beads with no CONECT, the stand-in element `C` and family 0: no bonds, no size class, no polarity colour. The recorded
+name is now looked for under `inputs/` as a fallback (the build directory still answers first, and a name held twice is
+still refused), so run 0c5f5738089c now reads `inputs/GLC.itp`: 3 CONECT records and families 3 (P) / 1 (C). (2) The
+trajectory overview answered `409 An analysis is already active for this run` because the auto-queued
+`bonded-cross-check` died on `analysis_coordinator.run`'s lease: the run finished at 13:41:41 and its analyses were
+queued a second later while the run's own lock was momentarily held, so the thread raised `ValueError` **before** the
+managed attempt wrote `running` -- the record stayed `queued` (then `cancelling` on a cancel), its
+`ANALYSIS_WORKERS` slot was never released, and nothing recovers that short of a restart. The claim now happens inside
+the managed attempt and waits up to `CLAIM_SECONDS` (5 s) for a transient holder, so a refusal is recorded and the slot
+is given back. Tests: `test_run_layout.py` finds a staged moleculetype and keeps the build copy first;
+`test_analysis_lifecycle.py` waits out a briefly held lock and records a held one as a refusal with the slot free.
+**The restart cleared the wedge** (`reconcile` marked that attempt failed) and the run now works end to end: its
+structure route answers 3 CONECT records with families 3 (P) / 1 (C), and the overview it owed completed in 18 s
+(`analyses/trajectory-overview/.../trajectory-overview.png`, RMSD 0.000478 nm, Rg 0.2086 nm over 199 frames). The
+re-run of the owed kinds also showed the fix at work: `bonded-cross-check` and `dihedral-fit` now record `skipped`
+with their own reason -- a reference run has no parameterization revision -- instead of dying on the lease. Checks: fast
+**2800 passed / 1 xfailed**, run-view browser files **64 passed**, ruff clean.
+
 **2026-11-16 The CG production timestep accepts 0.5-50 fs.** `cg.SETTING_SPECS['cg_production_dt_fs']` capped the
 step at 20 fs -- in the adapter, where `normalize_settings` refuses an out-of-range value, and in the New run input's
 own `max`. Both are 50 now; the equilibration leg stays 20, which is a decision rather than an oversight and is said so

@@ -189,6 +189,10 @@ def stage_dir(root, stage):
 CG_TOPOLOGY_DIR = '3_initial_CG'
 CG_TOPOLOGY_PATTERN = '*.itp'
 CG_TOPOLOGY_EXCLUDED = ('system', 'topol')
+#: Where a CG run with no mapping stage stages the moleculetype it simulates. `sugar_cg` writes the published entry
+#: as `inputs/{entry}.itp` and records it as `FINAL_ITP`, because a reference or derived model has no `3_initial_CG/`
+#: to be written by a mapping -- so the run's own recorded name is what finds it.
+CG_TOPOLOGY_INPUTS = 'inputs'
 
 
 def candidates(role):
@@ -276,6 +280,23 @@ def molecule_topology(root, directory, default_name, label, ambiguous_label, nam
                      + ', '.join(path.name for path in found))
 
 
+def _staged_topology(root, name):
+    """The run's own file called `name` under `inputs/`, when exactly one is there.
+
+    The name is the run's record rather than a guess, and it is looked for only after the build directory has nothing
+    to offer, so a fitted run's `3_initial_CG/` copy still answers first. A name the run holds twice is refused here
+    as everywhere: the topology is what decides which beads exist.
+    """
+    found = [path for spelling in _spellings(root, CG_TOPOLOGY_INPUTS)
+             for path in (spelling / name,) if path.is_file()]
+    if not found:
+        return None
+    if len(found) > 1:
+        raise ValueError(f'{root} holds more than one {name} under {CG_TOPOLOGY_INPUTS}: '
+                         + ', '.join(str(path) for path in found))
+    return found[0]
+
+
 def cg_topology(root, name=None):
     """The CG consumer's molecule topology under `3_initial_CG/`, named for the residue.
 
@@ -285,8 +306,18 @@ def cg_topology(root, name=None):
     recorded (`cg_names` in its manifest, which a mapping snapshot also yields through
     `CGNames.for_snapshot`). Without a name a single `.itp` still answers; anything else is refused rather than
     ranked, because the topology an analysis reads decides which beads exist.
+
+    A reference or derived CG run has no mapping stage and so no `3_initial_CG/`: it stages the published entry it
+    simulates in `inputs/` and records its name, and that recorded name answers here. Without this, such a run's
+    structure was drawn with no bonds, no bead size class and no polarity family — measured on `0c5f5738089c`.
     """
-    return molecule_topology(root, CG_TOPOLOGY_DIR, None, 'CG molecule topology', 'CG molecule topology', name)
+    try:
+        return molecule_topology(root, CG_TOPOLOGY_DIR, None, 'CG molecule topology', 'CG molecule topology', name)
+    except ValueError:
+        staged = _staged_topology(root, name) if name is not None else None
+        if staged is None:
+            raise
+        return staged
 
 
 def aa_topology(root, name=None):

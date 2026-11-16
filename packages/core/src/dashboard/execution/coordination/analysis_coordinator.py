@@ -269,6 +269,22 @@ class AnalysisCoordinator:
             threading.Thread(target=self.run, args=(jid, aid, worker), daemon=True).start()
         return task, 202
 
+    #: How long a worker waits for the run's own lock before the record says the run was held. A finished run's
+    #: analyses are queued as its worker lets go, and `externally_busy` takes that same lock for microseconds while
+    #: it probes: a single attempt is a race this worker loses once and then never recovers from.
+    CLAIM_SECONDS = 5.0
+
+    def _claim(self, owner, path):
+        """The run's lock, waiting out a transient holder rather than dying on it."""
+        deadline = time.monotonic() + self.CLAIM_SECONDS
+        while True:
+            try:
+                return owner.lease(path)
+            except ValueError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(.05)
+
     def run(self, jid, aid, worker):
         owner = self.owner
         with owner.app.app_context():
@@ -305,22 +321,25 @@ class AnalysisCoordinator:
                         pass
 
             worker.run_dir = owner.run_path(job)
-            worker.lease_file = owner.lease(owner.run_path(job) / '.worker.lock')
-            environment = workflow.environment()
-            command = [shutil.which('python', path=environment['PATH']) or sys.executable,
-                        '-m', 'dashboard.analysis', str(attempt / 'request.json')]
             request = {'run': str(owner.run_path(job).resolve()), 'kind': task['kind'],
                         'payload': task['payload'], 'code_signature': task['signature'],
                         'dependencies': self.dependencies(job)}
-            # The attempt directory and the request file are prepared inside the managed region, so a
-            # failure there is recorded as a failure of this attempt rather than escaping unrecorded.
-            # That moves the running write ahead of the preparation; the terminal state is unchanged.
+            # Everything that can fail is inside the managed region, the run's own lock included. A claim lost while
+            # the run's worker was letting go killed this thread before its record was written (run 0c5f5738089c):
+            # the attempt stayed `queued`/`cancelling`, its slot was never given back, and every later analysis of
+            # that run answered "already active" until the dashboard restarted. So the claim waits, and a refusal is
+            # recorded like any other failure of this attempt.
             try:
                 with managed_attempt(None, update=write,
-                                     running={'started_at': owner.now(), 'command': command,
+                                     running={'started_at': owner.now(),
                                               'environment': recorded_environment(),
                                               'log': task['directory'] + '/console.log'},
                                      on_exit=finish):
+                    worker.lease_file = self._claim(owner, owner.run_path(job) / '.worker.lock')
+                    environment = workflow.environment()
+                    command = [shutil.which('python', path=environment['PATH']) or sys.executable,
+                               '-m', 'dashboard.analysis', str(attempt / 'request.json')]
+                    write(None, command=command)
                     attempt.mkdir(parents=True, exist_ok=stable)
                     files.atomic_json(attempt / 'request.json', request)
                     with (attempt / 'console.log').open('w') as output:

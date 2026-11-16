@@ -1,4 +1,5 @@
 """Two stage layouts, resolved by role rather than guessed at."""
+import json
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,23 @@ def test_a_recorded_name_that_is_not_there_says_what_is(tmp_path):
     with pytest.raises(ValueError) as error:
         layout.cg_topology(tmp_path, 'SUCR.itp')
     assert 'has no SUCR.itp' in str(error.value) and 'SUCR_initial.itp' in str(error.value)
+
+
+def test_a_reference_cg_run_finds_the_moleculetype_it_staged_in_inputs(tmp_path):
+    """sugar_cg writes the published entry as inputs/GLC.itp and records FINAL_ITP: it has no mapping stage at all."""
+    write(tmp_path, 'inputs/GLC.itp', 'stages/4_CG_sim/prod/lig_CG.gro')
+    (tmp_path / 'manifest.json').write_text(json.dumps({'stages': [{'environment': {'FINAL_ITP': 'GLC.itp'}}]}))
+
+    assert layout.recorded_topology(tmp_path, 'cg').name == 'GLC.itp'
+    assert layout.cg_topology(tmp_path, 'GLC.itp').name == 'GLC.itp'
+
+
+def test_the_build_directory_answers_before_a_staged_copy_of_the_same_name(tmp_path):
+    """A fitted run's own build copy still wins; the staged one is the fallback, not a competitor."""
+    write(tmp_path, 'stages/3_initial_CG/GLC.itp', 'inputs/GLC.itp')
+    (tmp_path / 'manifest.json').write_text(json.dumps({'stages': [{'environment': {'FINAL_ITP': 'GLC.itp'}}]}))
+
+    assert layout.recorded_topology(tmp_path, 'cg') == tmp_path / 'stages' / '3_initial_CG' / 'GLC.itp'
 
 
 def test_the_detergent_topology_is_the_builds_own_name_among_the_libraries(tmp_path):
