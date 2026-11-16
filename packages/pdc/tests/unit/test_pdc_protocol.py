@@ -145,11 +145,11 @@ def test_a_pdc_job_is_prepared_by_the_pdc_builder(tmp_path):
     assert manifest['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
     # One layout: `stages/` holds one directory per running stage, `inputs/` the data prepare synthesized and the
     # record of what the run reads. There is no stage directory at the run root any more.
-    assert manifest['layout_version'] == 3
+    assert manifest['layout_version'] == 4
     assert (run / 'stages' / '02_system').is_dir()
     assert (run / 'inputs' / pdc.SETTINGS_NAME).is_file()
     assert (run / 'inputs' / 'inputs.json').is_file()
-    assert manifest['input_snapshot_sha256']
+    assert 'input_snapshot_sha256' not in manifest, 'a named record carries no change-detection digest'
     assert not (run / '1_system').exists(), 'the old run-root stage directory is gone'
     assert set(manifest['tools']) == {'gmx', 'martinize2', 'pdb2pqr'}, \
         'the preparer the optional prepare step runs is recorded with the tools the run always resolves'

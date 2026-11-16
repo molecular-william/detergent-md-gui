@@ -2,7 +2,7 @@
 
 A kind is one row of `dashboard.analysis.kinds.Kind`; registration is the table, so the worker, the descriptions and
 the analysis control read them through the engine's one vocabulary. `pdc-structure` is the first: it resolves the
-run's own production leg through its `source_hook`, so the chosen trajectory is part of the analysis signature.
+run's own production leg through its `source_hook`, so the chosen trajectory is part of the analysis identity.
 """
 from dashboard.analysis.kinds import Kind
 

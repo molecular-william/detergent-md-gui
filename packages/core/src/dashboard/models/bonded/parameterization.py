@@ -28,7 +28,7 @@ import re
 import shutil
 from pathlib import Path
 
-from ... import files, paths
+from ... import files, paths, run_names
 from .. import mappings
 from . import PARAMETER_RANGES, canonical_term, parse_interactions, rewrite_interactions, validate_term
 
@@ -561,11 +561,15 @@ def validate(payload) -> dict:
     if reference is not None:
         if not isinstance(reference, dict):
             raise ValueError('The AA reference must be an object')
-        if set(reference) - {'run_id', 'reference_sha256', 'molecule_identity', 'temperature_k', 'production_ns'}:
+        if set(reference) - {'run_id', 'reference_sha256', 'edition', 'molecule_identity', 'temperature_k',
+                             'production_ns'}:
             raise ValueError('Unknown AA reference field')
         run_id = reference.get('run_id')
-        if not isinstance(run_id, str) or not re.fullmatch(r'[a-f0-9]{12}', run_id):
-            raise ValueError('Invalid AA source run ID')
+        try: run_names.validate(run_id, what='AA source run ID')
+        except ValueError as exc: raise ValueError(f'Invalid AA source run ID: {exc}') from exc
+        edition = reference.get('edition')
+        if edition is not None and (isinstance(edition, bool) or not isinstance(edition, int) or edition < 1):
+            raise ValueError('The AA reference edition must be a positive integer')
     ensemble = payload.get('ensemble')
     if not isinstance(ensemble, dict) or 'frames' not in ensemble:
         raise ValueError('A revision records the ensemble its engine saw')

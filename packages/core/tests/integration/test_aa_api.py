@@ -270,6 +270,27 @@ def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, servic
         analysis.source_entries(consumer/'stages', 'bartender-fit')
 
 
+def test_an_edition_is_the_reference_pin_and_artifacts_are_not_rehashed(dashboard):
+    """A current publication is pinned by `edition`; its artifact map is evidence, not a gate re-read on every use."""
+    from dashboard.models.bonded import fitting
+
+    source = reference_fixture(dashboard, 'draft-smoke')
+    root = dashboard.coordinator.RUNS / source['id']
+    record = json.loads((root / 'stages/07_reference/reference.json').read_text())
+    record.update(edition=3, molecule='DDM')
+    files.atomic_json(root / 'stages/07_reference/reference.json', record)
+    # The recorded map no longer matches the bytes on disk; an edition record is not re-hashed by `verify`.
+    (root / 'stages/07_reference/lig.xtc').write_bytes(b'different bytes' * 1000)
+
+    assert aa_references.verify(root, 3)['edition'] == 3
+    with pytest.raises(ValueError, match='edition changed since attachment'):
+        aa_references.verify(root, 4)
+    # A run is addressed by its name, and a fit records the edition it measured against.
+    assert aa_references.resolve(dashboard.coordinator.RUNS, source['id'], 3)[1]['edition'] == 3
+    resolved = fitting.resolve_reference(source['id'], runs_root=dashboard.coordinator.RUNS)
+    assert resolved['edition'] == 3 and resolved['record']['aa_reference']['edition'] == 3
+
+
 def test_a_cg_run_records_the_choice_settings_it_was_given(dashboard, monkeypatch):
     """The AA choices stay on the CG run's record: they are the reference's provenance, not a parent's job."""
     job = cg_job(dashboard, monkeypatch, settings={'force_field': 'charmm36-jul2022', 'constraints': 'h-bonds'})

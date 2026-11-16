@@ -96,7 +96,7 @@ def test_pdb_preparation_hashes_source_and_conversion_without_mutating_source(so
     files.verify(source, selected['sha256'])
     manifest = json.loads((run/'manifest.json').read_text())
     assert manifest['input_preparation']['coordinate_conversion']['method'] == 'aa_molecules.pdb_gro'
-    assert manifest['layout_version'] == 3
+    assert manifest['layout_version'] == 4
     # The store is named, not copied: no published file is in `inputs/`, and nothing of the tree is in `stages/`.
     assert not (prepared/'results').exists()
     assert not (run/'stages/common'/forcefields.entry().directory).exists()

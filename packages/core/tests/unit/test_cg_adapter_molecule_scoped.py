@@ -33,7 +33,7 @@ def test_molecule_scoped_cg_rejects_invalid_reference_id(tmp_path):
     with pytest.raises(ValueError, match='Invalid AA source run ID'):
         cg.prepare(
             run, molecule_snapshot=snapshot, profile='draft-smoke',
-            shared_reference={'source_run_id': 'not-a-run-id', 'sha256': {}},
+            shared_reference={'source_run_id': '../not-a-run', 'sha256': {}},
         )
 
 

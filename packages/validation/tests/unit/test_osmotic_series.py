@@ -267,7 +267,7 @@ def test_the_checkpoint_ceiling_travels_in_the_series_record_not_a_stamped_scrip
     assert series['attempts_max'] == 5
     assert not (stage / 'run.sh').exists(), 'the driver is the repository script, not a copy in the run'
     manifest = json.loads((tmp_path / 'manifest.json').read_text())
-    assert manifest['stage_scripts']['Osmotic series']['path'] == osmotic.OSMOTIC_SCRIPT
+    assert manifest['stage_scripts']['Osmotic series'] == {'name': 'osmotic_simulation', 'version': 1}
 
 
 def test_the_series_policy_travels_into_the_run_the_runner_reads(tmp_path):

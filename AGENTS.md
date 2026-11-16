@@ -30,9 +30,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 ## Run contract
 - Run types: `aa_only`, `cg`, `pdc`, `osmotic`; a `cg` run's `parameterization.kind` (revision, reference, composition)
   picks its adapter and `STAGES`; `pdc`'s ten are `01_prepare` … `10_backmap`, named by `pdc.LEGS`/`stage_by_name`.
-- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path/sha256 and
-  `input_snapshot_sha256` digests it; `stage_scripts`/`python_modules` pin repository code and `mdp_profiles` names each
-  MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
+- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path (layout 4;
+  a legacy digest entry is still verified), and `stage_scripts`/`python_modules` name the repository code with a version
+  that a not-yet-run stage re-checks; `mdp_profiles` names each MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
   and is recorded `skipped` from `skipped_stages`. Legacy trees are migrated by `cli/migrate_run_layout.py`.
@@ -81,7 +81,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   beside it. A host with no device (`devices.present`) offers no GPU setting and writes no GPU flag.
 - A run setting is advertised in `SETTING_SPECS` or `CHOICE_SPECS` in the same edit: `web/routes/runs.py` keeps only
   advertised keys, so an unadvertised setting is dropped without a word and the run silently uses the default.
-- Provenance is the `inputs.json` record and `stage_scripts` digests, not a copy: the one Martini 3 set lives at
+- Provenance is the `inputs.json` record and `stage_scripts` names/versions (plus `provenance.json`, which gates nothing), not a copy: the one Martini 3 set lives at
   `workspace/dashboard/martini3` (`dashboard.martini3`), every run reads it in place, and `references/` is upstream.
 
 ## Engineering rules

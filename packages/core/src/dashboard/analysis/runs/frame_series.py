@@ -7,7 +7,7 @@ records exactly what it was asked for beside the frames.
 
 Nothing here reads a trajectory on page load. The panel names the files it wants through the payload -- the same
 run-relative paths `GET /api/jobs/<id>/trajectory` reports -- and the queue resolves and hashes them through `sources`,
-so the chosen trajectory is part of the analysis signature and a changed file is a new attempt rather than a stale
+so the chosen trajectory is part of the analysis identity -- its run and relative name -- and a changed payload or
 series. `sources` is the strict half (it runs before an attempt exists, so a bad request is a 400 and no task);
 `run` is the producer (it reads the staged copies the worker made).
 

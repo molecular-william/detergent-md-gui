@@ -5,8 +5,10 @@ import pytest
 from dashboard import files
 from dashboard.execution import run_inputs
 
+FIELDS = {'role', 'label', 'kind', 'root', 'path'}
 
-def test_a_published_file_is_named_by_its_path_and_digest(tmp_path):
+
+def test_a_published_file_is_named_by_its_path_only(tmp_path):
     repo = tmp_path / 'repo'
     (repo / 'resources').mkdir(parents=True)
     source = repo / 'resources' / 'ff.itp'
@@ -14,21 +16,20 @@ def test_a_published_file_is_named_by_its_path_and_digest(tmp_path):
 
     entry = run_inputs.published('force_field', 'resources/ff.itp', label='Test force field', repo_root=repo)
 
+    assert set(entry) == FIELDS, 'an entry is a name: no digest and no byte count'
     assert entry['kind'] == 'published' and entry['root'] == 'repo'
     assert entry['path'] == 'resources/ff.itp'
-    assert entry['sha256'] == files.sha256(source)
-    assert entry['bytes'] == len('force field\n')
     assert run_inputs.verify_entry(entry, repo_root=repo) == source.resolve()
 
 
-def test_a_changed_published_file_is_refused_by_name(tmp_path):
+def test_a_missing_published_file_is_refused_by_name(tmp_path):
     repo = tmp_path / 'repo'
     repo.mkdir()
     (repo / 'a.itp').write_text('one\n')
     entry = run_inputs.published('force_field', 'a.itp', label='A', repo_root=repo)
-    (repo / 'a.itp').write_text('two\n')
+    (repo / 'a.itp').unlink()
 
-    with pytest.raises(ValueError, match='force_field changed since this run was prepared'):
+    with pytest.raises(ValueError, match='force_field is missing'):
         run_inputs.verify_entry(entry, repo_root=repo)
 
 
@@ -42,7 +43,7 @@ def test_a_published_symlink_is_refused(tmp_path):
         run_inputs.published('force_field', 'link.itp', label='Link', repo_root=repo)
 
 
-def test_a_published_tree_is_one_entry_with_a_digest_over_its_files(tmp_path):
+def test_a_published_tree_is_one_entry_naming_its_directory(tmp_path):
     repo = tmp_path / 'repo'
     tree = repo / 'ff'
     (tree / 'nested').mkdir(parents=True)
@@ -51,11 +52,10 @@ def test_a_published_tree_is_one_entry_with_a_digest_over_its_files(tmp_path):
 
     entry = run_inputs.published_tree('force_field', 'ff', label='Tree', repo_root=repo)
 
-    assert entry['files'] == 2
-    assert entry['sha256'] == files.json_sha256(files.hashes(tree))
+    assert set(entry) == FIELDS
     assert run_inputs.verify_entry(entry, repo_root=repo) == tree.resolve()
-    (tree / 'forcefield.itp').write_text('changed\n')
-    with pytest.raises(ValueError, match='force_field changed'):
+    tree.rename(repo / 'moved')
+    with pytest.raises(ValueError, match='force_field is missing'):
         run_inputs.verify_entry(entry, repo_root=repo)
 
 
@@ -67,11 +67,24 @@ def test_the_record_covers_generated_data_and_round_trips_through_the_manifest(t
     (run / 'inputs' / 'nested' / 'solute.ndx').write_text('[ water ]\n')
 
     entries = run_inputs.write(run)
-    manifest = {'inputs': entries, 'input_snapshot_sha256': run_inputs.digest(entries)}
+    manifest = {'layout_version': run_inputs.LAYOUT, 'inputs': entries}
 
     assert [entry['path'] for entry in entries] == ['inputs/context.json', 'inputs/nested/solute.ndx']
     assert all(entry['kind'] == 'generated' for entry in entries)
+    assert all(set(entry) == FIELDS for entry in entries)
     assert run_inputs.verify_manifest(run, manifest) == entries
+
+
+def test_a_missing_named_input_refuses_the_manifest(tmp_path):
+    run = tmp_path / 'run'
+    (run / 'inputs').mkdir(parents=True)
+    (run / 'inputs' / 'a.txt').write_text('a\n')
+    entries = run_inputs.write(run)
+    manifest = {'layout_version': run_inputs.LAYOUT, 'inputs': entries}
+    (run / 'inputs' / 'a.txt').unlink()
+
+    with pytest.raises(ValueError, match='generated is missing'):
+        run_inputs.verify_manifest(run, manifest)
 
 
 def test_an_edited_record_is_refused(tmp_path):
@@ -79,7 +92,7 @@ def test_an_edited_record_is_refused(tmp_path):
     (run / 'inputs').mkdir(parents=True)
     (run / 'inputs' / 'a.txt').write_text('a\n')
     entries = run_inputs.write(run)
-    manifest = {'inputs': entries, 'input_snapshot_sha256': run_inputs.digest(entries)}
+    manifest = {'layout_version': run_inputs.LAYOUT, 'inputs': entries}
     record = json.loads((run / 'inputs' / 'inputs.json').read_text())
     record['inputs'][0]['label'] = 'edited'
     (run / 'inputs' / 'inputs.json').write_text(json.dumps(record))
@@ -100,11 +113,23 @@ def test_a_legacy_manifest_still_verifies_its_input_directory(tmp_path):
         run_inputs.verify_manifest(run, manifest)
 
 
+def test_a_legacy_entry_is_still_measured_by_its_digest(tmp_path):
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    source = repo / 'a.itp'
+    source.write_text('one\n')
+    entry = {'role': 'force_field', 'label': 'A', 'kind': 'published', 'root': 'repo',
+             'path': 'a.itp', 'sha256': files.sha256(source), 'bytes': 4}
+    source.write_text('two\n')
+
+    with pytest.raises(ValueError, match='force_field changed since this run was prepared'):
+        run_inputs.verify_entry(entry, repo_root=repo)
+
+
 def test_an_entry_cannot_escape_its_root(tmp_path):
     repo = tmp_path / 'repo'
     repo.mkdir()
-    entry = {'role': 'x', 'label': 'x', 'kind': 'published', 'root': 'repo',
-             'path': '../outside', 'sha256': '0' * 64, 'bytes': 0}
+    entry = {'role': 'x', 'label': 'x', 'kind': 'published', 'root': 'repo', 'path': '../outside'}
 
     with pytest.raises(ValueError, match='escapes its root'):
         run_inputs.resolve(entry, repo_root=repo)

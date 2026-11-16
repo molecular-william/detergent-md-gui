@@ -202,7 +202,7 @@ def test_a_reference_that_is_not_a_run_in_this_workspace_is_not_found(dashboard,
 def test_a_malformed_reference_id_is_a_bad_request(dashboard, started):
     response = dashboard.client.post('/api/bonded-parameterizations',
                                      json={'mapping': saved_mapping(), 'engine': 'fast-forward',
-                                           'aa_reference': 'not-a-run'})
+                                           'aa_reference': '../not-a-run'})
 
     assert response.status_code == 400
     assert 'Invalid AA source run ID' in response.json['error']

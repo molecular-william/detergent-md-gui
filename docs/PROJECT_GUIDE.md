@@ -135,8 +135,10 @@ migrated by `dashboard/cli/migrate_digests.py`, which rewrites a record only whe
 reproduces the stored digest and leaves the rest as it found them.
 
 molecules/, references/, and resources/ remain canonical input sources. A molecule folder is registered by its presence; `POST /api/molecules/import` (`web/routes/molecules.py`) validates submitted `.itp`/coordinates text through the catalogue's own `inspect()` in a hidden sibling directory and renames it into `molecules/<ID>/` only when accepted, never replacing an existing folder. A folder whose `metadata.json` states `"kind": "cg"` is a Martini CG molecule: `models/molecules/aa.py` records `capabilities.cg`, refuses it to `aa_only`/`cg`, and pdc may use it as a detergent without a mapping (`pdc.prepare` builds the draft from its own `[ atoms ]` and `.gro`). Reference indexing copies metadata and hashes; it does not make another canonical copy of the original reference files. Each run records the inputs and
-code it actually used: shared inputs by path and sha256 in `inputs/inputs.json`, generated data by value in
-`inputs/`, and the repository scripts and helpers by digest in `stage_scripts`/`python_modules`.
+code it actually used: shared inputs by path in `inputs/inputs.json` (layout 4; a legacy digest entry still verifies),
+generated data by value in `inputs/`, and the repository scripts and helpers by name and version in
+`stage_scripts`/`python_modules` (`run_scripts.CODE_VERSIONS`). `provenance.json` records the same names, may carry
+digests as evidence, and gates nothing.
 
 Scientific reports live under reports/dashboard/; acceptance evidence lives under reports/validation/. Historical prototypes are under docs/design/prototypes/. Plans live under docs/plans/, one directory for every plan; docs/design/ records intent at its date. Root-level runs/ retains unrelated standalone benchmark output. The archived development tree `archive/dashboard-development-20260917/` earlier notes named is gone from this checkout (it was gitignored).
 
@@ -147,29 +149,31 @@ Every run type writes the same two trees beneath the configured workspace:
 runs/<id>/
   manifest.json
   inputs/
-    inputs.json           # the input record: shared inputs by path and sha256, plus each generated file
+    inputs.json           # the input record: shared inputs by path (layout 4), plus each generated file
     …                     # generated data only; aa_only/cg also mirror their stages/ tree here
   stages/                 # one directory per stage that will run, empty until its script executes
   logs/                   # console.log plus separate stage logs
-  analyses/<kind>/<request-key>/<attempt-id>/
+  provenance.json          # code names/versions, inputs by path, reference run/edition; evidence, not a gate
+  analyses/<kind>/<NNNN>-<YYYYMMDD>/
     request.json
     manifest.json
     console.log
-    sources.json
+    sources.json          # the source run-relative names the attempt read
     progress.json
     result.json
-    output/<source-key>/
+    output/               # published files; result.json.output_directory is how a reader finds them
 ```
-An `inputs.json` entry is `{role, label, kind, root, path, sha256, bytes}` (plus `files` for a directory); `kind`
+An `inputs.json` entry is `{role, label, kind, root, path}` (a legacy layout-2/3 entry also carries `sha256`/`bytes`); `kind`
 is `published`, `store`, `run-output` or `generated`, and `root` is `repo`, `workspace`, `run`, `runs` or
-`absolute`. The manifest carries that record as `inputs` and hashes the whole document into
-`input_snapshot_sha256`; `workflow.run` re-verifies it before every stage, so a published, stored or generated
-input changed after prepare refuses the next stage by name. Generated data is written by value into `inputs/`;
+`absolute`. The manifest carries that record as `inputs` (layout 4) and no longer digests the document;
+`workflow.run` re-resolves every entry before each stage, so a missing input refuses the next stage by name -- a
+changed file at an unchanged name does not, which is the deliberate trade (a version-named path, or the code's own
+version, is what detects intent). Generated data is written by value into `inputs/`;
 nothing the run already had is copied. The code is not in the run either: `stage_scripts` names each stage's
-repository script and `python_modules` the helpers its scripts import, each with a sha256 re-checked before the
-stage starts, so a changed helper refuses the stage by name. The deliberate repair is a recorded manifest edit --
-re-pin the changed digests and append one `code_repair` record naming the old and new sha256, the commit and which
-stages ran on which code (`dcbb42dcb73b`, `77504a003e5e` carry one) -- never a silent edit; a run that should not
+repository script and `python_modules` the helpers its scripts import, each with a version from
+`run_scripts.CODE_VERSIONS` re-checked before the stage starts, so an unregistered name or a changed version refuses
+the stage by name. The deliberate repair is a recorded manifest edit -- bump the version and append one `code_repair`
+record naming the old and new version, the commit and which stages ran on which code (`dcbb42dcb73b`, `77504a003e5e` carry one) -- never a silent edit; a run that should not
 reuse its finished stages is cloned or retried into a new run instead. MDPs are rendered from the reviewed profiles in `dashboard/execution/mdp/profiles.py`, and the
 manifest's `mdp_profiles` names the profile behind each file written. Output cadences are the run's own:
 `nstlog`, `nstenergy` and `nstxtcout` reach the file from the panel (or the profile's default), and there is no

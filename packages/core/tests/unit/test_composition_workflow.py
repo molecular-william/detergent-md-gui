@@ -13,7 +13,7 @@ import sys
 import time
 
 import pytest
-from dashboard.execution import protocol, run_inputs, run_scripts
+from dashboard.execution import protocol, run_scripts
 from dashboard.execution.adapters import cg, cg_run, composition
 from dashboard.execution.environment import ROOT
 from dashboard.models import compositions
@@ -112,8 +112,10 @@ def test_prepare_writes_the_cg_build_the_script_reads(tmp_path, saved):
     assert kinds['2_mapping/mapped.gro'] == 'generated'
     assert kinds['3_initial_CG/GLC.itp'] == 'generated'
     assert kinds['4_CG_sim/system_EMPTY.top'] == 'generated'
-    assert manifest['input_snapshot_sha256'] == run_inputs.digest(record['inputs'])
+    assert manifest['layout_version'] == 4 and 'input_snapshot_sha256' not in manifest
+    assert all(set(entry) == {'role', 'label', 'kind', 'root', 'path'} for entry in record['inputs'])
     assert not list(run.rglob('*.sh')) and not list(run.rglob('*.py')), 'a run holds no code of its own'
+    assert set(json.loads((run / 'provenance.json').read_text())) == {'code', 'inputs', 'reference'}
 
 
 def test_prepare_writes_the_cg_stage_settings_into_its_mdps(tmp_path, saved):

@@ -41,7 +41,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ... import files, paths
+from ... import files, paths, run_names
 from .. import mappings
 from ..molecules import draft as draft_model
 from . import parameterization as parameterizations
@@ -162,8 +162,8 @@ def work_dir(mapping, reference_run_id=None) -> Path:
     The reference is part of the key because the frames are its own: the same mapping against a
     different AA reference is a different fit and must not read the other one's trajectory.
     """
-    if reference_run_id is not None and not re.fullmatch(r'[a-f0-9]{12}', reference_run_id):
-        raise ValueError('AA reference run ID must be twelve hexadecimal characters')
+    if reference_run_id is not None:
+        run_names.validate(reference_run_id, what='AA reference run ID')
     # The same fallback the record store makes: a pair staged before numbers were normalised is reused rather than
     # rebuilt, which is the difference between a re-fit of minutes and one of a mapped trajectory.
     name = f'{parameterizations.content_identity(mapping)}-{reference_run_id or "no-reference"}'
@@ -179,30 +179,42 @@ def work_dir(mapping, reference_run_id=None) -> Path:
 
 
 def resolve_reference(aa_reference, *, runs_root=None) -> dict:
-    """A named AA-only run, resolved and hashed: what a fit may measure against.
+    """A named AA-only run, resolved: what a fit may measure against.
 
     D4: the reference is linked, not implied, and a model whose reference is gone must say so rather
     than silently fitting against nothing -- so an unresolvable one raises here rather than as a job
     that fails four minutes later.
+
+    `aa_reference` is the run's name, or the block a revision/record carries: its `edition` (or, for a record
+    written before editions, its `reference_sha256`) is handed to `references.resolve` as the pin, so a reference
+    that changed under a queued fit is refused without re-reading its trajectory. The digest stays in the record as
+    evidence, exactly as it did.
     """
     from ...analysis.runs import references as aa_references
 
-    run_id = aa_reference if isinstance(aa_reference, str) else (aa_reference or {}).get('run_id')
+    record = aa_reference if isinstance(aa_reference, dict) else {}
+    run_id = aa_reference if isinstance(aa_reference, str) else record.get('run_id')
+    pin = record.get('edition') if record.get('edition') is not None else record.get('reference_sha256')
     root = Path(runs_root) if runs_root is not None else paths.current().runs
-    directory, data = aa_references.resolve(root, run_id)
+    directory, data = aa_references.resolve(root, run_id, pin)
     reference_file = Path(directory) / 'reference.json'
     settings = data.get('settings') or {}
     digest = files.sha256(reference_file)
+    edition = data.get('edition')
     return {
         'run_id': run_id,
         'directory': str(directory),
         'reference_sha256': digest,
+        'edition': edition,
+        'molecule': data.get('molecule'),
         'record': {
             'reference_sha256': digest,
+            'edition': edition,
             'frames': (data.get('frames') or {}).get('count'),
             'aa_reference': {
                 'run_id': run_id,
                 'reference_sha256': digest,
+                'edition': edition,
                 'molecule_identity': data.get('molecule_identity'),
                 'temperature_k': settings.get('temperature_k'),
                 'production_ns': (settings.get('aa_production_ps') or 0) / 1000.0 or None,
@@ -217,8 +229,8 @@ def start(mapping, *, engine, aa_reference=None, options=None, reference=None, m
 
     `reference` is a reference the caller has already resolved (`resolve_reference`, or the
     coordinator's own resolution) and `aa_reference` names one for this function to resolve itself;
-    either way what is recorded is the run id and the hash of its `reference.json`, because a fit is
-    only readable beside the ensemble it came from.
+    either way what is recorded is the run id, its reference's `edition` when it has one, and the hash
+    of its `reference.json` as evidence, because a fit is only readable beside the ensemble it came from.
 
     `background=False` runs the job inside this call, which is what a test and a CLI want. The
     default hands it to a thread the panel polls and can cancel.
@@ -529,15 +541,16 @@ def execute(job_id, *, mapping, loaded=None, reference=None, runner=None, timeou
 def _stored_reference(record):
     """The reference a job started in another process recorded, as far as it can be re-resolved.
 
-    A record carries the run id and the reference's hash and not the directory, because a directory
-    is a fact about this machine rather than about the fit. Re-entering one therefore resolves it
-    again, which also re-checks the hashes: a reference that changed under a queued fit must not be
-    silently fitted against.
+    A record carries the run id, the reference's edition and its digest, and not the directory, because a
+    directory is a fact about this machine rather than about the fit. Re-entering one therefore resolves it
+    again, passing that pin: a reference that changed under a queued fit must not be silently fitted against.
     """
     run_id = record.get('reference_run_id')
     if not run_id:
         return None
-    return resolve_reference(run_id)
+    reference = record.get('aa_reference') if isinstance(record.get('aa_reference'), dict) else {}
+    return resolve_reference({'run_id': run_id, 'edition': reference.get('edition'),
+                              'reference_sha256': record.get('reference_sha256')})
 
 
 # --- the engines ----------------------------------------------------------------------------------

@@ -129,7 +129,7 @@ def test_prepare_writes_a_cg_only_run_with_the_published_terms(tmp_path):
     assert manifest['run_type'] == 'cg'
     assert manifest['parameterization'] == {'kind': 'reference', 'sugar_entry': 'SUCR'}
     assert manifest['stage_plan'] == ['CG simulation']
-    assert manifest['stage_scripts']['CG simulation']['path'] == sugar_cg.SCRIPT
+    assert manifest['stage_scripts']['CG simulation'] == {'name': 'sugar_cg_simulation', 'version': 1}
     assert manifest['cg_names'] == {'residue_name': 'SUCR', 'initial_itp': 'SUCR.itp', 'final_itp': 'SUCR.itp'}
     roles = {entry['role'] for entry in manifest['inputs']}
     assert {'martini_force_field', 'martini_solvents', 'martini_ions', 'sugar_reference',

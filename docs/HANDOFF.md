@@ -31,6 +31,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
   85.7 MB to 3.5 MB (96% of it was free pages). `model_registry/` and `uploads/` are kept: empty, but they are path
   roots the code reads. The remaining 24 GB is evidence: 21.7 GB of pdc simulation outputs, 415 MB of captured
   console and 225 MB of derived analyses -- prunable only if the user asks.
+- **Named identity is in place for runs, analyses and prepared runs** (phases 0-2, recorded under Next session):
+  names are casefolded-unique, attempts are sequences, layout 4 names its inputs and code. Remaining: the named
+  parameterization store, molecule version directories, then the contract step that removes the legacy digest branches.
+  A checkout without git and without `DASHBOARD_CODE_VERSION` reads one code version, 'unknown', for every change.
 - **Fixed on 2026-11-16** (each commit carries its own rationale and checks): the bonded writer kept six digits and
   answered 500 on Save as new (`e6aba99`); a reference CG run drew no bonds or colours and refused its overview
   (`5786b1c`); CG production accepts 0.5-50 fs (`0788ed4`); the CG surface draws rings at the table's own scale
@@ -45,6 +49,22 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 Named identity, phases 0-2: runs are names, analyses are sequences, provenance is names.** Approved by
+the user: casefolded uniqueness, strip change-detection digests, rewrite the digest invariants. (0)
+`dashboard/run_names.py` is the one rule -- `^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,78}[A-Za-z0-9])?$`, a strict superset of
+the 12-hex ids, so no directory was renamed; `create_job` slugs the label and suffixes a collision under `JOBS_LOCK`,
+a deleted name goes to `retired_runs` and is never reused, and `run_path`/`views.usable_run_id`/`adoption`/
+`references`/`fitting`/a revision's `aa_reference` all validate through it (`2d6783b`). (1) An analysis attempt is
+`analyses/<kind>/<NNNN>-<YYYYMMDD>/`; its identity is kind + canonical payload + run name + source names + a code
+version (`DASHBOARD_CODE_VERSION`, else `git describe --always --dirty`), never a digest; the legacy
+`<signature>/<attempt>/` trees stay readable. (2) A prepared run is layout 4: `inputs.json` names
+role/label/kind/root/path (a legacy digest entry still verifies), `stage_scripts`/`python_modules` record
+`{name, version}` from `run_scripts.CODE_VERSIONS`, and `provenance.json` records the same and gates nothing; a
+published reference carries `edition`, which `resolve` compares instead of re-hashing the 466 MB trajectory (a legacy
+record keeps its digest branch, so an old reference is not faster until republished). Remaining, planned in
+`docs/plans/2026-11-16-named-identity.md`: phase 3 names the parameterization store (`records/<slug>.json`, dual-read
+plus a migration CLI) and phase 4 versions molecule folders and the Martini set; the contract step that deletes the
+legacy digest branches comes after those.
 **2026-11-16 The paper's energy-conservation test reaches the Run view, and a CG run stops naming PME.** The new
 `energy-conservation` analysis kind is the default for every `cg` run: it reads the production leg's `.edr` through
 the shared `trajectory_overview.read_energy`, takes de Jong et al.'s last-600 ps window (Comput. Phys. Commun. 199

@@ -468,6 +468,8 @@ def test_the_options_a_job_records_are_the_mappings_and_never_a_free_hand():
 def test_a_reference_that_cannot_be_resolved_is_refused_before_a_job_is_queued(candidate):
     """D4: a model whose reference is gone says so rather than silently fitting against nothing."""
     with pytest.raises(ValueError, match='Invalid AA source run ID'):
+        fitting.resolve_reference('../not-a-run-id')
+    with pytest.raises((ValueError, FileNotFoundError, OSError)):
         fitting.resolve_reference('not-a-run-id')
     with pytest.raises((ValueError, FileNotFoundError, OSError)):
         fitting.resolve_reference('f' * 12, runs_root=Path('/nonexistent/runs'))

@@ -6,8 +6,12 @@ import re
 import sys
 from pathlib import Path
 
-from ... import files
+from ... import files, run_names
 from ...models.molecules import aa as aa_molecules
+
+#: The edition of the reference record this module publishes. A reference is immutable, so its edition is its
+#: publication shape: a consumer pins the edition and compares that instead of re-hashing the 466 MB trajectory.
+EDITION = 1
 
 
 def identity(snapshot):
@@ -179,7 +183,8 @@ def publish(stages):
         hashed['stages/'+relative]=files.sha256(stages/relative)
     #: Schema 2 records each referenced source with a portable locator (`root` + relative `path`); schema 1 records
     #: predate that and carry an absolute path, which `_source_path` still resolves when it exists on this host.
-    result={'schema_version':2,'reference_eligible':True,'scientifically_validated':False,
+    result={'schema_version':2,'edition':EDITION,'reference_eligible':True,'scientifically_validated':False,
+            'molecule':snapshot['metadata'].get('name'),
             'molecule_identity':identity(snapshot),'molecule_snapshot':snapshot,'protocol_version':context['protocol_version'],
             'settings':context['settings'],'force_field_sha256':context['force_field_sha256'],
             'artifacts':artifacts,'sha256':hashed,'referenced_sources':referenced,'frames':{'count':len(times),'atoms':len(original),'times_ps':times,'start_ps':times[0],'end_ps':times[-1]},
@@ -191,6 +196,13 @@ def publish(stages):
 
 
 def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
+    """Verify a published reference and answer what it records.
+
+    `expected` is what a consumer pinned: an `edition` (the spelling a current record carries), an artifact digest map
+    or the one digest of `reference.json` (shapes older records keep, honoured as they always were). A reference that
+    has an `edition` is compared by it -- its artifact map is published evidence, not a gate re-measured on every
+    readiness check. A reference published before editions keeps its byte check exactly as before.
+    """
     run_dir=Path(run_dir)
     if run_dir.is_symlink():raise ValueError('Reference run symlinks are not allowed')
     manifest=json.loads((run_dir/'manifest.json').read_text())
@@ -199,22 +211,35 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
     data=json.loads(path.read_text())
     if data.get('reference_eligible') is not True:raise ValueError('AA reference failed technical checks')
     hashes=dict(data['sha256']);hashes['stages/07_reference/reference.json']=files.sha256(path)
-    # Two spellings are pinned and both are honoured: the map of every artifact's digest (an older attachment, and
-    # what test_aa_api writes) and the one digest of this reference.json that bonded.fitting.resolve_reference
-    # records -- 'the run id and the hash of its reference.json'. Comparing the map against that scalar refused
-    # every CG run whose revision carried a pin, which is every revision this workspace holds (measured 2026-11-16).
+    edition=data.get('edition')
+    # Two spellings are pinned and both are honoured: the map of every artifact's digest (an older attachment) and
+    # the one digest of this reference.json that `bonded.fitting.resolve_reference` recorded. A current pin is the
+    # edition, compared against the record's own and never against 466 MB of trajectory.
     if expected is not None:
-        current = hashes if isinstance(expected, dict) else files.sha256(path)
-        if current != expected: raise ValueError('AA reference hashes changed since attachment')
+        if isinstance(expected, bool):
+            raise ValueError('AA reference pin must be an edition or a digest')
+        if isinstance(expected, int):
+            if edition != expected: raise ValueError('AA reference edition changed since attachment')
+        elif isinstance(expected, dict):
+            if 'edition' in expected:
+                if edition != expected['edition']: raise ValueError('AA reference edition changed since attachment')
+            elif hashes != expected:
+                raise ValueError('AA reference hashes changed since attachment')
+        elif files.sha256(path) != expected:
+            raise ValueError('AA reference hashes changed since attachment')
     for relative in hashes:
         target=run_dir/relative
         if any(p.is_symlink() for p in (target,*target.parents) if p==run_dir or p.is_relative_to(run_dir)):
             raise ValueError('Reference artifact symlinks are not allowed')
-    files.verify(run_dir,hashes)
+        if edition is not None and not target.exists():
+            raise ValueError('AA reference artifact is missing: '+str(target))
     warnings=[]
-    for entry in data.get('referenced_sources') or []:
-        warning=_verify_referenced(entry)
-        if warning:warnings.append(warning)
+    if edition is None:
+        # A record published before editions: its claim is the digests it recorded, verified exactly as always.
+        files.verify(run_dir,hashes)
+        for entry in data.get('referenced_sources') or []:
+            warning=_verify_referenced(entry)
+            if warning:warnings.append(warning)
     if molecule_snapshot is not None and identity(molecule_snapshot)!=data['molecule_identity']:raise ValueError('AA reference molecule/topology does not match')
     if settings:
         for key,value in data['settings'].items():
@@ -228,7 +253,8 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
 
 
 def resolve(runs_root,source_id,expected=None,molecule_snapshot=None,settings=None):
-    if not isinstance(source_id,str) or not re.fullmatch(r'[a-f0-9]{12}',source_id):raise ValueError('Invalid AA source run ID')
+    try: run_names.validate(source_id,what='AA source run ID')
+    except ValueError as exc: raise ValueError(f'Invalid AA source run ID: {exc}') from exc
     root=Path(runs_root)/source_id
     data=verify(root,expected,molecule_snapshot,settings)
     return root/'stages/07_reference',data

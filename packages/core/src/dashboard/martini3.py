@@ -14,7 +14,8 @@ Three properties are deliberate:
   `refresh=True` is the deliberate reinstall -- a run never takes new bytes because somebody edited `references/`.
 * **Cheap after the first check.** Verifying 18 MB on every `prepare` would cost a run nothing and a test suite a lot,
   so the upstream listing and the installed digests are cached per process against their own stamp. A run's own
-  guarantee does not depend on that cache: `inputs.json` re-hashes the files the run declared before every stage.
+  guarantee does not depend on that cache: the version-named install and its witness are what `inputs.json` names, and
+  its declared files are re-resolved before every stage.
 
 The relative include is the reason this module exists at all: GROMACS resolves `#include` from the working directory,
 so a topology names the shared file by a path computed from where the topology will be read (`include`).

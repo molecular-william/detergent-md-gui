@@ -56,11 +56,13 @@ def manifest_of(run):
 
 def test_a_prepared_run_names_shared_inputs_and_writes_only_generated_data(repo, prepared):
     manifest = manifest_of(prepared)
-    assert manifest['layout_version'] == 3 and manifest['inputs']
+    assert manifest['layout_version'] == 4 and manifest['inputs']
+    assert 'input_snapshot_sha256' not in manifest, 'a name record is not a change-detection digest'
     by_role = {}
     for entry in manifest['inputs']:
         by_role.setdefault(entry['role'], []).append(entry)
-    assert by_role['force_field'][0]['files'] == len(files.hashes(repo / by_role['force_field'][0]['path']))
+        assert set(entry) == {'role', 'label', 'kind', 'root', 'path'}, 'an entry is a name'
+    assert (repo / by_role['force_field'][0]['path']).is_dir()
     assert {entry['path'] for entry in by_role['molecule']} == {
         f'molecules/Fixture/{relative}' for relative in ('molecule.itp', 'molecule.gro', 'metadata.json')}
 
@@ -78,22 +80,23 @@ def test_a_prepared_run_names_shared_inputs_and_writes_only_generated_data(repo,
     assert run_inputs.verify_manifest(prepared, manifest) == manifest['inputs']
 
 
-def test_a_force_field_file_changed_after_prepare_refuses_the_run(repo, prepared):
+def test_a_missing_force_field_tree_refuses_the_run(repo, prepared):
     manifest = manifest_of(prepared)
     entry = next(item for item in manifest['inputs'] if item['role'] == 'force_field')
-    next((repo / entry['path']).rglob('*.itp')).write_text('changed after prepare\n')
+    tree = repo / entry['path']
+    tree.rename(tree.with_name(tree.name + '.gone'))
 
-    with pytest.raises(ValueError, match='force_field changed since this run was prepared'):
+    with pytest.raises(ValueError, match='force_field is missing'):
         run_inputs.verify_manifest(prepared, manifest)
 
 
-def test_a_molecule_file_changed_after_prepare_refuses_the_run(repo, prepared):
+def test_a_missing_molecule_file_refuses_the_run(repo, prepared):
     manifest = manifest_of(prepared)
     entry = next(item for item in manifest['inputs'] if item['role'] == 'molecule'
                  and item['path'].endswith('molecule.itp'))
-    (repo / entry['path']).write_text('changed after prepare\n')
+    (repo / entry['path']).unlink()
 
-    with pytest.raises(ValueError, match='molecule changed since this run was prepared'):
+    with pytest.raises(ValueError, match='molecule is missing'):
         run_inputs.verify_manifest(prepared, manifest)
 
 
@@ -113,8 +116,8 @@ def test_the_molecule_topology_is_a_generated_shim_to_the_store(repo, prepared):
     assert context['input_preparation']['topology_include'] == str(stored)
 
 
-def test_the_reference_publishes_and_rehashes_the_referenced_sources(repo, prepared):
-    """The publication has no in-run copy to hash, so it names the store, and `verify` re-hashes it."""
+def test_the_reference_publishes_an_edition_and_names_the_referenced_sources(repo, prepared):
+    """The publication records an edition and the artifact map as evidence; `verify` compares the edition."""
     import MDAnalysis as mda
 
     manifest = manifest_of(prepared)
@@ -139,24 +142,24 @@ def test_the_reference_publishes_and_rehashes_the_referenced_sources(repo, prepa
 
     data = references.publish(stages)
 
+    assert data['edition'] == references.EDITION and data['molecule'] == 'Fixture'
     assert {entry['role'] for entry in data['referenced_sources']} == {'force_field', 'molecule'}
     assert not any('charmm36' in key for key in data['sha256']), 'the tree is not a run-relative artifact'
     assert references.verify(prepared)['sha256']
-    # A published source changed later must be refused by the verifier, not silently re-hashed.
-    stored = repo / 'molecules/Fixture/molecule.itp'
-    original = stored.read_text()
-    stored.write_text('changed after publication\n')
-    with pytest.raises(ValueError, match='molecule source changed since publication'):
-        references.verify(prepared)
-    stored.write_text(original)
+    assert references.verify(prepared, data['edition'])['reference_eligible'] is True
+    with pytest.raises(ValueError, match='edition changed since attachment'):
+        references.verify(prepared, data['edition'] + 1)
+    # The artifact map is published evidence, not a gate re-read on every readiness check: an artifact edited after
+    # publication is not re-hashed by `verify`, whose claim is the edition. The byte check is on demand.
+    trajectory = output / 'lig.xtc'
+    original = trajectory.read_bytes()
+    trajectory.write_bytes(b'edited after publication')
+    assert references.verify(prepared)['reference_eligible'] is True
+    trajectory.write_bytes(original)
     # The force-field source travels as a locator, not as this machine's absolute path: another checkout resolves
     # the same relative path through its own project root.
     entry = next(entry for entry in data['referenced_sources'] if entry['role'] == 'force_field')
     assert entry['root'] == 'repo' and not Path(entry['path']).is_absolute()
-    tree = repo / entry['path']
-    next(tree.rglob('*.itp')).write_text('changed after publication\n')
-    with pytest.raises(ValueError, match='force_field source changed since publication'):
-        references.verify(prepared)
 
 
 def test_a_source_absent_on_this_host_is_a_provenance_warning(repo, prepared):

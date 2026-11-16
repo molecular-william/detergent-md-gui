@@ -182,11 +182,11 @@ def insert_job(dashboard, job_id, *, status='completed', run_type='pdc', created
 
 
 def test_prepare_records_the_resolved_library_as_a_verified_input(dashboard, tmp_path):
-    """The library is an input like any other: path, digest and label in `inputs.json`, and the pin the build reads.
+    """The library is an input like any other: path and label in `inputs.json`, and the digest pin the build reads.
 
-    The digest is what makes a changed file visible instead of silent: `pdc_build` re-verifies the file against the
-    settings, and `run_inputs` verifies the record before any stage runs -- so an edited library is caught twice, and
-    neither check is a second write path.
+    A prepared run names its inputs (layout 4) and verifies that they exist; the change-detection digest lives in the
+    run's own settings, where `pdc_build` re-verifies the file -- so an edited library still refuses at the build, and
+    the prepared record carries no second spelling of it.
     """
     mapping = store_mapping(dashboard.paths.workspace)
     source = source_run(dashboard)
@@ -205,20 +205,20 @@ def test_prepare_records_the_resolved_library_as_a_verified_input(dashboard, tmp
     assert settings['conformations_mapping_sha256'] == files.sha256(mapping)
     assert set(settings['conformations_producer']) == {'numpy', 'mdanalysis'}
 
-    # The manifest's settings are the same record, and `inputs.json` names the library by workspace path and digest.
+    # The manifest's settings are the same record, and `inputs.json` names the library by workspace path.
     manifest = manifest_of(run)
     assert manifest['settings']['conformations_key'] == key
     entry = next(record for record in manifest['inputs'] if record['role'] == 'detergent_conformations')
     assert entry['kind'] == 'store' and entry['root'] == 'workspace'
-    assert entry['sha256'] == settings['conformations_sha256']
+    assert 'sha256' not in entry, 'a named input carries no change-detection digest'
     assert entry['label'] == f'DDM-{key}'
     assert Path(dashboard.paths.workspace, entry['path']).resolve() == library_path.resolve()
     run_inputs.verify_manifest(run, manifest)
 
-    # Editing the file it pinned makes the input verification fail, naming the role.
+    # Editing the file keeps the record valid (names, not bytes) and breaks the pin the build re-verifies.
     library_path.write_text(library_path.read_text() + ' \n')
-    with pytest.raises(ValueError, match='detergent_conformations'):
-        run_inputs.verify_manifest(run, manifest)
+    run_inputs.verify_manifest(run, manifest)
+    assert files.sha256(library_path) != settings['conformations_sha256']
 
 
 def test_a_later_run_selects_the_library_by_key_after_its_source_runs_are_gone(dashboard, tmp_path):

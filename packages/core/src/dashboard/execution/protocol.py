@@ -47,37 +47,67 @@ from . import devices, run_inputs, run_scripts
 from .stages import Stage
 
 
+def _provenance(document, entries):
+    """What a prepared run can say about the code, the inputs and the reference it was built from.
+
+    It is written beside the manifest and read by nobody: provenance is a record for a person, not a gate. A
+    reference's edition is recorded when the run names one; a run that names none records nulls rather than
+    pretending to have checked something.
+    """
+    code = {key: {stage: {'name': entry.get('name'), 'version': entry.get('version')}
+                  for stage, entry in (document.get(key) or {}).items()}
+            for key in ('stage_scripts', 'python_modules')}
+    inputs = ([{'role': entry.get('role'), 'root': entry.get('root'), 'path': entry.get('path')} for entry in entries]
+              if entries is not None else
+              [{'role': None, 'root': 'run', 'path': path}
+               for path in (document.get('input_snapshot_sha256') or {})])
+    reference = {'run_id': None, 'edition': None}
+    candidates = [document.get('shared_reference'), document.get('aa_reference')]
+    for key in ('parameterization', 'bonded'):
+        block = document.get(key)
+        if isinstance(block, dict):
+            candidates.append(block.get('aa_reference'))
+    for value in candidates:
+        if not isinstance(value, dict):
+            continue
+        run_id = value.get('source_run_id') or value.get('run_id')
+        edition = value.get('edition')
+        if run_id is not None or edition is not None:
+            reference = {'run_id': run_id, 'edition': edition}
+            break
+    return {'code': code, 'inputs': inputs, 'reference': reference}
+
+
 def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None, references=None,
                             scripts=None, skipped=None, modules=None):
-    """Write the manifest every prepared run carries, so all three run types agree.
+    """Write the manifest every prepared run carries, so all run types agree.
 
-    Four modules used to emit this document and they disagreed: the AA adapter and the CG
-    path wrote an input snapshot, the composition adapter wrote none, and only the AA
-    adapter recorded the environment. The keys here are the ones the resume path verifies
-    against -- `input_snapshot_sha256` above all -- so a run type that omits them is a run
-    type the resume path cannot check.
+    `metadata` carries what is specific to the run; this adds what every prepared run records. A caller that passes
+    `references` has each input named in place: layout 4 records `role/label/kind/root/path` and no input snapshot,
+    so nothing starts or refuses on a digest. A caller that passes none still mirrors its whole stage tree into
+    `inputs/` and gets the old layout-2 directory digest -- a legacy shape, kept for the callers that still use it.
 
-    `metadata` carries what is specific to the run; this adds what every prepared run
-    records. `inputs/` must exist before the call, because this hashes it.
+    `inputs/` must exist before the call when `references` is given, because the record is written there.
 
     The environment recorded beside it also carries `devices`: every GPU this host reported at prepare,
     so a report written later can still say what the host had. A caller that records no environment still
     records none -- that rule is the oldest one here and a run type that records none is saying so.
     """
+    run_dir = Path(run_dir)
     document = dict(metadata)
+    entries = None
     if references is None:
         # A run type that still mirrors its whole stage tree into `inputs/`: layout 2, the old directory digest.
         document.update(layout_version=2, stage_plan=list(plan), stages=[], tools=tools,
-                        input_snapshot_sha256=files.hashes(Path(run_dir) / 'inputs'),
+                        input_snapshot_sha256=files.hashes(run_dir / 'inputs'),
                         prepared_at=datetime.now(timezone.utc).isoformat())
     else:
-        # The new record: shared inputs named by path and digest, generated data in `inputs/`, one digest over it.
+        # The name record: shared inputs by path, generated data in `inputs/`, no input snapshot.
         entries = run_inputs.write(run_dir, references)
-        document.update(layout_version=3, stage_plan=list(plan), stages=[], tools=tools, inputs=entries,
-                        input_snapshot_sha256=run_inputs.digest(entries),
-                        prepared_at=datetime.now(timezone.utc).isoformat())
+        document.update(layout_version=run_inputs.LAYOUT, stage_plan=list(plan), stages=[], tools=tools,
+                        inputs=entries, prepared_at=datetime.now(timezone.utc).isoformat())
     if modules is not None:
-        # The Python modules a stage executes: the same path+digest record as a script, kept apart because these are
+        # The Python modules a stage executes: the same name+version record as a script, kept apart because these are
         # imported into an interpreter rather than executed as a file.
         from .environment import ROOT
         document['python_modules'] = run_scripts.record(modules, root=ROOT)
@@ -86,12 +116,13 @@ def write_prepared_manifest(run_dir, metadata, *, tools, plan, environment=None,
         # them skipped with the reason this mapping states.
         document['skipped_stages'] = dict(skipped)
     if scripts is not None:
-        # One record of the code this run executes: a repository path and a digest per stage, checked before it runs.
+        # One record of the code this run executes: a name and version per stage, checked before it runs.
         from .environment import ROOT
         document['stage_scripts'] = run_scripts.record(scripts, root=ROOT)
     if environment is not None:
         document['environment'] = devices.environment_record(environment)
-    files.atomic_json(Path(run_dir) / 'manifest.json', document)
+    files.atomic_json(run_dir / 'manifest.json', document)
+    files.atomic_json(run_dir / 'provenance.json', _provenance(document, entries))
     return document
 
 
@@ -175,8 +206,8 @@ def finish_prepared_run(run_dir, stages, *, metadata, tools, plan, environment=N
 
     The choreography every run type performs and only one of them used to own: a type fills `stages/`, and this copies
     that tree to `inputs/` -- the immutable record the resume path verifies -- and writes the manifest that names the
-    plan, the tools and the input snapshot's hash. Doing it in one place is what lets `prepare` mean the same thing
-    whichever run type is behind it.
+    plan, the tools and the inputs by path. Doing it in one place is what lets `prepare` mean the same thing whichever
+    run type is behind it.
 
     `discard` names the files a type leaves in `stages/` as its own channel rather than as stage input. The CG
     adapter writes its record there, and a stale copy in `inputs/` would be a second manifest nothing updates.

@@ -138,8 +138,8 @@ def sources(run_dir, payload=None):
     """Stage the text distributions and the report; for a consuming run, the revision's own histograms too.
 
     The store is outside the run, so its histograms cannot be named by a source pattern. They are read from
-    `parameterization_used.json` and staged under `store/`, which is what lets the worker record their digests in
-    `sources.json` and the producer read them from its own work directory. A store file that is gone is skipped; the
+    `parameterization_used.json` and staged under `store/`, which is what lets the worker name them in `sources.json`
+    and the producer read them from its own work directory. A store file that is gone is skipped; the
     record's `reference_missing` then names the side, rather than the whole analysis failing.
     """
     run = Path(run_dir)

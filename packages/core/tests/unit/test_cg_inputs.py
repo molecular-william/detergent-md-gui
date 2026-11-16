@@ -3,13 +3,13 @@
 Phase 1 of `docs/plans/2026-10-27-run-lifecycle-refactor.md`: a run no longer copies an input that already existed when
 `prepare` ran. The installed Martini set (force field, solvents, ions, and a ringed model's sugar reference), the water
 box `gmx solvate` replicates, the radii convention and a consumed parameterization's reference histograms are named by
-path and digest in the manifest's `inputs` record; the generated data (mapping export, topologies, MDPs,
+path in the manifest's `inputs` record; the generated data (mapping export, topologies, MDPs,
 `references.txt`, the model's own terms, the CG radii) stays written into `stages/` and is mirrored into `inputs/`.
 Each generated topology names the installed set by a path relative to itself, so a relocated run still resolves it.
 
 Phase 2 adds the other half: the code is not written into the run at all. Every stage executes the repository script
 recorded in the manifest's `stage_scripts`, its helpers are repository modules recorded in `python_modules`, and the
-executor re-hashes both before a stage starts.
+executor checks each recorded name and version before a stage starts.
 
 These tests read the *prepared run* the run type actually writes -- `adapter_for('cg').prepare(run, metadata)`, the
 one entry the coordinator uses -- and then ask the record to verify itself, because a reference the resume path cannot
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import martini3
-from dashboard.execution import run_inputs
+from dashboard.execution import run_inputs, run_scripts
 from dashboard.execution.adapters import cg
 from dashboard.execution.protocol import adapter_for
 from dashboard.models.bonded import parameterization
@@ -107,7 +107,7 @@ def roles(manifest, kind=None):
 def test_the_manifest_is_the_reference_record_and_the_run_has_no_copies(fitted_run):
     run, manifest = fitted_run
 
-    assert manifest['layout_version'] == 3
+    assert manifest['layout_version'] == 4 and 'input_snapshot_sha256' not in manifest
     installed = {'martini_force_field', 'martini_solvents', 'martini_ions',
                  'sugar_reference', 'sugar_reference_provenance'}
     assert installed | {'martini_water', 'sasa_radii_aa'} <= roles(manifest, 'published')
@@ -159,15 +159,15 @@ def test_the_generated_topologies_name_the_installed_files_relative_to_themselve
     # `relative` keeps the stage's legacy entry-point name; the recorded `script` is the repository file the
     # executor runs.
     assert dict(manifest_stages(run))['CG simulation'] == '4_CG_sim/cg_simulation_run.sh'
-    assert json.loads((run / 'manifest.json').read_text())['stage_scripts']['CG simulation']['path'] == \
-        'dashboard/execution/scripts/cg_simulation.sh'
+    recorded = json.loads((run / 'manifest.json').read_text())['stage_scripts']['CG simulation']
+    assert run_scripts.CODE_VERSIONS[recorded['name']]['path'] == 'dashboard/execution/scripts/cg_simulation.sh'
 
 
 def test_the_run_records_the_script_and_modules_each_stage_executes(fitted_run):
-    """The code is pinned by path and digest, and the executor re-hashes it before a stage starts.
+    """The code is pinned by name and version, and the executor checks both before a stage starts.
 
-    The command a stage runs is built from the recorded path, not from a file in the stage directory, so every stage
-    names the repository script it actually executes.
+    The command a stage runs is built from the named repository file, not from a file in the stage directory, so every
+    stage names the repository script it actually executes.
     """
     from dashboard.execution import run_scripts, workflow
 
@@ -175,30 +175,35 @@ def test_the_run_records_the_script_and_modules_each_stage_executes(fitted_run):
     recorded = manifest['stage_scripts']
     assert set(recorded) == {name for name, _ in manifest['stage_plan']}
     for name, entry in recorded.items():
+        assert set(entry) == {'name', 'version'} and isinstance(entry['version'], int)
         verified = run_scripts.verify_one(name, entry, root=PROJECT_ROOT)
-        assert verified == run_scripts.code_path(entry['path'], root=PROJECT_ROOT).resolve()
+        resolved = run_scripts.recorded_path(entry, root=PROJECT_ROOT).resolve()
+        assert verified == resolved
         command = workflow.stage_command(name, verified)
-        assert command[-1] == str(run_scripts.code_path(entry['path'], root=PROJECT_ROOT))
+        assert command[-1] == str(run_scripts.recorded_path(entry, root=PROJECT_ROOT))
         assert 'dashboard/execution/scripts/' in command[-1], 'the stage runs the repository script, not a copy'
-    assert recorded['CG parameterization']['path'] == 'dashboard/execution/scripts/fit_topology.sh'
-    assert recorded['CG simulation']['path'] == 'dashboard/execution/scripts/cg_simulation.sh'
+    assert recorded['CG parameterization']['name'] == 'fit_topology'
+    assert recorded['CG simulation']['name'] == 'cg_simulation'
 
     modules = manifest['python_modules']
     assert set(modules) == set(cg.MODULES)
     for name, entry in modules.items():
-        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == run_scripts.code_path(entry['path'], root=PROJECT_ROOT).resolve()
-    assert modules['dashboard.models.bonded']['path'] == 'dashboard/models/bonded/__init__.py'
+        assert set(entry) == {'name', 'version'}
+        assert run_scripts.verify_one(name, entry, root=PROJECT_ROOT) == \
+            run_scripts.recorded_path(entry, root=PROJECT_ROOT).resolve()
+    assert run_scripts.recorded_path(modules['dashboard.models.bonded'], root=PROJECT_ROOT) == \
+        PROJECT_ROOT / 'packages/core/src/dashboard/models/bonded/__init__.py'
 
 
 def manifest_stages(run):
     return json.loads((run / 'manifest.json').read_text())['stage_plan']
 
 
-def test_the_record_verifies_and_a_changed_installed_file_refuses_it(tmp_path, monkeypatch):
-    """The digest is the seal: an installed file mutated after prepare is refused before a stage reads it.
+def test_the_record_verifies_and_a_missing_installed_file_refuses_it(tmp_path, monkeypatch):
+    """A named input is verified by resolving it: an installed file removed after prepare refuses the stage.
 
-    The install is pointed at a scratch directory for this one test -- mutating the shared set is exactly what the
-    guard exists to detect, not something a test may do.
+    The install is pointed at a scratch directory for this one test -- deleting from the shared set is exactly what
+    the guard exists to detect, not something a test may do.
     """
     monkeypatch.setenv(martini3.ENVIRONMENT_VARIABLE, str(tmp_path / 'martini3'))
     candidate = saved_mapping()
@@ -207,9 +212,9 @@ def test_the_record_verifies_and_a_changed_installed_file_refuses_it(tmp_path, m
 
     assert run_inputs.verify_manifest(run, manifest) is not None
     solvents = martini3.path(martini3.REQUIRED[1])
-    assert solvents.parent == tmp_path / 'martini3', 'the mutated set is this test\'s own install'
-    solvents.write_text('a different solvent set\n')
-    with pytest.raises(ValueError, match='martini_solvents changed since this run was prepared'):
+    assert solvents.parent == tmp_path / 'martini3', 'the removed file is this test\'s own install'
+    solvents.unlink()
+    with pytest.raises(ValueError, match='martini_solvents is missing'):
         run_inputs.verify_manifest(run, manifest)
 
 
@@ -251,13 +256,13 @@ def test_the_consuming_stage_finds_the_histograms_it_was_handed(consuming_run):
     assert not (stage / 'references').exists(), 'nothing is linked into the run: the store is read where it lives'
 
 
-def test_a_changed_histogram_in_the_store_refuses_the_run(consuming_run):
+def test_a_missing_histogram_in_the_store_refuses_the_run(consuming_run):
     run, manifest = consuming_run
     directory = parameterization.distributions(manifest['mapping_candidate'])['directory']
 
-    (directory / 'B01_B11_bonds_distr.dat').write_text('0.005 9.9\n')
+    (directory / 'B01_B11_bonds_distr.dat').unlink()
 
-    with pytest.raises(ValueError, match='reference_distribution changed since this run was prepared'):
+    with pytest.raises(ValueError, match='reference_distribution is missing'):
         run_inputs.verify_manifest(run, manifest)
 
 

@@ -679,7 +679,14 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     aa_dir = run_dir / '1_AA-reference'
     aa_dir.mkdir()
     from ...analysis.runs import references as aa_references
-    aa_references.resolve(reference_root, shared_reference['source_run_id'], shared_reference['sha256'])
+    pin = (shared_reference.get('edition') if shared_reference.get('edition') is not None
+           else shared_reference.get('sha256'))
+    resolved = aa_references.resolve(reference_root, shared_reference['source_run_id'], pin)
+    reference_data = resolved[1] if isinstance(resolved, tuple) and len(resolved) == 2 else {}
+    if isinstance(reference_data, dict) and reference_data.get('edition') is not None:
+        # Record the edition the run actually consumed, so the prepared manifest pins the reference by edition from
+        # here on and the executor no longer re-reads its trajectory before every stage.
+        shared_reference = dict(shared_reference, edition=reference_data['edition'])
 
     # The stage directories exist before anything is staged into them; nothing executable is written: each stage runs
     # the repository's own script, recorded in the manifest by path and digest.
@@ -976,8 +983,11 @@ def parameterization_readiness(metadata) -> dict:
             blockers.append('The parameterization records no AA reference, so its shared reference cannot be resolved')
         elif reference_run_id:
             try:
-                aa_references.resolve(metadata.get('runs_root'), reference_run_id,
-                                      reference.get('reference_sha256'))
+                # The edition is the pin a current revision records; an older one carries the digest. Either way
+                # readiness compares a name, and does not re-read the reference's 466 MB trajectory.
+                pin = (reference.get('edition') if reference.get('edition') is not None
+                       else reference.get('reference_sha256'))
+                aa_references.resolve(metadata.get('runs_root'), reference_run_id, pin)
                 checks.append({'label': 'AA reference', 'path': reference_run_id, 'ready': True,
                                'detail': 'Shared reference verified'})
             except (OSError, ValueError) as exc:
@@ -1064,15 +1074,15 @@ def _protocol_prepare(run_dir, metadata):
     # `prepare` leaves its record beside the stages, including the tool versions it used; the run's manifest is written
     # from that record, and the record itself is not a stage input. The inputs that already existed are named there for
     # this call: `finish_prepared_run` writes them as the manifest's `inputs` record and mirrors the generated data into
-    # `inputs/`, which is what makes the run layout-3.
+    # `inputs/`, which is what makes the run layout-4.
     record = json.loads((stages / 'manifest.json').read_text())
     # The record names the run type its own reader resolves it by. A caller that names none is preparing a CG run, the
     # only type this adapter serves; without it `plan_pairs` would read the historical combined-job default.
     record.setdefault('run_type', metadata.get('run_type') or 'cg')
     references = record.pop('input_references', None)
     # The code this run executes, in one record: the repository script of every stage, and every project module those
-    # scripts import. The executor re-hashes each file before its stage starts, so a helper changed under a prepared
-    # run refuses the stage instead of silently running code the run did not record.
+    # scripts import. The executor checks each recorded name and version before its stage starts, so a helper whose
+    # version moved under a prepared run refuses the stage instead of silently running code the run did not record.
     scripts = {stage.name: stage.script
                for stage in stage_definitions(consumes_parameterization(record),
                                               starting_coordinates=record.get('starting_coordinates') or 'remap')

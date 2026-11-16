@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import martini3
+from dashboard.execution import run_scripts
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
 
@@ -111,8 +112,8 @@ def test_the_system_stage_script_is_the_repositorys_and_runs_the_entry_point(tmp
     assert '${PYTHON:-python}' in script, 'the executor may hand the interpreter over; the venv python is the default'
     assert 'REPO_ROOT' in script and 'PYTHONPATH' in script, 'the entry point must import from the tree'
     recorded = json.loads((run / 'manifest.json').read_text())['stage_scripts'][SYSTEM_STAGE]
-    assert recorded['path'] == pdc.stage_by_name(SYSTEM_STAGE).script
-    assert len(recorded['sha256']) == 64
+    assert run_scripts.CODE_VERSIONS[recorded['name']]['path'] == pdc.stage_by_name(SYSTEM_STAGE).script
+    assert isinstance(recorded['version'], int)
 
 
 def test_every_stage_records_a_repository_script_and_the_back_map_names_its_tool(tmp_path):
@@ -120,7 +121,8 @@ def test_every_stage_records_a_repository_script_and_the_back_map_names_its_tool
     recorded = json.loads((run / 'manifest.json').read_text())['stage_scripts']
 
     for stage in pdc.STAGES:
-        assert recorded[stage.name]['path'] == stage.script
+        assert run_scripts.CODE_VERSIONS[recorded[stage.name]['name']]['path'] == stage.script
+        assert isinstance(recorded[stage.name]['version'], int)
         assert script_of(stage.name).read_text().startswith('#!'), f'{stage.name} has no runnable script'
     backmap = script_of('Back-mapping (CG2AT2)').read_text()
     assert 'CG2AT' in backmap and '-o align' in backmap, 'the back-map names its tool and its method'
@@ -143,7 +145,7 @@ def test_prepare_writes_its_generated_data_into_a_recorded_inputs_tree(tmp_path)
     run = prepared(tmp_path)
     record = json.loads((run / 'manifest.json').read_text())
 
-    assert record['layout_version'] == 3
+    assert record['layout_version'] == 4 and 'input_snapshot_sha256' not in record
     assert (run / 'inputs' / pdc.SETTINGS_NAME).is_file()
     assert (run / pdc.STAGES_DIRECTORY).is_dir()
     generated = {entry['label'] for entry in record['inputs'] if entry['kind'] == 'generated'}
@@ -198,8 +200,8 @@ def test_the_run_record_names_the_stages_and_the_limits(tmp_path):
 
     assert record['run_type'] == 'pdc'
     assert record['stage_plan'] == [[stage.name, stage.relative] for stage in pdc.STAGES]
-    assert record['layout_version'] == 3 and record['skipped_stages'] == {}
-    assert record['input_snapshot_sha256']
+    assert record['layout_version'] == 4 and record['skipped_stages'] == {}
+    assert 'input_snapshot_sha256' not in record
     assert any('centre per molecule' in line for line in record['limitations'])
     assert set(record['tools']) == {'gmx', 'martinize2', 'pdb2pqr'}, \
         'the preparer the optional prepare step runs is recorded with the tools the run always resolves'
@@ -463,9 +465,9 @@ def test_a_prepared_protein_free_micelle_has_the_uniform_layout(tmp_path):
     pdc.prepare(run, template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
 
     manifest = json.loads((run / 'manifest.json').read_text())
-    assert manifest['layout_version'] == 3
+    assert manifest['layout_version'] == 4
     assert {'inputs', 'stage_scripts', 'skipped_stages'} <= set(manifest)
-    assert manifest['inputs'] and manifest['input_snapshot_sha256']
+    assert manifest['inputs'] and 'input_snapshot_sha256' not in manifest
     assert set(manifest['skipped_stages']) == {'Protein preparation', 'Back-mapping (CG2AT2)'}
     assert {path.name for path in (run / pdc.STAGES_DIRECTORY).iterdir()} == {
         '02_system', '03_minimisation', '04_nvt', '05_npt', '06_assessment', '07_micelle_assessment',

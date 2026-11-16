@@ -81,7 +81,7 @@ def test_a_record_that_belongs_to_another_mapping_is_refused_rather_than_read_as
     ({'ensemble': {'trajectory': 'x'}}, 'ensemble its engine saw'),
     ({'ensemble': {'frames': -1}}, 'non-negative integer'),
     ({'checks': {'dihedral-fit': [], 'other': {}}}, 'Unknown check name'),
-    ({'aa_reference': {'run_id': 'nope'}}, 'Invalid AA source run ID'),
+    ({'aa_reference': {'run_id': '../nope'}}, 'Invalid AA source run ID'),
     ({'aa_reference': {'run_id': 'a54ac8f64710', 'extra': 1}}, 'Unknown AA reference field'),
 ])
 def test_a_revision_that_a_run_could_not_read_is_refused_at_the_door(override, message):

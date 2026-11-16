@@ -219,15 +219,15 @@ def test_prepare_builds_a_run_the_executor_could_start(tmp_path):
     manifests = list(tmp_path.rglob('manifest.json'))
     assert manifests, 'a prepared run carries a manifest'
     document = json.loads(manifests[0].read_text())
-    assert 'osmotic' in manifests[0].read_text() and 'input_snapshot_sha256' in document
-    # The shared prepared-run record: layout 3, the referenced inputs by path and digest, and the repository script
-    # the one stage runs -- not a copy of it.
-    assert document['layout_version'] == 3
-    assert document['stage_scripts']['Osmotic series']['path'] == osmotic.OSMOTIC_SCRIPT
+    assert 'osmotic' in manifests[0].read_text() and 'input_snapshot_sha256' not in document
+    # The shared prepared-run record: layout 4, the referenced inputs by name and path, and the repository script the
+    # one stage runs, named with its version -- not a copy of it and not a digest.
+    assert document['layout_version'] == 4
+    assert document['stage_scripts']['Osmotic series'] == {'name': 'osmotic_simulation', 'version': 1}
     kinds = {entry['label']: entry for entry in document['inputs']}
     assert set(osmotic.SOLUTE_FILES) <= set(kinds)
     assert kinds['martini_v3.0.0.itp']['kind'] == 'published'
-    assert document['input_snapshot_sha256']
+    assert 'input_snapshot_sha256' not in document, 'a named record carries no change-detection digest'
     # And the series itself, which is what the runner reads: the ordered conditions and the policy on a failed one.
     series = json.loads((stage / 'conditions.json').read_text())
     assert [item['molality'] for item in series['conditions']] == [1.0]

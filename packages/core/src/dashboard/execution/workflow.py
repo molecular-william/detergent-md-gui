@@ -23,6 +23,17 @@ def stage_command(name, script):
     return ['bash', '-e', '-o', 'pipefail', str(script)]
 
 
+def _reference_pin(shared):
+    """What a run's `shared_reference` pins: an edition when it records one, else the legacy digest spelling.
+
+    A manifest written by the coordinator still carries the reference's artifact map; a newer one carries the
+    reference's edition. Both are accepted, and neither re-reads the 466 MB trajectory.
+    """
+    if not isinstance(shared, dict):
+        return None
+    return shared.get('edition') if shared.get('edition') is not None else shared.get('sha256')
+
+
 #: Notified with a run's directory once all of its stages have been attempted. The analysis layer registers its own
 #: handler here rather than this module importing it: an analysis's frames are published by the analysis layer, whose
 #: worker already imports this module, so reaching for it from here is the cycle the two are arranged to avoid.
@@ -401,7 +412,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
     shared_path=None
     if shared:
         from ..analysis.runs import references as aa_references
-        shared_path,_=aa_references.resolve(run_dir.parent,shared['source_run_id'],shared['sha256'])
+        shared_path,_=aa_references.resolve(run_dir.parent,shared['source_run_id'],_reference_pin(shared))
     with log.open('a') as fp:
         for name, relative in plan:
             stage_dir = root / Path(relative).parent
@@ -554,7 +565,7 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                 if stage_env.get('OMP_NUM_THREADS'):
                     entry['environment']['OMP_NUM_THREADS']=stage_env['OMP_NUM_THREADS']
                 if shared_path:
-                    aa_references.resolve(run_dir.parent,shared['source_run_id'],shared['sha256'])
+                    aa_references.resolve(run_dir.parent,shared['source_run_id'],_reference_pin(shared))
                     stage_env['AA_REFERENCE_DIR']=str(shared_path)
                     entry['environment']['AA_REFERENCE_DIR']=str(shared_path)
                     entry['shared_reference']=shared

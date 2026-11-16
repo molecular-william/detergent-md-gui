@@ -136,7 +136,7 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         default_for_run_types=('cg',), records_gmx_version=True),
     # On demand only: a series is a view a person asks for with arguments, not a cadence a run owes. Its sources are
     # the payload's own files -- a chosen segment and structure -- so the pattern list is empty and `source_hook`
-    # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature. It is
+    # resolves and validates them, which is what makes the chosen trajectory part of the analysis identity. It is
     # also the one kind that keeps a single series per run: the panel plays one file, and every build replaces it.
     Kind(
         'frame-series',
