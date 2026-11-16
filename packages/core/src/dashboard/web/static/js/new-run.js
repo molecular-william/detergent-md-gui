@@ -215,8 +215,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // The device and the checkpoint cadence are settings of *this host and run*, not of the AA reference a run
   // inherits: they travel with a clone and through a preset, and they are never inherited from a reference record.
   const GPU_FIELDS = ['mdrun_gpu','mdrun_cpt'];
-  // The execution additions and the box shape describe how this run executes and what box it builds.
+  // The execution additions and the box shape describe how this run executes and what box it builds. A CG-family
+  // leg is reaction-field, so its dialect carries no PME scheme, FFT scheme or PME load tuning: those controls are
+  // hidden for every non-AA run and the adapter retires them if an old job or preset still names one.
   const RUN_FIELDS = ['box_shape','mdrun_pmefft','mdrun_update','mdrun_tunepme'];
+  const CG_RUN_FIELDS = ['mdrun_update'];
   // The CG production options the Other run options fold offers. Each has a `SETTING_SPECS` bound and is written into
   // `cg-production-v1`; the equilibration leg keeps its own reviewed values. `nstxtcout` and `rlist` have no default,
   // so an empty control leaves GROMACS' own rule (the ps interval and the Verlet buffer) in force. The ten stage-leg
@@ -233,19 +236,20 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // stage-leg overrides its three legs run: a reference run advertises those, and none of the AA half's settings, so
   // the form posts only what that adapter reads.
   const REFERENCE_FIELDS = ['sugar_entry','cg_equil_ps','cg_production_ps','temperature_k','cg_seed',
-    'output_interval_ps','mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme',
+    'output_interval_ps','mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb',
     ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
   // A composition is a CG molecule with a *derived* model, so its settings are the CG dialect without the AA half's
   // durations, the sugar entry or the force field (`execution/adapters/composition.py:SETTING_SPECS`). The form posts
   // only these keys, and a `cg` preset fills the ones it carries.
   const COMPOSITION_FIELDS = ['cg_equil_ps','cg_production_ps','cg_seed','temperature_k','output_interval_ps',
-    'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_pme','mdrun_pmefft','mdrun_update',
-    'mdrun_tunepme', ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
+    'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_update',
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
   // The topology choice is the AA leg's: a CG run consumes a reference that already ran.
   const AA_TOPOLOGY_FIELDS = ['vsite'];
   const AA_ONLY_FIELDS = [...AA_FIELDS, 'aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep',
     ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS];
-  const REVISION_FIELDS = [...AA_FIELDS, ...GPU_FIELDS, ...RUN_FIELDS, ...CG_FIELDS, 'force_field'];
+  const REVISION_FIELDS = [...AA_FIELDS.filter(name => name !== 'mdrun_pme'), ...GPU_FIELDS, ...CG_RUN_FIELDS,
+    ...CG_FIELDS, 'force_field'];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
   // `fieldsFor` rather than by visibility -- because a preset and a clone must not lose a setting to a toggle.
   const AA_SAMPLING = ['aa_nvt_ps','aa_npt_ps','aa_production_ps',

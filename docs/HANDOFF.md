@@ -37,12 +37,34 @@ state, what is next, what is open, and the measurements and incidents a reader h
   (`5f050b9`); a CG preset keeps its parameterization kind and a pinned reference digest compares like with like
   (`45f04d3`); a constraint-only CG model's assessment records its interaction half unscored instead of failing on
   the tool's `nan`; a failed stage's record and Runs card quote the tail of the stage log instead of the wrapper's
-  exit-status line.
+  exit-status line; the Run view gets de Jong et al.'s energy-conservation analysis, and a CG run no longer names a
+  PME scheme.
 - **Known gaps.** `dbc366ae772b` (the DDM AA reference) lacks `07_reference/run.sh`, so the DDM mapping `10c318949`
   refuses at `files.verify`; a CG-only reference run cannot be compared with a separate AA run; `docs/design/drafts`
   is 31 MB of local screenshots (gitignored, 152 files).
 
 ## Next session
+
+**2026-11-16 The paper's energy-conservation test reaches the Run view, and a CG run stops naming PME.** The new
+`energy-conservation` analysis kind is the default for every `cg` run: it reads the production leg's `.edr` through
+the shared `trajectory_overview.read_energy`, takes de Jong et al.'s last-600 ps window (Comput. Phys. Commun. 199
+(2016) 1-7, section 2.4), and publishes a figure (whole leg, then the window with its drift fits) and a record of the
+temperature drift, the potential drift and the drift of the ensemble's conserved quantity (total energy in NVE,
+`Conserved En.` in NVT, enthalpy in NpT) divided by the potential's, with the paper's own 0.3 K / 0.12
+straight-cutoff and 1.3 shifted-potential numbers as the scale. The verdict uses the paper's thresholds only where
+the ensemble makes the ratio a conservation check; every CG production leg is NpT, so the record says the ratio is
+bath exchange and checks that the temperature holds its target and the potential energy is stationary in the window.
+Measured on run `77504a003e5e` (200 ns, 30 fs): 300.24 K against 300, potential drift 13.4 kJ/mol against a 57.5
+standard deviation, state `steady`. Separately, the PME policy is one answer: `workflow._uses_pme` gives PME to the
+atomistic stages only (an `aa_only` run, and a legacy CG run's `AA reference`), `aa.mdrun_command_flags(...,
+pme=False)` emits no `-pme`/`-pmefft` and refuses a device scheme, the three CG-family normalizers retire
+`mdrun_pme`/`mdrun_pmefft`/`mdrun_tunepme` (so a job or preset that recorded `mdrun_pme: gpu` can be retried), and the
+New run form hides those controls outside `aa_only`. Tests: `test_energy_conservation.py` (the window and the ratio,
+the NpT verdicts, the ensemble mapping, the registration), `test_mdrun_gpu_pme.py` (no PME flags, the AA control, the
+refusal, `_uses_pme`, the normalizers), `test_sugar_cg_protocol.py`'s retirement case, and a browser case that the CG
+form offers no PME control. Checks: fast **2825 passed / 1 xfailed**; browser **392 passed**; ruff clean. **The
+dashboard needs a restart** for the Python and template changes; run `77504a003e5e` then owes the new kind, which its
+Recompute asks for.
 
 **2026-11-16 A failed stage's record is the tail of its own log, not the wrapper's exit-status line.** Run
 `6ed68979edf0` (Glucose-CG-200ns, revision 1) failed at CG simulation; the card said `Command '['bash', ...]'

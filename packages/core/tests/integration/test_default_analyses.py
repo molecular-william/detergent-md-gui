@@ -58,7 +58,8 @@ def test_a_runs_own_kinds_are_its_types_defaults(dashboard):
     assert coordinator.automatic_analyses(JID) == []
 
     coordinator.database().update(JID, run_type='cg')
-    assert coordinator.automatic_analyses(JID) == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions']
+    assert coordinator.automatic_analyses(JID) == ['bonded-cross-check', 'dihedral-fit',
+                                                      'energy-conservation', 'ff-interactions']
 
     coordinator.database().update(JID, run_type='aa_only')
     assert coordinator.automatic_analyses(JID) == []

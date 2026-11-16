@@ -67,16 +67,23 @@ def test_the_two_kinds_with_a_payload_are_the_features_own():
     assert set(_validator_payload_keys()) == {'carbohydrate-validation', 'mapping-consistency'}
 
 
-def test_default_for_cg_is_the_two_checks_that_re_derive_the_fit():
-    """D5: both read stages 2 and 3 only, so they run with every AA-CG run as analyses rather than inside a stage."""
-    assert set(kinds.default_for('cg')) == {'bonded-cross-check', 'dihedral-fit', 'ff-interactions'}
+def test_default_for_cg_is_its_fit_checks_and_the_energy_test():
+    """D5: the fit checks read stages 2 and 3 only, and the energy test reads the production `.edr` -- no trajectory.
+
+    All three are available as soon as their own source exists, so they run with every AA-CG run as analyses rather
+    than inside a stage.
+    """
+    assert set(kinds.default_for('cg')) == {'bonded-cross-check', 'dihedral-fit', 'energy-conservation',
+                                            'ff-interactions'}
     assert kinds.default_for('cg') == [name for name, row in kinds.TABLE.items()
                                        if 'cg' in row.default_for_run_types]
-    for name in ('bonded-cross-check', 'dihedral-fit', 'ff-interactions'):
+    for name in ('bonded-cross-check', 'dihedral-fit', 'energy-conservation', 'ff-interactions'):
         assert kinds.TABLE[name].default_for_run_types == ('cg',), name
     for name in ('bonded-cross-check', 'dihedral-fit'):
         assert all(source.startswith(('2_mapping/', '3_initial_CG/'))
                    for source in kinds.TABLE[name].sources), f'{name}: a source outside stages 2 and 3'
+    energy = kinds.TABLE['energy-conservation']
+    assert all(source.endswith('.edr') for source in energy.sources), 'the energy test reads only .edr files'
 
 
 def test_the_kind_that_needs_a_cg_trajectory_defaults_to_no_run_type():

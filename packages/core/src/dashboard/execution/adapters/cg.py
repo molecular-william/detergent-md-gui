@@ -457,6 +457,12 @@ def normalize_settings(settings=None, profile='standard'):
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('Run settings must be an object')
     supplied = dict(settings or {})
+    # A CG leg is reaction-field, so the PME settings are not settings of this run: retiring them here -- from the
+    # payload and from the normalized result, because the AA half's own defaults would put them back -- is what
+    # keeps a flag GROMACS refuses out of the command, and what lets a job that recorded `mdrun_pme: gpu` be
+    # retried (run 6ed68979edf0) instead of failing again in mdrun.
+    for key in aa.PME_SETTINGS:
+        supplied.pop(key, None)
     unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS) - set(aa.CHOICE_SPECS)
     if unknown:
         raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
@@ -464,7 +470,10 @@ def normalize_settings(settings=None, profile='standard'):
     cg_settings = _normalize_cg_settings(
         {key: value for key, value in supplied.items() if key in SETTING_SPECS} | mirror_aa_settings(aa_settings),
         profile)
-    return cg_settings | aa_settings
+    values = cg_settings | aa_settings
+    for key in aa.PME_SETTINGS:
+        values.pop(key, None)
+    return values
 
 
 def stage_mapping(directory: Path, data) -> None:

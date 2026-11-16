@@ -74,7 +74,13 @@ def gromacs_flavour(binary=None, *, report=None):
     return 'thread-mpi' if 'thread MPI' in text else 'unknown'
 
 
-def mdrun_launch(settings, flavour=None):
+#: The execution settings that only mean something when the MDPs compute PME. A CG-family run's legs are
+#: reaction-field (`coulombtype = reaction-field`), so these are not settings of such a run: the CG adapters retire
+#: them, the builder never emits them for a non-PME stage, and the New run form hides them.
+PME_SETTINGS = ('mdrun_pme', 'mdrun_pmefft', 'mdrun_tunepme')
+
+
+def mdrun_launch(settings, flavour=None, *, pme=True):
     """The mdrun launcher and its thread flags, from the stage settings.
 
     Two levers, and on this host only one of them is the second one people expect. `-ntomp` sets OpenMP
@@ -86,6 +92,11 @@ def mdrun_launch(settings, flavour=None):
 
     Sizes are honest about scale: a small solute box saturates well before a machine of this size, so more
     ranks is not automatically faster. The settings exist so the number can be measured rather than assumed.
+
+    `pme=False` is the policy for a stage whose MDPs use reaction-field electrostatics: the PME and FFT schemes are
+    read and validated, a scheme that names a device is refused because there is no PME to place, and neither flag
+    is ever emitted. GROMACS refuses PME on the GPU for a system that does not use PME at all (run 6ed68979edf0 died
+    that way), so the setting is not merely useless on a CG run.
     """
     import os
     cores = os.cpu_count() or 1
@@ -114,6 +125,9 @@ def mdrun_launch(settings, flavour=None):
         raise ValueError(f'mdrun_pmefft must be one of {", ".join(CHOICE_SPECS["mdrun_pmefft"][1])}')
     if pmefft == 'gpu' and not devices.present():
         raise ValueError('mdrun_pmefft gpu needs a GPU on this host')
+    if not pme and pmefft != 'auto':
+        raise ValueError('this stage uses reaction-field electrostatics, so it has no PME to place on a GPU: '
+                         'mdrun_pmefft must stay auto')
     scheme = ''
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         choice = str(settings.get(key) or 'auto')
@@ -123,6 +137,11 @@ def mdrun_launch(settings, flavour=None):
         # the route no longer offers the option, but an old job retried here would still carry it in its settings.
         if choice == 'gpu' and not devices.present():
             raise ValueError(f'{key} gpu needs a GPU on this host')
+        if key == 'mdrun_pme' and not pme:
+            if choice == 'gpu':
+                raise ValueError('this stage uses reaction-field electrostatics, so it has no PME to place on a '
+                                 'GPU: GROMACS refuses PME-on-GPU for a system that does not use PME')
+            continue
         if key == 'mdrun_pme' and choice == 'gpu' and str(settings.get('mdrun_nb') or 'auto') != 'gpu':
             raise ValueError('mdrun_pme gpu needs mdrun_nb gpu: GROMACS runs PME on the GPU only when the '
                              'nonbonded scheme is on the GPU too')
@@ -132,9 +151,9 @@ def mdrun_launch(settings, flavour=None):
             scheme += f' {flag} {choice}'
     # The FFT scheme is named once, after the PME scheme it belongs to: a named one is the run's choice, and `auto`
     # keeps the scheme the GPU-PME bracket has always asked for.
-    if pmefft != 'auto':
+    if pme and pmefft != 'auto':
         scheme += f' -pmefft {pmefft}'
-    elif str(settings.get('mdrun_pme') or 'auto') == 'gpu':
+    elif pme and str(settings.get('mdrun_pme') or 'auto') == 'gpu':
         scheme += ' -pmefft gpu'
     return prefix, f'{rank_flags}-ntomp {threads}{scheme}'
 
@@ -153,12 +172,14 @@ def _without_flag(tokens, flag):
     return kept
 
 
-def mdrun_command_flags(settings, stage, flavour=None):
+def mdrun_command_flags(settings, stage, flavour=None, *, pme=True):
     """The launcher and the whole flag set for one mdrun command.
 
     One place decides the budget and the schemes, so a generated command and a stage script cannot disagree.
     A minimisation keeps PME on the CPU and every other stage may put it on the GPU, which is the bracket the AA
-    stages have always used.
+    stages have always used. `pme=False` is the policy for a stage whose MDPs use reaction-field electrostatics:
+    the bracket adds no PME or FFT flag and `mdrun_launch` emits neither, because the system has no PME to compute
+    (GROMACS refuses PME-on-GPU for it) and a flag in the recorded command that cannot act is a wrong record.
 
     A stage setting *replaces* the bracket flag it names rather than being appended after it: emitting both would
     leave GROMACS to use whichever came last, which would not be what the setting says. With every scheme on 'auto'
@@ -177,19 +198,20 @@ def mdrun_command_flags(settings, stage, flavour=None):
         # untouched, so the device bracket below still names the run's device.
         settings = {**settings, 'mdrun_nb': 'auto', 'mdrun_pme': 'auto', 'mdrun_pmefft': 'auto',
                     'mdrun_update': 'auto', 'mdrun_tunepme': 'auto'}
-    launcher, thread_flags = mdrun_launch(settings, flavour)
+    launcher, thread_flags = mdrun_launch(settings, flavour, pme=pme)
     # The device is read here, from the setting, and nowhere else: the constants above are the default the
     # scripts' own fallbacks state, not a second opinion about which device this run uses. A host with no GPU
-    # gets no device and no offload flag -- not even the PME pair the dynamics bracket has always added.
+    # gets no device and no offload flag -- not even the PME pair the dynamics bracket has always added -- and a
+    # non-PME stage never gets that pair at all.
     device_flags = gpu_flags(settings)
-    bracket = (device_flags if stage in ('em', 'equilibration') or not device_flags
-               else f'{device_flags} -pme gpu -pmefft gpu')
+    gpu_pme = pme and stage not in ('em', 'equilibration') and bool(device_flags)
+    bracket = (f'{device_flags} -pme gpu -pmefft gpu' if gpu_pme else device_flags)
     tokens = bracket.split()
     for key, flag in (('mdrun_nb', '-nb'), ('mdrun_pme', '-pme')):
         if str(settings.get(key) or 'auto') != 'auto':
             tokens = _without_flag(tokens, flag)
     pmefft = str(settings.get('mdrun_pmefft') or 'auto')
-    if pmefft != 'auto' or str(settings.get('mdrun_pme') or 'auto') != 'auto':
+    if pme and (pmefft != 'auto' or str(settings.get('mdrun_pme') or 'auto') != 'auto'):
         # A named PME scheme owns both of its flags: the FFT flag belongs to a GPU PME and goes with it, and a named
         # FFT scheme is emitted by `mdrun_launch`. Leaving the bracket's copy would emit two values for one option.
         tokens = _without_flag(tokens, '-pmefft')

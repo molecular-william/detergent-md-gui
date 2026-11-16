@@ -122,6 +122,17 @@ def validate_stage_inputs(name, directory, required):
         raise FileNotFoundError(f'{name}: missing required inputs: {", ".join(missing)}. Stage molecule-specific inputs before execution.')
 
 
+def _uses_pme(metadata, stage_name):
+    """Whether this stage's MDPs compute PME: the atomistic stages do, and every CG-family leg is reaction-field.
+
+    A `cg` run's AA reference is normally reused rather than run, but a legacy run can still execute that stage, and
+    its MDPs are PME -- so the stage name matters as well as the run type. A `pdc` or `osmotic` run builds CG systems
+    only. The flag builder takes the answer: a PME scheme on a reaction-field system is a command GROMACS refuses
+    (run 6ed68979edf0 died at CG simulation for exactly that), so it must never reach the stage.
+    """
+    return protocol.run_type_of(metadata) == 'aa_only' or stage_name == 'AA reference'
+
+
 def _run_type(metadata) -> str:
     """The adapter that owns a run; absent means the historical combined AA-to-CG job."""
     return protocol.run_type_of(metadata)
@@ -478,10 +489,12 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             #   MDRUN_FLAGS_PME    the AA reference's dynamics (the run's schemes and PME on the GPU).
             # A script's minimisation line reads AUTO, so a scheme chosen for the dynamics cannot reach the first leg.
             gromacs_flavour = aa_adapter.gromacs_flavour()
+            pme = _uses_pme(initial, name)
             mdrun_launcher, mdrun_flags = aa_adapter.mdrun_command_flags(
-                stage_settings, 'equilibration', gromacs_flavour)
-            _, mdrun_flags_auto = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour)
-            _, mdrun_flags_dynamics = aa_adapter.mdrun_command_flags(stage_settings, 'production', gromacs_flavour)
+                stage_settings, 'equilibration', gromacs_flavour, pme=pme)
+            _, mdrun_flags_auto = aa_adapter.mdrun_command_flags(stage_settings, 'em', gromacs_flavour, pme=pme)
+            _, mdrun_flags_dynamics = aa_adapter.mdrun_command_flags(
+                stage_settings, 'production', gromacs_flavour, pme=pme)
             # The device this run uses, resolved once: every stage records the same index, and each stage measures
             # what is on it when the stage starts.
             gpu_index = int(stage_settings.get('mdrun_gpu') or 0)

@@ -461,6 +461,48 @@ def _production_energy(work):
     return None
 
 
+def read_energy(edr, work):
+    """One `.edr` read through `gmx energy`: its column labels, times in ps, raw columns and per-term summaries.
+
+    `(data, None)`, or `(None, reason)` when the file cannot be read. The term menu is discovered first -- without
+    `-o`, `gmx energy` prints the terms the file holds on stderr -- and every parsed index is selected in the second
+    call, so the XVG carries the whole file. Shared with the energy-conservation analysis, which measures a 600 ps
+    window and therefore needs the unsampled columns rather than one summary per term.
+    """
+    gmx = tools.tool_path('gmx')
+    if gmx is None:
+        return None, 'gmx is not available, so the .edr cannot be read'
+    discovery = subprocess.run([gmx, 'energy', '-f', str(edr)], input='0\n',
+                               capture_output=True, text=True)
+    menu = _energy_menu(discovery.stderr) or _energy_menu(discovery.stdout)
+    output = Path(work) / '.gmx-energy.xvg'
+    try:
+        if menu:
+            # Every menu index, one per line, then the zero that ends the selection. The XVG carries all terms, not
+            # only a requested few: the record summarises each one and each producer picks its own columns by legend.
+            selection = '\n'.join([*(str(index) for index, _ in menu), '0', ''])
+        else:
+            selection = '\n'.join([*ENERGY_TERMS, '0', ''])
+        done = subprocess.run([gmx, 'energy', '-f', str(edr), '-o', str(output)],
+                              input=selection, capture_output=True, text=True)
+        if done.returncode != 0 or not output.is_file():
+            return None, f'gmx energy refused the .edr: {(done.stdout + done.stderr).strip().splitlines()[-1:]}'
+        labels, times, columns = _xvg_columns(output)
+    finally:
+        output.unlink(missing_ok=True)
+    if not times or not columns:
+        return None, 'gmx energy wrote no data'
+    time_ns = [time / 1000.0 for time in times]
+    terms = {}
+    for position, label in enumerate(labels):
+        if position >= len(columns):
+            continue
+        terms[label] = _rounded(series_summary(columns[position], times_ns=time_ns))
+    if not terms:
+        return None, f'gmx energy wrote no {", ".join(ENERGY_TERMS)} column'
+    return {'labels': labels, 'times_ps': times, 'columns': columns, 'terms': terms}, None
+
+
 def _energy(work, trajectory):
     """Every term in the leg's EDR as a series summary, or None with the reason energy is absent.
 
@@ -483,43 +525,17 @@ def _energy(work, trajectory):
         edr = staged[0] if len(staged) == 1 else None
     if edr is None:
         return None, 'no .edr is staged beside the trajectory or at a known production path'
-    gmx = tools.tool_path('gmx')
-    if gmx is None:
-        return None, 'gmx is not available, so the .edr cannot be read'
-    discovery = subprocess.run([gmx, 'energy', '-f', str(edr)], input='0\n',
-                               capture_output=True, text=True)
-    menu = _energy_menu(discovery.stderr) or _energy_menu(discovery.stdout)
-    output = Path(work) / '.trajectory-overview-energy.xvg'
-    try:
-        if menu:
-            # Every menu index, one per line, then the zero that ends the selection. The XVG carries all terms, not
-            # only the selected three: the record summarises each one and the figure picks its own columns by legend.
-            selection = '\n'.join([*(str(index) for index, _ in menu), '0', ''])
-        else:
-            selection = '\n'.join([*ENERGY_TERMS, '0', ''])
-        done = subprocess.run([gmx, 'energy', '-f', str(edr), '-o', str(output)],
-                              input=selection, capture_output=True, text=True)
-        if done.returncode != 0 or not output.is_file():
-            return None, f'gmx energy refused the .edr: {(done.stdout + done.stderr).strip().splitlines()[-1:]}'
-        labels, times, columns = _xvg_columns(output)
-    finally:
-        output.unlink(missing_ok=True)
-    if not times or not columns:
-        return None, 'gmx energy wrote no data'
-    time_ns = [time / 1000.0 for time in times]
+    data, reason = read_energy(edr, work)
+    if data is None:
+        return None, reason
+    labels, times, columns, terms = data['labels'], data['times_ps'], data['columns'], data['terms']
     step = max(1, math.ceil(len(times) / ENERGY_POINTS))
-    terms = {}
     for position, label in enumerate(labels):
-        if position >= len(columns):
+        if position >= len(columns) or label not in ENERGY_TERMS:
             continue
         values = columns[position]
-        entry = _rounded(series_summary(values, times_ns=time_ns))
-        if label in ENERGY_TERMS:
-            entry['time_ps'] = [round(times[offset], 4) for offset in range(0, len(values), step)]
-            entry['values'] = [round(values[offset], 6) for offset in range(0, len(values), step)]
-        terms[label] = entry
-    if not terms:
-        return None, f'gmx energy wrote no {", ".join(ENERGY_TERMS)} column'
+        terms[label]['time_ps'] = [round(times[offset], 4) for offset in range(0, len(values), step)]
+        terms[label]['values'] = [round(values[offset], 6) for offset in range(0, len(values), step)]
     return {'source': edr.name,
             'terms': terms,
             'components': {name: summary for name in ENERGY_COMPONENTS

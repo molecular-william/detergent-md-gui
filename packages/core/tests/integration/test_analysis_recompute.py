@@ -66,7 +66,7 @@ def test_draining_starts_one_kind_and_names_the_ones_waiting(dashboard, monkeypa
 
     assert kinds(coordinator) == ['bonded-cross-check'], 'queue takes one analysis per run; the rest are owed, not queued'
     assert answer['queued'] == [coordinator.lookup(JID)['analyses'][0]['id']]
-    assert answer['owed'] == ['dihedral-fit', 'ff-interactions']
+    assert answer['owed'] == ['dihedral-fit', 'energy-conservation', 'ff-interactions']
 
 
 def test_the_next_kind_starts_when_the_running_one_settles(dashboard, monkeypatch):
@@ -79,7 +79,7 @@ def test_the_next_kind_starts_when_the_running_one_settles(dashboard, monkeypatc
 
     # One analysis per run at a time: settling the first starts the second, and the third waits its turn.
     assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit']
-    assert answer['owed'] == ['ff-interactions']
+    assert answer['owed'] == ['energy-conservation', 'ff-interactions']
 
 
 def test_a_failed_attempt_does_not_chain_because_it_would_queue_itself_again(dashboard, monkeypatch):
@@ -104,7 +104,7 @@ def test_recompute_offers_a_failed_kind_again(dashboard, monkeypatch):
     answer = coordinator.analysis_coordinator.drain(JID)
 
     assert kinds(coordinator) == ['bonded-cross-check', 'bonded-cross-check'], 'a second attempt beside the failed one'
-    assert answer['queued'] and answer['owed'] == ['dihedral-fit', 'ff-interactions']
+    assert answer['queued'] and answer['owed'] == ['dihedral-fit', 'energy-conservation', 'ff-interactions']
 
 
 def test_recompute_is_refused_while_the_run_is_still_working(dashboard):
@@ -125,7 +125,7 @@ def test_recompute_queues_the_run_and_says_what_is_still_waiting(dashboard, monk
 
     assert response.status_code == 202
     assert response.get_json() == {'queued': [coordinator.lookup(JID)['analyses'][0]['id']],
-                                   'owed': ['dihedral-fit', 'ff-interactions']}
+                                   'owed': ['dihedral-fit', 'energy-conservation', 'ff-interactions']}
 
 
 def test_recompute_twice_with_nothing_changed_queues_nothing(dashboard, monkeypatch):
@@ -145,4 +145,5 @@ def test_recompute_twice_with_nothing_changed_queues_nothing(dashboard, monkeypa
     answer = coordinator.analysis_coordinator.drain(JID)
 
     assert answer == {'queued': [], 'owed': []}
-    assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions']
+    assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit', 'energy-conservation',
+                             'ff-interactions']

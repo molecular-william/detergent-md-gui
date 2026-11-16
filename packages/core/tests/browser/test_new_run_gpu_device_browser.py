@@ -157,3 +157,27 @@ def test_a_host_with_no_gpu_offers_no_device_control_and_posts_none(dashboard, l
     expect(page.locator('#notice')).to_have_text('Run queued.')
     assert submissions and 'mdrun_gpu' not in submissions[0], submissions
     assert errors == []
+
+
+def test_a_cg_run_is_offered_no_pme_scheme(dashboard, live_page):
+    """A CG leg is reaction-field, so the PME scheme, its FFT and its load tuning are not offered to it.
+
+    The controls are the AA half's: a CG run that named `mdrun_pme: gpu` produced a flag GROMACS refuses (run
+    `6ed68979edf0`), and the form must not invite the choice the engine now retires.
+    """
+    page, errors = live_page
+    page.route('**/api/defaults?*', lambda route: route.fulfill(
+        json={'values': {'mdrun_ntomp': 8, 'mdrun_ranks': 1}, 'sources': {'AA': 'test'}, 'profile': 'standard'}))
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    page.add_init_script("localStorage.setItem('ddm.form', JSON.stringify({run_type:'cg',molecule_id:'DDM'}))")
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    page.locator('#new-advanced > summary').click()
+
+    expect(page.locator('[name=mdrun_nb]')).to_be_visible()
+    for control in ('mdrun_pme', 'mdrun_pmefft', 'mdrun_tunepme'):
+        expect(page.locator(f'[name={control}]')).to_be_hidden()
+
+    page.locator('#run-type').select_option('aa_only')
+    for control in ('mdrun_pme', 'mdrun_pmefft', 'mdrun_tunepme'):
+        expect(page.locator(f'[name={control}]')).to_be_visible()
+    assert errors == [], errors

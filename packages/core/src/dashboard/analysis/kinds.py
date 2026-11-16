@@ -14,7 +14,7 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, frame_series, trajectory_overview
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, energy_conservation, frame_series, trajectory_overview
 
 
 def sources_only(function: Callable) -> Callable:
@@ -119,6 +119,21 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "For every proper dihedral the topology declares, the multiplicity and force constant an AIC/BIC-chosen cosine fit reads from the same frames, beside the ones the tool wrote. Where they disagree, the tool default is what is being questioned -- agreement is not evidence the tool chose well.",
         "degrees, kJ/mol, and a multiplicity",
         default_for_run_types=('cg',)),
+    # The paper's energy-conservation test (de Jong et al., Comput. Phys. Commun. 199 (2016) 1-7, section 2.4) on a
+    # run's own production leg. Every CG run owes it: it reads one `.edr` and no trajectory, and it is the
+    # measurement that says whether the timestep and the non-bonded scheme are safe. The producer states the leg's
+    # ensemble -- the ratio is a conservation check in NVE/NVT only -- and reads the numbers the paper quotes as the
+    # scale, not as a pass mark (de Jong's recommended straight-cutoff scheme: 0.3 K and 0.12).
+    Kind(
+        'energy-conservation',
+        energy_conservation.PRODUCTION_ENERGY,
+        energy_conservation.run,
+        "Energy conservation \u00b7 the paper's drift test on the production leg",
+        "The temperature holds its target and the potential energy is stationary over the last 600 ps, and where the "
+        "leg is NVE/NVT the conserved-energy drift divided by the potential drift is at the straight-cutoff "
+        "scheme's scale rather than the shifted potential's.",
+        "K, kJ/mol, and a drift ratio; lower is better",
+        default_for_run_types=('cg',), records_gmx_version=True),
     # On demand only: a series is a view a person asks for with arguments, not a cadence a run owes. Its sources are
     # the payload's own files -- a chosen segment and structure -- so the pattern list is empty and `source_hook`
     # resolves and validates them, which is what makes the chosen trajectory part of the analysis signature. It is

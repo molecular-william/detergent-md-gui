@@ -26,6 +26,7 @@ from pathlib import Path
 from dashboard import martini3, paths
 from dashboard.execution import devices, protocol, run_inputs, tools
 from dashboard.execution.adapters import cg
+from dashboard.execution.adapters.aa import PME_SETTINGS
 from dashboard.execution.environment import ROOT, environment, recorded_environment
 from dashboard.execution.settings import coerce_integers, normalize
 from dashboard.execution.stages import Stage, stage_tables
@@ -128,6 +129,11 @@ def normalize_settings(settings=None, profile='sugar-cg-v1'):
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('Sugar CG settings must be an object')
     supplied = dict(settings or {})
+    # The CG legs are reaction-field, so a PME scheme is not a setting of this run: retire it -- from the payload
+    # and from the normalized result, because the defaults would put it back -- rather than carry a flag GROMACS
+    # refuses, and so a job or preset that names one can still run.
+    for key in PME_SETTINGS:
+        supplied.pop(key, None)
     result = normalize(
         supplied, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='Sugar CG settings must be an object', unknown_prefix='Unknown sugar CG setting: ',
@@ -139,6 +145,8 @@ def normalize_settings(settings=None, profile='sugar-cg-v1'):
     coerce_integers(result, integrals)
     if result['sugar_entry'] not in ENTRIES:
         raise ValueError('sugar_entry must be one of ' + ', '.join(ENTRIES))
+    for key in PME_SETTINGS:
+        result.pop(key, None)
     if result['output_interval_ps'] > result['cg_production_ps']:
         raise ValueError('Trajectory interval must not exceed the CG production duration')
     return result

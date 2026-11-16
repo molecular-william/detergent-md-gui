@@ -96,10 +96,16 @@ def normalize_settings(settings=None, profile='standard'):
     """Normalize the run's numbers in the CG-only dialect, at the profile the run is stamped with."""
     if settings is not None and not isinstance(settings, dict):
         raise ValueError('Composition CG settings must be an object')
+    # The CG legs are reaction-field, so a PME scheme is not a setting of this run: retire it -- from the payload
+    # and from the normalized result, because the defaults would put it back -- rather than carry a flag GROMACS
+    # refuses, and so a job or preset that names one can still run.
+    settings = {key: value for key, value in (settings or {}).items() if key not in aa_adapter.PME_SETTINGS}
     values = normalize(
         settings, stage_defaults(_profile(profile))['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='Composition CG settings must be an object',
         unknown_prefix='Unknown composition CG setting: ', label_messages=True, integrals=_INTEGRALS)
+    for key in aa_adapter.PME_SETTINGS:
+        values.pop(key, None)
     if values['output_interval_ps'] > values['cg_production_ps']:
         raise ValueError('Trajectory interval must not exceed the CG production duration')
     return values

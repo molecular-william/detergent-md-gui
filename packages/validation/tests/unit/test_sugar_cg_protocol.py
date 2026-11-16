@@ -67,3 +67,16 @@ def test_the_reference_kind_keeps_its_own_durations():
     assert values['cg_production_ps'] == pytest.approx(10000.0)
     # The revision kind is still the default, and the run type keeps the CG profile its runs record.
     assert protocol.profile_for_run_type('cg') == 'draft-smoke-reference'
+
+
+def test_the_reaction_field_run_retires_the_pme_settings():
+    """The published sugar's CG legs are reaction-field: a PME scheme is not a setting of this run.
+
+    A job or preset that recorded one is retried without it instead of failing in mdrun, which is the failure run
+    `6ed68979edf0` hit when a CG run asked for `mdrun_pme: gpu`.
+    """
+    values = sugar_cg.PROTOCOL.normalize_settings({'sugar_entry': 'SUCR', 'mdrun_pme': 'gpu',
+                                                   'mdrun_pmefft': 'gpu', 'mdrun_tunepme': 'on'}, 'sugar-cg-v1')
+
+    assert not {'mdrun_pme', 'mdrun_pmefft', 'mdrun_tunepme'} & set(values)
+    assert values['mdrun_nb'] in ('auto', 'cpu', 'gpu')
