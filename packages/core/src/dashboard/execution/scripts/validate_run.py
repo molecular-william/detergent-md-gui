@@ -11,6 +11,44 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
+#: The topology sections `ff_assess` scores in its interaction report. A molecule whose geometry is held by
+#: `[ constraints ]` alone -- a rigid ring, no bond, angle or dihedral -- has nothing for that half of the report to
+#: score, and the tool prints `nan` for the mean of an empty set. That is not a comparison that failed.
+BONDED_SECTIONS = ('bonds', 'angles', 'dihedrals')
+
+
+def bonded_sections(path):
+    """The bonded sections `path` declares rows for, or `None` when the file cannot be read.
+
+    `None` is not the empty set: a topology nobody could read is a reason to keep the strict check, so the caller
+    reads it as "expect a scored interaction report" rather than as a molecule with nothing to score.
+    """
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        return None
+    found, section = set(), None
+    for line in lines:
+        clean = line.split(';', 1)[0].strip()
+        if not clean:
+            continue
+        if clean.startswith('['):
+            section = clean.strip('[] \t')
+            continue
+        if section in BONDED_SECTIONS:
+            found.add(section)
+    return found
+
+
+def scored_topology():
+    """The ITP `ff_assess -i` was handed, from the two variables `assess.sh` sets: `INITIAL_DIR` and `INITIAL_ITP`.
+
+    A run hands `../3_initial_CG` and its own initial ITP; a re-score hands the attempt's own pair. A caller that
+    names no ITP is answered `None`, which keeps the strict check without guessing at a default name.
+    """
+    name = os.environ.get('INITIAL_ITP')
+    return None if not name else Path(os.environ.get('INITIAL_DIR') or '../3_initial_CG') / name
+
 
 def main(root=None, aa_source=None):
     root = Path(root) if root is not None else Path.cwd().parent
@@ -67,10 +105,25 @@ def main(root=None, aa_source=None):
         raise ValueError(f'the mapped trajectory differs from the exported COG by {error} nm')
     result['mapping_max_coordinate_error_nm'] = error
     aa.trajectory.close(); cg.trajectory.close()
+    # The interaction report is only required to be finite when the topology that was scored has something for it to
+    # score: `ff_assess` prints `nan` for the mean of an empty per-type set, and a constraint-only ring has no bond,
+    # angle or dihedral. The answer is read from the ITP the tool was handed, never from the report, so a model that
+    # does have bonded terms and still got `nan` -- a baseline that does not cover them -- keeps failing.
+    topology = scored_topology()
+    bonded = bonded_sections(topology) if topology is not None else None
     for report in ('report_interactions.out', 'report_distances.out'):
         text = Path(report).read_text()
         if re.search(r'\b(?:nan|inf)\b', text, re.I):
-            raise ValueError(f'{report}: nonfinite scores')
+            unscored = report == 'report_interactions.out' and bonded is not None and not bonded
+            if not unscored:
+                raise ValueError(f'{report}: nonfinite scores')
+            result['interaction_scores'] = {
+                'scored': False,
+                'topology': str(topology),
+                'reason': ('the topology this assessment scored declares no bond, angle or dihedral rows -- its '
+                           'geometry is held by constraints -- so `ff_assess` had no interaction to compare and '
+                           'reported `nan` for an empty set'),
+            }
         if not re.search(r'Overall (?:Score|distance score)\s*:', text, re.I):
             raise ValueError(f'{report}: missing score summary')
         result[report] = text

@@ -972,6 +972,15 @@ with that reason and stage 5 exits 4 with it (`skipped`) rather than printing an
 directory it hands `-d` how many pair histograms are there, and reads the inventory from `3_initial_CG`, where `prepare`
 writes it.
 
+The interaction family is a separate question. A model whose geometry is held by `[ constraints ]` alone -- a rigid
+ring, no bond, angle or dihedral -- has nothing for that half to compare: `ff_inter` writes no interaction histogram
+while fitting, `ff_assess` prints `nan` for the mean of an empty set, and the inventory counts it (`distributions.json`
+`interactions`). `validate_run` reads the ITP the stage scored (`$INITIAL_DIR/$INITIAL_ITP`, which `assess.sh` exports):
+when it declares no bonded row, `validation.json` records the interaction half as unscored with that reason and the
+distance scores stand; when it declares one and the report is still `nan`, the stage fails, because the baseline does
+not cover a term the run simulates. The stage's declared families are one pattern (`*_distr.dat`), never one per
+section: a required `*_bonds_distr.dat` refuses a fit that measured everything there was to measure.
+
 BARTENDER models get their own analysis instead (per-parameter `Bond_Hooke`/`Angle_Hooke`/`Cosine`/`Ryckaert-Belleman`
 figures, 0.001 nm / 1 deg / 10 deg bins, bonded terms only) and cannot feed `ff_assess`'s histograms; unifying the two
 is postponed. A bartender-parameterized mapping therefore runs with stage 5 `skipped` and its own sentence.

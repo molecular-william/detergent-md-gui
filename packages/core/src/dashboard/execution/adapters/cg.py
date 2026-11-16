@@ -84,8 +84,11 @@ STAGE_DEFS = (
     Stage('CG parameterization', '3_initial_CG/fit_topology.sh',
           ('../2_mapping/mapped.xtc', '../2_mapping/mapped.gro', 'initial.mdp',
            'topol.top', '{initial_itp}'),
-          ('mapped.tpr', '{final_itp}', '*_bonds_distr.dat',
-           '*_angles_distr.dat', '*_distances_distr.dat'),
+          # One family, not three: `ff_inter -dists` writes a histogram only for an interaction it has to fit and for
+          # each bead pair `-dist-matrix` measures. A rigid ring states its geometry as constraints and has no bond,
+          # angle or dihedral to write, so naming each family as a required output refused a fit that measured
+          # everything there was to measure. `*_distr.dat` is the whole family and is what stage 5's `-d` reads.
+          ('mapped.tpr', '{final_itp}', '*_distr.dat'),
           script='dashboard/execution/scripts/fit_topology.sh'),
     # The water box and the template MDPs are named here, not linked into `inputs/`: the script reads the published
     # box from the repository and the MDPs the run generated. `relative` keeps the stage's old entry-point name -- the
@@ -96,10 +99,12 @@ STAGE_DEFS = (
           ('prod/lig_CG.gro', 'prod/lig_CG.tpr', 'prod/lig_CG.xtc'),
           script='dashboard/execution/scripts/cg_simulation.sh', checkpoint='md.cpt'),
     Stage('CG assessment (ff_assess)', '5_assessment/assess.sh',
+          # The reference histograms are one family here too: this stage reads `*_distr.dat` and its own script
+          # decides the pairwise half. A molecule that declares no bonded terms still has its pair distances to
+          # score, so requiring a bond or angle histogram would refuse the assessment of a real model.
           ('../4_CG_sim/prod/lig_CG.xtc', '../4_CG_sim/prod/lig_CG.tpr',
            '../4_CG_sim/prod/lig_CG.gro', '../3_initial_CG/{initial_itp}',
-           '../3_initial_CG/*_bonds_distr.dat',
-           '../3_initial_CG/*_distances_distr.dat'),
+           '../3_initial_CG/*_distr.dat'),
           ('report_interactions.out', 'report_distances.out', 'validation.json',
            'distance_diagnostics_stratified.json',
            'distance_matrix_stratified_{residue_name}.png'),

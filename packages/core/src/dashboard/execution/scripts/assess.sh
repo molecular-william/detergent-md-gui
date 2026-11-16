@@ -17,6 +17,11 @@ export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 # separate questions, and a caller may hand the same directory to both.
 INITIAL_DIR="${INITIAL_DIR:-../3_initial_CG}"
 REFERENCES="${REFERENCES:-$(cat references.txt)}"
+# `validate_run` reads the ITP this stage scored with to decide whether the interaction report had anything to score:
+# a constraint-only molecule has no bond, angle or dihedral, so its `nan` report is the tool's mean over an empty set
+# and not a failed comparison. It is reached through the environment like every other module's input, and
+# `INITIAL_ITP` already arrives with the stage's own; exporting the directory is what pairs the two.
+export INITIAL_DIR
 # `ff_assess` does not measure the reference. It scores the CG trajectory against the AA reference's own histograms,
 # which it reads out of `-d $REFERENCES` and never computes. A run that fits leaves them in `3_initial_CG` as a
 # by-product of `ff_inter -dists -dist-matrix`; a run that consumes a model reads them from the revision's store

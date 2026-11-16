@@ -37,6 +37,7 @@ AREAS = {
         'unit/test_bonded*', 'unit/test_bartender_fit.py', 'unit/test_dihedral_fit.py',
         'unit/test_prepare_ring_constraints.py', 'unit/test_parameterization_*', 'unit/test_fitted_reference.py',
         'unit/test_cg_parameterization_consumption.py', 'unit/test_cg_reference_distributions.py',
+        'unit/test_cg_assessment_validation.py',
         'unit/test_migrate_parameterization_owners.py', 'unit/test_cg_models.py',
         'integration/test_bonded_api.py', 'integration/test_parameterization_*',
         'browser/test_bonded_*',

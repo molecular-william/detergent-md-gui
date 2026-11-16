@@ -14,7 +14,9 @@ state, what is next, what is open, and the measurements and incidents a reader h
   It was restarted 2026-11-16 14:45 on `45f04d3`. Restart after a Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
-  `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores` (open item).
+  `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores`. Fixed the same
+  day -- the molecule is constraints-only, so there is no interaction half to score. Restart, then **Restart from
+  stage** that assessment to finish the run.
 - **Store.** `workspace/dashboard` is 24 GB after the cleanup below: 16 runs (five pdc 1 us runs 21.7 GB, four aa
   200 ns 1.9 GB, seven cg 1.0 GB); `parameterizations/` 27 MB (the records and their own revisions); `martini3/`
   18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. Inside `runs/`: 415 MB of captured console
@@ -30,12 +32,33 @@ state, what is next, what is open, and the measurements and incidents a reader h
   answered 500 on Save as new (`e6aba99`); a reference CG run drew no bonds or colours and refused its overview
   (`5786b1c`); CG production accepts 0.5-50 fs (`0788ed4`); the CG surface draws rings at the table's own scale
   (`5f050b9`); a CG preset keeps its parameterization kind and a pinned reference digest compares like with like
-  (`45f04d3`).
+  (`45f04d3`); a constraint-only CG model's assessment records its interaction half unscored instead of failing on
+  the tool's `nan`.
 - **Known gaps.** `dbc366ae772b` (the DDM AA reference) lacks `07_reference/run.sh`, so the DDM mapping `10c318949`
   refuses at `files.verify`; a CG-only reference run cannot be compared with a separate AA run; `docs/design/drafts`
   is 31 MB of local screenshots (gitignored, 152 files).
 
 ## Next session
+
+**2026-11-16 A constraint-only CG model is assessed, not failed.** Run `77504a003e5e` died at stage 5 on
+`validate_run`'s `report_interactions.out: nonfinite scores`, after a completed 201 ns simulation and a finite
+distance matrix. The glucose model is a rigid ring: three `[ constraints ]` and a virtual site, no bond, angle or
+dihedral, so `ff_inter` wrote no `<group>_bonds_distr.dat` while fitting and its recorded baseline is the pairwise
+family alone (`distributions.json`: `pairs 6`, `interactions 0`). `ff_assess` then reported `Overall Score : nan` for
+an empty per-type set -- nothing to compare, not a short distribution -- and the stage's gate read the word as a failure; the
+inventory already counted `interactions` but nothing consumed it. The fix reads the ITP the tool was handed
+(`$INITIAL_DIR/$INITIAL_ITP`, exported by `assess.sh`) and only requires a finite interaction report when it declares
+a bonded row; otherwise `validation.json` records `interaction_scores: {scored: false, reason, topology}` and the
+distance scores stand. A model with bonds that still gets `nan` keeps failing, and a topology the caller cannot find
+keeps the strict check. Two declarations of the same assumption are gone with it: the fit path's stage 3 outputs and
+stage 5 inputs named `*_bonds_distr.dat`/`*_angles_distr.dat`, and `missing_files` treats an unmatched glob as missing,
+so a *fit* of the same molecule would have died at "required outputs are missing or empty"; both now name
+`*_distr.dat`. Measured by replaying the failed run's stage 5 in a scratch copy with its own environment: exit 0,
+`validation.json` with the unscored note, `distance_diagnostics_stratified.json` and the stratified figure written.
+Tests: `test_cg_assessment_validation.py` (constraint-only accepted and recorded; bonded model still refused; an
+unnamed or missing ITP stays strict; a finite report adds no note; the two family declarations satisfy their
+contracts). **The dashboard needs a restart** for the adapter's stage contract; the assessment fix itself is read per
+stage, so **Restart from stage** on `77504a003e5e` finishes that run without one.
 
 1. **Cross-run AA vs CG comparison** (asked 2026-11-16): the data and the approach are in its row below. Start with
    a plan in `docs/plans/` and settle the one science decision -- which mapping the published entry is compared through.
@@ -65,7 +88,6 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 | Sugar comparison subpanel | not started; hand-off 2026-11-10 | build the validation panel described above |
 | Cross-run AA vs CG comparison | asked 2026-11-16 after run `0c5f5738089c`: the AA-vs-CG panels are single-run (they read `1_AA-reference/` + `2_mapping/` + `4_CG_sim/` inside one run), so a CG-only reference run can only be put *beside* an AA run, never compared with it | build it as a new kind: the AA run named in the request (its `stages/07_reference/lig.{gro,xtc}`), this run's `4_CG_sim/prod/lig_CG.{gro,xtc}`, and the bead-atom correspondence from the sugar package's own candidate; needs a payload/UI "compare this run with run X" and one science decision (which mapping the published entry is compared through) |
 | `dbc366ae772b` AA reference lacks `07_reference/run.sh` | `reference.json` records its digest, so `files.verify` refuses the DDM mapping `10c318949` with `Cannot reuse changed or missing artifact`; the other six revisions verify | decide whether to re-publish that reference (a new record over the files it has) or leave it refused |
-| CG assessment writes a NaN overall score | `77504a003e5e` (Glucose-CG-200ns, 4 beads incl. a virtual site) failed at stage 5: `report_interactions.out` line 2 is `Overall Score : nan ± nan` while the score matrix is finite (off-diagonals 1.00); `validate_run` refuses it as nonfinite | find which term has no samples (the run holds a 10 fs equilibration and a 30 fs production leg, so a short or empty distribution is plausible); the stage log is `logs/5_assessment.log` |
 | Workspace store cleanup | applied 2026-11-16: 474 MB removed (fit scratch, orphaned preview, stale logs and pre-sqlite files) and the job database VACUUMED 85.7 -> 3.5 MB; what remains is evidence | decide whether to prune the derived analyses (225 MB) and console logs (415 MB), or archive the 21.7 GB of pdc outputs |
 | Align trajectory's initial state | the form prefills defaults, so a stored series built with `fit: rot+trans` opens with the box unchecked while its summary line says the fit | decide whether Frame options should prefill the stored build's arguments instead of the defaults |
 | Analysis checklist membership | the checklist lists the run's attempted kinds; a kind never queued is absent | add a server-side "what this run can compute" list and show those unticked, if wanted |
