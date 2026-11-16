@@ -28,6 +28,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const NUMBERS = ['aggregation_number', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
+                   'pdc_equil_dt_fs', 'pdc_production_dt_fs',
                    'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                    'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
                    'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];

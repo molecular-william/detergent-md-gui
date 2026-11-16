@@ -15,7 +15,7 @@ import pytest
 from dashboard.execution import protocol
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.pdc_fixtures import TEMPLATE, molecule_tree
+from tests.harness.pdc_fixtures import TEMPLATE, molecule_tree, prepared_run
 
 pytestmark = pytest.mark.usefixtures('gpu_host')
 
@@ -70,6 +70,9 @@ def test_a_pdc_setting_is_held_to_the_bounds_the_adapter_publishes():
                               ({'bogus_key': 1}, 'Unknown PDC setting: bogus_key'),
                               ({'pdc_npt_ps': 'abc'}, 'npt_ps must be numeric'),
                               ({'pdc_seed': 4.5}, 'seed must be an integer'),
+                              ({'pdc_equil_dt_fs': 0.4}, 'pdc_equil_dt_fs must be between 0.5 and 20'),
+                              ({'pdc_equil_dt_fs': 25}, 'pdc_equil_dt_fs must be between 0.5 and 20'),
+                              ({'pdc_production_dt_fs': 60}, 'pdc_production_dt_fs must be between 0.5 and 50'),
                               ({'backmap': 'yes'}, 'backmap must be one of True, False')]:
         with pytest.raises(ValueError) as refused:
             adapter.normalize_settings(supplied)
@@ -87,6 +90,35 @@ def test_a_setting_supplied_under_either_spelling_reaches_the_builder_the_same_w
     assert long_form['nvt_ps'] == short_form['nvt_ps'] == 0
     # `0` is a request for none of that leg rather than a very short one, which is why the bound starts there.
     assert long_form['npt_ps'] == adapter.stage_defaults()['npt_ps']
+
+
+def test_the_two_timesteps_are_advertised_with_the_cg_bounds_and_no_default():
+    """The form's two new controls must survive the queue's advertised-key filter and start as the profile's own."""
+    adapter = protocol.adapter_for('pdc')
+    specs = adapter.settings_specs()
+
+    assert specs['pdc_equil_dt_fs'] == ('Equilibration timestep (fs)', 0.5, 20)
+    assert specs['pdc_production_dt_fs'] == ('Production timestep (fs)', 0.5, 50)
+    assert 'pdc_equil_dt_fs' not in adapter.stage_defaults(), 'unset means the reviewed profile dt'
+    assert 'pdc_production_dt_fs' not in adapter.stage_defaults()
+    numbers = adapter.normalize_settings({'pdc_equil_dt_fs': 7.5, 'pdc_production_dt_fs': 25})
+    assert (numbers['pdc_equil_dt_fs'], numbers['pdc_production_dt_fs']) == (7.5, 25)
+
+
+def test_a_timestep_that_leaves_a_leg_at_no_step_is_refused_by_name():
+    """A dt coarser than a requested leg would ask mdrun for nothing; the refusal names the field the reader set."""
+    adapter = protocol.adapter_for('pdc')
+
+    with pytest.raises(ValueError, match='pdc_equil_dt_fs = 20 fs leaves the NVT equilibration at 0 steps'):
+        adapter.normalize_settings({'pdc_nvt_ps': 0.01, 'pdc_equil_dt_fs': 20})
+    # The zero-duration leg is a skip request rather than a zero-step run, so the same timestep is not refused alone.
+    assert adapter.normalize_settings({'pdc_nvt_ps': 0, 'pdc_equil_dt_fs': 20})['pdc_equil_dt_fs'] == 20
+
+
+def test_prepare_refuses_the_timestep_that_would_run_no_step(tmp_path):
+    """The guard is in the one normalizer `prepare` reads, so the run is refused before a stage is written."""
+    with pytest.raises(ValueError, match='pdc_equil_dt_fs'):
+        prepared_run(tmp_path, settings={'nvt_ps': 0.01, 'pdc_equil_dt_fs': 20})
 
 
 def test_the_production_output_cadence_is_a_run_setting():

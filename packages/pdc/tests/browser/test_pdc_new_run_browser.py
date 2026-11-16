@@ -220,7 +220,7 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
 
 
 def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
-    """The expanded block is a form to scan: 26 fields in two columns, not a page of stacked controls.
+    """The expanded block is a form to scan: 29 fields in two columns, not a page of stacked controls.
 
     A host with a device is stated, so the count is the full form and not the machine this runs on: a host with
     no GPU hides the device control and one field goes with it.
@@ -234,8 +234,8 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
     block = page.locator('#new-advanced')
     expect(block).to_be_visible()
-    assert page.locator('#new-advanced .new-pdc-option-group').count() == 6
-    assert page.locator('#new-advanced [name]').count() == 27
+    assert page.locator('#new-advanced .new-pdc-option-group').count() == 7
+    assert page.locator('#new-advanced [name]').count() == 29
     height = block.bounding_box()['height']
     assert height < 800, f'the expanded block is {height:.0f} px tall; a scan should fit under 800'
 
@@ -252,7 +252,11 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
 
 def test_every_other_run_option_has_a_default(dashboard, live_page):
-    """Nothing in the collapsed block is blank on first load, and a host with no device offers no device control."""
+    """Nothing in the collapsed block is blank on first load, except the two timesteps.
+
+    A blank timestep is not a missing value: it is the reviewed profile's own dt, which the run records no override
+    for. Every other control starts on the number the adapter's defaults state.
+    """
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route('**/api/run/devices', lambda route: route.fulfill(json={'devices': [], 'in_use': {}}))
@@ -264,7 +268,8 @@ def test_every_other_run_option_has_a_default(dashboard, live_page):
     values = page.evaluate("""() => Object.fromEntries(
         [...document.querySelectorAll('#new-advanced [name]')].map(el => [el.name, el.value]))""")
     assert values, 'the block renders no inputs'
-    assert {name: value for name, value in values.items() if value in ('', None)} == {}, values
+    assert {name for name, value in values.items() if value in ('', None)} == {
+        'pdc_equil_dt_fs', 'pdc_production_dt_fs'}, values
     # No GPU means no device choice: the select keeps its element but loses its name, so the payload cannot carry
     # `mdrun_gpu`, and the offload scheme no longer offers the `gpu` option beside it.
     assert 'mdrun_gpu' not in values, values
@@ -388,6 +393,14 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').fill('220')
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
+    # The two timesteps live in Other run options and are the only blank fields there: stated, they post under the
+    # adapter's advertised names, beside the rest of the run's settings.
+    page.locator('#new-advanced').evaluate('(el) => el.open = true')
+    page.locator('[name=pdc_equil_dt_fs]').fill('10')
+    page.locator('[name=pdc_production_dt_fs]').fill('20')
+    # Leaving the field runs the readiness check that re-enables the button; clicking while it is pending would hit a
+    # disabled button (a number input's change fires on blur, before the click).
+    page.locator('[name=pdc_production_dt_fs]').press('Tab')
     expect(page.locator('#start-run')).to_be_enabled()
     page.locator('#start-run').click()
 
@@ -406,6 +419,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
+        'pdc_equil_dt_fs': 10, 'pdc_production_dt_fs': 20,
         'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
         'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
         'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',

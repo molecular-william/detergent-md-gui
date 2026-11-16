@@ -52,6 +52,14 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 pdc Other run options gain the two MD timesteps.** `pdc_equil_dt_fs` (0.5-20) and
+`pdc_production_dt_fs` (0.5-50) are advertised, posted from the New run fold's new Timesteps group, and flow into
+both the written mdp `dt` and the ps->steps arithmetic: the equilibration setting governs the NVT and NPT legs, the
+production setting the assessment and extension legs; blank keeps the reviewed profile's own dt and writes identical
+MDPs. The four pdc profiles in `execution/mdp/profiles.py` now mark `dt` as `variable` (the CG precedent), and a
+dt that would leave a requested leg at zero steps is refused by name (only when an override is stated, so untouched
+runs keep their arithmetic). The removal-path restart-equilibration template keeps 5 fs deliberately. Checks: pdc
+area 745 passed / 1 xfailed, pdc units+mdp writer 749, integration 57, form/payload browser tests 3; ruff clean.
 **2026-11-16 The pre-assembled micelle belt is a cylinder, not a torus.** pdc_placement measures the transmembrane
 region as a cylinder about the membrane frame's normal (the user's follow-up: the normal, not a PCA axis; radius = the
 slab atoms' radial extent, `radius_nm` a floor;

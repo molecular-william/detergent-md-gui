@@ -332,7 +332,8 @@ _PDC_LEG_COMMENTS = {
     'epsilon-r': 'water dielectric for the reaction field',
     'epsilon-rf': 'reaction field at infinity',
     'rvdw': 'van der Waals cut-off (nm)',
-    'dt': '5 fs: the standing coarse-grained EQUILIBRATION timestep (production stays 20 fs)',
+    'dt': '5 fs by default: the standing coarse-grained EQUILIBRATION timestep (production is 20 fs); a run may '
+           'name its own',
     'nstcomm': 'remove the centre-of-mass motion every 100 steps',
     'comm-grps': 'remove it for the whole system',
     'comm-mode': 'linear: a uniform drift is removed, not a shape',
@@ -377,7 +378,10 @@ PDC_LEG_PROFILES = (
             comments={**_PDC_LEG_COMMENTS, **_DYNAMICS_NEIGHBOUR_COMMENTS,
                       'gen-vel': 'this is where the velocities are drawn',
                       'pcoupl': 'this leg is NVT', 'continuation': 'this leg starts from the minimised system'},
-            source=f'{_PDC_TEMPLATE}/nvt.mdp, with the run\'s seed for gen-seed', version='pdc-nvt-v1'),
+            source=f'{_PDC_TEMPLATE}/nvt.mdp, with the run\'s seed for gen-seed', version='pdc-nvt-v1',
+            # The run may replace the reviewed 5 fs step: the form's equilibration timestep setting writes this file
+            # and the step count derived from the same number. No other physics is open here.
+            variable=('dt',)),
     Profile(settings={'integrator': 'md', 'dt': 0.005, 'nsteps': None, 'nstcomm': 100, 'comm-grps': 'System',
                       'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0, 'nstlog': 1000,
                       'nstenergy': 100, 'nstxtcout': 100, 'xtc-precision': 100, 'cutoff-scheme': 'Verlet',
@@ -393,7 +397,7 @@ PDC_LEG_PROFILES = (
                       'gen-temp': "the template's value, inert with gen-vel = no",
                       'pcoupl': "c-rescale: the NPT leg's barostat",
                       'continuation': 'continues the NVT state'},
-            source=f'{_PDC_TEMPLATE}/npt.mdp', version='pdc-npt-v1'),
+            source=f'{_PDC_TEMPLATE}/npt.mdp', version='pdc-npt-v1', variable=('dt',)),
 )
 
 # The genion fix-up tpr, written from this profile rather than copied from a template.
@@ -421,7 +425,8 @@ _PDC_PRODUCTION_SETTINGS = {
 
 _PDC_PRODUCTION_COMMENTS = {
     **_MARTINI_COMMENTS,
-    'dt': '20 fs: the coarse-grained PRODUCTION timestep (equilibration is 5 fs)',
+    'dt': '20 fs by default: the coarse-grained PRODUCTION timestep (equilibration is 5 fs); a run may name its '
+           'own',
     'nsteps': "the run's own duration in steps: assessment_ns (plus extension_ns when removal is off) at this dt",
     'nstcomm': "the run's own centre-of-mass removal interval",
     'nstlog': "the run's own log interval",
@@ -453,13 +458,13 @@ PDC_PRODUCTION_PROFILES = (
             version='pdc-ions-v1'),
     Profile(settings=dict(_PDC_PRODUCTION_SETTINGS), comments=_PDC_PRODUCTION_COMMENTS,
             source=f'{_CG_TEMPLATE}/4_CG_sim/inputs/md.mdp as cg.prepare patches it (the CG branch)',
-            version='pdc-assessment-v1'),
+            version='pdc-assessment-v1', variable=('dt',)),
     # The extension's file is the assessment's, continued: `pdc.prepare` writes it from this profile at the
     # assessment's step count, and gen-vel is already `no`. Registered separately because that is the name a run
     # records.
     Profile(settings=dict(_PDC_PRODUCTION_SETTINGS), comments=_PDC_PRODUCTION_COMMENTS,
             source='the pdc assessment profile, continued (gen-vel = no, continuation)',
-            version='pdc-extension-v1'),
+            version='pdc-extension-v1', variable=('dt',)),
 )
 
 # The removal path rebuilds the system from kept coordinates, so `pdc.prepare` writes these two files from these

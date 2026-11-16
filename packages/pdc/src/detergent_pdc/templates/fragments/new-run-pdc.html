@@ -106,6 +106,13 @@
             </div>
           </section>
           <section class="new-pdc-option-group">
+            <h4 class="new-pdc-option-title">Timesteps</h4>
+            <div class="new-pdc-option-rows">
+              <label>Equilibration timestep (fs)<span class="setting-control"><input name="pdc_equil_dt_fs" type="number" min="0.5" max="20" step="0.5"></span></label>
+              <label>Production timestep (fs)<span class="setting-control"><input name="pdc_production_dt_fs" type="number" min="0.5" max="50" step="0.5"></span></label>
+            </div>
+          </section>
+          <section class="new-pdc-option-group">
             <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
             <div class="new-pdc-option-rows">
               <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="nstlist" type="number" min="1" max="10000" step="1"></span></label>
@@ -159,7 +166,9 @@
           <summary>What these numbers mean</summary>
           <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's own;
             changing one overrides it for this run only and the manifest records what was used. The equilibration and
-            restart profiles keep their own values.</p>
+            restart profiles keep their own values, except the two timesteps: blank is each leg's reviewed profile dt
+            (5 fs equilibration, 20 fs production), and a stated number replaces it for the NVT and NPT legs or for
+            the assessment and extension legs, with every duration converted to steps at that number.</p>
           <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
             option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
             <code>nstfout</code> stay off, as the profiles state.</p>

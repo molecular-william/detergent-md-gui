@@ -109,6 +109,75 @@ def test_the_other_run_options_reach_both_production_mdps(tmp_path):
         assert written['ref-t'] == '310' and written['tau-p'] == '20' and written['rvdw'] == '1.2'
 
 
+def test_an_unset_timestep_keeps_the_reviewed_profiles_own_number(tmp_path):
+    """(a) Nothing named: every leg writes its profile's dt, and the steps its ps duration is at that dt."""
+    run = prepared_run(tmp_path, settings={'nvt_ps': 500, 'npt_ps': 4500, 'assessment_ns': 100})
+    settings = settings_of(run)
+    manifest = json.loads((run / 'manifest.json').read_text())
+
+    assert 'pdc_equil_dt_fs' not in settings and 'pdc_production_dt_fs' not in settings
+    nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+    assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
+    assert float(nvt['dt']) == dt('pdc-nvt-v1') == 0.005
+    assert int(nvt['nsteps']) == round(500 / 0.005)
+    assert float(npt['dt']) == 0.005 and int(npt['nsteps']) == round(4500 / 0.005)
+    assert float(assessment['dt']) == dt('pdc-assessment-v1') == 0.02
+    assert int(assessment['nsteps']) == round(100_000 / 0.02)
+    assert manifest['equilibration_steps'] == {'minimisation': 200000, 'nvt': 100000, 'npt': 900000}
+    assert manifest['assessment_steps'] == 5_000_000
+
+
+def test_an_equilibration_timestep_moves_the_nvt_and_npt_legs_only(tmp_path):
+    """(b) The equilibration setting rewrites NVT/NPT dt and the steps their durations become, never production."""
+    run = prepared_run(tmp_path, settings={'pdc_equil_dt_fs': 10, 'nvt_ps': 500, 'npt_ps': 4500,
+                                           'assessment_ns': 100})
+    settings = settings_of(run)
+    manifest = json.loads((run / 'manifest.json').read_text())
+    nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+
+    assert settings['pdc_equil_dt_fs'] == 10 and manifest['settings']['pdc_equil_dt_fs'] == 10
+    assert float(nvt['dt']) == 0.01 and int(nvt['nsteps']) == round(500 / 0.01)
+    assert float(npt['dt']) == 0.01 and int(npt['nsteps']) == round(4500 / 0.01)
+    assert manifest['equilibration_steps'] == {'minimisation': 200000, 'nvt': 50000, 'npt': 450000}
+    for name in ('assessment.mdp', 'extension.mdp'):
+        production = parsed((inputs_dir(run) / name).read_text())
+        assert float(production['dt']) == dt('pdc-assessment-v1') == 0.02, name
+    assert manifest['assessment_steps'] == round(100_000 / 0.02)
+
+
+def test_a_production_timestep_moves_the_production_legs_only(tmp_path):
+    """(c) The production setting rewrites assessment/extension dt and steps, and leaves the legs in front alone."""
+    run = prepared_run(tmp_path, settings={'pdc_production_dt_fs': 10, 'nvt_ps': 500, 'npt_ps': 4500,
+                                           'assessment_ns': 100, 'extension_ns': 900})
+    manifest = json.loads((run / 'manifest.json').read_text())
+    assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
+    extension = parsed((inputs_dir(run) / 'extension.mdp').read_text())
+
+    assert manifest['settings']['pdc_production_dt_fs'] == 10
+    assert float(assessment['dt']) == 0.01
+    assert int(assessment['nsteps']) == round(100_000 / 0.01) == 10_000_000
+    assert float(extension['dt']) == 0.01
+    assert int(extension['nsteps']) == int(assessment['nsteps']), 'the extension continues the assessment at its dt'
+    assert manifest['assessment_steps'] == 10_000_000
+    for name, profile, ps in (('nvt.mdp', 'pdc-nvt-v1', 500), ('npt.mdp', 'pdc-npt-v1', 4500)):
+        leg = parsed((inputs_dir(run) / name).read_text())
+        assert float(leg['dt']) == dt(profile) == 0.005, name
+        assert int(leg['nsteps']) == round(ps / 0.005), name
+    assert manifest['equilibration_steps'] == {'minimisation': 200000, 'nvt': 100000, 'npt': 900000}
+
+
+def test_a_production_timestep_converts_the_folded_duration_when_removal_is_off(tmp_path):
+    """The removal-off assessment folds both durations, and the override converts the folded ps in one place."""
+    run = prepared_run(tmp_path, settings={'remove_out_of_micelle': False, 'pdc_production_dt_fs': 10,
+                                           'assessment_ns': 100, 'extension_ns': 900})
+    assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
+
+    assert float(assessment['dt']) == 0.01
+    assert int(assessment['nsteps']) == round(1_000_000 / 0.01) == 100_000_000
+
+
 def test_no_prepared_mdp_is_a_copied_template(tmp_path):
     """Each file begins with the writer's own header naming its profile, which no copied template could."""
     run = prepared_run(tmp_path)

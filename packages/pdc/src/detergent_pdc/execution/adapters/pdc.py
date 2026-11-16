@@ -137,6 +137,12 @@ SETTING_SPECS = {
     'ref_p': ('Pressure (bar)', 0.1, 100.0),
     'tau_p': ('Barostat coupling (ps)', 0.1, 100.0),
     'compressibility': ('Compressibility (bar^-1)', 0.0, 1.0),
+    # The two timesteps the CG legs integrate at, in fs, and deliberately no `DEFAULTS` entry: unset is the reviewed
+    # profile's own number (5 fs equilibration, 20 fs production), so an untouched run renders the reviewed file. A
+    # run that names one keeps its duration in ps and changes only the step count that duration becomes. The bounds
+    # are the CG precedent's, whose production ceiling is a stability decision rather than an oversight.
+    'pdc_equil_dt_fs': ('Equilibration timestep (fs)', 0.5, 20),
+    'pdc_production_dt_fs': ('Production timestep (fs)', 0.5, 50),
     'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72),
     'mdrun_ranks': ('mdrun MPI ranks', 1, 72),
     # The three equilibration legs, in steps of steepest descent and picoseconds of MD. `0` is a request for none of
@@ -557,6 +563,18 @@ def _profile_dt(profile: str) -> float:
     return float(PROFILES[profile].settings['dt'])
 
 
+#: The settings a run may name to replace a reviewed timestep. The form states femtoseconds and the MDP writes ps, so
+#: one division by 1000 sits between them, in `_dt_ps`.
+EQUIL_TIMESTEP = 'pdc_equil_dt_fs'
+PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
+
+
+def _dt_ps(profile: str, settings: dict, setting: str) -> float:
+    """The timestep one mdp is written at, in ps: the run's own override, else the reviewed profile's own number."""
+    override = settings.get(setting)
+    return float(override) / 1000 if override is not None else _profile_dt(profile)
+
+
 #: The reviewed MDP names the run supplies, mapped to the settings key the panel sends. The production profiles
 #: leave exactly these `None`; every other profile keeps its own values, so this table is the one place a run number
 #: becomes an MDP option.
@@ -603,16 +621,20 @@ def _assessment_mdp(inputs: Path, settings: dict) -> int:
     system the NPT leg left. Without removal there is no second leg to extend, so the requested sampling is one
     plain CG MD leg and both durations are folded into this one.
 
-    The duration is converted into steps with the reviewed profile's own `dt`, and the profile states the integration
-    settings the reviewed profile states, so the coarse-grained half of a solved CG run and this stage cannot
-    disagree about the timestep.
+    The duration is converted into steps with the reviewed profile's own `dt`, or with the run's own when it names
+    one, and the profile states the integration settings the reviewed profile states, so the coarse-grained half of a
+    solved CG run and this stage cannot disagree about the timestep.
     """
     profile = 'pdc-assessment-v1'
     duration_ns = float(settings['assessment_ns'])
     if not settings.get('remove_out_of_micelle', True):
         duration_ns += float(settings['extension_ns'])
-    steps = round(duration_ns * 1000 / _profile_dt(profile))
-    write_mdp(profile, inputs / 'assessment.mdp', _mdp_run_values(profile, settings, {'nsteps': steps}))
+    dt = _dt_ps(profile, settings, PRODUCTION_TIMESTEP)
+    steps = round(duration_ns * 1000 / dt)
+    values = _mdp_run_values(profile, settings, {'nsteps': steps})
+    if PRODUCTION_TIMESTEP in settings:
+        values['dt'] = dt
+    write_mdp(profile, inputs / 'assessment.mdp', values)
     return steps
 
 
@@ -626,8 +648,11 @@ def _extension_inputs(inputs: Path, settings: dict, skipped: dict, assessment_st
     extension_ps = round(float(settings['extension_ns']) * 1000)
     if 'CG extension MD' in skipped:
         return extension_ps
+    values = {'nsteps': assessment_steps}
+    if PRODUCTION_TIMESTEP in settings:
+        values['dt'] = _dt_ps('pdc-extension-v1', settings, PRODUCTION_TIMESTEP)
     write_mdp('pdc-extension-v1', inputs / 'extension.mdp',
-              _mdp_run_values('pdc-extension-v1', settings, {'nsteps': assessment_steps}))
+              _mdp_run_values('pdc-extension-v1', settings, values))
     # The removal path rebuilds the system from the kept coordinates, so this stage needs the same mdps and water the
     # solvation step uses. They are the unpatched CG templates: nothing in this run's numbers reaches them.
     write_mdp('pdc-restart-minimization-v1', inputs / 'minimization.mdp')
@@ -652,12 +677,19 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict) -> dict:
         if name in skipped:
             steps[leg['key']] = 0
             continue
-        wanted = int(float(settings[leg['setting']]))
-        # The profile decides the unit: a duration becomes steps at *its* own dt, so lowering a profile's dt cannot
-        # silently shorten the leg the run asked for. The minimisation's setting is already a step count.
-        count = (wanted if leg['setting'] == 'minimisation_steps'
-                 else round(wanted / _profile_dt(leg['profile'])))
-        values = {'nsteps': count}
+        wanted = float(settings[leg['setting']])
+        # The profile decides the unit: a duration becomes steps at the run's own timestep when it names one, else at
+        # *its* own, so lowering a timestep cannot silently shorten the leg the run asked for. The minimisation's
+        # setting is already a step count.
+        if leg['setting'] == 'minimisation_steps':
+            count = int(wanted)
+            values = {'nsteps': count}
+        else:
+            dt = _dt_ps(leg['profile'], settings, EQUIL_TIMESTEP)
+            count = round(wanted / dt)
+            values = {'nsteps': count}
+            if EQUIL_TIMESTEP in settings:
+                values['dt'] = dt
         if leg.get('seed_velocities'):
             values['gen-seed'] = int(settings['seed'])
         write_mdp(leg['profile'], inputs / leg['mdp'], values)
@@ -692,7 +724,37 @@ def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
         ignore_unknown=ignore_unknown, object_message='PDC settings must be an object',
         unknown_prefix='Unknown PDC setting: ', bool_message='PDC settings must be numeric',
         integrals=_INTEGRAL_MESSAGES, integral_in_loop=True)
+    _refuse_a_zero_step_leg(numbers)
     return numbers
+
+
+#: How each duration setting becomes steps: the leg it names, the profile whose timestep it falls back to, and the
+#: timestep setting an override arrives under. The extension's own duration travels to `convert-tpr` in ps, so its
+#: timestep is the assessment tpr's and needs no separate conversion here.
+_DURATION_LEGS = (('nvt_ps', 'pdc-nvt-v1', EQUIL_TIMESTEP, 'NVT equilibration'),
+                  ('npt_ps', 'pdc-npt-v1', EQUIL_TIMESTEP, 'NPT equilibration'),
+                  ('assessment_ns', 'pdc-assessment-v1', PRODUCTION_TIMESTEP, 'CG assessment MD'))
+
+
+def _refuse_a_zero_step_leg(numbers: dict) -> None:
+    """A timestep the run names cannot be one that leaves a requested leg at no step.
+
+    Every duration becomes `round(duration / dt)`, so a timestep coarser than the leg is 0 steps: mdrun would be asked
+    for nothing while the manifest claimed the leg runs. Only a run that names a timestep is judged, so an untouched
+    run keeps the reviewed arithmetic exactly, and the refusal names the field the reader set.
+    """
+    for setting, profile, dt_setting, label in _DURATION_LEGS:
+        if dt_setting not in numbers:
+            continue
+        if setting == 'assessment_ns':
+            duration_ps = float(numbers.get(setting, 0)) * 1000
+            if not numbers.get('remove_out_of_micelle', True):
+                duration_ps += float(numbers.get('extension_ns', 0)) * 1000
+        else:
+            duration_ps = float(numbers.get(setting, 0))
+        if duration_ps > 0 and round(duration_ps / _dt_ps(profile, numbers, dt_setting)) == 0:
+            raise ValueError(f'{dt_setting} = {float(numbers[dt_setting]):g} fs leaves the {label} at 0 steps; '
+                             'lower the timestep or lengthen the leg')
 
 
 def _empty_topology() -> str:
