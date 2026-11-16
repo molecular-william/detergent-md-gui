@@ -159,7 +159,7 @@ runs/<id>/
     request.json
     manifest.json
     console.log
-    sources.json          # the source run-relative names the attempt read
+    sources.json          # the run-relative names the attempt read (outside-run sources live under the run sources/)
     progress.json
     result.json
     output/               # published files; result.json.output_directory is how a reader finds them

@@ -52,6 +52,21 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 Runs are named by their labels, and a run directory carries what its analyses read.** `cli/rename_runs.py`
+applied: the ten legacy hex runs are now DDM-AA-reference-200-ns-matching-the-sugar-references-sampling,
+DDM-CG-100ns-20261022, LMNG-AA-200ns-20261104, Maltose-AA-200ns-20261109, Sucrose-AA-200ns-20261110,
+Glucose-AA-202ns-20261113, Glucose-AA-201ns-4fs-20261116, Glucose-CG-M3-200ns-20261116, Glucose-CG-200ns-20261116,
+Glucose-CG-205ns-20261116; the ten old ids are retired, every manifest verifies and every analysis count survived
+(ledger `.named-migration/run-rename.json`). The records migration additionally remapped six manifests' molecule
+inputs to molecules/<id>/v1/ so they verify after the folder move. Second, a run directory is self-contained for its
+analyses: every source outside the run is copied once into `runs/<name>/sources/<run-relative name>` (the paired AA
+reference pair, the consumed revision's histogram files), `sources.json` records that run-relative name, the copy is
+skipped when size+digest match, `source_path` prefers it, and the queue counts the durable copies. Copying only
+`runs/<name>/` therefore rebuilds ff-interactions and the AA-reference analyses with no store and no reference-run
+directory (proved by tests); attempts published before this change have no copies and can still only be re-analysed
+where the original paths exist. Residual: the fit that was running during the migration was written by the old code
+and needs `migrate_reference_pins --apply` once it ends; the dashboard restart is deferred until then. Checks: fast
+**2936 passed / 1 xfailed**, browser **383 passed**, ruff clean.
 **2026-11-16 Full named migration: molecules are versions, identities are names, references are editions.** The
 source-data layer followed the records. `molecules/<id>/v1/` now holds every folder (12, ledger
 `molecules/.named-migration/versions.json`; only DDM's rename is tracked) and `aa.resolve` refuses a flat folder.
