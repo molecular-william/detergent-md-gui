@@ -87,6 +87,10 @@
 .run-table .resume-control label { min-width:0; flex:1; margin:0; color:var(--muted); font-size:10px; }
 .run-table .resume-stage { width:100%; max-width:170px; min-width:0; padding:5px; font-size:11px; text-overflow:ellipsis; }
 .run-table .run-detail-row > td { padding:0 10px 7px; border-bottom:2px solid var(--line); }
+/* A failed stage's message is the tail of the stage log: the first line names the stage, the rest is the tool's own
+   error block. It is shown verbatim rather than collapsed to one sentence -- a GROMACS refusal is several lines and
+   the line a reader needs ("Cannot compute PME interactions on a GPU") is not the first. */
+.run-table .job-error { margin:0 0 8px; white-space:pre-wrap; font:12px/1.5 ui-monospace,monospace; }
 .run-resources { display:flex; flex-wrap:wrap; gap:8px; }
 /* The door to the Run view sits with the run's own sections rather than beside its title: a card's actions are
    one row of doors, and View run is the first of them rather than a title ornament. */

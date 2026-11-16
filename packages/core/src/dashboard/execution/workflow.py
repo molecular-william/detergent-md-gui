@@ -571,9 +571,12 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
                     try:
                         result = (execute or subprocess.run)(entry['command'], cwd=stage_dir, env=stage_env, stdout=output, stderr=subprocess.STDOUT, check=True)
                     except subprocess.CalledProcessError as exc:
-                        if exc.returncode != SKIPPED_EXIT_CODE:
-                            raise
-                        raise Skipped(skip_reason(stage_dir, name)) from None
+                        if exc.returncode == SKIPPED_EXIT_CODE:
+                            raise Skipped(skip_reason(stage_dir, name)) from None
+                        # The wrapper's own words name the failure, not its reason. The stage log holds the tool's
+                        # answer, so it is read once here and carried on the exception: the stage record, the run
+                        # record, the console log and the card all then say the same thing.
+                        raise StageFailed(name, exc.returncode, failure_snapshot(stage_log)) from exc
                 entry['exit_code'] = result.returncode
                 missing = missing_files(stage_dir, required_outputs.get(name, ()))
                 if missing:
@@ -616,6 +619,54 @@ class Skipped(RuntimeError):
     """
 
     returncode = SKIPPED_EXIT_CODE
+
+
+class StageFailed(RuntimeError):
+    """A stage's command exited non-zero, carrying the tool's own words as its message.
+
+    `subprocess.CalledProcessError` stringifies to `Command '[...]' returned non-zero exit status 1` -- the wrapper
+    naming the failure, not its reason. Every surface that shows a run's error reads this message: the stage record,
+    the run/job `error`, the console line and the Runs card. So the reason is taken from the stage log once, here,
+    bounded (a production log can hold a whole run's output) and stripped of the shutdown banner that GROMACS prints
+    after the block a reader can act on. The first line names the stage, so a card that shows only the first line
+    still says which stage stopped; the snapshot follows it.
+    """
+
+    def __init__(self, stage, returncode, snapshot=''):
+        self.stage = stage
+        self.returncode = returncode
+        self.snapshot = snapshot
+        message = f'{stage} failed (exit {returncode})'
+        super().__init__(f'{message}:\n{snapshot}' if snapshot else message)
+
+
+#: A failed stage's message keeps the end of its log: the tool's own words are there, and reading a whole production
+#: log to quote them is the one thing this must not do.
+ERROR_TAIL_BYTES = 65536
+ERROR_TAIL_LINES = 8
+#: The shutdown banner and the separator rules a tool prints after the block worth reading. Dropping them is why a
+#: GROMACS failure quotes "Cannot compute PME interactions on a GPU" rather than "You may or may not see output".
+ERROR_NOISE = ('MPI_ABORT', 'Open MPI', 'mpirun', 'You may or may not see output', 'with errorcode')
+
+
+def failure_snapshot(path, *, lines=ERROR_TAIL_LINES, tail_bytes=ERROR_TAIL_BYTES):
+    """The last actionable lines of a failed command's log, or `''` when the log cannot be read."""
+    try:
+        with Path(path).open('rb') as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - tail_bytes))
+            text = handle.read().decode('utf-8', 'replace')
+    except OSError:
+        return ''
+    useful = []
+    for line in text.splitlines():
+        clean = line.strip()
+        if not clean or set(clean) <= {'-', '=', '_'}:
+            continue
+        if any(noise in clean for noise in ERROR_NOISE):
+            continue
+        useful.append(clean)
+    return '\n'.join(useful[-lines:])
 
 
 def skip_reason(stage_dir, name):

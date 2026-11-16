@@ -214,7 +214,7 @@ directories and their existing scratch files remain in place. Prior analyses are
 rerun may change their source trajectories. Legacy copied-resume jobs remain readable; new resume requests
 continue the selected run in place.
 
-Cancellation targets process groups created by the current coordinator. Recovery marks interrupted active jobs and analyses failed. Orphan subprocess leases continue to block unsafe reuse and deletion. Logs and stage records retain commands, environment, start/end times, exit codes, hashes, and failure details.
+Cancellation targets process groups created by the current coordinator. Recovery marks interrupted active jobs and analyses failed. Orphan subprocess leases continue to block unsafe reuse and deletion. Logs and stage records retain commands, environment, start/end times, exit codes, hashes, and failure details. A failed stage's `error` is the tail of its own log (`workflow.failure_snapshot`: bounded, separator and shutdown-banner lines dropped), not the wrapper's `Command ... returned non-zero exit status`, and the Runs card shows it verbatim, so the tool's own refusal reaches a reader without opening the log.
 
 SQLite transactions protect job updates and attachment/deletion relationships. Completed CG consumers keep their AA source protected from deletion. A CG run consumes a completed AA reference and queues directly; no consumer waits for a slot.
 

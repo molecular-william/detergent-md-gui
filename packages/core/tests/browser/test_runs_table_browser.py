@@ -476,3 +476,38 @@ def test_clearing_the_filters_restores_every_run_and_the_empty_state_says_what_h
     for input_ in page.locator('#runs-filters input[type=checkbox]').all():
         assert not input_.is_checked(), 'a box stayed ticked after Clear filters'
     assert errors == [], errors
+
+
+def test_a_failed_stage_shows_the_error_its_own_log_holds(dashboard, live_page):
+    """The card's message is the stage's error block, not the wrapper's "returned non-zero exit status".
+
+    Run `6ed68979edf0` died at CG simulation with `Command '['bash', ...]' returned non-zero exit status 1` on the
+    card while its log said, below the grompp stanza, that GROMACS refused PME on the GPU for a reaction-field
+    system. The record now carries the log's tail and the card shows it verbatim, so the line a reader can act on
+    does not have to be the first one.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '00000000000d'
+    failure = ('CG simulation failed (exit 1):\n'
+               'Inconsistency in user input:\n'
+               'Cannot compute PME interactions on a GPU, because:\n'
+               '  PME GPU does not support:\n'
+               '    Systems that do not use PME for electrostatics.')
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'A stage that refused its settings', 'detergent': 'Glucose', 'method': 'cg',
+        'status': 'failed', 'stage': 'CG simulation', 'created': '2026-11-16T15:20:00+00:00',
+        'started_at': '2026-11-16T15:19:00+00:00', 'ended_at': '2026-11-16T15:20:00+00:00',
+        'error': failure, 'layout_version': 2}])
+    directory = runs / job_id
+    (directory / 'logs').mkdir(parents=True)
+    files.atomic_json(directory / 'manifest.json',
+                      {'stage_plan': ['CG simulation'], 'stages': [{'name': 'CG simulation', 'status': 'failed'}]})
+
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    block = page.locator(f'.job[data-id="{job_id}"] .job-error')
+    expect(block).to_contain_text('CG simulation failed (exit 1):')
+    expect(block).to_contain_text('Cannot compute PME interactions on a GPU')
+    expect(block).to_contain_text('Systems that do not use PME for electrostatics.')
+    assert errors == [], errors

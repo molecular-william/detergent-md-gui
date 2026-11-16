@@ -36,12 +36,31 @@ state, what is next, what is open, and the measurements and incidents a reader h
   (`5786b1c`); CG production accepts 0.5-50 fs (`0788ed4`); the CG surface draws rings at the table's own scale
   (`5f050b9`); a CG preset keeps its parameterization kind and a pinned reference digest compares like with like
   (`45f04d3`); a constraint-only CG model's assessment records its interaction half unscored instead of failing on
-  the tool's `nan`.
+  the tool's `nan`; a failed stage's record and Runs card quote the tail of the stage log instead of the wrapper's
+  exit-status line.
 - **Known gaps.** `dbc366ae772b` (the DDM AA reference) lacks `07_reference/run.sh`, so the DDM mapping `10c318949`
   refuses at `files.verify`; a CG-only reference run cannot be compared with a separate AA run; `docs/design/drafts`
   is 31 MB of local screenshots (gitignored, 152 files).
 
 ## Next session
+
+**2026-11-16 A failed stage's record is the tail of its own log, not the wrapper's exit-status line.** Run
+`6ed68979edf0` (Glucose-CG-200ns, revision 1) failed at CG simulation; the card said `Command '['bash', ...]'
+returned non-zero exit status 1` while the log said, below the grompp stanza, `Cannot compute PME interactions on a
+GPU, because: PME GPU does not support: Systems that do not use PME for electrostatics.` The CG MDPs are Martini 3
+`coulombtype = reaction-field`, and this run's choices were `mdrun_pme: gpu`, `mdrun_nb: gpu`, `mdrun_update: gpu`;
+the earlier glucose run with `mdrun_pme: auto`, `mdrun_nb: auto`, `mdrun_update: cpu` ran the same stages to
+completion. The form offers the PME scheme to a CG run, so this was a settings error a reader could only find by
+opening the stage log; the run was then deleted by the user, so the evidence is the quoted manifest and log rather
+than a replay. `workflow` now raises `StageFailed` carrying `failure_snapshot` -- the last 8 nonblank,
+non-separator lines of the last 64 KiB of the stage log, with the `MPI_ABORT`/Open MPI banner dropped -- and the
+Runs card shows the whole message verbatim (`runs.js`/`runs.css`), not its first line. The stage record, the run
+`error`, the console line and the card therefore quote the tool; a log that cannot be read still names the stage
+and its exit code. Tests: `test_stage_failure.py` (the record quotes the GROMACS block, the tail is bounded, an
+unreadable log keeps the stage) and a Runs browser case that the card shows the second line, which is the one a
+reader needs. Checks: fast **2812 passed / 1 xfailed**; browser **391 passed**, the new Runs case among them;
+ruff clean. Ceiling: the New run form still offers `mdrun_pme: gpu` to a CG run whose MDPs are
+reaction-field; refusing that combination in the adapter or the form is the next step if it recurs.
 
 **2026-11-16 A constraint-only CG model is assessed, not failed.** Run `77504a003e5e` died at stage 5 on
 `validate_run`'s `report_interactions.out: nonfinite scores`, after a completed 201 ns simulation and a finite

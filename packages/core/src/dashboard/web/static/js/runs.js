@@ -266,7 +266,9 @@ export function createRuns({ onClone, onDeleted }) {
       const eta = job.status !== 'running' ? '—' : job.gromacs_eta ? `GROMACS: ${job.gromacs_eta}` : job.gromacs_remaining_seconds !== undefined ? `GROMACS: ${duration(job.gromacs_remaining_seconds)} remaining` : 'Waiting for GROMACS estimate';
       setText($('.job-eta', card), eta);
       $('.job-error', card).hidden = !job.error;
-      setText($('.job-error', card), job.error ? String(job.error).split('\n')[0] : '');
+      // The whole message, not its first line: a stage's failure now carries the tail of its own log, and the first
+      // line names the stage while the tool's error block follows. `runs.css` keeps the line breaks.
+      setText($('.job-error', card), job.error || '');
       $('.job-cancel', card).hidden = !job.can_cancel;
       $('.job-retry', card).hidden = !job.can_retry;
       $('.job-delete', card).hidden = !job.can_delete;
