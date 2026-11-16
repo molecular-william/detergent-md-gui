@@ -330,6 +330,20 @@ def test_a_cg_preset_round_trips_a_stage_editor_number(dashboard, live_page):
     assert errors == []
 
 
+def test_the_cg_production_timestep_field_states_the_adapters_own_range(dashboard, live_page):
+    """The input's min/max and the adapter's spec are one range: the server refuses what the form does not offer."""
+    page, errors = live_page
+    page.goto(f'{live_page.base_url}/detergent-validation/new-run')
+    open_cg_stage(page, 'production')
+    _label, low, high = cg.SETTING_SPECS['cg_production_dt_fs']
+
+    field = page.locator('[name=cg_production_dt_fs]')
+    expect(field).to_have_attribute('min', f'{low:g}')
+    expect(field).to_have_attribute('max', f'{high:g}')
+    assert (low, high) == (0.5, 50), 'the production leg\'s own ceiling, wider than the equilibration leg\'s'
+    assert errors == []
+
+
 def test_a_saved_composition_is_a_molecule_and_posts_its_derived_model(dashboard, live_page):
     """A composition is offered as a CG molecule, and the run it queues names the derived model, not a mapping.
 

@@ -267,7 +267,9 @@ SETTING_SPECS = {
     'cg_equil_tau_t': ('CG equilibration thermostat coupling (ps)', 0.01, 100.0),
     'cg_equil_tau_p': ('CG equilibration barostat coupling (ps)', 0.1, 100.0),
     'cg_equil_compressibility': ('CG equilibration compressibility (bar^-1)', 0.0, 1.0),
-    'cg_production_dt_fs': ('CG production timestep (fs)', 0.5, 20),
+    # Production's ceiling is wider than the equilibration leg's by decision, not by oversight: the step is the
+    # run's own stability question and the form states the interval it permits (0.5-50 fs).
+    'cg_production_dt_fs': ('CG production timestep (fs)', 0.5, 50),
     # The CG production leg's MDP options the New run form may override. Their defaults are the reviewed profile's
     # own numbers (`_production_defaults`), so an untouched run writes the reviewed file; a value the run names
     # replaces only that option and the manifest records it. `rlist` and `nstxtcout` have no default on purpose:

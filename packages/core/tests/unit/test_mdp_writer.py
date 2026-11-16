@@ -582,8 +582,10 @@ def test_a_cg_production_timestep_drives_its_step_count():
     assert before['dt'] == '0.02' and after['dt'] == '0.01'
     assert int(after['nsteps']) == 2 * int(before['nsteps']) == 2000
     assert int(after['nstxtcout']) == 2 * int(before['nstxtcout'])
+    # Production's own ceiling: 50 fs is the run's to take, 60 fs is past what this form offers.
+    assert cg.normalize_settings({'cg_production_dt_fs': 50})['cg_production_dt_fs'] == 50
     with pytest.raises(ValueError, match='CG production timestep'):
-        cg.normalize_settings({'cg_production_dt_fs': 25})
+        cg.normalize_settings({'cg_production_dt_fs': 60})
 
 
 def test_all_three_cg_kinds_publish_the_per_stage_settings():

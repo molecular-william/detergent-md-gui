@@ -6,6 +6,13 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 The CG production timestep accepts 0.5-50 fs.** `cg.SETTING_SPECS['cg_production_dt_fs']` capped the
+step at 20 fs -- in the adapter, where `normalize_settings` refuses an out-of-range value, and in the New run input's
+own `max`. Both are 50 now; the equilibration leg stays 20, which is a decision rather than an oversight and is said so
+at the tuple. Nothing else states the range: the route keeps the adapter's specs and the sugar/composition adapters
+publish the same one. `test_a_cg_production_timestep_drives_its_step_count` now pins 50 fs accepted and 60 fs refused in
+place of the old 25-refused probe. **The dashboard needs a restart** for the Python ceiling and the template.
+
 **2026-11-16 Bond Interactions: the CG surface follows the ring constraints.** The mapped CG envelope was built
 from each bead's raw atom mean, so the drawn CG ring was 1.00x while the table and the run said 1.15x (the mapping's
 `ring.scale`; `bonded.generation` writes each `[ constraints ]` length as `distance(raw centres) * scale`), and the bulk
