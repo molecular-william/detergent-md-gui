@@ -490,6 +490,19 @@ def test_a_rigid_constraints_length_is_editable_and_reads_manual():
     assert edits['constraints:1']['after'] == [0.33]
     assert {row['id']: row['source'] for row in saved['sources']}['constraints:1'] == 'manual'
 
+def test_save_as_new_keeps_a_scaled_constraint_length_to_its_last_digit():
+    """Ring-scale multiplies a fitted length; six-significant-digit text refused the save (DDM, 2026-11-16)."""
+    candidate = mapping()
+    topology = TOPOLOGY.replace('[ bonds ]', '[ constraints ]\n1 2 1 0.349407\n\n[ bonds ]')
+    item = parameterization.save(candidate, revision(topology=topology))
+    record = parameterization.save_terms(
+        candidate, mode='new', revision=1, expected_revision=1, expected_sha256=_sha(item),
+        edits=[{'id': 'constraints:1', 'parameters': [0.40181805]}])
+
+    clone = record['current']
+    assert '1 2 1 0.40181805' in clone['topology']
+    assert {term['id']: term for term in clone['edited_terms']}['constraints:1']['after'] == [0.40181805]
+
 
 def test_saving_terms_as_new_clones_the_shown_revision_and_leaves_it_alone():
     candidate = mapping()

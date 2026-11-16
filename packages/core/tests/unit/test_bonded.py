@@ -233,3 +233,10 @@ def test_rewrite_interactions_edits_a_constraint_and_refuses_unknown_ids():
     assert '1 2 1 0.3' in rewritten
     with pytest.raises(ValueError, match='No editable term bonds:9'):
         bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'bonds:9': [0.3, 5000]})
+
+def test_rewrite_interactions_keeps_every_digit_it_was_given():
+    """A scaled ring length is not a store defect: six-significant-digit text lost the seventh digit (DDM, 2026-11-16)."""
+    rewritten = bonded.rewrite_interactions(EDITABLE_TOPOLOGY, {'constraints:1': [0.40181805]})
+
+    row = next(row for row in bonded.parse_interactions(rewritten) if row['id'] == 'constraints:1')
+    assert row['parameters'] == ['0.40181805']

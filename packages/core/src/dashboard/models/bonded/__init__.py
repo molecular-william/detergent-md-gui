@@ -186,6 +186,17 @@ def parse_interactions(topology):
     return rows
 
 
+def _parameter_text(value):
+    """One parameter as text that reads back as the same number.
+
+    Six significant digits was the defect: a length the table scaled to 0.40181805 was written as 0.401818 and the
+    read-back below called it a store defect. repr() is the shortest text that round-trips, and dropping a .0 keeps
+    an integral field integral -- GROMACS reads a multiplicity as an integer.
+    """
+    text = repr(float(value))
+    return text[:-2] if text.endswith('.0') else text
+
+
 def rewrite_interactions(topology, edits):
     """Replace edited terms' parameters in a topology, preserving every other byte of text.
 
@@ -233,7 +244,7 @@ def rewrite_interactions(topology, edits):
                             prefix = raw[:len(raw) - len(raw.lstrip())]
                             suffix = ' ;' + raw.split(';', 1)[1] if ';' in raw else ''
                             rendered = ' '.join([*(str(index) for index in indices), fields[width],
-                                                 *(f'{value:g}' for value in parameters)])
+                                                 *(_parameter_text(value) for value in parameters)])
                             replacement = prefix + rendered + suffix
                             applied.add(term_id)
         lines.append(raw if replacement is None else replacement)

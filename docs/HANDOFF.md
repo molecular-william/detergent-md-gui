@@ -6,6 +6,16 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 Bonded term edits kept their digits: Save as new no longer answers 500.** The ring-scale button posts
+each scaled length at 12 significant digits, and `rewrite_interactions` rendered parameters with `%g` -- six -- so
+the store's own read-back check (`float(stored) - float(requested) > 1e-12`) called the write a store defect and
+`save_terms` raised `RuntimeError`; the route answered 500 for both Save in place and Save as new, on any value
+needing a seventh digit (0.349407 x 1.15 = 0.40181805 written as 0.401818). The writer now renders `repr(float(v))`
+and drops a trailing `.0`, so the text round-trips exactly and an integral field (a multiplicity) stays integral.
+The read-back guard is unchanged and still exact. Regression tests, both failing on the old renderer:
+`packages/core/tests/unit/test_bonded.py::test_rewrite_interactions_keeps_every_digit_it_was_given` and
+`test_bonded_parameterization.py::test_save_as_new_keeps_a_scaled_constraint_length_to_its_last_digit`.
+**The dashboard needs a restart** for the writer. Checks: fast **2793 passed / 1 xfailed**, ruff clean.
 **2026-11-16 Runs Stage settings is a four-column grid; run dcbb42dcb73b repaired.** The per-run Stage settings
 disclosure places its stage groups in four columns (two at <=1200px, one at <=760px); the Run view Analysis tab's
 Stage settings mode uses two columns (one at <=900px). Each group is its own section, so a heading stays with its
