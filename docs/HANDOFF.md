@@ -11,7 +11,7 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Current state (2026-11-16)
 
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
-  It was restarted 2026-11-16 18:19 on `ed3e995`, and the named-store migration was applied after it. Restart after a
+  It was restarted 2026-11-16 18:23 on `696fae7`, after the named-store migration was applied. Restart after a
   Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
