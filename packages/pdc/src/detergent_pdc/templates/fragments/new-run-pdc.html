@@ -80,6 +80,16 @@
           <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
         </tbody></table>
       </div>
+      <div class="new-pdc-pair new-pdc-legs new-pdc-equilibration">
+        <div class="leg">
+          <label>CG NVT equilibration (ps)<input name="pdc_nvt_ps" id="new-nvt-ps" type="number" min="0" max="1000000" step="1"></label>
+          <span class="hint">The constant-volume leg before pressure coupling. <code>0</code> skips it; the reviewed profile timestep applies unless you state one under Other run options.</span>
+        </div>
+        <div class="leg">
+          <label>CG NPT equilibration (ps)<input name="pdc_npt_ps" id="new-npt-ps" type="number" min="0" max="1000000" step="1"></label>
+          <span class="hint">The pressure-equilibration leg that brings the box to the target barostat. <code>0</code> skips it; the same timestep rule applies.</span>
+        </div>
+      </div>
       <div class="new-pdc-pair new-pdc-legs">
         <div class="leg">
           <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>

@@ -393,11 +393,13 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').fill('220')
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
-    # The two timesteps live in Other run options and are the only blank fields there: stated, they post under the
-    # adapter's advertised names, beside the rest of the run's settings.
+    # The two timesteps live in Other run options; the equilibration durations sit with the production legs.
+    # Stated, all four post under the adapter's advertised names, beside the rest of the run's settings.
     page.locator('#new-advanced').evaluate('(el) => el.open = true')
     page.locator('[name=pdc_equil_dt_fs]').fill('10')
     page.locator('[name=pdc_production_dt_fs]').fill('20')
+    page.locator('[name=pdc_nvt_ps]').fill('100')
+    page.locator('[name=pdc_npt_ps]').fill('200')
     # Leaving the field runs the readiness check that re-enables the button; clicking while it is pending would hit a
     # disabled button (a number input's change fires on blur, before the click).
     page.locator('[name=pdc_production_dt_fs]').press('Tab')
@@ -415,7 +417,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         # The plan's step 1, stated rather than omitted, and on by default: a run that asked for the preparation must not
         # be readable as one that did not -- the same reason the back-map choice is always sent.
         'prepare_protein': True,
-        'aggregation_number': 220, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
+        'aggregation_number': 220, 'pdc_nvt_ps': 100, 'pdc_npt_ps': 200,
+        'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,

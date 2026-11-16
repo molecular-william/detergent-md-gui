@@ -25,7 +25,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const say = (selector, text) => { const target = pdcNode(selector); if (target) setText(target, text); };
   const saved = () => storage.get('pdc-form', {}) || {};
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
-  const NUMBERS = ['aggregation_number', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
+  const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_equil_dt_fs', 'pdc_production_dt_fs',
