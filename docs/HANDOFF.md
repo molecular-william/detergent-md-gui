@@ -15,8 +15,11 @@ state, what is next, what is open, and the measurements and incidents a reader h
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
   `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores`. Fixed the same
-  day -- the molecule is constraints-only, so there is no interaction half to score. Restart, then **Restart from
-  stage** that assessment to finish the run.
+  day -- the molecule is constraints-only, so there is no interaction half to score. The retry was then refused by
+  the run's own code pins, repaired with a recorded `code_repair`, and re-run: the run **completed** 2026-11-16
+  15:14 HKT with `interaction_scores.scored: false` in `validation.json`, the stratified distance figure, both SASA
+  series and its three analyses. A restart is still needed before preparing a new *fit* CG run: that adapter
+  contract is imported at startup, while a repository stage script is read fresh per attempt.
 - **Store.** `workspace/dashboard` is 24 GB after the cleanup below: 16 runs (five pdc 1 us runs 21.7 GB, four aa
   200 ns 1.9 GB, seven cg 1.0 GB); `parameterizations/` 27 MB (the records and their own revisions); `martini3/`
   18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. Inside `runs/`: 415 MB of captured console
@@ -59,6 +62,19 @@ Tests: `test_cg_assessment_validation.py` (constraint-only accepted and recorded
 unnamed or missing ITP stays strict; a finite report adds no note; the two family declarations satisfy their
 contracts). **The dashboard needs a restart** for the adapter's stage contract; the assessment fix itself is read per
 stage, so **Restart from stage** on `77504a003e5e` finishes that run without one.
+
+The retry then met the run's code pins, which is the guard working and not a second bug: the run prepared at 14:46
+with `validate_run.py` and `assess.sh` at their pre-fix digests, so the stage was refused before it started. The
+manifest now carries one `code_repair` record (both pins with recorded/found sha256, commit `39d9ed5`, stages 1-4 on
+the recorded code and 5-6 on the current), the two digests were re-pinned, and `POST
+/api/jobs/77504a003e5e/resume {"stage": "CG assessment (ff_assess)"}` ran stages 5-6 in 63 s. `77504a003e5e` is
+**completed**: `validation.json` records `interaction_scores.scored: false` with its reason,
+`distance_diagnostics_stratified.json` and `distance_matrix_stratified_LIG1.png` are written, `6_SASA/{AA,CG}` hold
+their series, and the run's three analyses (`bonded-cross-check`, `dihedral-fit`, `ff-interactions`) completed. The
+`ff-interactions` record publishes `available: false`, and its reason now names the constraint-only case among the
+three (`ff_interactions.publish`), so a Recompute says something true about this run. The pre-repair pins are in
+`resume_history/0001/manifest.before.json`. Checks after the repair: 18 passed in
+`test_mapping_consistency_api.py`, ruff clean; the completed run was measured live, not replayed.
 
 1. **Cross-run AA vs CG comparison** (asked 2026-11-16): the data and the approach are in its row below. Start with
    a plan in `docs/plans/` and settle the one science decision -- which mapping the published entry is compared through.

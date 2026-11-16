@@ -229,6 +229,8 @@ def publish(work, payload=None):
     }
     if not terms:
         record['reason'] = ('No Fast-Forward interaction distributions were staged for this run. The assessment '
-                            'may have been skipped, or stage 3 consumed a revision that recorded none.')
+                            'may have been skipped, stage 3 consumed a revision that recorded none, or the molecule '
+                            'holds its geometry as constraints and has no bond, angle or dihedral to compare -- '
+                            '`5_assessment/validation.json` says which, in `interaction_scores`.')
     (work / RECORD).write_text(json.dumps(record, indent=2) + '\n')
     return record

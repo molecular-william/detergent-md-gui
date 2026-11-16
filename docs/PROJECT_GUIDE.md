@@ -167,7 +167,10 @@ is `published`, `store`, `run-output` or `generated`, and `root` is `repo`, `wor
 input changed after prepare refuses the next stage by name. Generated data is written by value into `inputs/`;
 nothing the run already had is copied. The code is not in the run either: `stage_scripts` names each stage's
 repository script and `python_modules` the helpers its scripts import, each with a sha256 re-checked before the
-stage starts. MDPs are rendered from the reviewed profiles in `dashboard/execution/mdp/profiles.py`, and the
+stage starts, so a changed helper refuses the stage by name. The deliberate repair is a recorded manifest edit --
+re-pin the changed digests and append one `code_repair` record naming the old and new sha256, the commit and which
+stages ran on which code (`dcbb42dcb73b`, `77504a003e5e` carry one) -- never a silent edit; a run that should not
+reuse its finished stages is cloned or retried into a new run instead. MDPs are rendered from the reviewed profiles in `dashboard/execution/mdp/profiles.py`, and the
 manifest's `mdp_profiles` names the profile behind each file written. Output cadences are the run's own:
 `nstlog`, `nstenergy` and `nstxtcout` reach the file from the panel (or the profile's default), and there is no
 long-run widening rule. The New run inputs therefore control the file size and the sampling cadence directly. The CG dynamics files use the Martini 3 paper's Verlet list with two deliberate departures: `nstlist = 40`
