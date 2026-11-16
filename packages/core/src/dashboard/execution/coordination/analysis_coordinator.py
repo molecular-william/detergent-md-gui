@@ -291,7 +291,11 @@ class AnalysisCoordinator:
                 raise CapacityFull('Analysis capacity is busy')
             with owner.lease(owner.run_path(job) / '.worker.lock'):
                 pass
+            # What the request stages, plus the run's own durable copy of each outside source: the run keeps one
+            # `sources/` copy per external input, and these bytes land beside the attempt's, so they are charged to
+            # the same ceiling. A copy already present is not charged twice; the second attempt of a kind adds none.
             copied_bytes = sum(path.stat().st_size for path in source_entries.values())
+            copied_bytes += analysis.source_copy_bytes(owner.run_path(job), source_entries)
             if resources.usage(owner.run_path(job)) + copied_bytes > owner.limits()['max_run_bytes']:
                 raise CapacityFull('Analysis workspace exceeds the per-run storage limit')
             resources.admit(owner.storage_report(), len(owner.WORKERS) + len(owner.ANALYSIS_WORKERS), copied_bytes)

@@ -73,6 +73,33 @@ class Store:
             db.execute('DELETE FROM retired_runs')
             db.executemany('INSERT INTO jobs(id,data) VALUES (?,?)', [(r['id'], json.dumps(r)) for r in rows])
 
+    def rename(self, old, new, rewrite=None):
+        """Move one job row to a new primary key, keeping the rest of its text and bumping its revision.
+
+        The row JSON is round-tripped through this store's own serializer, so only rewrite and the id change. A
+        cross-reference rewrite (another run's id in this row) is the caller's, passed as rewrite.
+        """
+        with self.connection() as db:
+            row = db.execute('SELECT data FROM jobs WHERE id=?', (old,)).fetchone()
+            if row is None:
+                raise KeyError(old)
+            if db.execute('SELECT 1 FROM jobs WHERE id=?', (new,)).fetchone():
+                raise ValueError(f'A run named {new!r} already exists')
+            job = json.loads(row[0])
+            if rewrite is not None:
+                rewrite(job)
+            job['id'] = new
+            db.execute('UPDATE jobs SET id=?, data=?, revision=revision+1 WHERE id=?',
+                       (new, json.dumps(job), old))
+            return job
+
+    def retire(self, name):
+        """Retire a name: name_taken refuses it, so a new run is never handed a retired run name."""
+        from datetime import datetime, timezone
+        with self.connection() as db:
+            db.execute('INSERT OR IGNORE INTO retired_runs(name, retired_at) VALUES (?,?)',
+                       (name, datetime.now(timezone.utc).isoformat()))
+
     def insert(self, job):
         self.insert_many([job])
 

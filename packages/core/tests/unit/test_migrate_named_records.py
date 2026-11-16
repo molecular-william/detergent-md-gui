@@ -11,6 +11,7 @@ import shutil
 import pytest
 from dashboard import files, martini3, paths
 from dashboard.cli import migrate_named_records as migration
+from dashboard.execution import run_inputs
 from dashboard.models.molecules import aa
 from dashboard.store import Store
 
@@ -277,6 +278,54 @@ def test_a_store_path_is_rebased_from_the_legacy_hash_to_the_record_name(tmp_pat
                          'root': 'workspace',
                          'path': 'parameterizations/records/Glucose-0.revisions/1/1_B01_1_B02_distances_distr.dat'}
     assert migration._convert_input(entry, {})['path'] == entry['path'], 'an unknown hash is left for a human'
+
+
+def test_a_flat_molecule_path_is_rebased_onto_the_versioned_file(tmp_path):
+    """A folder moved to v1 leaves manifests naming the flat path; only the installed version may be renamed to."""
+    versioned = tmp_path / 'molecules' / MOLECULE / 'v1' / 'MMFF'
+    versioned.mkdir(parents=True)
+    (versioned / 'lig1.itp').write_text('x\n')
+    entry = {'role': 'molecule', 'label': 'MMFF/lig1.itp', 'kind': 'published', 'root': 'repo',
+             'path': f'molecules/{MOLECULE}/MMFF/lig1.itp'}
+
+    converted = migration._convert_input(entry, repo_root=tmp_path)
+    assert converted['path'] == f'molecules/{MOLECULE}/v1/MMFF/lig1.itp'
+
+    installed = {**entry, 'path': converted['path']}
+    assert migration._convert_input(installed, repo_root=tmp_path)['path'] == installed['path'], \
+        'a path already naming the version is unchanged'
+
+    flat = tmp_path / 'molecules' / MOLECULE / 'MMFF'
+    flat.mkdir()
+    (flat / 'lig1.itp').write_text('x\n')
+    assert migration._convert_input(entry, repo_root=tmp_path)['path'] == entry['path'], \
+        'a flat file that is still there is left alone'
+
+
+def test_a_flat_molecule_input_is_rewritten_and_the_manifest_verifies(world):
+    project, workspace = world
+    run_dir = workspace / 'runs' / CONSUMER
+    flat = f'molecules/{MOLECULE}/MMFF/lig1.itp'
+    versioned = f'molecules/{MOLECULE}/v1/MMFF/lig1.itp'
+    assert (project / versioned).is_file() and not (project / flat).exists()
+    for path in (run_dir / 'manifest.json', run_dir / 'inputs' / 'inputs.json'):
+        document = json.loads(path.read_text())
+        document['inputs'].append({'role': 'molecule', 'label': 'MMFF/lig1.itp', 'kind': 'published',
+                                   'root': 'repo', 'path': flat})
+        files.atomic_json(path, document)
+
+    result = migration.apply(migration.plan(workspace, project_root=project), workspace)
+
+    assert result['verification'] == [], result['verification']
+    manifest = json.loads((run_dir / 'manifest.json').read_text())
+    recorded = [entry['path'] for entry in manifest['inputs']]
+    assert flat not in recorded and versioned in recorded
+    assert f'molecules/{MOLECULE}/v1/metadata.json' in recorded, 'a path already naming v1 is unchanged'
+    with paths.use(paths.Paths(project_root=project, workspace=workspace)):
+        run_inputs.verify_manifest(run_dir, manifest)
+
+    assert [entry['status'] for entry in migration.plan(workspace, project_root=project)['manifests']] == [
+        'unchanged', 'unchanged'], 'the rewrite is idempotent'
 
 
 def test_a_working_run_refuses_apply(world):

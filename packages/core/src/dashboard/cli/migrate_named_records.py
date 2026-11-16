@@ -15,7 +15,8 @@ artifact digests are left exactly as they are. What it changes is:
   never rewritten;
 * each run's manifest.json and inputs/inputs.json become layout 4: every input names its root and path, the
   input snapshot and per-entry digests are dropped, stage_scripts/python_modules name the code registry entry,
-  a martini3/<file> input points at the versioned copy, a shared_reference pins the source's edition, and a
+  a martini3/<file> input points at the versioned copy, a molecule input still spelled at the flat path is
+  rebased onto the version the folder states, a shared_reference pins the source's edition, and a
   molecule_snapshot becomes the named selection;
 * a provenance.json is written beside the manifest;
 * each job row's molecule_snapshot becomes the named selection, but only after it is proved to describe the same
@@ -318,9 +319,30 @@ def _store_names(workspace):
     return names
 
 
-def _convert_input(entry, store_names=None):
-    """One input entry by name: a workspace Martini path points at the versioned copy, and a store path at the
-    record's name rather than the legacy hash it was written under."""
+def _versioned_molecule(path, root, *, repo_root=None, workspace_root=None):
+    """`molecules/<id>/<rest>` rebased onto `molecules/<id>/v1/<rest>` when only the versioned file exists.
+
+    The molecule-version migration moved each live folder to `v1`, but a manifest written before it still names the
+    flat path. The rewrite is proved by the filesystem: the versioned file must exist and the flat one must not.
+    """
+    parts = path.split('/')
+    if len(parts) < 3 or parts[0] != 'molecules' or not parts[1]:
+        return path
+    if root == 'repo':
+        base = Path(repo_root) if repo_root is not None else paths.current().project_root
+    elif root == 'workspace':
+        base = Path(workspace_root) if workspace_root is not None else paths.current().workspace
+    else:
+        return path
+    candidate = '/'.join([parts[0], parts[1], 'v1', *parts[2:]])
+    if (base / candidate).is_file() and not (base / path).exists():
+        return candidate
+    return path
+
+
+def _convert_input(entry, store_names=None, *, repo_root=None, workspace_root=None):
+    """One input entry by name: a workspace Martini path points at the versioned copy, a store path at the record's
+    name rather than the legacy hash it was written under, and a flat molecule path at the installed version."""
     if not isinstance(entry, dict):
         raise Refusal('an input entry is not an object')
     missing = [key for key in ('role', 'label', 'kind', 'root', 'path') if not entry.get(key)]
@@ -338,6 +360,8 @@ def _convert_input(entry, store_names=None):
         rest = path[len(martini3.DIRECTORY) + 1:]
         if not rest.startswith(f'{martini3.VERSION}/'):
             path = f'{martini3.DIRECTORY}/{martini3.VERSION}/{rest}'
+    if entry['root'] in ('repo', 'workspace'):
+        path = _versioned_molecule(path, entry['root'], repo_root=repo_root, workspace_root=workspace_root)
     return {'role': str(entry['role']), 'label': str(entry['label']), 'kind': entry['kind'],
             'root': entry['root'], 'path': path}
 
@@ -430,13 +454,15 @@ def _convert_manifest(workspace, run_dir, manifest, project_root, planned_editio
         if recorded.get('inputs') != inputs:
             raise Refusal('the manifest and inputs/inputs.json disagree about the inputs')
         store_names = _store_names(workspace)
-        inputs = [_convert_input(entry, store_names) for entry in inputs]
+        inputs = [_convert_input(entry, store_names, repo_root=project_root, workspace_root=workspace)
+                  for entry in inputs]
         document['inputs'] = inputs
         recorded = {**recorded, 'inputs': inputs}
     elif recorded is not None and isinstance(recorded.get('inputs'), list):
         # A layout-2 run whose inputs record survived: name them too rather than dropping the only record.
         store_names = _store_names(workspace)
-        inputs = [_convert_input(entry, store_names) for entry in recorded['inputs']]
+        inputs = [_convert_input(entry, store_names, repo_root=project_root, workspace_root=workspace)
+                  for entry in recorded['inputs']]
         document['inputs'] = inputs
         recorded = {**recorded, 'inputs': inputs}
     else:

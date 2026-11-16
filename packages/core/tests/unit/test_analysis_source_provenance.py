@@ -10,7 +10,7 @@ def test_a_parameterization_store_file_is_named_from_the_workspace(tmp_path):
     store.parent.mkdir(parents=True)
     store.write_text('0 1\n')
     assert _source_provenance(run, store) == \
-        'shared/parameterizations/records/r.revisions/1/term_distr.dat'
+        'sources/shared/parameterizations/records/r.revisions/1/term_distr.dat'
 
 
 def test_a_file_inside_the_run_keeps_the_run_relative_name(tmp_path):

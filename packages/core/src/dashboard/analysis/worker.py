@@ -23,6 +23,12 @@ from .kinds import TABLE
 from .runs import layout
 from .runs import references as aa_references
 
+#: The run-relative directory holding one durable copy of each source an analysis read from outside the run. Each
+#: is named as `sources.json` records it (`sources/shared/<path from the workspace>`), so a run directory copied
+#: to another machine still holds every input its analyses read and `source_path` answers it from the run alone.
+#: An attempt stages no copy of its own: a second attempt of a kind finds the run's copy and stages nothing.
+COPIES = 'sources'
+
 
 def _stage_alias(relative):
     """A stage-relative path with its stage directory replaced by the stage's own registered key.
@@ -36,6 +42,35 @@ def _stage_alias(relative):
     return '/'.join([stage, *parts[1:]]) if stage else str(relative)
 
 
+def _copy_roots(run, kind):
+    """Where this run keeps copies of outside sources: its own first, then an older attempt's, newest first.
+
+    An attempt directory is `analyses/<kind>/<NNNN-date>/` in a current run and `<signature>/<attempt>/` in one
+    written before the sequence was named, so the old copies are searched rather than spelled. The run's own copy is
+    the one current attempts read; the attempts' copies are the previous lane's, kept so an attempt it published
+    still answers.
+    """
+    yield Path(run)/COPIES
+    directory = Path(run)/'analyses'/kind
+    if directory.is_dir():
+        found = [path for path in directory.glob(f'**/{COPIES}') if path.is_dir()]
+        yield from sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def _staged_reference(run, kind, source_run_id):
+    """This run's copy of the shared AA reference's two files, or `None` when it holds none.
+
+    Both files are staged together, so their copies share a directory; a run whose copies are incomplete (or were
+    published by two different attempts) answers `None` rather than half a reference.
+    """
+    tail = Path('shared')/str(source_run_id)/'stages'/'07_reference'
+    for root in _copy_roots(run, kind):
+        directory = root/tail
+        if all((directory/name).is_file() for name in ('lig.gro', 'lig.xtc')):
+            return directory
+    return None
+
+
 def source_entries(root,kind,payload=None):
     patterns = list(TABLE[kind].sources)
     run=root.parent if root.name=='stages' else root
@@ -45,7 +80,17 @@ def source_entries(root,kind,payload=None):
         if shared:
             if not shared.get('edition'):
                 raise ValueError('A shared AA reference must be pinned by its edition')
-            aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['edition'])
+            if (run.parent/str(shared.get('source_run_id') or '')).is_dir():
+                aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['edition'])
+            else:
+                # This run has been copied to a machine without the reference run it was fitted against. The run
+                # kept one copy of the two files its analyses read, so the consumer still answers from this run; a
+                # run that holds neither that copy nor an earlier attempt's gets the resolver's own refusal instead
+                # of a silently empty pair.
+                aa_source=_staged_reference(run,kind,str(shared.get('source_run_id') or ''))
+                if aa_source is None:
+                    raise ValueError(f'the shared AA reference run {shared["source_run_id"]!r} is not under '
+                                     f'{run.parent} and this run holds no copy of its lig.gro/lig.xtc')
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
     def matches(relative):
@@ -63,19 +108,119 @@ def source_entries(root,kind,payload=None):
         entries.update(TABLE[kind].source_hook(run, payload or {}))
     return entries
 
+def _copy_name(run, path):
+    """The recorded name of an attempt copy published by the previous lane, or `None`.
+
+    That copy sits at `analyses/<kind>/<attempt>/sources/<name>`. An attempt that reads one -- a run directory
+    moved to a machine without the store or reference run it came from -- records the name the first attempt
+    recorded rather than the path the copy now occupies, and the run then keeps its own copy under that name so
+    every later attempt reads the same file.
+    """
+    try:
+        parts = Path(path).relative_to(run).parts
+    except ValueError:
+        return None
+    if not parts or parts[0] != 'analyses':
+        return None
+    try:
+        index = parts.index(COPIES, 2)
+    except ValueError:
+        return None
+    tail = parts[index + 1:]
+    return Path(*tail).as_posix() if tail else None
+
+
 def _source_provenance(run, path):
-    """The run-relative name of a source, or a stable shared name when it lives outside the run.
+    """The name `sources.json` records for a source: run-relative, or `sources/<shared name>` when it is outside.
 
     A source hook may stage a file from the parameterization store, which is beside `runs/`, not under it. The worker
     used to assume every source was under the run or its parent and died on the first store file; the shared name is
-    taken from the workspace root when the file is there, so the recorded name list stays readable.
+    taken from the workspace root when the file is there, so the recorded name list stays readable. The `sources/`
+    prefix is what makes an outside source run-relative: the run keeps one copy under it (see `_stage_source_copy`),
+    and a previous lane's attempt copy is promoted under the name the first attempt recorded.
     """
+    path = Path(path)
+    copied = _copy_name(run, path)
+    if copied:
+        return f'{COPIES}/{copied}'
     if path.is_relative_to(run):
         return str(path.relative_to(run))
     for base in (run.parent, run.parent.parent):
         if path.is_relative_to(base):
-            return 'shared/' + str(path.relative_to(base))
-    return 'shared/' + path.name
+            return f'{COPIES}/shared/{path.relative_to(base)}'
+    return f'{COPIES}/shared/{path.name}'
+
+
+def _stage_source_copy(run, path, name):
+    """Copy an outside source into the run once, under the name its record carries.
+
+    `name` is `sources/<shared name>` for a file from outside the run and for a previous lane's attempt copy. The
+    copy is skipped when the run already holds the same bytes, so a second attempt of a kind stages nothing; the
+    named-and-renamed write means a reader never sees a partial file.
+    """
+    if not name.startswith(COPIES + '/'):
+        return
+    source, target = Path(path), Path(run)/name
+    if target == source:
+        return
+    if target.is_file() and target.stat().st_size == source.stat().st_size \
+            and files.sha256(target) == files.sha256(source):
+        return
+    files.atomic_copy(source, target)
+
+
+def source_copy_bytes(run, entries):
+    """The bytes a queue request would add under the run's own `sources/`, for the capacity check.
+
+    An outside source already copied at its recorded name with the same size adds nothing, so a second attempt is
+    not charged for the copy the first made. A cheap size test rather than a digest: the worker refuses to replace
+    an identical file, and a same-sized replacement cannot grow the run past this estimate.
+    """
+    run, total = Path(run), 0
+    for path in entries.values():
+        source = Path(path)
+        name = _source_provenance(run, source)
+        if not name.startswith(COPIES + '/'):
+            continue
+        try:
+            size = source.stat().st_size
+        except OSError:
+            continue
+        target = run/name
+        if target.is_file() and target.stat().st_size == size:
+            continue
+        total += size
+    return total
+
+
+def source_path(run, attempt, name):
+    """The file a recorded source name stands for, or `None` when this machine holds none of its copies.
+
+    `name` is one entry of an attempt's `sources.json`: a run-relative path, or `shared/<path from the workspace>`
+    for an attempt the previous lane published. The run's own `sources/` copy answers first, so a run directory
+    copied to another machine reads what it kept; the original outside path answers when it is still on this
+    machine, and an attempt's own `sources/<name>` is the last answer for an older record. `None` rather than a
+    missing path, so a caller can name what is gone.
+    """
+    run, attempt = Path(run), Path(attempt)
+    relative = Path(str(name))
+    if relative.is_absolute() or '..' in relative.parts:
+        raise ValueError(f'A recorded analysis source must be a relative name, not {name!r}')
+    if relative.parts and relative.parts[0] == 'shared':
+        tail = Path(*relative.parts[1:])
+        for base in (run.parent, run.parent.parent):
+            candidate = base / tail
+            if candidate.is_file():
+                return candidate
+    elif relative.parts:
+        candidate = run / relative
+        if candidate.is_file():
+            return candidate
+    for base in (run/COPIES, attempt/COPIES):
+        candidate = base / relative
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def execute(request_path):
@@ -102,7 +247,13 @@ def execute(request_path):
         for relative,path in source_entries(root,kind,request.get('payload', {})).items():
             target = work/relative; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
-            sources.append(_source_provenance(run, path))
+            name = _source_provenance(run, path)
+            sources.append(name)
+            # A source from outside the run -- the paired AA reference's trajectory, the parameterization store's
+            # histograms -- is copied into the run itself, once, under the name `sources.json` records. An attempt
+            # keeps no copy, so a second attempt of a kind finds the run's copy and stages nothing; the run
+            # directory alone then holds every input its analyses read.
+            _stage_source_copy(run, path, name)
         # Refinement depends on the latest completed diagnostic reports, with legacy fallback.
         if TABLE[kind].takes_dependencies:
             for name in ('numerical_stability.json', 'experimental_targets.json'):

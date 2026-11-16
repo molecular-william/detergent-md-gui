@@ -134,13 +134,52 @@ def _source_record(work, consumed):
     return {'from': 'stage 3 ff_inter', 'fit_temperature_k': temperature}
 
 
+def _copied_reference(run, path):
+    """The run's own copy of a store histogram, or one an earlier attempt kept, or `None`.
+
+    A run directory copied to another machine is self-contained: it keeps one copy of each source an analysis read
+    from outside it under `sources/`, and the previous lane's attempts kept theirs under
+    `analyses/<kind>/<attempt>/sources/`. The recorded name is `sources/shared/...` for the run's copy and
+    `shared/...` for an attempt's. Either is matched by the *components* of the path this run recorded, because a
+    run moved to another machine no longer knows the workspace root that absolute path was written under -- and two
+    revisions can hold the same file name, so the name alone would not choose between them. The run's copy answers
+    first; the most specific recorded name wins, and a newer attempt's record wins over an older one.
+    """
+    from dashboard.analysis import worker  # local: the engine imports this module through the feature registry
+    run, path = Path(run), Path(path)
+    matches = []
+    for record in sorted((run/'analyses'/'ff-interactions').glob('**/sources.json'),
+                         key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            names = json.loads(record.read_text())
+        except (OSError, ValueError):
+            continue
+        for name in names if isinstance(names, list) else ():
+            parts = Path(str(name)).parts
+            if parts[:1] == ('sources',):
+                parts = parts[1:]
+            if not parts or parts[0] != 'shared' or parts[-1] != path.name:
+                continue
+            tail = parts[1:]
+            if len(tail) > len(path.parts) or path.parts[-len(tail):] != tail:
+                continue
+            matches.append((len(tail), record.parent, str(name)))
+    if not matches:
+        return None
+    _, attempt, name = max(matches, key=lambda item: (item[0], item[1].stat().st_mtime))
+    return worker.source_path(run, attempt, name)
+
+
 def sources(run_dir, payload=None):
     """Stage the text distributions and the report; for a consuming run, the revision's own histograms too.
 
     The store is outside the run, so its histograms cannot be named by a source pattern. They are read from
     `parameterization_used.json` and staged under `store/`, which is what lets the worker name them in `sources.json`
-    and the producer read them from its own work directory. A store file that is gone is skipped; the
-    record's `reference_missing` then names the side, rather than the whole analysis failing.
+    and the producer read them from its own work directory. A store file that is gone is answered from the run's own
+    copy (or, for an attempt the previous lane published, that attempt's copy) when the run holds one -- which is
+    what lets a run directory copied to a machine without the store still compare against its revision -- and is
+    skipped only when the run holds none; the record's `reference_missing` then names the side, rather than the
+    whole analysis failing.
     """
     run = Path(run_dir)
     stages = layout.stage_root(run)
@@ -167,7 +206,11 @@ def sources(run_dir, payload=None):
             record = {}
         for entry in record.get('reference_distributions') or []:
             path = Path(str(entry.get('name') or ''))
-            if not path.is_file() or not any(path.name.endswith(suffix) for suffix in SUFFIX.values()):
+            if not any(path.name.endswith(suffix) for suffix in SUFFIX.values()):
+                continue
+            if not path.is_file():
+                path = _copied_reference(run, path)
+            if path is None or not path.is_file():
                 continue
             add(f'store/{path.name}', path)
     return entries
