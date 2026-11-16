@@ -1,9 +1,15 @@
 """Which of a run's published figures a reader is being shown, and which were superseded.
 
-A figure lives where its analysis published it -- `analyses/<kind>/<signature>/<attempt>/<output>/...` -- and every
-attempt leaves its own copy beside the newer one. Measured on this workspace's own sucrose CG run: 38 images, 33 of
-them the same three snapshot SVGs from eleven runs of the same analysis, so listing the index answers a question
-nobody asked, and the picture a reader wants is buried among its own earlier selves.
+A figure lives where its analysis published it, and the spelling depends on when the attempt was written:
+
+* `analyses/<kind>/<NNNN>-<YYYYMMDD>/<output>/...` -- the sequence layout. The attempt is its own published set:
+  another run of the analysis is another answer.
+* `analyses/<kind>/<signature>/<attempt>/<output>/...` -- a legacy tree, read as it stands and never rewritten. Every
+  attempt of one signature is one analysis result, so the signature directory is the set.
+
+Every attempt leaves its own copy beside the newer one. Measured on this workspace's own sucrose CG run: 38 images,
+33 of them the same three snapshot SVGs from eleven runs of the same analysis, so listing the index answers a
+question nobody asked, and the picture a reader wants is buried among its own earlier selves.
 
 The rule is the one the frame series already follows: the newest set of a given analysis kind is what the run
 currently shows, and every earlier set stays on disk, reachable through the artifact index the Runs gallery reads.
@@ -19,6 +25,11 @@ than have them disappear.
 
 import re
 
+#: A sequenced attempt directory: `NNNN-YYYYMMDD`. The coordinator mints the next number per run and kind, so the
+#: directory an attempt lives in is the directory a reader is shown. A name that does not match is a legacy
+#: `<signature>` directory, which holds one or more attempts of one analysis.
+SEQUENCE = re.compile(r'^(\d{4,})-(\d{8})$')
+
 #: A figure one assessment attempt wrote: a CG run's `5_assessment` or a numbered run's `09_final_assessment`,
 #: and a re-score's `@<n>` beside either. The `stages/` prefix is optional because the layout written before
 #: `layout_version` 2 kept the stage directories at the run's root, and an attempt directory is created where the
@@ -30,46 +41,79 @@ ASSESSMENT_ATTEMPT = re.compile(r'^(?:stages/)?(?:09_final_assessment|5_assessme
 FIGURE_SUFFIXES = ('.png', '.svg')
 
 
+def attempts(paths):
+    """The analysis attempts these run-relative paths belong to, one entry per attempt, from both layouts.
+
+    `{attempt directory: {'kind', 'published', 'paths'}}`:
+
+    * `analyses/<kind>/<NNNN>-<YYYYMMDD>/...` -- the attempt is its own published set. The newest attempt of a kind
+      is the answer a reader is shown, and each attempt stays reachable on disk.
+    * `analyses/<kind>/<signature>/<attempt>/...` -- a tree written before the sequence layout. Every attempt of one
+      signature is one analysis result, so the signature is the published set; the attempt directory is read through
+      the record's own `directory` and is never rewritten.
+
+    One reader uses this to find the attempts that hold a published `result.json`, another to decide which published
+    set a figure belongs to, so the two readers cannot disagree about the shapes a run may hold.
+    """
+    found = {}
+    for path in paths or ():
+        parts = str(path).split('/')
+        if len(parts) < 4 or parts[0] != 'analyses':
+            continue
+        sequenced = SEQUENCE.fullmatch(parts[2]) is not None
+        attempt = '/'.join(parts[:3] if sequenced else parts[:4])
+        published = '/'.join(parts[:3])
+        entry = found.setdefault(attempt, {'kind': parts[1], 'published': published, 'paths': []})
+        entry['paths'].append(str(path))
+    return found
+
+
 def current_figures(entries):
     """`(kept, superseded)`: the figures to show, and how many published sets a newer one replaced.
 
-    A "set" is one signature's figures: `analyses/<kind>/<signature>/...`. Two signatures of one kind are two
-    different analyses (different settings, different payloads), and the newer of them is the one the run currently
-    shows -- the newest series in the index, and the older ones are counted
-    rather than dropped in silence so a reader can go and look.
+    A "set" is the directory an analysis published into: an attempt under the sequence layout, or the legacy
+    `analyses/<kind>/<signature>/` whose attempts are the same analysis run more than once. Two sets of one kind are
+    two different analyses (different settings, different payloads), and the newer of them is the one the run
+    currently shows -- the newest series in the index, and the older ones are counted rather than dropped in silence
+    so a reader can go and look.
 
     An assessment attempt is a set by the same reading: `stages/5_assessment` is attempt 0 and `stages/5_assessment@n`
     is attempt n, the newest one is what the run currently shows, and each earlier one is counted as superseded.
     """
+    entries = list(entries or ())
+    directories = attempts(str(entry.get('path', '')) for entry in entries)
+    published = {path: (info['kind'], info['published'])
+                 for info in directories.values() for path in info['paths']}
     sets, loose = {}, []
-    for entry in entries or ():
-        parts = str(entry.get('path', '')).split('/')
-        if len(parts) > 3 and parts[0] == 'analyses':
-            sets.setdefault(parts[1], {}).setdefault('/'.join(parts[:3]), []).append(entry)
-        else:
+    for entry in entries:
+        key = published.get(str(entry.get('path', '')))
+        if key is None:
             loose.append(entry)
+        else:
+            kind, directory = key
+            sets.setdefault(kind, {}).setdefault(directory, []).append(entry)
     kept, superseded = [], 0
     for kind in sorted(sets):
-        signatures = sets[kind]
-        newest = max(signatures, key=lambda signature: max(
-            str(entry.get('modified_at') or '') for entry in signatures[signature]))
-        for signature in sorted(signatures):
-            if signature == newest:
-                kept.extend(sorted(signatures[signature], key=lambda entry: str(entry.get('path'))))
+        groups = sets[kind]
+        newest = max(groups, key=lambda directory: max(
+            str(entry.get('modified_at') or '') for entry in groups[directory]))
+        for directory in sorted(groups):
+            if directory == newest:
+                kept.extend(sorted(groups[directory], key=lambda entry: str(entry.get('path'))))
             else:
                 superseded += 1
-    attempts = {}
+    assessments = {}
     for entry in loose:
         match = ASSESSMENT_ATTEMPT.match(str(entry.get('path', '')))
         if match:
-            attempts.setdefault(int(match.group(1) or 0), []).append(entry)
+            assessments.setdefault(int(match.group(1) or 0), []).append(entry)
     shown = loose
-    if attempts:
-        newest = max(attempts)
+    if assessments:
+        newest = max(assessments)
         shown = []
         for entry in loose:
             match = ASSESSMENT_ATTEMPT.match(str(entry.get('path', '')))
             if match is None or int(match.group(1) or 0) == newest:
                 shown.append(entry)
-        superseded += len(attempts) - 1
+        superseded += len(assessments) - 1
     return kept + sorted(shown, key=lambda entry: str(entry.get('path'))), superseded

@@ -1,8 +1,9 @@
 """Analysis task lifecycle owned separately from simulation coordination."""
 from __future__ import annotations
 
-import hashlib
+import functools
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,28 +15,78 @@ from pathlib import Path
 from dashboard import files, paths
 from dashboard.analysis import kinds
 from dashboard.analysis import worker as analysis
-from dashboard.analysis.runs import layout
+from dashboard.analysis.runs import figures, layout
 
-#: The packages whose content decides an analysis result: the analysis code itself and the model code it reads.
-CODE_ROOTS = ('analysis', 'models')
+#: What a checkout answers when neither the deployment nor `git describe` can name its code.
+UNKNOWN_CODE_VERSION = 'unknown'
 
 
-def code_fingerprint_files():
-    """`(relative name, path)` for every file that decides an analysis result, in a stable order.
+def _describe_code():
+    """What this checkout's code is, in the deployment's own words or in git's."""
+    configured = os.environ.get('DASHBOARD_CODE_VERSION', '').strip()
+    if configured:
+        return configured
+    try:
+        described = subprocess.run(('git', 'describe', '--always', '--dirty'), cwd=paths.PROJECT_ROOT,
+                                   capture_output=True, text=True, timeout=10, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN_CODE_VERSION
+    return described.stdout.strip() or UNKNOWN_CODE_VERSION
 
-    A hand-written list of module files stood here and had quietly fallen behind: `bonded_terms`, `consistency`,
-    `mapping_consistency`, `layout` and `sugar_ensemble` were not in it, so fixing the overlap metric changed no
-    signature at all — re-queuing the same analysis returned the completed task, and the panel went on showing
-    numbers the code on disk would no longer produce. This walks the packages instead, so the list cannot drift
-    from the code it describes, and names each file relative to `dashboard/` because two modules can share a
-    basename.
+
+@functools.lru_cache(maxsize=1)
+def code_version():
+    """The string that says which code an attempt was built by, cached for the life of the process.
+
+    A source's bytes no longer decide anything, so a change to the analysis *code* is stated by the deployment that
+    ships it rather than by walking every module file and hashing it. `DASHBOARD_CODE_VERSION` is that statement; a
+    checkout that sets none answers with `git describe --always --dirty`, and a copy with no git answers
+    `UNKNOWN_CODE_VERSION`. Cached because reading git per queued analysis would run a subprocess for a fact about
+    the checkout that cannot change under a running dashboard.
     """
-    from dashboard import features
-    root = Path(analysis.__file__).resolve().parent.parent
-    entries = [(str(path.relative_to(root)), path)
-               for package in CODE_ROOTS
-               for path in sorted((root / package).rglob('*.py'))]
-    return entries + features.code_fingerprint_files()
+    return _describe_code()
+
+
+def identity(kind, payload, sources, run, dependencies=None):
+    """What makes two analysis requests one attempt: its kind, payload, source names, run name and the code version.
+
+    No bytes are read and no digest is written. `sources` contributes its keys -- the names a kind resolves its files
+    by -- so a file replaced in place is the same input to the same analysis while a source that moves is a new one.
+    `run` is the run's own name, so an attempt is never reused by a copy of its run. `dependencies` names the files
+    a kind re-reads from another analysis, and their names change when that analysis publishes a newer set, so a
+    refinement-score re-runs against a newer diagnostic without hashing it.
+    """
+    return files.canonical_json({
+        'kind': kind, 'payload': payload, 'run': str(run),
+        'sources': sorted(str(name) for name in sources),
+        'dependencies': sorted(f'{name} {path}' for name, path in (dependencies or {}).items()),
+        'code': code_version(),
+    })
+
+
+def next_attempt(root, kind, tasks):
+    """`analyses/<kind>/<NNNN>-<YYYYMMDD>` for this run's next attempt of `kind`.
+
+    NNNN is monotonic per run and kind and is never reused: the records and the directories on disk are both read, so
+    a number is not minted over an attempt whose record was dropped. A legacy `<signature>` tree holds no number and
+    leaves the count at zero. Callers hold `JOBS_LOCK`, so two queued attempts of one run cannot race for the number.
+    """
+    last = 0
+    for task in tasks:
+        if task.get('kind') == kind:
+            match = figures.SEQUENCE.fullmatch(Path(str(task.get('directory') or '')).name)
+            if match:
+                last = max(last, int(match.group(1)))
+    directory = Path(root) / 'analyses' / kind
+    if directory.is_dir():
+        for path in directory.iterdir():
+            match = figures.SEQUENCE.fullmatch(path.name)
+            if match:
+                last = max(last, int(match.group(1)))
+    # UTC, like every other timestamp the records carry: the date is part of a directory name, so two machines
+    # reading one workspace must not disagree about which day an attempt belongs to.
+    day = time.strftime('%Y%m%d', time.gmtime())
+    return f'analyses/{kind}/{last + 1:04d}-{day}'
 
 from .. import workflow
 from ..environment import recorded_environment
@@ -98,10 +149,11 @@ class AnalysisCoordinator:
         """Queue the owed kinds the run does not already hold, and say which are still waiting.
 
         `automatic` marks the completion/chain path rather than a person's Recompute. Automatic queueing must not
-        replace a manual payload with the kind's default one: a hand-chosen payload has a different signature, so a
-        signature-only queue would mint a second attempt beside it and the newer one would win. An automatic pass
+        replace a manual payload with the kind's default one: a hand-chosen payload has a different identity, so an
+        identity-only queue would mint a second attempt beside it and the newer one would win. An automatic pass
         therefore treats any completed or skipped task of the kind as current. A person's Recompute still goes
-        through the signature check, so changed sources or code can be re-run on request.
+        through the identity check, so a moved source, an edited payload or a changed code version can be re-run on
+        request.
         
 
         `queue` takes one analysis at a time for a run: it refuses a second with `RunBusy` while the first holds the
@@ -144,7 +196,7 @@ class AnalysisCoordinator:
     def chain(self, jid, aid):
         """Start the run's next owed kind after a settled attempt, and nothing after a failed or cancelled one.
 
-        A failure leaves the kind not-current by signature, so draining from here would queue it again in the same
+        A failure leaves the kind not-current by identity, so draining from here would queue it again in the same
         breath and a run whose producer cannot succeed would spin. A failed attempt waits for a person: the panel's
         recompute asks for it, and `drain` offers it again.
         """
@@ -200,13 +252,11 @@ class AnalysisCoordinator:
                 raise RunBusy('Analysis requires a stopped run')
             source_root = layout.stage_root(owner.run_path(job))
             source_entries = analysis.source_entries(source_root, kind, payload)
-            fingerprint = [(relative, files.sha256(path)) for relative, path in source_entries.items()]
-            code_files = code_fingerprint_files()
-            signature = hashlib.sha256(json.dumps(
-                [kind, payload, fingerprint,
-                 self.dependencies(job) if kind == 'refinement-score' else {},
-                 [(name, files.sha256(path)) for name, path in code_files]],
-                sort_keys=True).encode()).hexdigest()
+            # The identity is the names this kind resolves its files by, its payload and the code version -- no
+            # digest of a source or of the code. A file replaced in place is the same input; a moved source, an edited
+            # payload or a different deployment is a new one.
+            wanted = identity(kind, payload, source_entries, job['id'],
+                              self.dependencies(job) if kind == 'refinement-score' else {})
             tasks = job.get('analyses', [])
             stable = analysis.TABLE[kind].stable_directory
             record = None
@@ -218,22 +268,22 @@ class AnalysisCoordinator:
                                if task.get('kind') == kind and task.get('stable')), None)
                 if record is not None and record['status'] in ('queued', 'running'):
                     return record, 202
-                if record is not None and record.get('signature') == signature \
+                if record is not None and record.get('identity') == wanted \
                         and record['status'] in ('completed', 'skipped'):
-                    # The same arguments over the same bytes are the same series: nothing is rebuilt.
+                    # The same arguments over the same sources are the same series: nothing is rebuilt.
                     return record, 200
             else:
                 for task in reversed(tasks):
                     if automatic and task.get('kind') == kind and task['status'] in ('queued', 'running', 'completed',
                                                                                      'skipped'):
                         return task, 200 if task['status'] in ('completed', 'skipped') else 202
-                    if task.get('signature') == signature and task['status'] in ('queued', 'running', 'completed',
-                                                                                'skipped'):
+                    if task.get('identity') == wanted and task['status'] in ('queued', 'running', 'completed',
+                                                                             'skipped'):
                         # A skip is an answer, not an absence: the same sources and code will skip again. Reusing it
                         # is what stops a run whose producer cannot succeed from re-queueing itself every twenty
-                        # seconds forever. A changed source or code file changes the signature, so a later attempt is
-                        # still allowed; a person's Recompute asks through the same door and gets the same answer
-                        # while nothing has changed.
+                        # seconds forever. A moved source, an edited payload or a changed code version is a new
+                        # identity, so a later attempt is still allowed; a person's Recompute asks through the same
+                        # door and gets the same answer while nothing has changed.
                         return task, 200 if task['status'] in ('completed', 'skipped') else 202
             if any(key[0] == jid for key in list(owner.ANALYSIS_WORKERS)):
                 raise RunBusy('An analysis is already active for this run')
@@ -251,16 +301,16 @@ class AnalysisCoordinator:
                     tasks.append(record)
                 # The previous build's `outputs` stay on the record: a rebuild that fails before publishing leaves the
                 # old series on disk, and the panel can still play it while the record says what went wrong.
-                record.update(signature=signature, payload=payload, status='queued', created_at=owner.now(),
+                record.update(identity=wanted, payload=payload, status='queued', created_at=owner.now(),
                               directory=stable)
                 record.pop('error', None)
                 record.pop('ended_at', None)
                 task = record
             else:
                 aid = uuid.uuid4().hex[:12]
-                task = {'id': aid, 'kind': kind, 'signature': signature, 'payload': payload,
+                task = {'id': aid, 'kind': kind, 'identity': wanted, 'payload': payload,
                         'status': 'queued', 'created_at': owner.now(),
-                        'directory': f'analyses/{kind}/{signature}/{aid}'}
+                        'directory': next_attempt(owner.run_path(job), kind, tasks)}
                 tasks.append(task)
             aid = task['id']
             owner.database().update(jid, analyses=tasks)
@@ -322,8 +372,7 @@ class AnalysisCoordinator:
 
             worker.run_dir = owner.run_path(job)
             request = {'run': str(owner.run_path(job).resolve()), 'kind': task['kind'],
-                        'payload': task['payload'], 'code_signature': task['signature'],
-                        'dependencies': self.dependencies(job)}
+                        'payload': task['payload'], 'dependencies': self.dependencies(job)}
             # Everything that can fail is inside the managed region, the run's own lock included. A claim lost while
             # the run's worker was letting go killed this thread before its record was written (run 0c5f5738089c):
             # the attempt stayed `queued`/`cancelling`, its slot was never given back, and every later analysis of

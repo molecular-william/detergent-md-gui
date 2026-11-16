@@ -85,7 +85,6 @@ FEATURE = features.Feature(
     # What the Runs filter panel calls this feature's run types.
     run_type_labels={'osmotic': 'Osmotic series'},
     kinds=kind_rows.KINDS,
-    code_roots=(('detergent_validation', Path(__file__).resolve().parent),),
     kind_payload={'carbohydrate-validation': analyses_routes.payload,
                   'mapping-consistency': _mapping_payload},
     molecule_profiles=evidence_tables.MOLECULE_PROFILES,

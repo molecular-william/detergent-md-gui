@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from dashboard import files
 from dashboard.execution import workflow
+from dashboard.execution.coordination import analysis_coordinator
 
 from tests.harness import support
 
@@ -130,7 +131,7 @@ class SkippingWorker:
 def test_a_skip_is_recorded_as_skipped_and_leaves_the_run_completed(dashboard):
     aid = '000000000001'
     directory = f'analyses/bonded-cross-check/signature/{aid}'
-    task = {'id': aid, 'kind': 'bonded-cross-check', 'payload': {}, 'signature': 'signature',
+    task = {'id': aid, 'kind': 'bonded-cross-check', 'payload': {}, 'identity': 'identity',
             'directory': directory, 'status': 'queued'}
     coordinator, run = seed(dashboard, analyses=[task])
 
@@ -146,9 +147,9 @@ def test_a_skip_is_recorded_as_skipped_and_leaves_the_run_completed(dashboard):
 def test_automatic_queueing_does_not_replace_a_manual_payload(dashboard, monkeypatch):
     """A manual payload is not overwritten by the kind's default payload when the attempt finishes.
 
-    The completion chain queues its owed kinds with `{}`; a manual payload has a different signature, so a
-    signature-only queue minted a second attempt beside it and the newer one won. Automatic queueing now treats a
-    completed/skipped kind as current regardless of payload; Recompute still uses the signature.
+    The completion chain queues its owed kinds with `{}`; a manual payload has a different identity, so an
+    identity-only queue minted a second attempt beside it and the newer one won. Automatic queueing now treats a
+    completed/skipped kind as current regardless of payload; Recompute still uses the identity.
     """
     coordinator, _ = seed(dashboard, trajectory=True)
     monkeypatch.setattr(coordinator, 'automatic_analyses', lambda jid: ['bonded-cross-check'])
@@ -162,12 +163,12 @@ def test_automatic_queueing_does_not_replace_a_manual_payload(dashboard, monkeyp
     assert tasks(coordinator)[0]['payload'] == {'threshold': 0.1}
 
 
-def test_a_skip_is_not_requeued_by_its_own_signature(dashboard, monkeypatch):
+def test_a_skip_is_not_requeued_by_its_own_identity(dashboard, monkeypatch):
     """A skip is an answer: the same sources and code would skip again, so the chain must move on.
 
     Measured before the fix: a kind skipped, `chain` drained the run's owed kinds again, and `queue` -- which
     deduplicated queued/running/completed but not skipped -- minted another attempt every ~20 seconds. A skip is
-    now current by signature, so the chain advances past it and a person's Recompute is still free.
+    now current by identity, so the chain advances past it and a person's Recompute is still free.
     """
     coordinator, _ = seed(dashboard, trajectory=True)
     monkeypatch.setattr(coordinator, 'automatic_analyses', lambda jid: ['bonded-cross-check'])
@@ -230,3 +231,26 @@ def test_the_runs_own_defaults_are_queued_by_the_path_that_queues_them(dashboard
     assert asked == [JID], 'the queueing path must ask the run what it owes its reader'
     assert attempted == ['bonded-cross-check', 'dihedral-fit', 'ff-interactions'], \
         'every kind the resolver names is attempted, in its order'
+
+
+def test_a_changed_code_version_mints_a_new_attempt(dashboard, monkeypatch):
+    """The code is part of the identity, as a version the deployment states -- not a digest of every module."""
+    coordinator, _ = seed(dashboard, trajectory=True)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    monkeypatch.setattr(analysis_coordinator, 'code_version', lambda: 'release-1')
+    first, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+    assert status == 202
+    coordinator.analysis_coordinator.update(JID, first['id'], status='completed')
+    with coordinator.JOBS_LOCK:
+        coordinator.ANALYSIS_WORKERS.pop((JID, first['id']), None)
+
+    same, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+    assert status == 200 and same['id'] == first['id'], 'the same code is the same answer'
+
+    monkeypatch.setattr(analysis_coordinator, 'code_version', lambda: 'release-2')
+    changed, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+
+    assert status == 202, 'a new code version is a new attempt'
+    assert changed['id'] != first['id']
+    assert changed['directory'] != first['directory']
+

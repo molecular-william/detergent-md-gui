@@ -211,19 +211,6 @@ def test_a_feature_owns_the_admission_rule_of_its_run_type(fake_feature, monkeyp
         admission.validate_run_type(refused)
 
 
-def test_a_features_code_enters_the_analysis_cache_signature(fake_feature, tmp_path, monkeypatch):
-    """An edit to a feature's metric must mint a new attempt; the engine only walks its own two packages."""
-    module = tmp_path / 'analysis' / 'metric.py'
-    module.parent.mkdir()
-    module.write_text('x = 1\n')
-    monkeypatch.setattr(features, 'installed', lambda: [dataclasses.replace(
-        fake_feature, code_roots=(('fake', tmp_path),))])
-    monkeypatch.setattr(features, '_features', None)
-
-    entry = ('fake/analysis/metric.py', module.resolve())
-    assert entry in features.code_fingerprint_files()
-
-
 def test_the_validation_feature_supplies_the_carbohydrate_evidence_vocabulary(monkeypatch):
     """The profile that requires the report's sections belongs to the report's own distribution.
 

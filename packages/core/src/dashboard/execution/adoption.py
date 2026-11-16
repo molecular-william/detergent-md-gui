@@ -44,11 +44,13 @@ def _analyses(run):
     """The run's own analysis attempts, from the manifest each attempt directory carries.
 
     The task list is part of the job row, and a directory-only copy would otherwise show the Run view's analysis
-    checklist as empty. Each `analyses/<kind>/<signature>/<id>/manifest.json` is the task record the coordinator
-    wrote; a task that was left queued/running by the sender is adopted as failed, because no worker here owns it.
+    checklist as empty. Each attempt directory carries the manifest the coordinator wrote, at whichever depth its
+    layout gives it (analyses/<kind>/<NNNN-date>/ now, analyses/<kind>/<signature>/<attempt>/ before), so the walk is
+    depth-agnostic rather than pinned to one shape; a task the sender left queued/running is adopted as failed,
+    because no worker here owns it.
     """
     tasks = {}
-    for manifest in sorted((run / 'analyses').glob('*/*/*/manifest.json')):
+    for manifest in sorted((run / 'analyses').rglob('manifest.json')):
         try:
             task = json.loads(manifest.read_text())
         except (OSError, ValueError):

@@ -6,7 +6,7 @@ from pathlib import Path
 from dashboard.execution import assessment_rescore
 from flask import Blueprint, abort, jsonify, request
 
-from ...analysis.runs import layout
+from ...analysis.runs import figures, layout
 from ..views import ANALYSIS_SUMMARY_FIELDS as CORE_ANALYSIS_SUMMARY_FIELDS
 from ..views import with_running_progress
 from .common import coordinator, json_object
@@ -18,17 +18,26 @@ def newest_published(c, job, kind, artifact, *, figure_key=None, require_figure=
                      tolerate_missing_figure=False, fall_through=True):
     """The newest attempt of `kind` whose published file still stands. `(attempt, published, path)`, or `None`.
 
-    Every analysis publishes into `analyses/<kind>/<signature>/<attempt>/`: its `result.json` names the
-    content-addressed output directory, and the file a reader wants is relative to that. An attempt whose file is
-    gone is not a published analysis and is skipped for an older one that still stands. `fall_through=False`
-    answers the newest attempt instead, with `published=None`, so a caller can name the attempt that went missing.
+    An attempt lives in `analyses/<kind>/<NNNN>-<YYYYMMDD>/` -- or in the legacy
+    `analyses/<kind>/<signature>/<attempt>/` tree, which stays readable as it is. Either way its `result.json`
+    names the output directory, and the file a reader wants is relative to that. An attempt whose file is gone is
+    not a published analysis and is skipped for an older one that still stands. `fall_through=False` answers the
+    newest attempt instead, with `published=None`, so a caller can name the attempt that went missing.
 
     `figure_key` names a field in the published file that holds a figure path; the figure then joins the answer as
     a fourth element, `None` when that file is gone. `require_figure` skips attempts whose figure is gone and
     `tolerate_missing_figure` remembers the newest of those, so an analysis that published and lost its figure
     still answers -- with `None` -- rather than reading as never published.
     """
-    records = sorted((c.run_path(job) / 'analyses' / kind).glob('*/*/result.json'),
+    root = c.run_path(job)
+    kind_dir = root / 'analyses' / kind
+    # Both shapes' records are candidates; `figures.attempts` is what decides which directory each belongs to, so
+    # this reader cannot fall behind a layout the writer changes.
+    found = figures.attempts(path.relative_to(root).as_posix()
+                             for pattern in ('*/result.json', '*/*/result.json')
+                             for path in kind_dir.glob(pattern))
+    records = sorted((root / attempt / 'result.json' for attempt in found
+                      if (root / attempt / 'result.json').is_file()),
                      key=lambda path: path.stat().st_mtime, reverse=True)
     if not records:
         return None
@@ -135,9 +144,10 @@ def recompute_analyses(jid):
     """Queue every analysis the run owes that this code has not already produced for it.
 
     The Analysis graphs panel's button, and the same list the completion event drains: `automatic_analyses` is the one
-    place a run's owed kinds are decided, so the button cannot ask for a set the run does not owe. `queue` fingerprints
-    the analysis code itself, so pressing it after a change starts fresh attempts for every owed kind, and pressing it
-    with nothing changed starts none. `owed` names what is waiting behind an analysis that is already running.
+    place a run's owed kinds are decided, so the button cannot ask for a set the run does not owe. `queue` compares
+    each attempt's identity -- payload, source names and the code version -- so pressing it after a change starts
+    fresh attempts for every owed kind, and pressing it with nothing changed starts none. `owed` names what is
+    waiting behind an analysis that is already running.
     """
     c = coordinator()
     job = c.lookup(jid)

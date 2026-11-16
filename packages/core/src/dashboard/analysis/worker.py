@@ -5,7 +5,6 @@ What each kind *is* -- its name, the files it is handed, how it runs and how it 
 exist for callers rather than as a second declaration.
 """
 import fnmatch
-import hashlib
 import importlib.metadata
 import json
 import os
@@ -66,7 +65,7 @@ def _source_provenance(run, path):
 
     A source hook may stage a file from the parameterization store, which is beside `runs/`, not under it. The worker
     used to assume every source was under the run or its parent and died on the first store file; the shared name is
-    taken from the workspace root when the file is there, so the digest list stays readable.
+    taken from the workspace root when the file is there, so the recorded name list stays readable.
     """
     if path.is_relative_to(run):
         return str(path.relative_to(run))
@@ -85,7 +84,7 @@ def execute(request_path):
     if kind not in TABLE: raise ValueError('Unknown analysis')
     def progress(phase):
         files.atomic_json(attempt/'progress.json', {'phase': phase})
-    progress('Copying and hashing sources')
+    progress('Staging sources')
     versions = {'python':sys.version,'executable':sys.executable}
     for package in ('MDAnalysis','numpy','matplotlib','plotly','scikit-image','scipy'):
         try: versions[package] = importlib.metadata.version(package)
@@ -96,12 +95,11 @@ def execute(request_path):
         versions['gmx'] = {'path':gmx,'version_output':info.stdout}
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='.work-', dir=attempt) as temporary:
-        work = Path(temporary); sources = {}
+        work = Path(temporary); sources = []
         for relative,path in source_entries(root,kind,request.get('payload', {})).items():
             target = work/relative; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
-            provenance=_source_provenance(run, path)
-            sources[provenance] = files.sha256(target)
+            sources.append(_source_provenance(run, path))
         # Refinement depends on the latest completed diagnostic reports, with legacy fallback.
         if TABLE[kind].takes_dependencies:
             for name in ('numerical_stability.json', 'experimental_targets.json'):
@@ -110,7 +108,7 @@ def execute(request_path):
                 if path.is_file():
                     if path.is_symlink() or not path.resolve().is_relative_to(run.resolve()): raise ValueError('Invalid analysis dependency')
                     target = work/'analysis'/name; target.parent.mkdir(exist_ok=True)
-                    shutil.copy2(path, target); sources[str(path.relative_to(run))] = files.sha256(target)
+                    shutil.copy2(path, target); sources.append(str(path.relative_to(run)))
         # The run's own manifest comes along, for the one thing no source path can state: the *name* of the file the
         # run simulated. A fitted run leaves six `.itp` files under `3_initial_CG/`, and `FINAL_ITP` in this manifest
         # is what says which one the simulation ran with -- a producer that must draw the model's own bonds has no
@@ -119,9 +117,12 @@ def execute(request_path):
         manifest = run / 'manifest.json'
         if manifest.is_file():
             shutil.copy2(manifest, work / manifest.name)
-            sources.setdefault('manifest.json', files.sha256(work / manifest.name))
+            sources.append('manifest.json')
+        # What an attempt read is recorded by name, never by digest: the identities the queue compares are names
+        # and a code version. The digests below are the producer's own guard -- it must publish new files, not edit
+        # the copies it was handed -- and are never written down or compared across attempts.
         baseline = files.hashes(work)
-        files.atomic_json(attempt/'sources.json', sources)
+        files.atomic_json(attempt/'sources.json', sorted(set(sources)))
         progress('Calculating ' + kind)
         # One call for every kind: the row holds the dispatch, and the analyses that read only the sources they were
         # handed are adapted to this shape where they are declared rather than by a branch here.
@@ -159,21 +160,22 @@ def execute(request_path):
             produced.append((path, relative))
         if stable:
             # One series per run: the coordinator names this attempt after the kind's stable directory, so the
-            # producer's files replace the previous build's in place instead of landing under a content hash. The
-            # JSON record goes last, so a reader that finds it has the pair it describes.
+            # producer's files replace the previous build's in place. The JSON record goes last, so a reader that
+            # finds it has the pair it describes.
             for path, relative in sorted(produced, key=lambda item: (item[1].endswith('.json'), item[1])):
                 files.atomic_copy(path, attempt/relative)
             output_directory = '.'
             outputs_sha256 = {relative: files.sha256(attempt/relative) for _, relative in produced}
         else:
-            source_key = hashlib.sha256(json.dumps([sources,request.get('payload',{}),request.get('code_signature')],sort_keys=True).encode()).hexdigest()
-            output = attempt/'output'/source_key; output.mkdir(parents=True)
+            # The attempt's own directory is already unique, so its published files land in one "output" rather than
+            # under a digest of the sources: the record's "output_directory" is what a reader finds them by.
+            output = attempt/'output'; output.mkdir(parents=True)
             for path, relative in produced:
                 target = output/relative; target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
             output_directory = str(output.relative_to(attempt))
             outputs_sha256 = files.hashes(output)
-        files.atomic_json(attempt/'result.json', {'result': result, 'output_directory':output_directory, 'sources_sha256': sources,
+        files.atomic_json(attempt/'result.json', {'result': result, 'output_directory':output_directory,
                           'outputs_sha256': outputs_sha256, 'tools':versions, 'wall_seconds': time.monotonic()-started})
         progress('Completed')
 

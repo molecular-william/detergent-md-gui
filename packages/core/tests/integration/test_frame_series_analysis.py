@@ -104,8 +104,13 @@ def test_a_changed_argument_replaces_the_one_stored_series(dashboard, monkeypatc
     assert [task['payload'] for task in tasks(coordinator)] == [dict(PAYLOAD, interval_ns=1.0)]
 
 
-def test_changed_trajectory_bytes_replace_the_same_stored_series(dashboard, monkeypatch):
-    """The chosen trajectory is part of the signature: replaced bytes rebuild the series in place."""
+def test_replaced_trajectory_bytes_keep_the_same_stored_series(dashboard, monkeypatch):
+    """A source is its name, not its bytes: the same request over the same path is the same series.
+
+    The identity that decides a rebuild is the payload, the source names and the code version. A trajectory replaced
+    in place is still the file the series was asked to sample, so nothing is rebuilt -- a change detection digest of
+    the bytes is what this contract removed.
+    """
     coordinator, run = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     first = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
@@ -114,7 +119,7 @@ def test_changed_trajectory_bytes_replace_the_same_stored_series(dashboard, monk
 
     again = dashboard.client.post(f'/api/jobs/{JID}/frame-series', json=PAYLOAD)
 
-    assert again.status_code == 202
+    assert again.status_code == 200, 'the same source name is the same series'
     assert again.get_json()['id'] == first.get_json()['id']
     assert len(tasks(coordinator)) == 1
 

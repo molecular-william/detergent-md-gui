@@ -117,3 +117,29 @@ def test_the_set_with_the_newest_file_wins_even_when_another_signature_has_one_t
 
     assert [entry['path'] for entry in kept] == [entry['path'] for entry in latest], kept
     assert superseded == 1
+
+
+def test_a_sequenced_attempt_is_its_own_published_set():
+    """`analyses/<kind>/<NNNN>-<YYYYMMDD>/` is one attempt and one answer; the newer number is what is shown."""
+    older = figure('analyses/snapshots/0001-20261101/output/x/snapshots/CG-first.svg', '2026-11-01T00:00:00+00:00')
+    newer = figure('analyses/snapshots/0002-20261102/output/y/snapshots/CG-first.svg', '2026-11-02T00:00:00+00:00')
+
+    kept, superseded = current_figures([older, newer])
+
+    assert [entry['path'] for entry in kept] == [newer['path']]
+    assert superseded == 1
+
+
+def test_a_legacy_signatures_attempts_stay_one_set_beside_a_sequenced_attempt():
+    """The legacy tree is read as it stands: its attempts are one analysis result, and a later sequenced attempt is
+    another set entirely. The newest set is what the run shows."""
+    legacy = figure('analyses/snapshots/aaaa/1111/output/x/snapshots/CG-first.svg', '2026-12-01T00:00:00+00:00')
+    rerun = figure('analyses/snapshots/aaaa/2222/output/x/snapshots/CG-second.svg', '2026-11-01T00:00:00+00:00')
+    sequenced = figure('analyses/snapshots/0001-20261101/output/y/snapshots/CG-first.svg',
+                       '2026-10-01T00:00:00+00:00')
+
+    kept, superseded = current_figures([legacy, rerun, sequenced])
+
+    assert [entry['path'] for entry in kept] == [legacy['path'], rerun['path']]
+    assert superseded == 1, 'the sequenced attempt is the one superseded set'
+

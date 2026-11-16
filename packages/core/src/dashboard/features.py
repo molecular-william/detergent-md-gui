@@ -76,9 +76,6 @@ class Feature:
     code_prefixes: tuple = ()
     #: `{run type: (payload) -> None}` admission rules a feature's run types need; raise ValueError to refuse.
     admission: Mapping[str, Callable] = field(default_factory=dict)
-    #: `(label, package directory)` trees whose content decides an analysis result, so a feature edit mints a new
-    #: attempt instead of reusing a completed one (`analysis_coordinator.code_fingerprint_files`).
-    code_roots: tuple = ()
     #: `{run type: (job, root) -> metadata}` the arguments its adapter's `prepare` is called with.
     prepare: Mapping[str, Callable] = field(default_factory=dict)
     #: `{run type: (settings, job) -> settings}` the run type's own sanitisation after generic normalisation.
@@ -276,21 +273,6 @@ def admission_for(run_type):
     engine has no branch that could second-guess it.
     """
     return _hook(lambda feature: feature.admission, run_type)
-
-
-def code_fingerprint_files():
-    """`(name, path)` for every feature file that decides an analysis result.
-
-    The engine walks its own `analysis/` and `models/`; a feature's code lives outside those, so without this an
-    edit to a feature's metric would change no signature and the panel would keep serving the old numbers.
-    """
-    entries = []
-    for feature in ensure():
-        for label, directory in feature.code_roots:
-            directory = Path(directory)
-            for path in sorted(directory.rglob('*.py')):
-                entries.append((f'{label}/{path.relative_to(directory).as_posix()}', path))
-    return entries
 
 
 def _hook(table, run_type):

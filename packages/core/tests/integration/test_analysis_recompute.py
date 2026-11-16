@@ -12,6 +12,9 @@ Two things this pins, and the second is the defect the first was hiding:
 The analyses themselves are not run: a worker standing in for the subprocess is what makes these fast, and what the
 producer does about its sources is pinned where the producer lives.
 """
+import json
+import os
+import re
 import time
 
 from tests.harness import support
@@ -83,7 +86,7 @@ def test_the_next_kind_starts_when_the_running_one_settles(dashboard, monkeypatc
 
 
 def test_a_failed_attempt_does_not_chain_because_it_would_queue_itself_again(dashboard, monkeypatch):
-    """The kind is not current by signature after a failure, so chaining from it would spin; a person asks instead."""
+    """The kind is not current by identity after a failure, so chaining from it would spin; a person asks instead."""
     coordinator, _ = seed(dashboard)
     monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
     coordinator.analysis_coordinator.drain(JID)
@@ -104,6 +107,9 @@ def test_recompute_offers_a_failed_kind_again(dashboard, monkeypatch):
     answer = coordinator.analysis_coordinator.drain(JID)
 
     assert kinds(coordinator) == ['bonded-cross-check', 'bonded-cross-check'], 'a second attempt beside the failed one'
+    first, second = coordinator.lookup(JID)['analyses']
+    assert re.fullmatch(r'analyses/bonded-cross-check/0001-\d{8}', first['directory']), first['directory']
+    assert re.fullmatch(r'analyses/bonded-cross-check/0002-\d{8}', second['directory']), second['directory']
     assert answer['queued'] and answer['owed'] == ['dihedral-fit', 'energy-conservation', 'ff-interactions']
 
 
@@ -147,3 +153,92 @@ def test_recompute_twice_with_nothing_changed_queues_nothing(dashboard, monkeypa
     assert answer == {'queued': [], 'owed': []}
     assert kinds(coordinator) == ['bonded-cross-check', 'dihedral-fit', 'energy-conservation',
                              'ff-interactions']
+
+
+def test_an_attempt_is_named_by_its_sequence_and_its_date(dashboard, monkeypatch):
+    """`analyses/<kind>/<NNNN>-<YYYYMMDD>/`: the record names the directory a reader opens."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+
+    task, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+
+    assert status == 202
+    assert re.fullmatch(r'analyses/bonded-cross-check/0001-\d{8}', task['directory']), task['directory']
+
+
+def test_the_next_number_is_read_from_the_disk_as_well_as_the_record(dashboard, monkeypatch):
+    """A number already on disk is never minted over, even when the record that named it is gone."""
+    coordinator, run = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    (run / 'analyses' / 'bonded-cross-check' / '0007-20260101').mkdir(parents=True)
+
+    task, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+
+    assert status == 202
+    assert re.fullmatch(r'analyses/bonded-cross-check/0008-\d{8}', task['directory']), task['directory']
+
+
+def test_a_source_rewritten_in_place_is_the_same_attempt(dashboard, monkeypatch):
+    """The identity names the source and never reads it, so replaced bytes are not a new analysis."""
+    coordinator, run = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    first, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+    assert status == 202
+    settle(coordinator, first)
+
+    (run / 'stages' / SOURCES[0]).write_text('re-written under the same name\n')
+    again, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+
+    assert status == 200, 'the same source name is the same attempt'
+    assert again['id'] == first['id']
+    assert kinds(coordinator) == ['bonded-cross-check']
+
+
+def test_an_edited_payload_mints_the_next_attempt_number(dashboard, monkeypatch):
+    """"What it was asked" is part of the identity: another payload is another answer, named in order."""
+    coordinator, _ = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    first, _ = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {'threshold': 0.1})
+    settle(coordinator, first)
+
+    second, status = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {'threshold': 0.2})
+
+    assert status == 202
+    assert second['id'] != first['id']
+    assert re.fullmatch(r'analyses/bonded-cross-check/0002-\d{8}', second['directory']), second['directory']
+    assert kinds(coordinator) == ['bonded-cross-check', 'bonded-cross-check']
+
+
+
+def test_the_published_reader_lists_a_sequenced_attempt_and_a_legacy_one(dashboard, monkeypatch):
+    """Both trees answer the same reader: the sequenced attempt holds its record at the attempt root, the legacy one
+    one level deeper inside its signature, and an attempt whose published file is gone falls through to the other."""
+    from dashboard.web.routes.analyses import newest_cross_check
+
+    coordinator, run = seed(dashboard)
+    monkeypatch.setattr(coordinator.analysis_coordinator, 'run', lambda *args: None)
+    legacy = run / 'analyses' / 'bonded-cross-check' / 'signature' / 'attempt-one'
+    report = {'molecule': 'DDM', 'disagreements': [['B01', 'B02']]}
+    _publish(legacy, report)
+    os.utime(legacy / 'result.json', (1_000_000.0, 1_000_000.0))
+
+    task, _ = coordinator.analysis_coordinator.queue(JID, 'bonded-cross-check', {})
+    sequenced = run / task['directory']
+    _publish(sequenced, report)
+
+    found = newest_cross_check(coordinator, coordinator.lookup(JID))
+    assert found is not None and found[0].name == sequenced.name, 'the newer attempt is the answer'
+
+    (sequenced / 'output' / 'key' / 'bonded-cross-check.json').unlink()
+    found = newest_cross_check(coordinator, coordinator.lookup(JID))
+
+    assert found is not None and found[0].name == 'attempt-one', 'the legacy tree is still readable'
+
+
+def _publish(attempt, report):
+    """One attempt's record and published report, the way the worker leaves them: the output directory is named."""
+    output = attempt / 'output' / 'key'
+    output.mkdir(parents=True, exist_ok=True)
+    (attempt / 'result.json').write_text(json.dumps({'output_directory': 'output/key'}))
+    (output / 'bonded-cross-check.json').write_text(json.dumps(report))
+
