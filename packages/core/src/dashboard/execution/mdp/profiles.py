@@ -241,7 +241,7 @@ _CG_PRODUCTION_COMMENTS = {
 #: list from the Verlet tolerance, so a run may pin it but the reviewed file must not.
 _CG_MINIMIZATION_VARIABLE = ('nsteps', 'nstlist', 'verlet-buffer-tolerance')
 _CG_EQUILIBRATION_VARIABLE = ('dt', 'nsteps', 'nstxtcout', 'nstlist', 'verlet-buffer-tolerance', 'tau-t', 'tau-p',
-                              'compressibility')
+                              'compressibility', 'pcoupl', 'pcoupltype', 'ref-p')
 _CG_PRODUCTION_VARIABLE = ('dt', 'nstlog', 'nstenergy', 'xtc-precision', 'nstcomm', 'nstlist',
                            'verlet-buffer-tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau-t', 'tau-p',
                            'compressibility')

@@ -571,6 +571,56 @@ def test_a_cg_equilibration_timestep_drives_its_step_and_output_counts():
         cg.normalize_settings({'cg_equil_dt_fs': 0.1})
 
 
+def test_the_cg_equilibration_barostat_defaults_render_the_reviewed_profile():
+    """The form's barostat defaults are the reviewed profile's, so naming them changes no byte of the file."""
+    settings = cg.normalize_settings({'cg_equil_ps': 10, 'output_interval_ps': 1})
+    profile = PROFILES['cg-equilibration-v1'].settings
+    values = cg.mdp_values(settings, 'cg-equilibration-v1')
+
+    assert (values['pcoupl'], values['pcoupltype'], values['ref-p']) == \
+        (profile['pcoupl'], profile['pcoupltype'], profile['ref-p'])
+    # The pre-barostat render took the profile's own values for exactly these three keys.
+    previous = {'nsteps': round(settings['cg_equil_ps'] / profile['dt']),
+                'nstxtcout': max(1, round(settings['output_interval_ps'] / profile['dt'])),
+                'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+                'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+    assert render('cg-equilibration-v1', values) == render('cg-equilibration-v1', previous)
+    assert equivalent(parsed(render('cg-equilibration-v1', values))['ref-p'], formatted(profile['ref-p']))
+
+
+def test_a_cg_equilibration_barostat_override_reaches_only_its_own_mdp():
+    """Each barostat override is recorded and written into the equilibration leg, never production."""
+    base = {'cg_equil_ps': 10, 'output_interval_ps': 1}
+    default = cg.normalize_settings(base)
+    chosen = cg.normalize_settings({**base, 'cg_equil_pcoupl': 'berendsen',
+                                    'cg_equil_pcoupltype': 'semiisotropic', 'cg_equil_ref_p': 2.5})
+
+    # The run records the values it used.
+    assert (chosen['cg_equil_pcoupl'], chosen['cg_equil_pcoupltype'], chosen['cg_equil_ref_p']) == \
+        ('berendsen', 'semiisotropic', 2.5)
+    recorded = cg.run_settings(chosen)
+    assert (recorded['cg_equil_pcoupl'], recorded['cg_equil_pcoupltype'], recorded['cg_equil_ref_p']) == \
+        ('berendsen', 'semiisotropic', 2.5)
+    equilibration = parsed(render('cg-equilibration-v1', cg.mdp_values(chosen, 'cg-equilibration-v1')))
+    assert (equilibration['pcoupl'], equilibration['pcoupltype'], equilibration['ref-p']) == \
+        ('berendsen', 'semiisotropic', '2.5')
+    # Production keeps the reviewed barostat even though the run named another for equilibration.
+    before = parsed(render('cg-production-v1', cg.mdp_values(default, 'cg-production-v1')))
+    after = parsed(render('cg-production-v1', cg.mdp_values(chosen, 'cg-production-v1')))
+    assert after == before
+    assert (after['pcoupl'], after['pcoupltype'], after['ref-p']) == ('parrinello-rahman', 'isotropic', '1')
+
+
+def test_the_cg_equilibration_barostat_refuses_unknown_choices_and_pressures():
+    with pytest.raises(ValueError, match='cg_equil_pcoupl must be one of no, berendsen, parrinello-rahman, c-rescale'):
+        cg.normalize_settings({'cg_equil_pcoupl': 'andersen'})
+    with pytest.raises(ValueError, match='cg_equil_pcoupltype must be one of'):
+        cg.normalize_settings({'cg_equil_pcoupltype': 'rhombic'})
+    for pressure in (0.05, 101):
+        with pytest.raises(ValueError, match=r'CG equilibration target pressure \(bar\)'):
+            cg.normalize_settings({'cg_equil_ref_p': pressure})
+
+
 def test_a_cg_production_timestep_drives_its_step_count():
     """Production's timestep is now the run's, like the AA stages': the duration is what stays fixed."""
     default = cg.normalize_settings({'cg_production_ps': 20, 'output_interval_ps': 1})
@@ -588,15 +638,28 @@ def test_a_cg_production_timestep_drives_its_step_count():
         cg.normalize_settings({'cg_production_dt_fs': 60})
 
 
-def test_all_three_cg_kinds_publish_the_per_stage_settings():
-    """The route keeps only advertised keys, so each adapter must publish what the one form posts."""
+def test_each_cg_kind_publishes_the_stage_settings_it_runs():
+    """The route keeps only advertised keys, so each adapter must publish what the one form posts.
+
+    The equilibration barostat is the revision adapter's newest vocabulary. The composition derives its numeric
+    table from `cg`, so it advertises the target pressure too; the published sugar adapter has its own literal table
+    and has not adopted any of the three, which is why the form offers them only to a revision run.
+    """
     from dashboard.execution.adapters import cg_run, composition
     from detergent_validation.execution.adapters import sugar_cg
 
-    expected = set(cg._STAGE_SETTING_SOURCES) | set(cg.PRODUCTION_OVERRIDES) | {'nstxtcout'}
+    stage = (set(cg._STAGE_SETTING_SOURCES) - {'cg_equil_ref_p'}) | set(cg.PRODUCTION_OVERRIDES) | {'nstxtcout'}
     for specs in (cg.PROTOCOL.settings_specs(), composition.PROTOCOL.settings_specs(),
                   sugar_cg.PROTOCOL.settings_specs(), cg_run.PROTOCOL.settings_specs()):
-        assert expected <= set(specs)
+        assert stage <= set(specs)
+    assert {'cg_equil_ref_p'} <= set(cg.PROTOCOL.settings_specs())
+    assert {'cg_equil_ref_p'} <= set(composition.PROTOCOL.settings_specs())
+    assert 'cg_equil_ref_p' not in sugar_cg.PROTOCOL.settings_specs()
+    choices = cg_run.PROTOCOL.choice_specs()
+    assert choices['cg_equil_pcoupl'][1] == ('no', 'berendsen', 'parrinello-rahman', 'c-rescale')
+    assert choices['cg_equil_pcoupltype'][1] == ('isotropic', 'semiisotropic', 'anisotropic', 'surface-tension',
+                                                 'volumetric')
+    assert 'cg_equil_pcoupl' not in sugar_cg.PROTOCOL.choice_specs()
 
 
 

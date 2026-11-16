@@ -305,6 +305,9 @@ SETTING_SPECS = {
     'cg_equil_tau_t': ('CG equilibration thermostat coupling (ps)', 0.01, 100.0),
     'cg_equil_tau_p': ('CG equilibration barostat coupling (ps)', 0.1, 100.0),
     'cg_equil_compressibility': ('CG equilibration compressibility (bar^-1)', 0.0, 1.0),
+    # The barostat's target pressure. `pcoupl` and `pcoupltype` are choices, below; the reviewed profile's own
+    # numbers start them, so an untouched run renders the reviewed file.
+    'cg_equil_ref_p': ('CG equilibration target pressure (bar)', 0.1, 100.0),
     # Production's ceiling is wider than the equilibration leg's by decision, not by oversight: the step is the
     # run's own stability question and the form states the interval it permits (0.5-50 fs).
     'cg_production_dt_fs': ('CG production timestep (fs)', 0.5, 50),
@@ -331,6 +334,15 @@ SETTING_SPECS = {
     'compressibility': ('CG compressibility (bar^-1)', 0.0, 1.0),
 }
 
+#: The CG equilibration leg's choice settings, with GROMACS' own spellings as values: the form offers them and
+#: `normalize` refuses anything else by name. The reviewed profile's values are the defaults (`_reviewed_stage_defaults`),
+#: so an untouched run writes `pcoupl = c-rescale` and `pcoupltype = isotropic`, as that profile states.
+CHOICE_SPECS = {
+    'cg_equil_pcoupl': ('CG equilibration barostat', ('no', 'berendsen', 'parrinello-rahman', 'c-rescale')),
+    'cg_equil_pcoupltype': ('CG equilibration pressure coupling type',
+                            ('isotropic', 'semiisotropic', 'anisotropic', 'surface-tension', 'volumetric')),
+}
+
 #: The MDP option each CG production override writes, keyed by the setting the form posts. The reviewed profile keeps
 #: its own value for each; `mdp_values` adds one only when the run named it, which is what makes the default file
 #: byte-identical to the reviewed one.
@@ -339,6 +351,12 @@ PRODUCTION_OVERRIDES = {'nstlog': 'nstlog', 'nstenergy': 'nstenergy', 'xtc_preci
                         'verlet_buffer_tolerance': 'verlet-buffer-tolerance', 'rlist': 'rlist',
                         'rcoulomb': 'rcoulomb', 'rvdw': 'rvdw', 'tau_t': 'tau-t', 'tau_p': 'tau-p',
                         'compressibility': 'compressibility'}
+
+#: The CG equilibration leg's barostat overrides, keyed by the setting the form posts. Like the production table, the
+#: profile's own value is the default; `mdp_values` writes this leg's values on every run, so the default file is
+#: byte-identical to the reviewed one.
+EQUILIBRATION_OVERRIDES = {'cg_equil_pcoupl': 'pcoupl', 'cg_equil_pcoupltype': 'pcoupltype',
+                           'cg_equil_ref_p': 'ref-p'}
 
 # What counts as a step count rather than a size: a fractional one is refused by name.
 _INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'nstlog': 'nstlog must be an integer',
@@ -374,14 +392,25 @@ _STAGE_SETTING_SOURCES = {
     'cg_equil_tau_t': ('cg-equilibration-v1', 'tau-t', 1),
     'cg_equil_tau_p': ('cg-equilibration-v1', 'tau-p', 1),
     'cg_equil_compressibility': ('cg-equilibration-v1', 'compressibility', 1),
+    'cg_equil_ref_p': ('cg-equilibration-v1', 'ref-p', 1),
     'cg_production_dt_fs': ('cg-production-v1', 'dt', 1000),
+}
+
+#: The CG equilibration leg's choice settings and where each starts: the reviewed profile that owns the option and its
+#: MDP name. A choice is stated verbatim, so there is no unit factor to convert.
+_STAGE_CHOICE_SOURCES = {
+    'cg_equil_pcoupl': ('cg-equilibration-v1', 'pcoupl'),
+    'cg_equil_pcoupltype': ('cg-equilibration-v1', 'pcoupltype'),
 }
 
 
 def _reviewed_stage_defaults():
-    """The CG stages' reviewed numbers, in the units the form states."""
-    return {setting: PROFILES[profile].settings[mdp] * factor
-            for setting, (profile, mdp, factor) in _STAGE_SETTING_SOURCES.items()}
+    """The CG stages' reviewed numbers and choices, in the units the form states."""
+    values = {setting: PROFILES[profile].settings[mdp] * factor
+              for setting, (profile, mdp, factor) in _STAGE_SETTING_SOURCES.items()}
+    values.update({setting: PROFILES[profile].settings[mdp]
+                   for setting, (profile, mdp) in _STAGE_CHOICE_SOURCES.items()})
+    return values
 
 
 #: Settings from the AA half that describe *this run's* execution rather than the AA reference it consumes: the device,
@@ -415,7 +444,7 @@ def stage_defaults(profile='standard'):
 
 def _normalize_cg_settings(settings=None, profile='standard'):
     values = normalize(
-        settings, stage_defaults(profile)['values'], specs=SETTING_SPECS,
+        settings, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='Run settings must be an object', unknown_prefix='Unknown run setting: ',
         label_messages=True, integrals=_INTEGRALS)
     if values['output_interval_ps'] > min(values['aa_production_ps'], values['cg_production_ps']):
@@ -456,14 +485,18 @@ def mdp_values(settings, profile):
                 'verlet-buffer-tolerance': settings['cg_minimization_verlet_buffer_tolerance']}
     if profile == 'cg-equilibration-v1':
         dt = settings['cg_equil_dt_fs'] / 1000
-        return {'dt': dt, 'nsteps': round(settings['cg_equil_ps'] / dt),
-                'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
-                'nstlist': settings['cg_equil_nstlist'],
-                'verlet-buffer-tolerance': settings['cg_equil_verlet_buffer_tolerance'],
-                'tau-t': settings['cg_equil_tau_t'], 'tau-p': settings['cg_equil_tau_p'],
-                'compressibility': settings['cg_equil_compressibility'],
-                'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
-                'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+        values = {'dt': dt, 'nsteps': round(settings['cg_equil_ps'] / dt),
+                  'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
+                  'nstlist': settings['cg_equil_nstlist'],
+                  'verlet-buffer-tolerance': settings['cg_equil_verlet_buffer_tolerance'],
+                  'tau-t': settings['cg_equil_tau_t'], 'tau-p': settings['cg_equil_tau_p'],
+                  'compressibility': settings['cg_equil_compressibility'],
+                  'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
+                  'gen-seed': settings['cg_seed'], 'ld-seed': settings['cg_seed']}
+        for setting, mdp in EQUILIBRATION_OVERRIDES.items():
+            if settings.get(setting) is not None:
+                values[mdp] = settings[setting]
+        return values
     dt = settings['cg_production_dt_fs'] / 1000
     values = {'dt': dt, 'nsteps': round(settings['cg_production_ps'] / dt),
               'nstxtcout': max(1, round(settings['output_interval_ps'] / dt)),
@@ -496,13 +529,14 @@ def normalize_settings(settings=None, profile='standard'):
     # retried (run 6ed68979edf0) instead of failing again in mdrun.
     for key in aa.PME_SETTINGS:
         supplied.pop(key, None)
-    unknown = set(supplied) - set(SETTING_SPECS) - set(aa.SETTING_SPECS) - set(aa.CHOICE_SPECS)
+    unknown = (set(supplied) - set(SETTING_SPECS) - set(CHOICE_SPECS)
+               - set(aa.SETTING_SPECS) - set(aa.CHOICE_SPECS))
     if unknown:
         raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
     aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS or key in aa.CHOICE_SPECS}, profile)
     cg_settings = _normalize_cg_settings(
-        {key: value for key, value in supplied.items() if key in SETTING_SPECS} | mirror_aa_settings(aa_settings),
-        profile)
+        {key: value for key, value in supplied.items() if key in SETTING_SPECS or key in CHOICE_SPECS}
+        | mirror_aa_settings(aa_settings), profile)
     values = cg_settings | aa_settings
     for key in aa.PME_SETTINGS:
         values.pop(key, None)
@@ -1096,7 +1130,7 @@ def run_settings(settings):
     The reference's own recorded budget stays provenance -- what it cost -- not an instruction to this run.
     """
     return {key: value for key, value in (settings or {}).items()
-            if key in SETTING_SPECS or key in RUN_EXECUTION_SETTINGS}
+            if key in SETTING_SPECS or key in CHOICE_SPECS or key in RUN_EXECUTION_SETTINGS}
 
 
 def _protocol_prepare(run_dir, metadata):
@@ -1171,6 +1205,8 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=lambda settings=None, profile='standard': normalize_settings(settings, profile),
     prepare=_protocol_prepare,
     # The AA half's choices travel with it: this run type accepts `force_field` and `mdrun_nb` because it prepares an
-    # atomistic reference of its own, and `normalize_settings` takes them from the AA half.
-    choice_specs=lambda: devices.published_choices(aa.CHOICE_SPECS),
+    # atomistic reference of its own, and `normalize_settings` takes them from the AA half. The CG half now carries
+    # choices too (the equilibration barostat and its pressure kind); both tables are published, and neither key
+    # collides with the other half's.
+    choice_specs=lambda: devices.published_choices({**aa.CHOICE_SPECS, **CHOICE_SPECS}),
 )

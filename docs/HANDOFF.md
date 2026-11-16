@@ -52,6 +52,16 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-17 CG equilibration barostat controls.** The detergent-validation CG equilibration editor now states its
+Barostat (`cg_equil_pcoupl`: no/Berendsen/Parrinello-Rahman/C-rescale), pressure-coupling type
+(`cg_equil_pcoupltype`: isotropic/semiisotropic/anisotropic/surface-tension/volumetric) and target pressure
+(`cg_equil_ref_p`, 0.1-100 bar). Defaults are read from the reviewed `cg-equilibration-v1` profile (c-rescale,
+isotropic, 1 bar -- not the production profile's Parrinello-Rahman), so untouched runs render byte-identical MDPs;
+overrides reach the equilibration MDP only and are recorded in the run settings/choices. Limits: the three settings
+are revision-kind only until sugar_cg/composition adopt the choices (their forms hide them), a non-isotropic
+coupling type still writes one pressure value (AA-style per-direction expansion is a follow-up), and the run view
+shows the two choice names unlabelled until web/stage_settings._labels merges cg choices. Checks: core unit 1539,
+targeted 77, CG browser 6 + related 18, integrations 24+18, sugar 21; ruff clean.
 **2026-11-16 pdc Other run options gain the two MD timesteps.** `pdc_equil_dt_fs` (0.5-20) and
 `pdc_production_dt_fs` (0.5-50) are advertised, posted from the New run fold's new Timesteps group, and flow into
 both the written mdp `dt` and the ps->steps arithmetic: the equilibration setting governs the NVT and NPT legs, the

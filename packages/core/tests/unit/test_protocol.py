@@ -115,7 +115,8 @@ def test_a_cg_run_publishes_every_half_it_accepts():
     """
     from dashboard.execution.adapters import aa, cg
     published = published_vocabulary(protocol.adapter_for('cg'))
-    for half, specs in (('AA', aa.SETTING_SPECS), ('CG', cg.SETTING_SPECS), ('AA choices', aa.CHOICE_SPECS)):
+    for half, specs in (('AA', aa.SETTING_SPECS), ('CG', cg.SETTING_SPECS), ('AA choices', aa.CHOICE_SPECS),
+                        ('CG choices', cg.CHOICE_SPECS)):
         missing = set(specs) - published
         assert not missing, f'{half} settings a cg run accepts but does not publish: {sorted(missing)}'
 

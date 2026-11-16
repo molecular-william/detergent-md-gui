@@ -49,6 +49,7 @@ DEFAULT_VALUES = {'aa_nvt_ps': 100, 'aa_npt_ps': 1000, 'aa_production_ps': 10000
                   'cg_minimization_verlet_buffer_tolerance': 0.005,
                   'cg_equil_dt_fs': 5, 'cg_equil_nstlist': 40, 'cg_equil_verlet_buffer_tolerance': 0.005,
                   'cg_equil_tau_t': 1, 'cg_equil_tau_p': 4, 'cg_equil_compressibility': 4.5e-05,
+                  'cg_equil_pcoupl': 'c-rescale', 'cg_equil_pcoupltype': 'isotropic', 'cg_equil_ref_p': 1,
                   'cg_production_dt_fs': 20,
                   # The CG production overrides the other options fold shows.
                   'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'tau_t': 1, 'tau_p': 12,
@@ -223,6 +224,14 @@ def test_the_cg_stage_editors_state_their_numbers_and_post_while_collapsed(dashb
     # A shorter timestep is more steps over the same duration; a part whose control is empty is omitted.
     page.locator('[name=cg_equil_dt_fs]').fill('10')
     expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 ps · 10 fs · 1 000 steps · nstlist 40')
+
+    # The barostat controls start on the reviewed profile (c-rescale, isotropic, 1 bar) and are the run's to change.
+    expect(page.locator('[name=cg_equil_pcoupl]')).to_have_value('c-rescale')
+    expect(page.locator('[name=cg_equil_pcoupltype]')).to_have_value('isotropic')
+    expect(page.locator('[name=cg_equil_ref_p]')).to_have_value('1')
+    page.locator('[name=cg_equil_pcoupl]').select_option('berendsen')
+    page.locator('[name=cg_equil_pcoupltype]').select_option('semiisotropic')
+    page.locator('[name=cg_equil_ref_p]').fill('2.5')
     page.locator('[name=cg_equil_ps]').fill('')
     expect(page.locator('#stage-cg-equilibration-facts')).to_have_text('10 fs · nstlist 40')
     page.locator('[name=cg_equil_ps]').fill('10')
@@ -248,6 +257,8 @@ def test_the_cg_stage_editors_state_their_numbers_and_post_while_collapsed(dashb
     body = submissions[0]
     assert (body['cg_production_dt_fs'], body['nstlist']) == ('10', '50')
     assert body['cg_equil_ps'] == '10' and body['cg_equil_nstlist'] == '40'
+    assert (body['cg_equil_pcoupl'], body['cg_equil_pcoupltype'], body['cg_equil_ref_p']) == \
+        ('berendsen', 'semiisotropic', '2.5')
     assert body['cg_minimization_steps'] == '20000'
     assert body['cg_seed'] == generated
     assert live_page.errors == []

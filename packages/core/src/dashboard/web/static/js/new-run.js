@@ -74,6 +74,7 @@ const STAGE_SUMMARY_FIELDS = [
   'cg_minimization_steps', 'cg_minimization_nstlist', 'cg_minimization_verlet_buffer_tolerance',
   'cg_equil_ps', 'cg_equil_dt_fs', 'cg_equil_nstlist', 'cg_equil_verlet_buffer_tolerance',
   'cg_equil_tau_t', 'cg_equil_tau_p', 'cg_equil_compressibility',
+  'cg_equil_pcoupl', 'cg_equil_pcoupltype', 'cg_equil_ref_p',
   'cg_production_ps', 'cg_production_dt_fs', 'nstlist',
 ];
 
@@ -230,8 +231,12 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   const CG_STAGE_FIELDS = ['cg_minimization_steps','cg_minimization_nstlist','cg_minimization_verlet_buffer_tolerance',
     'cg_equil_dt_fs','cg_equil_nstlist','cg_equil_verlet_buffer_tolerance','cg_equil_tau_t','cg_equil_tau_p',
     'cg_equil_compressibility','cg_production_dt_fs'];
+  // The equilibration barostat is the revision kind's own: `cg.SETTING_SPECS`/`cg.CHOICE_SPECS` advertise it, and
+  // `cg.mdp_values` writes it into that leg's MDP. The sugar adapter's literal tables and the composition's choice
+  // table do not carry it, so the shared form keeps the three keys off those payloads and hides the controls.
+  const CG_BAROSTAT_FIELDS = ['cg_equil_pcoupl','cg_equil_pcoupltype','cg_equil_ref_p'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed',
-    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...CG_BAROSTAT_FIELDS];
   // The published sugar reference's own vocabulary (`validation ... sugar_cg.SETTING_SPECS`) plus the production and
   // stage-leg overrides its three legs run: a reference run advertises those, and none of the AA half's settings, so
   // the form posts only what that adapter reads.
@@ -809,6 +814,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     const derived = reference || composition;
     $('#cg-inputs').classList.toggle('hidden', aaOnly);
     $$('.cg-setting').forEach(label => label.classList.toggle('hidden', aaOnly));
+    // The CG equilibration barostat is the revision adapter's vocabulary; a reference or composition run keeps the
+    // controls in the document but out of the form, rather than posting a key its own normalizer refuses.
+    $$('.revision-setting').forEach(label => label.classList.toggle('hidden', aaOnly || kind !== 'revision'));
     // The stage editors are the atomistic leg's own shells: a CG run consumes a reference that already ran and must
     // not show three empty AA stages.
     $$('.aa-setting').forEach(element => element.classList.toggle('hidden', !aaOnly));
