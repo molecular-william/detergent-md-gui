@@ -11,19 +11,20 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Current state (2026-11-16)
 
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
-  It was restarted 2026-11-16 14:45 on `45f04d3`. Restart after a Python or template change: the unit keeps its
+  It was restarted 2026-11-16 17:36 on `9dd97ba`. Restart after a Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
   `Overall Score : nan ± nan` and `validate_run` refused `report_interactions.out: nonfinite scores`. Fixed the same
   day -- the molecule is constraints-only, so there is no interaction half to score. The retry was then refused by
   the run's own code pins, repaired with a recorded `code_repair`, and re-run: the run **completed** 2026-11-16
   15:14 HKT with `interaction_scores.scored: false` in `validation.json`, the stratified distance figure, both SASA
-  series and its three analyses. A restart is still needed before preparing a new *fit* CG run: that adapter
-  contract is imported at startup, while a repository stage script is read fresh per attempt.
-- **Store.** `workspace/dashboard` is 24 GB after the cleanup below: 16 runs (five pdc 1 us runs 21.7 GB, four aa
-  200 ns 1.9 GB, seven cg 1.0 GB); `parameterizations/` 27 MB (the records and their own revisions); `martini3/`
-  18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. Inside `runs/`: 415 MB of captured console
-  and 225 MB of derived analyses.
+  series and its three analyses. The clause that a new *fit* CG run needed a restart is satisfied by the 17:36
+  restart, which also deployed the named-identity phases.
+- **Store.** `workspace/dashboard` is 3.4 GB: 10 runs (six aa 200 ns, four cg) after the user deleted the five pdc
+  1 us runs and two cg runs on 2026-11-16 (that deletion predates the tombstone code, so their names are not in
+  `retired_runs`); `parameterizations/` 189 MB, the records plus the fit scratch `77504a003e5e`'s retry recreated;
+  `martini3/` 18 MB (the shared set every run reads in place); `jobs.sqlite3` 3.5 MB. A stray empty
+  `runs/jobs.sqlite3` from 2026-11-06 was removed.
 - **Store cleanup applied 2026-11-16** (474 MB removed, 82 MB reclaimed): `parameterizations/work/` (455 MB of fit
   scratch -- a re-fit restages it, and only `engine_command[4]` in three records names the vanished path), `preview/`
   (14 MB, an orphaned 2026-10-14 cache nothing reads), `dashboard.log` and the `_live*` screenshots (5 MB, 2026-10-30),
@@ -61,10 +62,11 @@ version (`DASHBOARD_CODE_VERSION`, else `git describe --always --dirty`), never 
 role/label/kind/root/path (a legacy digest entry still verifies), `stage_scripts`/`python_modules` record
 `{name, version}` from `run_scripts.CODE_VERSIONS`, and `provenance.json` records the same and gates nothing; a
 published reference carries `edition`, which `resolve` compares instead of re-hashing the 466 MB trajectory (a legacy
-record keeps its digest branch, so an old reference is not faster until republished). Remaining, planned in
-`docs/plans/2026-11-16-named-identity.md`: phase 3 names the parameterization store (`records/<slug>.json`, dual-read
-plus a migration CLI) and phase 4 versions molecule folders and the Martini set; the contract step that deletes the
-legacy digest branches comes after those.
+record keeps its digest branch, so an old reference is not faster until republished). Checks: fast **2869 passed / 1
+xfailed**, browser **391 passed** plus the known assessment-rescore flake (green solo), ruff clean; the dashboard was
+restarted on `9dd97ba`. Remaining, planned in `docs/plans/2026-11-16-named-identity.md`: phase 3 names the
+parameterization store (`records/<slug>.json`, dual-read plus a migration CLI) and phase 4 versions molecule folders
+and the Martini set; the contract step that deletes the legacy digest branches comes after those.
 **2026-11-16 The paper's energy-conservation test reaches the Run view, and a CG run stops naming PME.** The new
 `energy-conservation` analysis kind is the default for every `cg` run: it reads the production leg's `.edr` through
 the shared `trajectory_overview.read_energy`, takes de Jong et al.'s last-600 ps window (Comput. Phys. Commun. 199
