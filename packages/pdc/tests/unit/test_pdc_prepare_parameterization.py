@@ -23,7 +23,7 @@ from tests.harness.pdc_fixtures import atom_rows
 from tests.harness.support import PROJECT_ROOT
 
 ROOT = PROJECT_ROOT
-TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
+TEMPLATE_PATH = 'molecules/DDM/v1/micelle_template.json'
 
 #: A mapping over the real DDM: one tail bead and one head bead, the shape the editor exports.
 CANDIDATE = {

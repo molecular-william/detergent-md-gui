@@ -79,7 +79,7 @@ def consumer_run(project, workspace):
         {'role': 'martini_force_field', 'label': 'Martini 3 force field', 'kind': 'published',
          'root': 'workspace', 'path': f'martini3/{MARTINI}', 'sha256': 'a' * 64, 'bytes': 1},
         {'role': 'molecule', 'label': 'Glucose/metadata.json', 'kind': 'published',
-         'root': 'repo', 'path': f'molecules/{MOLECULE}/metadata.json', 'sha256': 'b' * 64, 'bytes': 2},
+         'root': 'repo', 'path': f'molecules/{MOLECULE}/v1/metadata.json', 'sha256': 'b' * 64, 'bytes': 2},
         {'role': 'generated', 'label': '01_solvation/run.mdp', 'kind': 'generated',
          'root': 'run', 'path': 'inputs/01_solvation/run.mdp', 'sha256': 'c' * 64, 'bytes': 3},
     ]

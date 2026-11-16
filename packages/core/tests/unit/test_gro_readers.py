@@ -14,7 +14,7 @@ from dashboard.models.molecules import aa as aa_molecules
 from tests.harness.support import PROJECT_ROOT
 
 FixtureGro = PROJECT_ROOT / "packages" / "core" / "tests" / "fixtures" / "cg_og" / "molecule.gro"
-MaltoseGro = PROJECT_ROOT / "molecules" / "Maltose" / "results" / "MMFF" / "lig1.gro"
+MaltoseGro = PROJECT_ROOT / "molecules" / "Maltose" / "v1" / "results" / "MMFF" / "lig1.gro"
 
 
 def atom_line(serial, name, xyz, residue_id=1, residue="OG"):

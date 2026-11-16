@@ -786,21 +786,28 @@ def _molecule_id(folder, root):
     return folder.name
 
 
-def _cg_draft(folder):
+def _cg_draft(folder, root):
     """The detergent draft a CG molecule folder supplies: its beads, positions and topology, with no mapping.
 
     The folder is validated through the catalogue's own `inspect`, so a pdc build accepts exactly the folders the
     catalogue lists; `cg_model` is the one reader of its `[ atoms ]` and `.gro`, and its positions are already
-    relative to the molecule's centroid, which is the frame `pdc_build.stamp` re-centres against anyway.
+    relative to the molecule's centroid, which is the frame `pdc_build.stamp` re-centres against anyway. The
+    folder may be a version directory, so it is inspected through the molecule id it belongs to rather than read as
+    a molecule of its own.
     """
     from dashboard.models.molecules import aa as aa_molecules
     folder = Path(folder)
-    record = aa_molecules.inspect(folder.parent, folder.name, generate_metadata=False)
+    molecule_id = _molecule_id(folder, root)
+    molecule_root = Path(root) / 'molecules'
+    if (molecule_root / molecule_id).is_dir():
+        record = aa_molecules.inspect(molecule_root, molecule_id, generate_metadata=False)
+    else:
+        record = aa_molecules.inspect(folder.parent, folder.name, generate_metadata=False)
     capability = record['capabilities']['cg']
     if not record['valid'] or not capability['executable']:
         raise ValueError('; '.join(record['issues'] or capability['blockers']))
     model = aa_molecules.cg_model(folder)
-    return {'molecule_id': model['molecule_id'], 'residue': model['residue'], 'beads': model['beads'],
+    return {'molecule_id': molecule_id, 'residue': model['residue'], 'beads': model['beads'],
             'topology': model['topology'], 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
             'net_charge': model['charge'], 'inputs': model['inputs']}
 
@@ -1008,7 +1015,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         # conformation library matched bead for bead -- is stated as a limitation rather than invented.
         folder = template_path.parent
         molecule = _molecule_id(folder, root)
-        draft = _cg_draft(folder)
+        draft = _cg_draft(folder, root)
         (inputs / DETERGENT_TOPOLOGY).write_text(draft['topology'])
         (inputs / DETERGENT_GEOMETRY).write_text(json.dumps(draft, indent=2, sort_keys=True))
         model = {'mapping': None, 'kind': 'cg', 'molecule': molecule, 'residue': draft['residue'],

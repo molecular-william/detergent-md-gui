@@ -42,7 +42,10 @@ def source_entries(root,kind,payload=None):
     metadata=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
     shared=metadata.get('shared_reference');aa_source=None
     if TABLE[kind].reads_aa_reference:
-        if shared:aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['sha256'])
+        if shared:
+            if not shared.get('edition'):
+                raise ValueError('A shared AA reference must be pinned by its edition')
+            aa_source,_=aa_references.resolve(run.parent,shared['source_run_id'],shared['edition'])
         elif metadata.get('run_type')=='aa_only':
             aa_references.verify(run);aa_source=root/'07_reference'
     def matches(relative):

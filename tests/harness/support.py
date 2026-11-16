@@ -61,7 +61,7 @@ def parameterization_revision(**overrides):
                            'torsion_model': 'legacy', 'torsion_scale': 1.0},
                'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
                             'source': 'the mapped AA frames'},
-               'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32,
+               'aa_reference': {'run_id': 'a54ac8f64710', 'reference_edition': 1,
                                 'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                                 'production_ns': 10.0},
                'terms': {'bonds': 2, 'angles': 1, 'dihedrals': 1},
@@ -187,9 +187,9 @@ def physical_mapping():
 
 
 def write_aa_fixture(root, molecule_id='Fixture'):
-    """A minimal atomistic molecule directory: molecule.itp, molecule.gro and metadata.json."""
+    """A minimal atomistic molecule version: molecule.itp, molecule.gro and metadata.json under `<id>/v1/`."""
     import json
-    folder = root / molecule_id; folder.mkdir(parents=True)
+    folder = root / molecule_id / 'v1'; folder.mkdir(parents=True)
     rows = ['[ moleculetype ]', 'LIG 1', '[ atoms ]',
             '1 CT 1 LIG C1 1 0 12.011', '2 CT 1 LIG C2 2 0 12.011',
             '3 CT 1 LIG C3 3 0 12.011', '4 CT 1 LIG C4 4 0 12.011',
@@ -203,7 +203,7 @@ def write_aa_fixture(root, molecule_id='Fixture'):
     (folder / 'metadata.json').write_text(json.dumps({'name': molecule_id, 'molecule_type': 'LIG',
                                                       'net_charge': 0,
                                                       'force_field': 'charmm36-jul2022.ff',
-                                                      'water_model': 'tip3p'}))
+                                                      'water_model': 'tip3p', 'version': 'v1'}))
     return folder
 
 

@@ -58,8 +58,10 @@ def test_a_cg_folder_with_a_mapping_keeps_the_mapping_branch(tmp_path):
     candidate the run instead records the candidate as its `mapping` input and its derived beads, which is exactly
     what a mapped run did before this branch existed.
     """
-    (tmp_path / 'molecules').mkdir()
-    shutil.copytree(PROJECT_ROOT / 'packages/core/tests/fixtures/cg_og', tmp_path / 'molecules' / 'OG')
+    (tmp_path / 'molecules' / 'OG').mkdir(parents=True)
+    shutil.copytree(PROJECT_ROOT / 'packages/core/tests/fixtures/cg_og', tmp_path / 'molecules' / 'OG' / 'v1')
+    metadata = tmp_path / 'molecules' / 'OG' / 'v1' / 'metadata.json'
+    metadata.write_text(json.dumps({**json.loads(metadata.read_text()), 'version': 'v1'}))
     candidate = tmp_path / 'candidate.json'
     candidate.write_text(json.dumps({
         'schema_version': 3, 'molecule_id': 'OG', 'name': 'two beads over the CG fixture', 'martini_version': 3,
@@ -68,7 +70,7 @@ def test_a_cg_folder_with_a_mapping_keeps_the_mapping_branch(tmp_path):
         'connections': [['TAIL1', 'HEAD']]}))
     run = tmp_path / 'run'
 
-    pdc.prepare(run, template='molecules/OG/micelle_template.json',
+    pdc.prepare(run, template='molecules/OG/v1/micelle_template.json',
                 settings={'seed': 1, 'aggregation_number': 4}, project_root=tmp_path, mapping=str(candidate))
 
     model = json.loads((run / pdc.INPUTS_DIRECTORY / pdc.SETTINGS_NAME).read_text())['detergent_model']

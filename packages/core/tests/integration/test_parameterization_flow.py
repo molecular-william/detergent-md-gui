@@ -24,10 +24,10 @@ from dashboard.models.molecules import aa as aa_molecules
 from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
-REFERENCE = {'source_run_id': '2' * 12, 'sha256': {}}
-RESOLVED = {'run_id': '2' * 12, 'directory': '/nonexistent/reference', 'reference_sha256': 'ab' * 32,
-            'record': {'reference_sha256': 'ab' * 32, 'frames': 900,
-                       'aa_reference': {'run_id': '2' * 12, 'reference_sha256': 'ab' * 32,
+REFERENCE = {'source_run_id': '2' * 12, 'edition': 1}
+RESOLVED = {'run_id': '2' * 12, 'directory': '/nonexistent/reference', 'edition': 1,
+            'record': {'edition': 1, 'frames': 900,
+                       'aa_reference': {'run_id': '2' * 12, 'reference_edition': 1,
                                         'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                                         'production_ns': 10.0}}}
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n1 C1 1 DDM B01 1 0 72\n2 C1 1 DDM B02 2 0 72\n\n'

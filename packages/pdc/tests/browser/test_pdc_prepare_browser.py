@@ -24,7 +24,7 @@ PROTEIN = {'id': 'workspace/dashboard/proteins/4iar.pdb', 'name': '4iar',
            'path': 'workspace/dashboard/proteins/4iar.pdb', 'source': 'imported',
            'half_thickness_nm': 1.68, 'chains': ['A']}
 CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                          'template': 'molecules/DDM/micelle_template.json',
+                          'template': 'molecules/DDM/v1/micelle_template.json',
                           'registered_type': 'registered-template', 'files_present': True, 'missing_files': [],
                           'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
            'proteins': [PROTEIN],

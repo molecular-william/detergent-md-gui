@@ -39,7 +39,8 @@ def tree(root, stages, recorded, skipped=None):
             directory.mkdir(parents=True, exist_ok=True)
             (directory / 'run.sh').write_text(f'echo {item.name}\n')
     metadata = {'id': '123456abcdef', 'run_type': 'aa_only', 'layout_version': 2, 'status': 'failed',
-                'stages': [{'name': name, 'status': status} for name, status in recorded]}
+                'inputs': [], 'stages': [{'name': name, 'status': status} for name, status in recorded]}
+    files.atomic_json(root / 'inputs' / 'inputs.json', {'inputs': []})
     if skipped:
         metadata['skipped_stages'] = skipped
     files.atomic_json(root / 'manifest.json', metadata)

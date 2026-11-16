@@ -27,7 +27,7 @@ TRIMER = {'id': 'molecules/1at9/1at9.pdb', 'name': '1at9', 'path': 'molecules/1a
           'source': 'imported', 'half_thickness_nm': 1.5, 'chains': ['A', 'B', 'C']}
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                   'template': 'molecules/DDM/micelle_template.json', 'registered_type': 'registered-template',
+                   'template': 'molecules/DDM/v1/micelle_template.json', 'registered_type': 'registered-template',
                    'files_present': True, 'missing_files': [],
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [TRIMER],

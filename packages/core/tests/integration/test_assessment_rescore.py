@@ -23,6 +23,7 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
 from dashboard import files
 from dashboard.execution import assessment_rescore
 from dashboard.models.bonded import parameterization
@@ -164,6 +165,59 @@ def test_a_rescore_stages_the_revisions_references_and_appends_one_attempt(dashb
     assert recorded['stages'] == stages_before, 'a second attempt is not a stage'
     assert recorded['status'] == 'completed'
     assert not assessment_rescore.in_flight(JID)
+
+
+REFERENCE_ID = 'abc123def456'
+
+
+def _reference_run(coordinator, edition=1):
+    """A published AA reference at the edition a run may pin."""
+    run = coordinator.RUNS / REFERENCE_ID
+    (run / 'stages/07_reference').mkdir(parents=True, exist_ok=True)
+    files.atomic_json(run / 'manifest.json',
+                      {'id': REFERENCE_ID, 'run_type': 'aa_only', 'status': 'completed', 'stages': []})
+    trajectory = run / 'stages/07_reference/lig.xtc'
+    trajectory.write_bytes(b'reference trajectory')
+    record = {'schema_version': 2, 'reference_eligible': True,
+              'sha256': {'stages/07_reference/lig.xtc': files.sha256(trajectory)}}
+    if edition is not None:
+        record['edition'] = edition
+    files.atomic_json(run / 'stages/07_reference/reference.json', record)
+    return run / 'stages/07_reference'
+
+
+def _pin(coordinator, run, shared):
+    document = manifest(run)
+    document['shared_reference'] = shared
+    files.atomic_json(run / 'manifest.json', document)
+
+
+@pytest.mark.parametrize('shared', [
+    {'source_run_id': REFERENCE_ID, 'edition': 1},
+    {'source_run_id': REFERENCE_ID, 'sha256': {'stages/07_reference/lig.xtc': 'ab' * 32}},
+])
+def test_the_attempt_names_the_reference_pinned_by_its_edition(dashboard, shared):
+    """A digest is not a pin: an edition block is verified, and a legacy digest map resolves by the record's edition."""
+    coordinator, run = seed(dashboard)
+    reference = _reference_run(coordinator)
+    _pin(coordinator, run, shared)
+
+    attempt = assessment_rescore.prepare(coordinator, JID)
+    assessment_rescore.release(JID)
+
+    assert attempt['aa_reference'] == str(reference)
+
+
+def test_a_reference_that_publishes_no_edition_is_not_handed_to_the_stage(dashboard):
+    """A reference no edition can pin is left out rather than passed on unverified."""
+    coordinator, run = seed(dashboard)
+    _reference_run(coordinator, edition=None)
+    _pin(coordinator, run, {'source_run_id': REFERENCE_ID, 'edition': 1})
+
+    attempt = assessment_rescore.prepare(coordinator, JID)
+    assessment_rescore.release(JID)
+
+    assert attempt['aa_reference'] is None
 
 
 def test_the_first_assessment_is_untouched_by_a_rescore(dashboard, monkeypatch):

@@ -303,14 +303,28 @@ def _cg_names(manifest):
 
 
 def _shared_reference_path(manifest, run_dir):
-    """The published AA reference this run was scored against, or `None` when it has none to resolve."""
+    """The published AA reference this run was scored against, or `None` when it has none to resolve.
+
+    The pin is the edition the reference publishes, never the digest map a manifest attached before editions: a
+    digest is not a pin any reader can check. A run that records an edition is verified against it; a legacy block
+    is resolved once, then pinned by the edition its own record states. A reference with no edition cannot be
+    pinned, so it answers `None` and the stage runs without an unverified `AA_REFERENCE_DIR`.
+    """
     shared = manifest.get('shared_reference')
     if not isinstance(shared, dict) or not shared.get('source_run_id'):
         return None
     from ..analysis.runs import references as aa_references
 
+    root = Path(run_dir).parent
     try:
-        path, _ = aa_references.resolve(Path(run_dir).parent, shared['source_run_id'], shared.get('sha256'))
+        expected = shared.get('edition')
+        path, data = aa_references.resolve(root, shared['source_run_id'], expected)
+        edition = data.get('edition')
+        if edition is None:
+            return None
+        if expected is None:
+            # A legacy digest map: the reference itself publishes the edition the attempt must pin.
+            path, _ = aa_references.resolve(root, shared['source_run_id'], expected={'edition': edition})
     except (OSError, ValueError, KeyError):
         return None
     return Path(path)

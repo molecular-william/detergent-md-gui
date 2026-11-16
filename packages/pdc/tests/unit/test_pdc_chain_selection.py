@@ -90,7 +90,7 @@ def test_a_posted_selection_and_a_switched_off_back_map_reach_the_job(tmp_path):
     client = app.test_client()
 
     response = client.post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
-                                      'template': 'molecules/DDM/micelle_template.json',
+                                      'template': 'molecules/DDM/v1/micelle_template.json',
                                       'protein': str(protein), 'pdc_seed': 20261013,
                                       'aggregation_number': 4, 'protein_chains': ['A'], 'backmap': False})
 

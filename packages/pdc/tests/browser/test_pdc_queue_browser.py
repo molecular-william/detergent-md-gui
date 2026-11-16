@@ -19,7 +19,7 @@ from tests.harness import browser
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                   'template': 'molecules/DDM/micelle_template.json', 'registered_type': 'registered-template',
+                   'template': 'molecules/DDM/v1/micelle_template.json', 'registered_type': 'registered-template',
                    'files_present': True, 'missing_files': [],
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [],
@@ -75,7 +75,7 @@ def test_the_build_button_posts_to_the_route_that_accepts_post(dashboard, live_p
     # the settings under their `pdc_` names.
     assert posted['run_type'] == 'pdc' and posted['method'] == 'bartender', posted
     assert posted['molecule_id'] == 'DDM', posted
-    assert posted['template'] == 'molecules/DDM/micelle_template.json', posted
+    assert posted['template'] == 'molecules/DDM/v1/micelle_template.json', posted
     assert posted['mapping_candidate'] == MAPPING_FILE, posted
     assert posted['protein'] is None, posted
     assert 'protein_free' not in posted, 'protein_free was a key nothing consumed'

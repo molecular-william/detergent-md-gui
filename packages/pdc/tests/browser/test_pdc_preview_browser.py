@@ -50,7 +50,7 @@ PREVIEW_BEAD_SCALE = 0.3
 PROTEIN = {'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
            'source': 'packaged', 'half_thickness_nm': 1.35, 'chains': ['A', 'B']}
 CATALOG = {'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                          'template': 'molecules/DDM/micelle_template.json',
+                          'template': 'molecules/DDM/v1/micelle_template.json',
                           'registered_type': 'registered-template', 'files_present': True, 'missing_files': [],
                           'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
            'proteins': [PROTEIN],

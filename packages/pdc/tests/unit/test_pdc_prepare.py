@@ -433,8 +433,8 @@ def test_the_mapping_answers_for_the_tail_when_the_template_names_none(tmp_path)
                   {'name': 'TAIL2', 'type': 'C1', 'atoms': [5, 6]}],
         'connections': [['S1A', 'TAIL1'], ['TAIL1', 'TAIL2']]}))
 
-    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root,
-                mapping=str(candidate))
+    pdc.prepare(tmp_path / 'run', template='molecules/DDM/v1/micelle_template.json',
+                settings={'seed': 1}, project_root=root, mapping=str(candidate))
 
     settings = settings_of(tmp_path / 'run')
     assert settings['tail_beads'] == ['TAIL1', 'TAIL2'], 'the aliphatic beads, and not the sugar bead'
@@ -508,12 +508,14 @@ def test_the_executor_records_a_prepare_time_skip_without_a_directory(tmp_path):
 #: The checked-in small Martini 3 molecule the import lane adds. A pdc build uses its own folder as the detergent
 #: model, so no mapping and no test needs the developer's `molecules/` tree.
 CG_FIXTURE = PROJECT_ROOT / 'packages/core/tests/fixtures/cg_og'
-CG_TEMPLATE = 'molecules/OG/micelle_template.json'
+CG_TEMPLATE = 'molecules/OG/v1/micelle_template.json'
 
 
 def cg_tree(tmp_path: Path) -> Path:
-    (tmp_path / 'molecules').mkdir(exist_ok=True)
-    shutil.copytree(CG_FIXTURE, tmp_path / 'molecules' / 'OG')
+    (tmp_path / 'molecules' / 'OG').mkdir(parents=True, exist_ok=True)
+    shutil.copytree(CG_FIXTURE, tmp_path / 'molecules' / 'OG' / 'v1')
+    metadata = tmp_path / 'molecules' / 'OG' / 'v1' / 'metadata.json'
+    metadata.write_text(json.dumps({**json.loads(metadata.read_text()), 'version': 'v1'}))
     return tmp_path
 
 
@@ -565,14 +567,8 @@ VERSIONED_CG_TEMPLATE = 'molecules/OG/v1/micelle_template.json'
 
 
 def versioned_cg_tree(tmp_path: Path) -> Path:
-    root = cg_tree(tmp_path)
-    version = root / 'molecules' / 'OG' / 'v1'
-    version.mkdir()
-    for name in ('metadata.json', 'micelle_template.json', 'molecule.gro', 'molecule.itp'):
-        shutil.copy2(CG_FIXTURE / name, version / name)
-    metadata = json.loads((version / 'metadata.json').read_text())
-    (version / 'metadata.json').write_text(json.dumps({**metadata, 'version': 'v1'}))
-    return root
+    """The CG fixture under its version directory, as an import writes it."""
+    return cg_tree(tmp_path)
 
 
 def test_a_versioned_cg_molecule_is_offered_as_a_template(tmp_path):

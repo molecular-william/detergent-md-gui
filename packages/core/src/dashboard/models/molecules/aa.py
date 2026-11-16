@@ -22,7 +22,7 @@ except ImportError:  # imported as a run-local copy: no package, and no paths mo
 # The packaged DDM results are read through the project root when the package is
 # importable. A run-local copy never reads them, so its fallback only has to
 # resolve to something; it must not require a module the run directory lacks.
-PACKAGED = _PROJECT_ROOT / 'molecules/DDM/results/MMFF'
+PACKAGED = _PROJECT_ROOT / 'molecules/DDM/v1/results/MMFF'
 
 
 def validate_id(value):
@@ -89,7 +89,7 @@ def local_files(folder):
 
 
 def versions(root, molecule_id):
-    """The versions one molecule folder states, oldest first; empty for the unversioned legacy shape."""
+    """The versions one molecule folder states, oldest first; empty when it states none."""
     validate_id(molecule_id)
     found = _version_folders(Path(root) / molecule_id)
     return [version for _path, version in sorted(found, key=lambda item: (_version_key(item[1]), item[0].name))]
@@ -98,10 +98,10 @@ def versions(root, molecule_id):
 def resolve(root, molecule_id, version=None):
     """The folder a molecule id names, and the version it read.
 
-    A molecule folder is molecules/<id>/<version>/ when it states metadata.version; the unversioned molecules/<id>/
-    is the legacy shape and reads as its own version. No version named resolves the newest one stated (metadata
-    version, then the directory name); a named version that is not installed is refused rather than answered by
-    another, because a run that named one must not simulate different files.
+    A molecule folder is molecules/<id>/<version>/ when it states metadata.version. No version named resolves the
+    newest one stated (metadata version, then the directory name); a named version that is not installed is refused
+    rather than answered by another, because a run that named one must not simulate different files. A folder with
+    no version directory is the retired legacy shape, and is refused rather than read as its own version.
     """
     validate_id(molecule_id)
     root = Path(root)
@@ -122,7 +122,8 @@ def resolve(root, molecule_id, version=None):
     if installed:
         path, stated = max(installed, key=lambda item: (_version_key(item[1]), item[0].name))
         return path, stated
-    return id_folder, None
+    raise ValueError(f'molecules/{molecule_id} has no version directory; '
+                     'migrate it with cli/migrate_molecule_versions.py')
 
 
 def selected_folder(molecule_root, snapshot):
@@ -418,7 +419,7 @@ def inspect(root, molecule_id, *, version=None, generate_metadata=True):
 def _inspect_folder(molecule_id, folder, version, generate_metadata):
     folder = Path(folder)
     result = {'id': molecule_id, 'name': molecule_id, 'version': version,
-              'path': f'molecules/{molecule_id}' if version is None else f'molecules/{molecule_id}/{folder.name}',
+              'path': f'molecules/{molecule_id}/{folder.name}',
               'kind': 'aa', 'valid': False, 'executable': False, 'issues': [], 'blockers': [], 'sha256': {}}
     kind = 'aa'
     try:
@@ -519,11 +520,30 @@ def _inspect_folder(molecule_id, folder, version, generate_metadata):
     return result
 
 
+def _refused(molecule_id, error):
+    """The record a folder that states no version is listed as: invalid, with the migration it needs."""
+    result = {'id': molecule_id, 'name': molecule_id, 'version': None, 'path': f'molecules/{molecule_id}',
+              'kind': 'aa', 'valid': False, 'executable': False, 'issues': [str(error)],
+              'blockers': [str(error)], 'sha256': {}}
+    result['capabilities'] = {name: {'executable': False, 'blockers': result['blockers']}
+                              for name in ('aa_only', 'aa_cg', 'cg')}
+    return result
+
+
 def catalogue(root, *, generate_metadata=False):
     root = Path(root)
     if not root.is_dir() or root.is_symlink(): return []
-    return [inspect(root, path.name, generate_metadata=generate_metadata) for path in sorted(root.iterdir())
-            if path.is_dir() and not path.is_symlink() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', path.name)]
+    records = []
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.is_symlink() or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', path.name):
+            continue
+        try:
+            records.append(inspect(root, path.name, generate_metadata=generate_metadata))
+        except ValueError as error:
+            # A folder with no version directory is retired data, not an unreadable molecule: it stays listed so the
+            # reader is told which migration it needs, rather than disappearing from the catalogue.
+            records.append(_refused(path.name, error))
+    return records
 
 
 def selection(root, molecule_id, run_type='aa_cg', *, version=None):
@@ -562,8 +582,8 @@ def _selection(record, run_type='aa_cg'):
 def verify_selection(root, snapshot):
     """Refuse a selection whose molecule or version no longer reads as it did when it was queued.
 
-    An unversioned folder names itself as version `None`: it is still its own version, so it is verified against the
-    id folder itself and an import of a new version beside it cannot move a queued run onto different files.
+    A selection names a version; a folder with no version directory is refused by `resolve` with the migration it
+    needs, because reading the legacy folder as its own version is the shape this contract deleted.
     """
     if not isinstance(snapshot, dict):
         raise ValueError('A molecule selection must be an object')
@@ -572,14 +592,6 @@ def verify_selection(root, snapshot):
     # the AA branch about it would report a molecule whose files are fine as a changed molecule.
     run_type = 'cg' if snapshot.get('kind') == 'cg' else (
         'aa_only' if snapshot.get('adapter') == 'aa-charmm36' else 'aa_cg')
-    if 'version' in snapshot and snapshot.get('version') is None:
-        # The unversioned folder named as its own version: it reads the id folder itself, so an import of a new
-        # version beside it cannot move a queued run onto different files.
-        folder = Path(root) / snapshot['id']
-        if folder.is_symlink() or not folder.is_dir():
-            raise ValueError('Molecule directory is unavailable or is a symlink')
-        expected = _selection(_inspect_folder(snapshot['id'], folder, None, True), run_type)
-    else:
-        expected = selection(root, snapshot['id'], run_type, version=snapshot.get('version'))
+    expected = selection(root, snapshot['id'], run_type, version=snapshot.get('version'))
     if expected != snapshot:
         raise ValueError('Molecule files changed since this run was queued; select the molecule again')

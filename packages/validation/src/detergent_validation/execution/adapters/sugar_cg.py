@@ -162,9 +162,9 @@ def reference_provenance():
             'martini_version': source.get('martini_version')}
 
 
-def _molecule_files(molecule_root, molecule_id, inputs):
+def _molecule_files(molecule_root, context, inputs):
     """The AA topology and coordinates the start was built from, recorded where they live."""
-    folder = Path(molecule_root) / molecule_id
+    folder = Path(molecule_root) / Path(context['path']).relative_to('molecules')
     entries = []
     for role, key in (('molecule_topology', 'topology'), ('molecule_coordinates', 'coordinates')):
         source = folder / inputs[key]
@@ -349,7 +349,7 @@ def prepare(run_dir, metadata):
 
     snapshot = metadata.get('molecule_snapshot')
     try:
-        molecule_entries = _molecule_files(molecule_root, molecule_id, answer['context']['inputs'])
+        molecule_entries = _molecule_files(molecule_root, answer['context'], answer['context']['inputs'])
     except (OSError, ValueError):
         # `assess` already read the molecule successfully; this is only the provenance record.
         molecule_entries = []

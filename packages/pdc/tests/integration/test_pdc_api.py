@@ -143,7 +143,7 @@ def test_a_fetch_that_failed_is_reported_and_leaves_the_catalogue_as_it_was(dash
 # --- the conformation library a run names -------------------------------------------------------------
 
 SOURCE_RUN = 'b920391735dd'
-TEMPLATE = 'molecules/DDM/micelle_template.json'
+TEMPLATE = 'molecules/DDM/v1/micelle_template.json'
 LIBRARY_MAPPING = 'mapping_candidate_library.json'
 
 

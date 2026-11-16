@@ -17,7 +17,7 @@ from dashboard.models.molecules import vsites
 
 from tests.harness.support import PROJECT_ROOT
 
-Ddm = PROJECT_ROOT / "molecules" / "DDM" / "results" / "MMFF"
+Ddm = PROJECT_ROOT / "molecules" / "DDM" / "v1" / "results" / "MMFF"
 SugarReference = PROJECT_ROOT / "references" / "martini_v3.0.0_sugars_v2.itp"
 VsitesFixture = PROJECT_ROOT / "packages" / "core" / "tests" / "fixtures" / "vsites"
 

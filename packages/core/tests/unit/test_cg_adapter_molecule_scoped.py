@@ -33,7 +33,7 @@ def test_molecule_scoped_cg_rejects_invalid_reference_id(tmp_path):
     with pytest.raises(ValueError, match='Invalid AA source run ID'):
         cg.prepare(
             run, molecule_snapshot=snapshot, profile='draft-smoke',
-            shared_reference={'source_run_id': '../not-a-run', 'sha256': {}},
+            shared_reference={'source_run_id': '../not-a-run', 'edition': 1},
         )
 
 
@@ -165,7 +165,7 @@ def test_maltose_mapping_validation_uses_its_bound_molecule():
                   molecule_snapshot=copy.deepcopy(context['snapshot']))
 
     loaded = draft_model.load(mapping)
-    metadata = json.loads((PROJECT_ROOT / 'molecules/Maltose/metadata.json').read_text())
+    metadata = json.loads((PROJECT_ROOT / 'molecules/Maltose/v1/metadata.json').read_text())
     names = CGNames.for_snapshot({'id': 'Maltose', 'metadata': metadata})
     topology = draft_model.initial_topology(loaded, residue_name=names.residue_name)
 

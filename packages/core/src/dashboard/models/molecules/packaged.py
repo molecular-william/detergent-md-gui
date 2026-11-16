@@ -12,7 +12,7 @@ from functools import lru_cache
 from ... import martini3, paths
 
 ROOT = paths.DEFAULT.project_root
-SOURCE = ROOT / 'molecules' / 'DDM'
+SOURCE = ROOT / 'molecules' / 'DDM' / 'v1'
 
 
 def molecule():
@@ -48,8 +48,8 @@ def _molecule(topology_text, coordinate_text):
                       'xyz': [float(line[i:i+8]) for i in (30, 38, 46)]})
     if len(atoms) != len(topology):
         raise ValueError('SwissParam coordinate and topology atom counts differ')
-    return {'atoms': atoms, 'bonds': bonds, 'source': 'molecules/DDM/results/MMFF/lig1.pdb',
-            'bond_source': 'molecules/DDM/results/MMFF/lig1.itp'}
+    return {'atoms': atoms, 'bonds': bonds, 'source': 'molecules/DDM/v1/results/MMFF/lig1.pdb',
+            'bond_source': 'molecules/DDM/v1/results/MMFF/lig1.itp'}
 
 
 def bead_types():

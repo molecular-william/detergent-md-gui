@@ -15,8 +15,9 @@ from tests.harness.support import PROJECT_ROOT
 
 @pytest.fixture
 def source(tmp_path):
-    folder = tmp_path/'molecules/Example'
-    shutil.copytree(PROJECT_ROOT/'molecules/DDM', folder)
+    """One version folder, as an import writes it: the files sit under `molecules/<id>/v1/`."""
+    folder = tmp_path/'molecules/Example/v1'
+    shutil.copytree(PROJECT_ROOT/'molecules/DDM/v1', folder)
     (folder/'metadata.json').unlink(missing_ok=True)
     return folder
 
@@ -24,7 +25,7 @@ def source(tmp_path):
 def test_nested_pdb_generates_metadata_once_and_preserves_sources(source):
     before = files.hashes(source)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        records = list(pool.map(lambda _: aa_molecules.inspect(source.parent, source.name), range(8)))
+        records = list(pool.map(lambda _: aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1'), range(8)))
     assert all(r['valid'] and r['capabilities']['aa_only']['executable'] for r in records)
     assert len({r['sha256']['metadata.json'] for r in records}) == 1
     record = records[0]
@@ -36,23 +37,23 @@ def test_nested_pdb_generates_metadata_once_and_preserves_sources(source):
     metadata = source/'metadata.json'
     custom = record['metadata'] | {'name': 'My molecule'}
     metadata.write_text(json.dumps(custom))
-    assert aa_molecules.inspect(source.parent, source.name)['metadata'] == custom
+    assert aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1')['metadata'] == custom
 
 
 def test_gro_is_preferred_and_ambiguous_pairs_block_launch(source):
     pdb = source/'results/MMFF/lig1.pdb'
     pdb.with_suffix('.gro').write_text(aa_molecules.pdb_gro(pdb.read_text()))
-    record = aa_molecules.inspect(source.parent, source.name)
+    record = aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1')
     assert record['inputs']['coordinate_format'] == 'gro'
     shutil.copytree(pdb.parent, source/'duplicate')
-    record = aa_molecules.inspect(source.parent, source.name)
+    record = aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1')
     assert not record['valid'] and 'Multiple' in ' '.join(record['issues'])
 
 
 def test_unknown_force_field_is_not_silently_admitted(source):
     itp = source/'results/MMFF/lig1.itp'
     itp.write_text(itp.read_text().replace('by user SwissParam', 'by user Unknown'))
-    record = aa_molecules.inspect(source.parent, source.name)
+    record = aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1')
     assert record['valid']
     assert record['metadata']['force_field'] == 'unknown'
     assert not record['capabilities']['aa_only']['executable']
@@ -72,21 +73,21 @@ def test_unsafe_or_inconsistent_pdb_rejected_without_metadata(source, bad):
     elif bad == 'order':
         lines[index], lines[index+1] = lines[index+1], lines[index]
     if bad == 'symlink':
-        pdb.unlink(); pdb.symlink_to(PROJECT_ROOT/'molecules/DDM/results/MMFF/lig1.pdb')
+        pdb.unlink(); pdb.symlink_to(PROJECT_ROOT/'molecules/DDM/v1/results/MMFF/lig1.pdb')
     else:
         pdb.write_text('\n'.join(lines))
-    record = aa_molecules.inspect(source.parent, source.name)
+    record = aa_molecules.inspect(source.parent.parent, source.parent.name, version='v1')
     assert not record['valid']
     assert not (source/'metadata.json').exists()
 
 
 def test_pdb_preparation_names_source_and_conversion_without_mutating_source(source, tmp_path, monkeypatch):
-    selected = aa_molecules.selection(source.parent, source.name, run_type='aa_only')
+    selected = aa_molecules.selection(source.parent.parent, source.parent.name, run_type='aa_only', version='v1')
     before = files.hashes(source)
     run = tmp_path/'run'; run.mkdir()
     monkeypatch.setattr(aa, 'tool_metadata', lambda: {})
     monkeypatch.setattr(aa, 'gromacs_flavour', lambda *arguments, **keywords: 'mpi')
-    aa.prepare_run(run, source.parent, selected, {'box_nm': 4.0})
+    aa.prepare_run(run, source.parent.parent, selected, {'box_nm': 4.0})
     prepared = run/'inputs/common/molecule'
     assert files.hashes(source) == before
     assert not (source/'molecule.gro').exists()
@@ -104,14 +105,14 @@ def test_pdb_preparation_names_source_and_conversion_without_mutating_source(sou
     included = [*aa_molecules.topology_tree(source, inputs['topology'])[1], inputs['coordinates'], 'metadata.json']
     molecule_entries = [entry for entry in manifest['inputs'] if entry['role'] == 'molecule']
     assert {entry['path'] for entry in molecule_entries} == {
-        f'molecules/Example/{relative}' for relative in included}
+        f'molecules/Example/v1/{relative}' for relative in included}
     assert {entry['label'] for entry in molecule_entries} == {
-        f'Example/{relative}' for relative in included}
+        f'Example/v1/{relative}' for relative in included}
     for entry in molecule_entries:
         run_inputs.verify_entry(entry, repo_root=tmp_path)
     (source/'results/MMFF/lig1.pdb').write_text('changed after queue')
     with pytest.raises(ValueError):
-        aa_molecules.verify_selection(source.parent, selected)
+        aa_molecules.verify_selection(source.parent.parent, selected)
 
 
 # --- Local molecule imports (item 5) ------------------------------------------------------------------------------
@@ -144,9 +145,18 @@ def import_service(dashboard, tmp_path, monkeypatch):
     return dashboard.client, root
 
 
+def versioned_copy(source, target):
+    """A molecule id folder holding `v1/`, as an import writes it, from a fixture that states no version."""
+    target.mkdir(parents=True)
+    shutil.copytree(source, target / 'v1')
+    metadata = target / 'v1' / 'metadata.json'
+    metadata.write_text(json.dumps({**json.loads(metadata.read_text()), 'version': 'v1'}))
+    return target / 'v1'
+
+
 def test_a_cg_folder_is_classified_as_cg_and_selected_as_one(tmp_path):
     root = tmp_path / 'molecules'
-    shutil.copytree(FIXTURES / 'cg_og', root / 'OG')
+    versioned_copy(FIXTURES / 'cg_og', root / 'OG')
     record = aa_molecules.inspect(root, 'OG')
 
     assert record['kind'] == 'cg' and record['valid']
@@ -296,7 +306,7 @@ def test_an_import_refuses_a_file_over_the_eight_mebibyte_limit(import_service):
 
 def test_a_cg_molecule_is_not_offered_to_the_aa_run_types(import_service):
     client, root = import_service
-    shutil.copytree(FIXTURES / 'cg_og', root / 'molecules' / 'OG')
+    versioned_copy(FIXTURES / 'cg_og', root / 'molecules' / 'OG')
 
     readiness = client.get('/api/readiness?run_type=cg&molecule_id=OG').get_json()
     assert readiness['ready'] is False
@@ -310,7 +320,7 @@ def versioned_molecule(root, versions=('v1', 'v2')):
     """A molecule folder whose sources sit in version directories, as an import writes them."""
     for version in versions:
         folder = root / 'MOL' / version
-        shutil.copytree(PROJECT_ROOT / 'molecules/DDM', folder)
+        shutil.copytree(PROJECT_ROOT / 'molecules/DDM/v1', folder)
         metadata = json.loads((folder / 'metadata.json').read_text())
         metadata['version'] = version
         (folder / 'metadata.json').write_text(json.dumps(metadata))
@@ -346,7 +356,7 @@ def test_a_selection_pinned_to_an_older_version_keeps_verifying(tmp_path):
         aa_molecules.verify_selection(root, pinned)
 
 
-def test_a_mapping_snapshot_names_the_version_and_a_legacy_one_still_opens(tmp_path):
+def test_a_mapping_snapshot_names_the_version(tmp_path):
     from dashboard.models.mappings import context as mapping_context
 
     root = versioned_molecule(tmp_path / 'molecules')
@@ -356,10 +366,8 @@ def test_a_mapping_snapshot_names_the_version_and_a_legacy_one_still_opens(tmp_p
     assert context['path'] == 'molecules/MOL/v1'
     assert mapping_context.snapshot_matches({'molecule_id': 'MOL', 'version': 'v1'}, context)
     assert not mapping_context.snapshot_matches({'molecule_id': 'MOL', 'version': 'v2'}, context)
-    # A mapping saved before versions carries the file digests instead; it still opens against the same files.
-    legacy = dict(context['snapshot'].legacy)
-    assert mapping_context.snapshot_matches(legacy, context)
-    assert not mapping_context.snapshot_matches({**legacy, 'snapshot_sha256': 'stale'}, context)
+    # A digest-era snapshot names no version this folder states, so it is refused as a changed molecule.
+    assert not mapping_context.snapshot_matches({'molecule_id': 'MOL', 'snapshot_sha256': 'stale'}, context)
 def test_a_versioned_selection_prepares_from_its_own_version_folder(tmp_path, monkeypatch):
     root = versioned_molecule(tmp_path / 'molecules', ('v1',))
     selected = aa_molecules.selection(root, 'MOL', run_type='aa_only', version='v1')
@@ -377,15 +385,13 @@ def test_a_versioned_selection_prepares_from_its_own_version_folder(tmp_path, mo
     assert context['molecule_snapshot']['version'] == 'v1'
     assert (run / 'inputs/common/molecule/molecule.itp').read_text() == \
         f'#include "{(root / "MOL" / "v1" / "results/MMFF/lig1.itp").resolve()}"\n'
-def test_a_selection_on_the_unversioned_folder_stays_pinned_when_a_version_appears(tmp_path):
-    """The legacy folder is its own version: a run queued on it keeps reading it after an import lands beside it."""
+def test_a_folder_without_a_version_is_refused_with_the_migration(tmp_path):
+    """The legacy shape is retired: a plain folder is not read as its own version (phase 4's contract step)."""
     root = tmp_path / 'molecules'
-    shutil.copytree(PROJECT_ROOT / 'molecules/DDM', root / 'MOL')
-    pinned = aa_molecules.selection(root, 'MOL', run_type='aa_only')
-    assert pinned['version'] is None and pinned['path'] == 'molecules/MOL'
+    shutil.copytree(PROJECT_ROOT / 'molecules/DDM/v1', root / 'MOL')
 
-    versioned_molecule(root, ('v1',))
-
-    assert aa_molecules.inspect(root, 'MOL')['version'] == 'v1'
-    aa_molecules.verify_selection(root, pinned)
-    assert aa_molecules.selected_folder(root, pinned) == (root / 'MOL').resolve()
+    with pytest.raises(ValueError, match='migrate_molecule_versions'):
+        aa_molecules.selection(root, 'MOL', run_type='aa_only')
+    listed = aa_molecules.catalogue(root)
+    assert [entry['id'] for entry in listed] == ['MOL']
+    assert not listed[0]['valid'] and 'migrate_molecule_versions' in ' '.join(listed[0]['issues'])

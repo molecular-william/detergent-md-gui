@@ -151,14 +151,12 @@ def import_molecule_api():
             _stamp_generated_metadata(folder, version=version, sources=sources)
             record = aa_molecules.inspect(temporary, molecule_id, version=version, generate_metadata=False)
         try:
-            if target.is_dir():
-                if (target / version).exists() or (target / version).is_symlink():
-                    raise FileExistsError(f'molecules/{molecule_id}/{version} appeared while importing')
-                os.rename(folder, target / version)
-            elif target.exists():
-                raise FileExistsError(f'molecules/{molecule_id} is not a folder')
-            else:
-                os.rename(temporary / molecule_id, target)
+            # An import always writes molecules/<id>/<version>/: the id folder is the version's parent, never a
+            # molecule of its own. The rename is one filesystem operation, and a version is never replaced.
+            target.mkdir(exist_ok=True)
+            if (target / version).exists() or (target / version).is_symlink():
+                raise FileExistsError(f'molecules/{molecule_id}/{version} appeared while importing')
+            os.rename(folder, target / version)
         except OSError as exc:
             abort(409, f'molecules/{molecule_id} was not imported: {exc}')
     except ValueError as exc:

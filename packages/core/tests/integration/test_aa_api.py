@@ -39,7 +39,7 @@ def reference_fixture(dashboard, profile='standard'):
     directory=dashboard.coordinator.RUNS/job['id'];(directory/'stages/07_reference').mkdir(parents=True)
     files.atomic_json(directory/'manifest.json',job|{'stages':[]})
     trajectory=directory/'stages/07_reference/lig.xtc';trajectory.write_bytes(b'Immutable fixture trajectory for lifecycle checks')
-    data={'reference_eligible':True,'molecule_identity':aa_references.identity(selected),'settings':settings,
+    data={'reference_eligible':True,'edition':1,'molecule':'DDM','molecule_identity':aa_references.identity(selected),'settings':settings,
           'protocol_version':aa.VERSION,'frames':{'count':3},'sha256':{'stages/07_reference/lig.xtc':files.sha256(trajectory)}}
     files.atomic_json(directory/'stages/07_reference/reference.json',data)
     dashboard.coordinator.database().insert(job)
@@ -55,7 +55,7 @@ def cg_job(dashboard, monkeypatch, source=None, **overrides):
     source = source or reference_fixture(dashboard, 'draft-smoke')
     mapping_snapshot = {**automatic_mapping(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
     revision = {'revision': 1, 'engine': 'fast-forward', 'options': {},
-                'aa_reference': {'run_id': source['id'], 'reference_sha256': None}}
+                'aa_reference': {'run_id': source['id'], 'reference_edition': 1}}
     monkeypatch.setattr(cg, 'chosen_revision', lambda *args, **kwargs: revision)
     monkeypatch.setattr(cg, 'parameterization_readiness',
                         lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
@@ -96,7 +96,9 @@ def test_reference_filter_and_hash_tampering(dashboard, service):
     source=reference_fixture(dashboard)
     dashboard.coordinator.database().insert({'id':'222222222222','status':'completed','detergent':'DDM'})
     assert [r['id'] for r in service.get('/api/references?molecule_id=DDM').get_json()['references']]==[source['id']]
-    (dashboard.coordinator.RUNS/source['id']/'stages/07_reference/lig.xtc').write_bytes(b'changed')
+    # An edition record is trusted by its edition, so a changed byte is not re-hashed (the approved trade). What
+    # still refuses is a missing artifact, and the listing excludes that run.
+    (dashboard.coordinator.RUNS/source['id']/'stages/07_reference/lig.xtc').unlink()
     assert service.get('/api/references').get_json()['references']==[]
 
 
@@ -106,7 +108,8 @@ def test_a_cg_revision_run_carries_its_shared_reference_and_creates_no_aa_parent
     child = cg_job(dashboard, monkeypatch, source)
     assert child['status'] == 'queued', 'a revision run starts directly; nothing is waiting for an AA parent'
     assert child['run_type'] == 'cg' and child['reference_run_id'] == source['id']
-    assert child['shared_reference']['source_run_id'] == source['id']
+    assert child['shared_reference'] == {'source_run_id': source['id'], 'edition': 1}
+    assert 'sha256' not in child['shared_reference'], 'the job pins the edition, never the digest map'
     assert list(dashboard.coordinator.WORKERS) == [child['id']]
 
 
@@ -149,7 +152,7 @@ def test_cg_worker_does_not_pass_reference_run_id_to_preparation(dashboard, serv
 def test_aa_retry_rejects_changed_canonical_inputs(dashboard, service):
     response=service.post('/',json={'run_type':'aa_only','molecule_id':'DDM'})
     job=response.get_json();dashboard.coordinator.database().update(job['id'],status='failed');dashboard.coordinator.WORKERS.clear()
-    metadata=dashboard.coordinator.ROOT/'molecules/DDM/metadata.json'
+    metadata=dashboard.coordinator.ROOT/'molecules/DDM/v1/metadata.json'
     data=json.loads(metadata.read_text());data['name']='Changed';files.atomic_json(metadata,data)
     response=service.post('/retry/'+job['id'])
     assert response.status_code==409
@@ -205,16 +208,18 @@ def test_new_attempt_preserves_run_type_and_shared_source(dashboard, service, mo
 
 
 def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch):
-    """The revision records the reference's digest, and the reference is verified against it.
+    """The revision records the reference's edition, and the reference is verified against it.
 
-    A reference whose files changed under the revision that consumed it is refused before a job exists, exactly as
+    A reference whose edition changed under the revision that consumed it is refused before a job exists, exactly as
     the AA-CG pair used to refuse a consumer whose inherited settings disagreed with its source.
     """
     source = reference_fixture(dashboard, 'draft-smoke')
+    reference_path = dashboard.coordinator.RUNS / source['id'] / 'stages/07_reference/reference.json'
+    record = json.loads(reference_path.read_text())
+    files.atomic_json(reference_path, record | {'edition': 1})
     mapping_snapshot = {**automatic_mapping(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
     revision = {'revision': 1, 'engine': 'fast-forward',
-                'aa_reference': {'run_id': source['id'],
-                                 'reference_sha256': {'stages/07_reference/lig.xtc': '0' * 64}}}
+                'aa_reference': {'run_id': source['id'], 'reference_edition': 2}}
     monkeypatch.setattr(cg, 'chosen_revision', lambda *args, **kwargs: revision)
     monkeypatch.setattr(cg, 'parameterization_readiness',
                         lambda *args, **kwargs: {'ready': True, 'checks': [], 'blockers': []})
@@ -227,20 +232,19 @@ def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch
     assert len(dashboard.coordinator.database().all()) == 1
 
 
-def test_a_pin_on_the_reference_json_digest_is_the_spelling_a_fit_records(dashboard, service):
-    """`bonded.fitting.resolve_reference` pins the hash of `reference.json`; the map was the only accepted spelling.
+def test_a_digest_is_not_a_reference_pin(dashboard, service):
+    """A consumer pins the edition; the digest shapes older attachments carried are refused, not compared.
 
-    Every revision this workspace holds carries that scalar, so comparing it against the map refused every CG run
-    with 'AA reference hashes changed since attachment' (measured 2026-11-16).
+    The one-digest spelling and the artifact map were both accepted while the edition was being introduced. A pin
+    that is not an edition now says so, rather than re-hashing a 466 MB trajectory on every readiness check.
     """
     source = reference_fixture(dashboard, 'draft-smoke')
     root = dashboard.coordinator.RUNS / source['id']
     pin = files.sha256(root / 'stages/07_reference/reference.json')
 
-    assert aa_references.verify(root, pin)['reference_eligible'] is True
-    with pytest.raises(ValueError, match='changed since attachment'):
-        aa_references.verify(root, '0' * 64)
-    with pytest.raises(ValueError, match='changed since attachment'):
+    with pytest.raises(ValueError, match='must be an edition'):
+        aa_references.verify(root, pin)
+    with pytest.raises(ValueError, match='must be an edition'):
         aa_references.verify(root, {'stages/07_reference/lig.xtc': '0' * 64})
 
 
@@ -259,7 +263,7 @@ def test_analysis_sources_resolve_aa_only_and_shared_reference(dashboard, servic
     (consumer/'stages').mkdir(parents=True)
     files.atomic_json(consumer/'manifest.json', {
         'run_type': 'aa_cg', 'shared_reference': {
-            'source_run_id': source['id'], 'sha256': verified['sha256']}})
+            'source_run_id': source['id'], 'edition': verified['edition']}})
     expected = {f'1_AA-reference/prod/{name}': root/'stages/07_reference'/name
                 for name in ('lig.gro', 'lig.xtc')}
     assert analysis.source_entries(root/'stages', 'bartender-fit') == expected
@@ -288,7 +292,7 @@ def test_an_edition_is_the_reference_pin_and_artifacts_are_not_rehashed(dashboar
     # A run is addressed by its name, and a fit records the edition it measured against.
     assert aa_references.resolve(dashboard.coordinator.RUNS, source['id'], 3)[1]['edition'] == 3
     resolved = fitting.resolve_reference(source['id'], runs_root=dashboard.coordinator.RUNS)
-    assert resolved['edition'] == 3 and resolved['record']['aa_reference']['edition'] == 3
+    assert resolved['edition'] == 3 and resolved['record']['aa_reference']['reference_edition'] == 3
 
 
 def test_a_cg_run_records_the_choice_settings_it_was_given(dashboard, monkeypatch):

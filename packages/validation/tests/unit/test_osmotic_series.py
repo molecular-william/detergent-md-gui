@@ -365,16 +365,12 @@ def series_run(root):
     in the manifest's `stage_scripts`, so the run holds no launcher of its own.
     """
     from dashboard import files
-    from dashboard.execution import run_scripts
+    from dashboard.execution import run_inputs, run_scripts
 
     inputs, stage = root / 'inputs', root / 'stages' / '01_simulate'
     (root / 'logs').mkdir(parents=True, exist_ok=True)
     stage.mkdir(parents=True)
     script = run_scripts.code_path(osmotic.OSMOTIC_SCRIPT, root=REPOSITORY)
-    (root / 'manifest.json').write_text(json.dumps({
-        'run_type': 'osmotic', 'layout_version': 3, 'stages': [],
-        'stage_scripts': {'Osmotic series': {'path': osmotic.OSMOTIC_SCRIPT,
-                                             'sha256': files.sha256(script)}}}))
     (inputs / 'conditions').mkdir(parents=True)
     (inputs / 'conditions.json').write_text('{}')
     for condition in CONDITIONS:
@@ -388,6 +384,10 @@ def series_run(root):
         (work / 'built.json').write_text('{}')
         (work / 'system.top').write_text('{}')
         (work / 'martini_v3.0.0.itp').write_bytes(b'x' * CONDITION_BYTES)
+    (root / 'manifest.json').write_text(json.dumps({
+        'run_type': 'osmotic', 'layout_version': 4, 'stages': [], 'inputs': run_inputs.write(root),
+        'stage_scripts': {'Osmotic series': {'path': osmotic.OSMOTIC_SCRIPT,
+                                             'sha256': files.sha256(script)}}}))
     return stage
 
 

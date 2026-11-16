@@ -14,7 +14,7 @@ from micelle.orientation import infer_orientation
 
 PROTEIN = [[0.0, 0.0, -1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 3.0]]
 # A tracked repository asset, and `validate_template` reports no issues for it -- so a build reaches its report.
-TEMPLATE = Path('molecules/DDM/micelle_template.json')
+TEMPLATE = Path('molecules/DDM/v1/micelle_template.json')
 
 
 def _arguments(structure, output, aggregation_number=4, mdp=None):

@@ -53,7 +53,7 @@ def test_the_queue_route_keeps_the_choice_for_the_run(tmp_path):
     client = app.test_client()
 
     response = client.post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
-                                      'template': 'molecules/DDM/micelle_template.json',
+                                      'template': 'molecules/DDM/v1/micelle_template.json',
                                       'protein_vsite': 'hydrogens'})
 
     assert response.status_code == 201, response.get_data(as_text=True)

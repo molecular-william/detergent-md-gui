@@ -28,7 +28,8 @@ def _stage_run(root):
                         'outputs_sha256': files.hashes(directory)})
     metadata = {'id': '123456abcdef', 'run_type': 'aa_only', 'layout_version': 2,
                 'stages': entries, 'input_snapshot_sha256': files.hashes(inputs),
-                'status': 'failed', 'stage_plan': [name for name, _ in plan]}
+                'inputs': [], 'status': 'failed', 'stage_plan': [name for name, _ in plan]}
+    files.atomic_json(root / 'inputs' / 'inputs.json', {'inputs': []})
     files.atomic_json(root / 'manifest.json', metadata)
     return plan, outputs
 

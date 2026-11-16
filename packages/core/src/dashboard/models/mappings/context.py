@@ -6,18 +6,12 @@ normalized context instead of the historical DDM singleton.
 """
 from __future__ import annotations
 
-import hashlib
 import math
 import re
 from pathlib import Path
 
 from ... import itp
 from ..molecules import aa as aa_molecules
-from .identity import canonical_sha256
-
-
-def _sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 def _element(name: str) -> str | None:
@@ -72,11 +66,10 @@ def _parse_topology(expanded: str):
 
 def _coordinate_records(folder: Path, inputs: dict):
     path = folder / inputs["coordinates"]
-    raw = aa_molecules._read(path)
-    text = raw.decode()
+    text = aa_molecules._read(path).decode()
     if inputs["coordinate_format"] == "pdb":
         text = aa_molecules.pdb_gro(text)
-    return aa_molecules._gro(text), raw
+    return aa_molecules._gro(text)
 
 
 def _chemical_sources(folder: Path, inputs: dict):
@@ -167,38 +160,13 @@ def as_structure(context: dict) -> dict:
     }
 
 
-class Snapshot(dict):
-    """A mapping context's snapshot: the molecule id and version, plus the digests an older snapshot recorded.
-
-    A mapping saved now records exactly {molecule_id, version}; the version directory is its change detector, so
-    no per-file digest enters the document. A mapping saved before version directories records
-    {files, atom_order_sha256, snapshot_sha256} instead, and opening it must not be refused as a changed molecule:
-    that digest map is kept here as an attribute (never as a key) and compared by equality. Both spellings compare
-    equal to themselves, so every reader of a mapping snapshot keeps its own comparison unchanged.
-    """
-
-    legacy: dict
-
-    def __init__(self, molecule_id: str, version, legacy: dict | None = None):
-        super().__init__(molecule_id=molecule_id, version=version)
-        self.legacy = dict(legacy or {})
-
-    def __eq__(self, other):
-        if not isinstance(other, dict):
-            return NotImplemented
-        if 'molecule_id' in other or 'version' in other:
-            return dict.__eq__(self, other)
-        return dict.__eq__(self.legacy, other)
-
-    def __ne__(self, other):
-        result = self.__eq__(other)
-        return result if result is NotImplemented else not result
-
-    __hash__ = None
-
-
 def snapshot_matches(stored, context: dict) -> bool:
-    """Whether a mapping's recorded snapshot still describes this molecule context, in either spelling."""
+    """Whether a mapping's recorded snapshot names this molecule context.
+
+    A snapshot is `{molecule_id, version}` and nothing else: the version directory is the change detector, so there is
+    no digest map to compare and no second spelling to accept. A draft that still carries a digest snapshot is refused
+    as a changed molecule until `cli/migrate_mapping_identities.py` has named its version.
+    """
     snapshot = (context or {}).get('snapshot')
     return isinstance(stored, dict) and isinstance(snapshot, dict) and stored == snapshot
 
@@ -209,9 +177,9 @@ def build_context(root: Path, molecule_id: str, version=None) -> dict:
     root = Path(root)
     folder, resolved = aa_molecules.resolve(root, molecule_id, version)
     inputs = aa_molecules.discover(folder)
-    expanded, dependencies = aa_molecules.topology_tree(folder, inputs["topology"])
+    expanded, _dependencies = aa_molecules.topology_tree(folder, inputs["topology"])
     topology_atoms, bonds = _parse_topology(expanded)
-    coordinates, coordinate_raw = _coordinate_records(folder, inputs)
+    coordinates = _coordinate_records(folder, inputs)
     if len(coordinates) != len(topology_atoms):
         raise ValueError("Coordinates and topology atom counts differ")
     atoms = []
@@ -230,21 +198,10 @@ def build_context(root: Path, molecule_id: str, version=None) -> dict:
     if any(edge["a"] not in known or edge["b"] not in known for edge in bonds):
         raise ValueError("Topology bond references an unknown atom")
 
-    files = dict(dependencies)
-    files[inputs["coordinates"]] = coordinate_raw
-    metadata_path = folder / "metadata.json"
-    if metadata_path.is_file() and not metadata_path.is_symlink():
-        files["metadata.json"] = aa_molecules._read(metadata_path)
     chemical = _chemical_sources(folder, inputs)
-    files.update(chemical)
-    file_hashes = {name: _sha256(value) for name, value in sorted(files.items())}
-    atom_order = [{key: atom[key] for key in ("id", "name", "residue", "element", "heavy")} for atom in atoms]
-    atom_order_hash = canonical_sha256(atom_order)
-    # The digest map is what a mapping saved before versions recorded; the context keeps it to compare against that
-    # snapshot, and writes only the named snapshot into the document a mapping saves now.
-    legacy = {"files": file_hashes, "atom_order_sha256": atom_order_hash}
-    legacy["snapshot_sha256"] = canonical_sha256(legacy)
-    snapshot = Snapshot(molecule_id, resolved, legacy)
+    # A snapshot names the molecule and the version directory it was read from. Nothing hashes the files: the version
+    # directory is the change detector, so an edit inside a version is refuted by the folder, not by a digest map.
+    snapshot = {"molecule_id": molecule_id, "version": resolved}
     projection = _chemical_projection(chemical, atoms)
     if projection:
         positions, orders, source = projection

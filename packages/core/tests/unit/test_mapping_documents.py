@@ -32,11 +32,12 @@ def test_partial_draft_can_save_but_cannot_export(tmp_path, monkeypatch):
         mappings.require_usable(first, context, operation="export")
 
 
-def test_schema_three_identity_changes_with_molecule_snapshot(tmp_path):
+def test_schema_three_identity_changes_with_the_molecule_version(tmp_path):
+    """The version a mapping was placed on is its molecule binding, not a digest of the files it read."""
     write_fixture(tmp_path)
     context = build_context(tmp_path, "Fixture")
     draft = new_draft(context)
-    altered = dict(draft, molecule_snapshot={"files": {"molecule.itp": "changed"}})
+    altered = dict(draft, molecule_snapshot={"molecule_id": "Fixture", "version": "v2"})
     assert mappings.candidate_identity(draft) != mappings.candidate_identity(altered)
 
 

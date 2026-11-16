@@ -596,8 +596,8 @@ def validate(payload) -> dict:
     if reference is not None:
         if not isinstance(reference, dict):
             raise ValueError('The AA reference must be an object')
-        if set(reference) - {'run_id', 'reference_sha256', 'edition', 'molecule_identity', 'temperature_k',
-                             'production_ns'}:
+        if set(reference) - {'run_id', 'reference_edition', 'reference_sha256', 'edition', 'molecule_identity',
+                             'temperature_k', 'production_ns'}:
             raise ValueError('Unknown AA reference field')
         run_id = reference.get('run_id')
         try: run_names.validate(run_id, what='AA source run ID')

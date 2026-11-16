@@ -36,7 +36,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
   and is recorded `skipped` from `skipped_stages`.
-- Migrations (`cli/migrate_run_layout.py`, `migrate_run_types.py`, `migrate_named_analyses.py`, `migrate_named_records.py`) rewrite records once, verify their output, keep a `--rollback` ledger, and are never re-run by hand on already-migrated data.
+- Migrations (`cli/migrate_run_layout.py`, `migrate_run_types.py`, `migrate_named_analyses.py`, `migrate_named_records.py`, `migrate_molecule_versions.py`, `migrate_mapping_identities.py`, `migrate_reference_pins.py`, `repair_reference_edition.py`) rewrite records once, verify their output, keep a `--rollback` ledger, and are never re-run by hand on already-migrated data.
 - Runs end `complete`, `failed`, `cancelled` or `blocked`.
 
 ## Invariants
@@ -82,7 +82,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - A run setting is advertised in `SETTING_SPECS` or `CHOICE_SPECS` in the same edit: `web/routes/runs.py` keeps only
   advertised keys, so an unadvertised setting is dropped without a word and the run silently uses the default.
 - Provenance is the `inputs.json` record and `stage_scripts` names/versions (plus `provenance.json`, which gates nothing), not a copy: the one Martini 3 set lives at
-  `workspace/dashboard/martini3/<version>/` (`dashboard.martini3`, witnessed by `martini3.json`), every run reads it in place, and `references/` is upstream; a molecule folder is `molecules/<id>/<version>/` (unversioned is the legacy shape).
+  `workspace/dashboard/martini3/<version>/` (`dashboard.martini3`, witnessed by `martini3.json`), every run reads it in place, and `references/` is upstream; a molecule folder is `molecules/<id>/<version>/`; a mapping's molecule binding is `{molecule_id, version}`, and a shared AA reference is pinned by its edition.
 
 ## Engineering rules
 - Read `docs/HANDOFF.md` before the first edit and leave it current: the next session starts there, not from your

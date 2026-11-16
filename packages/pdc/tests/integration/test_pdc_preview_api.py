@@ -68,7 +68,7 @@ def import_protein(dashboard, monkeypatch, text=PEPTIDE, pdbid='1qj8'):
                 if entry['name'] == pdbid)
 
 
-TEMPLATE = 'molecules/DDM/micelle_template.json'
+TEMPLATE = 'molecules/DDM/v1/micelle_template.json'
 
 
 def get(dashboard, **query):

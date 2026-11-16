@@ -15,7 +15,7 @@ XYZ = ((0, 0, 0), (0.1, 0, 0), (-0.1, 0, 0), (0, 0.1, 0), (0.15, 0, 0),
 
 
 def _molecule(root: Path) -> dict:
-    folder = root / 'molecules' / 'MOL'
+    folder = root / 'molecules' / 'MOL' / 'v1'
     folder.mkdir(parents=True)
     source = (FIXTURES / 'methyl_hydroxyl.itp').read_text()
     for old, new in ((' CT1 ', ' VCT1 '), (' CT2 ', ' VCT2 '), (' HC ', ' VHC '),
@@ -28,7 +28,7 @@ def _molecule(root: Path) -> dict:
     (folder / 'molecule.gro').write_text('\n'.join([*lines, '3 3 3', '']))
     (folder / 'metadata.json').write_text(json.dumps({
         'name': 'MOL', 'molecule_type': 'MOL', 'force_field': 'charmm36-jul2022.ff',
-        'water_model': 'tip3p', 'net_charge': 0, 'generated': True,
+        'water_model': 'tip3p', 'net_charge': 0, 'generated': True, 'version': 'v1',
     }))
     return aa_molecules.selection(root / 'molecules', 'MOL', 'aa_only')
 

@@ -12,10 +12,9 @@ def test_context_keeps_atom_ids_and_a_legacy_edit_keeps_its_snapshot(tmp_path):
     topology = folder / "molecule.itp"
     topology.write_text(topology.read_text() + "; changed source\n")
     after = build_context(tmp_path, "Fixture")
-    # The snapshot names {molecule_id, version} now, and this unversioned folder has no version name that can change:
-    # the version directory is the change detector. A run still refuses an edited legacy folder structurally
-    # (verify_selection), and mappings invalidate once the folder is migrated to a version (phase 3).
-    assert before["snapshot"] == after["snapshot"] == {"molecule_id": "Fixture", "version": None}
+    # The snapshot names {molecule_id, version}: the version directory is the change detector, so an edit inside it
+    # does not rename the version. A run still refuses the edited files structurally (verify_selection).
+    assert before["snapshot"] == after["snapshot"] == {"molecule_id": "Fixture", "version": "v1"}
 
 
 def test_context_is_read_only_and_marks_fallback(tmp_path):

@@ -123,14 +123,14 @@ def _prepared_run(tmp_path: Path, *, placement_mode=None, aggregation_number=8):
     root = tmp_path / 'root'
     (root / 'molecules').mkdir(parents=True)
     shutil.copytree(MOLECULE_ROOT / 'DDM', root / 'molecules' / 'DDM')
-    (root / 'molecules' / 'DDM' / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
-    (root / 'molecules' / 'DDM' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
+    (root / 'molecules' / 'DDM' / 'v1' / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
+    (root / 'molecules' / 'DDM' / 'v1' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
     run = tmp_path / 'run'
     run.mkdir()
     settings = {'seed': 20260930, 'aggregation_number': aggregation_number}
     if placement_mode is not None:
         settings['placement_mode'] = placement_mode
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
+    pdc.prepare(run, protein='molecules/DDM/v1/protein.pdb', template='molecules/DDM/v1/micelle_template.json',
                 settings=settings, project_root=root, mapping=candidate_file(tmp_path))
     stage = system_stage(run)
     ellipsoid = _protein()
@@ -180,7 +180,7 @@ def _minimal_root(tmp_path: Path) -> Path:
     root = tmp_path / 'root'
     (root / 'molecules').mkdir(parents=True)
     shutil.copytree(MOLECULE_ROOT / 'DDM', root / 'molecules' / 'DDM')
-    (root / 'molecules' / 'DDM' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
+    (root / 'molecules' / 'DDM' / 'v1' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
     return root
 
 
@@ -190,7 +190,7 @@ def test_the_panels_spelling_of_the_mode_reaches_the_builders_own(tmp_path):
     run = tmp_path / 'run'
     run.mkdir()
 
-    pdc.prepare(run, template='molecules/DDM/micelle_template.json',
+    pdc.prepare(run, template='molecules/DDM/v1/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 4, 'pdc_placement_mode': 'self-assembly'},
                 project_root=root)
 
@@ -205,5 +205,5 @@ def test_a_build_refuses_an_unknown_placement_mode_at_admission(tmp_path):
     (tmp_path / 'run').mkdir()
 
     with pytest.raises(ValueError, match='mode'):
-        pdc.prepare(tmp_path / 'run', template='molecules/DDM/micelle_template.json', project_root=root,
+        pdc.prepare(tmp_path / 'run', template='molecules/DDM/v1/micelle_template.json', project_root=root,
                     settings={'seed': 1, 'pdc_placement_mode': 'brownian'})

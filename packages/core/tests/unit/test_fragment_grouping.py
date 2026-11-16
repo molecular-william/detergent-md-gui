@@ -45,7 +45,7 @@ def test_the_suggestion_fallback_groups_through_the_same_function(monkeypatch):
     from dashboard.models.mappings.algorithms import connectivity
     from dashboard.models.molecules.packaged import SOURCE
 
-    context = mapping_context.build_context(SOURCE.parent, 'DDM')
+    context = mapping_context.build_context(SOURCE.parent.parent, 'DDM')
     context = {**context, 'capabilities': {'automatic': {'available': True}}}
     monkeypatch.setattr(connectivity, 'carbohydrate_candidate', lambda *args, **kwargs: None)
     monkeypatch.setattr(schema, 'fragment_groups', lambda structure: [[1, 2, 3, 4]])

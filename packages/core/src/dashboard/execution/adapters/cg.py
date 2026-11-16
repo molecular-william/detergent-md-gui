@@ -210,12 +210,10 @@ def _identity_stamps(mapping, payload=None):
 
     The record is resolved by name, so a fit of another model under the same name is the failure this
     set exists to catch: a revision is this model's only when one of its stamped identities is one this
-    snapshot computes. The legacy digests are included because a record written before the numbers were
-    normalised still carries them, and the payload's own stamp is included because it is what the run
-    recorded when it was prepared.
+    snapshot computes. The payload's own stamp is included because it is what the run recorded when it
+    was prepared; a prepared run records the current identity, never an older spelling of it.
     """
     stamps = set(parameterizations.identities(mapping).values())
-    stamps |= {mappings.legacy_candidate_identity(mapping), mappings.legacy_content_identity(mapping)}
     if isinstance(payload, dict) and isinstance(payload.get('mapping_content_hash'), str):
         stamps.add(payload['mapping_content_hash'])
     return stamps
@@ -717,6 +715,8 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     from ...analysis.runs import references as aa_references
     pin = (shared_reference.get('edition') if shared_reference.get('edition') is not None
            else shared_reference.get('sha256'))
+    if pin is not None and not isinstance(pin, int):
+        raise ValueError('A shared AA reference must be pinned by its edition')
     resolved = aa_references.resolve(reference_root, shared_reference['source_run_id'], pin)
     reference_data = resolved[1] if isinstance(resolved, tuple) and len(resolved) == 2 else {}
     if isinstance(reference_data, dict) and reference_data.get('edition') is not None:
@@ -1035,7 +1035,8 @@ def parameterization_readiness(metadata) -> dict:
             try:
                 # The edition is the pin a current revision records; an older one carries the digest. Either way
                 # readiness compares a name, and does not re-read the reference's 466 MB trajectory.
-                pin = (reference.get('edition') if reference.get('edition') is not None
+                pin = (reference.get('reference_edition') if reference.get('reference_edition') is not None
+                       else reference.get('edition') if reference.get('edition') is not None
                        else reference.get('reference_sha256'))
                 aa_references.resolve(metadata.get('runs_root'), reference_run_id, pin)
                 checks.append({'label': 'AA reference', 'path': reference_run_id, 'ready': True,

@@ -21,7 +21,7 @@ from dashboard.models.molecules import aa as aa_molecules
 from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
-REFERENCE = {'source_run_id': '111111111111', 'sha256': {}}
+REFERENCE = {'source_run_id': '111111111111', 'edition': 1}
 
 #: What every AA-to-CG run stages, whichever profile it was handed: the mapping export, the generated data stage 3
 #: reads, and the MDP the CG simulation runs. The helpers are repository modules now, so no `.py` is staged for a
@@ -57,7 +57,7 @@ def fitted(mapping, *, coordinates=True):
                           'torsion_model': 'legacy', 'torsion_scale': 1.0},
               'ensemble': {'frames': 2, 'trajectory': '2_mapping/mapped.xtc',
                            'source': 'the mapped AA frames'},
-              'aa_reference': {'run_id': REFERENCE['source_run_id'], 'reference_sha256': 'ab' * 32,
+              'aa_reference': {'run_id': REFERENCE['source_run_id'], 'reference_edition': 1,
                                'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                                'production_ns': 10.0}}
     return parameterization.save(mapping, record, work=work)

@@ -616,15 +616,26 @@ class Coordinator:
             if not recorded_reference.get('run_id'):
                 raise SourceUnavailable('The chosen parameterization records no AA reference to reuse')
             reference_run_id = recorded_reference['run_id']
-            # A revision pins the edition when it has one (the named identity); a revision written before editions
-            # carries the legacy digest, which `resolve` still compares exactly as it always did.
-            expected_reference = (recorded_reference.get('reference_edition')
-                                  or recorded_reference.get('reference_sha256'))
+            # A revision pins the edition when it has one (the named identity). `reference_edition` is the spelling
+            # the store migration stamps, `edition` the one a fit writes, and `reference_sha256` the legacy digest
+            # `resolve` now refuses -- kept as the last fallback so that refusal names the pin it was handed. A
+            # revision that records none of the three has no pin at all, which is refused here rather than read as
+            # "whatever the reference holds today".
+            expected_reference = recorded_reference.get('reference_edition')
+            if expected_reference is None:
+                expected_reference = recorded_reference.get('edition')
+            if expected_reference is None:
+                expected_reference = recorded_reference.get('reference_sha256')
+            if expected_reference is None:
+                raise SourceUnavailable('The chosen parameterization revision records no AA reference edition to pin')
             try:
                 _,reference_snapshot=aa_references.resolve(self.RUNS,reference_run_id,expected_reference,
                                                            molecule_snapshot=molecule_snapshot)
                 if self.lookup(reference_run_id).get('status')!='completed':raise ValueError('AA source must be completed')
             except (OSError,ValueError) as exc:raise SourceUnavailable(str(exc))
+            reference_edition = reference_snapshot.get('edition')
+            if reference_edition is None:
+                raise SourceUnavailable('The shared AA reference publishes no edition to pin')
         elif reference_run_id:
             raise SourceUnavailable('CG runs require a shared AA reference')
         question = features.readiness_for(run_type)
@@ -680,8 +691,9 @@ class Coordinator:
                        stage_plan=[stage.name for stage in protocol.adapter_for(job['run_type']).stages({})])
         if shared:
             # A CG run reuses a published AA reference; it never creates one, so there is no waiting job and no AA
-            # parent to admit. The reference was resolved and verified above.
-            job['shared_reference']={'source_run_id':reference_run_id,'sha256':reference_snapshot['sha256']}
+            # parent to admit. The reference was resolved and verified above, so the job pins the edition it consumed
+            # -- never the digest map, which is published evidence a reader cannot use as a pin.
+            job['shared_reference']={'source_run_id':reference_run_id,'edition':reference_edition}
             return self.admit_jobs([job],job)
         worker = self.Worker()
         with self.JOBS_LOCK:

@@ -18,8 +18,8 @@ from tests.harness.support import PROJECT_ROOT, automatic_mapping
 def molecules(dashboard, tmp_path, monkeypatch):
     """A molecule tree this test owns, and the coordinator pointed at it rather than the checkout."""
     root = tmp_path/'root'; monkeypatch.setattr(dashboard.coordinator, 'ROOT', root)
-    folder = root/'molecules/example'; folder.mkdir(parents=True)
-    (folder/'metadata.json').write_text(json.dumps({'name': 'Example', 'force_field': 'example-ff', 'water_model': 'example-water', 'molecule_type': 'EX', 'net_charge': 0}))
+    folder = root/'molecules/example'/'v1'; folder.mkdir(parents=True)
+    (folder/'metadata.json').write_text(json.dumps({'name': 'Example', 'force_field': 'example-ff', 'water_model': 'example-water', 'molecule_type': 'EX', 'net_charge': 0, 'version': 'v1'}))
     (folder/'molecule.itp').write_text('[ moleculetype ]\nEX 3\n[ atoms ]\n1 C 1 EX C1 1 0 12\n2 C 1 EX C2 2 0 12\n[ bonds ]\n1 2 1 0.15 1000\n')
     (folder/'molecule.gro').write_text('Example\n2\n' + ''.join(f'{1:5d}{"EX":<5}{name:>5}{i:5d}{x:8.3f}{0:8.3f}{0:8.3f}\n' for i,name,x in [(1,'C1',0),(2,'C2',.15)]) + '1 1 1\n')
     dashboard.coordinator.database().replace([])
@@ -186,10 +186,10 @@ def queue_ddm(dashboard, root):
     (owner.RUNS / source['id'] / 'stages/07_reference').mkdir(parents=True, exist_ok=True)
     mapping = {**automatic_mapping(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
     revision = {'revision': 1, 'engine': 'fast-forward', 'options': {},
-                'aa_reference': {'run_id': source['id'], 'reference_sha256': None}}
+                'aa_reference': {'run_id': source['id'], 'reference_edition': 1}}
     with patch.object(cg, 'chosen_revision', return_value=revision), \
             patch.object(backend.aa_references, 'resolve',
-                         return_value=(owner.RUNS / source['id'] / 'stages/07_reference', {'sha256': {}})), \
+                         return_value=(owner.RUNS / source['id'] / 'stages/07_reference', {'edition': 1})), \
             patch.object(cg, 'parameterization_readiness',
                          return_value={'ready': True, 'checks': [], 'blockers': []}), \
             patch.object(backend.threading.Thread, 'start'):
@@ -203,7 +203,7 @@ def queue_ddm(dashboard, root):
 def test_queued_job_fails_if_molecule_files_change(dashboard, molecules):
     root, _folder = molecules
     install_ddm(root); job=queue_ddm(dashboard, root)
-    path=root/'molecules/DDM/metadata.json'
+    path=root/'molecules/DDM/v1/metadata.json'
     data=json.loads(path.read_text()); data['name']='Changed after queue';path.write_text(json.dumps(data))
     with patch.object(cg, 'parameterization_readiness',
                       return_value={'ready': True, 'checks': [], 'blockers': []}):
@@ -219,7 +219,7 @@ def test_queued_job_fails_if_molecule_files_change(dashboard, molecules):
 def test_modified_ddm_remains_valid_and_executable_but_loses_packaged_provenance(dashboard, molecules):
     root, _folder = molecules
     install_ddm(root)
-    path=root/'molecules/DDM/results/MMFF/lig1.pdb'
+    path=root/'molecules/DDM/v1/results/MMFF/lig1.pdb'
     lines=path.read_text().splitlines()
     index=next(i for i,line in enumerate(lines) if line.startswith(('ATOM  ', 'HETATM')))
     lines[index]=lines[index][:30]+f'{-99.0:8.3f}'+lines[index][38:]

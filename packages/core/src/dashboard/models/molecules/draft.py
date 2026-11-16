@@ -23,8 +23,8 @@ def _structure_for(data, molecule_root=None):
         raise ValueError('schema 3 mappings require molecule_id')
     root = Path(molecule_root) if molecule_root is not None else paths.current().project_root / 'molecules'
     stored = data.get('molecule_snapshot')
-    # A stored snapshot names the version it was made against; one written before version directories carries its
-    # files by digest instead, and both are compared by the context itself.
+    # A stored snapshot names the version it was made against. A draft written before version directories has no
+    # version to read and is refused as a changed molecule until `cli/migrate_mapping_identities.py` names one.
     version = stored.get('version') if isinstance(stored, dict) else None
     context = build_context(root, molecule_id, version)
     if not snapshot_matches(stored, context):

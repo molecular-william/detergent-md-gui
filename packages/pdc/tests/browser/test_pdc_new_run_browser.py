@@ -24,7 +24,7 @@ DROPPED_IDS = ('#run-type', '#method', '#reference-run', '#run-bonded-state', '#
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                   'template': 'molecules/DDM/micelle_template.json', 'registered_type': 'registered-template',
+                   'template': 'molecules/DDM/v1/micelle_template.json', 'registered_type': 'registered-template',
                    'files_present': True, 'missing_files': [],
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [{'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
@@ -393,7 +393,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
 
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert posted == {
-        'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/micelle_template.json',
+        'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/v1/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
         'backmap': True, 'remove_out_of_micelle': True,
         # The back-map's pdb2gmx choice is stated always, like the back-map toggle: a run that asked for virtual sites

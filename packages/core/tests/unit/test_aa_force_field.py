@@ -123,10 +123,10 @@ def test_a_solutes_caveats_travel_with_the_run_and_are_stated_in_readiness(molec
     It is not a blocker -- the pairing may well be sound -- but a reader deciding whether to trust a result needs
     it beside the verdict, and the manifest is the record that outlives the conversation.
     """
-    metadata = json.loads((molecule_root / 'Fixture/metadata.json').read_text())
+    metadata = json.loads((molecule_root / 'Fixture/v1/metadata.json').read_text())
     metadata['parameterization_version'] = 'unrecorded'
     metadata['caveats'] = ['Parameterised by SwissParam, which does not record the CGenFF version it derives from.']
-    (molecule_root / 'Fixture/metadata.json').write_text(json.dumps(metadata))
+    (molecule_root / 'Fixture/v1/metadata.json').write_text(json.dumps(metadata))
 
     run = prepare()
     context = json.loads((run / 'stages/common/context.json').read_text())

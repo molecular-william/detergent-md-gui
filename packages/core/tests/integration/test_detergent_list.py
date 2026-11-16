@@ -63,7 +63,7 @@ def test_the_readiness_route_answers_for_the_panel_the_pdc_payload_names(dashboa
     """
     with dashboard.client as c:
         answer = c.get('/api/readiness', query_string={'run_type': 'pdc', 'molecule_id': 'DDM',
-                                                       'template': 'molecules/DDM/micelle_template.json'})
+                                                       'template': 'molecules/DDM/v1/micelle_template.json'})
     assert answer.status_code == 200
     body = answer.get_json()
     assert set(body) >= {'ready', 'checks', 'blockers'}

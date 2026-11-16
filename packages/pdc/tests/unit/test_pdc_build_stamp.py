@@ -45,11 +45,12 @@ def prepared_stage(tmp_path):
     root = tmp_path / 'root'
     (root / 'molecules').mkdir(parents=True)
     shutil.copytree(MOLECULE_ROOT / 'DDM', root / 'molecules' / 'DDM')
-    (root / 'molecules' / 'DDM' / 'protein.pdb').write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
-    (root / 'molecules' / 'DDM' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
+    (root / 'molecules' / 'DDM' / 'v1' / 'protein.pdb').write_text(
+        'ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
+    (root / 'molecules' / 'DDM' / 'v1' / 'micelle_template.json').write_text(json.dumps(TEMPLATE))
     run = tmp_path / 'run'
     run.mkdir()
-    pdc.prepare(run, protein='molecules/DDM/protein.pdb', template='molecules/DDM/micelle_template.json',
+    pdc.prepare(run, protein='molecules/DDM/v1/protein.pdb', template='molecules/DDM/v1/micelle_template.json',
                 settings={'seed': 20260930, 'aggregation_number': 2}, project_root=root,
                 mapping=candidate_file(tmp_path))
     stage = system_stage(run)

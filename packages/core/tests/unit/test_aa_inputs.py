@@ -64,7 +64,7 @@ def test_a_prepared_run_names_shared_inputs_and_writes_only_generated_data(repo,
         assert set(entry) == {'role', 'label', 'kind', 'root', 'path'}, 'an entry is a name'
     assert (repo / by_role['force_field'][0]['path']).is_dir()
     assert {entry['path'] for entry in by_role['molecule']} == {
-        f'molecules/Fixture/{relative}' for relative in ('molecule.itp', 'molecule.gro', 'metadata.json')}
+        f'molecules/Fixture/v1/{relative}' for relative in ('molecule.itp', 'molecule.gro', 'metadata.json')}
 
     context = json.loads((prepared / 'stages/common/context.json').read_text())
     assert Path(context['force_field_path']) == (repo / by_role['force_field'][0]['path']).resolve()
@@ -109,7 +109,7 @@ def test_the_system_topology_includes_the_referenced_tree_by_absolute_path(repo,
 
 
 def test_the_molecule_topology_is_a_generated_shim_to_the_store(repo, prepared):
-    stored = (repo / 'molecules/Fixture/molecule.itp').resolve()
+    stored = (repo / 'molecules/Fixture/v1/molecule.itp').resolve()
     shim = (prepared / 'inputs/common/molecule/molecule.itp').read_text()
     assert shim == f'#include "{stored}"\n'
     context = json.loads((prepared / 'stages/common/context.json').read_text())
@@ -186,7 +186,7 @@ def test_a_source_absent_on_this_host_is_a_provenance_warning(repo, prepared):
     assert 'not present on this host' in data['warnings'][0]['reason']
 
     record['referenced_sources'] = [{'role': 'molecule', 'kind': 'file', 'label': 'molecule.itp',
-                                     'root': 'repo', 'path': 'molecules/Fixture/molecule.itp',
+                                     'root': 'repo', 'path': 'molecules/Fixture/v1/molecule.itp',
                                      'sha256': '0' * 64}]
     files.atomic_json(output / 'reference.json', record)
     with pytest.raises(ValueError, match='molecule source changed since publication'):

@@ -10,6 +10,14 @@ and a review record all point at.
 Identity is versioned on purpose. Schema 3 and above bind a candidate to the molecule
 source it was built for; schemas 1 and 2 keep the payload they were first hashed with,
 because those drafts are already on disk with that hash and the hash is data.
+
+Version 3 names the molecule *version* rather than hashing its files. A molecule folder
+that states a version directory is the change detector -- `molecules/<id>/<version>/` -- so
+a candidate's binding is `{molecule_id, version}` and no file digest enters it. A draft
+written before version directories names no version; its chemistry is then what names the
+molecule, and its digest snapshot is still not hashed. The whole-snapshot payload the
+previous version used survives in `legacy_candidate_identity`, for the migration CLI that
+has to reproduce the digest a stored record carries.
 """
 import hashlib
 
@@ -17,6 +25,13 @@ from ... import files
 
 #: The first schema whose payload binds a candidate to its molecule source.
 IDENTITY_VERSION = 3
+
+#: The `identity_version` marker the whole-snapshot payload was hashed with. It stays 3 even when
+#: `IDENTITY_VERSION` moves, so the old digest does not silently change: a stored record is data.
+LEGACY_IDENTITY_VERSION = 3
+
+#: The metadata fields that name a molecule's chemistry, as `analysis.runs.references.identity` reads them.
+CHEMISTRY = ('force_field', 'water_model', 'molecule_type', 'net_charge')
 
 
 def canonical_json(payload):
@@ -55,8 +70,8 @@ def numbers_as_values(value):
     found, and any other integral number in a candidate would have done the same. `1.15` is left alone, and so is
     `True`, which is not a number here however much Python's `bool` inherits from `int`.
 
-    Only `candidate_identity` normalises. `canonical_sha256` is also used for digests of file content, snapshots and
-    the reference index, where an integer and a float are different bytes on purpose.
+    Both identities normalise; `canonical_sha256` is also used for digests of file content, snapshots and the reference
+    index, where an integer and a float are different bytes on purpose.
     """
     if isinstance(value, dict):
         return {key: numbers_as_values(item) for key, item in value.items()}
@@ -67,10 +82,41 @@ def numbers_as_values(value):
     return value
 
 
+def _molecule_binding(candidate):
+    """The molecule a candidate was built for: its id and the version directory it read.
+
+    A named snapshot answers `{molecule_id, version}` and nothing else, so a file digest a document happens to carry
+    beside the version cannot change an identity that names the same version. A draft read before its migration names
+    no version: it gets `version: None` and the chemistry the reference identity also binds, because its files, not a
+    version directory, were the only thing that identified it.
+    """
+    snapshot = candidate.get('molecule_snapshot')
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    molecule_id = candidate.get('molecule_id')
+    if molecule_id is None:
+        molecule_id = snapshot.get('molecule_id')
+    version = snapshot.get('version')
+    binding = {'molecule_id': molecule_id, 'version': version}
+    if version is None:
+        metadata = snapshot.get('metadata') if isinstance(snapshot.get('metadata'), dict) else {}
+        binding['chemistry'] = {key: metadata.get(key) for key in CHEMISTRY if key in metadata}
+    return binding
+
+
 def _candidate_payload(candidate):
     payload = {key: candidate.get(key) for key in ('name', 'beads', 'rings', 'connections')}
     if binds_molecule(candidate):
-        payload.update(identity_version=IDENTITY_VERSION, molecule_id=candidate.get('molecule_id'),
+        payload.update(identity_version=IDENTITY_VERSION, molecule=_molecule_binding(candidate))
+    if 'representation_mode' in candidate:
+        payload['representation_mode'] = candidate.get('representation_mode')
+    return payload
+
+
+def _legacy_candidate_payload(candidate):
+    """The payload a stored v3 identity was hashed with: the whole molecule snapshot, digests included."""
+    payload = {key: candidate.get(key) for key in ('name', 'beads', 'rings', 'connections')}
+    if binds_molecule(candidate):
+        payload.update(identity_version=LEGACY_IDENTITY_VERSION, molecule_id=candidate.get('molecule_id'),
                        molecule_snapshot=candidate.get('molecule_snapshot'))
     if 'representation_mode' in candidate:
         payload['representation_mode'] = candidate.get('representation_mode')
@@ -88,12 +134,12 @@ def content_identity(candidate):
 
 
 def legacy_candidate_identity(candidate):
-    """The identity as it was computed before numbers were normalised.
+    """The identity a candidate was stored under before its molecule version was named.
 
-    A record, state or review written before that change is keyed by this digest. Reads try it second so a document
-    already on disk is still found; nothing writes with it.
+    A record or run row written before this payload changes is keyed by this digest, and the migration CLI needs it to
+    recognise what it rewrites. Nothing writes with it.
     """
-    return canonical_sha256(_candidate_payload(candidate))
+    return canonical_sha256(numbers_as_values(_legacy_candidate_payload(candidate)))
 
 
 def legacy_content_identity(candidate):

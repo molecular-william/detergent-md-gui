@@ -191,13 +191,25 @@ def publish(stages):
     return result
 
 
+def _pinned_edition(expected):
+    """The edition a consumer pinned. A digest or a digest map is no longer a pin."""
+    if isinstance(expected, bool):
+        raise ValueError('AA reference pin must be an edition')
+    if isinstance(expected, int):
+        return expected
+    if isinstance(expected, dict) and isinstance(expected.get('edition'), int) \
+            and not isinstance(expected.get('edition'), bool):
+        return expected['edition']
+    raise ValueError('AA reference pin must be an edition')
+
+
 def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
     """Verify a published reference and answer what it records.
 
-    `expected` is what a consumer pinned: an `edition` (the spelling a current record carries), an artifact digest map
-    or the one digest of `reference.json` (shapes older records keep, honoured as they always were). A reference that
-    has an `edition` is compared by it -- its artifact map is published evidence, not a gate re-measured on every
-    readiness check. A reference published before editions keeps its byte check exactly as before.
+    `expected` is the edition a consumer pinned, as an int or `{'edition': n}`; a digest or a digest map is refused.
+    A reference that has an `edition` is compared by it -- its artifact map is published evidence, not a gate
+    re-measured on every readiness check. A reference published before editions is still readable without a pin, and
+    is checked against the bytes it records, but a consumer can no longer pin one that way.
     """
     run_dir=Path(run_dir)
     if run_dir.is_symlink():raise ValueError('Reference run symlinks are not allowed')
@@ -208,21 +220,10 @@ def verify(run_dir,expected=None,molecule_snapshot=None,settings=None):
     if data.get('reference_eligible') is not True:raise ValueError('AA reference failed technical checks')
     hashes=dict(data['sha256']);hashes['stages/07_reference/reference.json']=files.sha256(path)
     edition=data.get('edition')
-    # Two spellings are pinned and both are honoured: the map of every artifact's digest (an older attachment) and
-    # the one digest of this reference.json that `bonded.fitting.resolve_reference` recorded. A current pin is the
-    # edition, compared against the record's own and never against 466 MB of trajectory.
-    if expected is not None:
-        if isinstance(expected, bool):
-            raise ValueError('AA reference pin must be an edition or a digest')
-        if isinstance(expected, int):
-            if edition != expected: raise ValueError('AA reference edition changed since attachment')
-        elif isinstance(expected, dict):
-            if 'edition' in expected:
-                if edition != expected['edition']: raise ValueError('AA reference edition changed since attachment')
-            elif hashes != expected:
-                raise ValueError('AA reference hashes changed since attachment')
-        elif files.sha256(path) != expected:
-            raise ValueError('AA reference hashes changed since attachment')
+    # A pin is the reference's edition, compared against the record's own and never against 466 MB of trajectory.
+    # The digest shapes are gone: a consumer that still pins one cannot be verified by it.
+    if expected is not None and edition != _pinned_edition(expected):
+        raise ValueError('AA reference edition changed since attachment')
     for relative in hashes:
         target=run_dir/relative
         if any(p.is_symlink() for p in (target,*target.parents) if p==run_dir or p.is_relative_to(run_dir)):

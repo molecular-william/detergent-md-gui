@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / 'fixtures' / 'vsites'
 ITP = FIXTURES / 'methyl_hydroxyl.itp'
 RTP = FIXTURES / 'lig.rtp'
 FF = FIXTURES / 'ff'
-DDM_ITP = PROJECT_ROOT / 'molecules' / 'DDM' / 'results' / 'MMFF' / 'lig1.itp'
+DDM_ITP = PROJECT_ROOT / 'molecules' / 'DDM' / 'v1' / 'results' / 'MMFF' / 'lig1.itp'
 
 #: Hand-computed from mTot = 12 + 3*1, dHy = 0.109*sin(109.4712206), I = 3*1*dHy^2,
 #: dDummy = 2*sqrt(I/mTot), dX = (12*0.150 + 1*3*(0.150 + 0.109/3))/mTot.

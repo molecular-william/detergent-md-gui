@@ -24,14 +24,16 @@ def stage_command(name, script):
 
 
 def _reference_pin(shared):
-    """What a run's `shared_reference` pins: an edition when it records one, else the legacy digest spelling.
+    """The edition a run's `shared_reference` pins; a legacy digest map is refused rather than re-read.
 
-    A manifest written by the coordinator still carries the reference's artifact map; a newer one carries the
-    reference's edition. Both are accepted, and neither re-reads the 466 MB trajectory.
+    A manifest the coordinator wrote before the named identity carries the reference's artifact map. That is no
+    longer a pin: a run must name the edition it consumed, or the reference it reads cannot be checked by edition.
     """
     if not isinstance(shared, dict):
-        return None
-    return shared.get('edition') if shared.get('edition') is not None else shared.get('sha256')
+        raise ValueError('the run records no shared AA reference block')
+    if shared.get('edition') is None:
+        raise ValueError('the shared AA reference is pinned by a legacy digest; re-pin it by edition')
+    return shared['edition']
 
 
 #: Notified with a run's directory once all of its stages have been attempted. The analysis layer registers its own
@@ -418,10 +420,10 @@ def run(run_dir: Path, log: Path, execute=None, on_stage=None, stop_after=None):
             stage_dir = root / Path(relative).parent
             manifest = run_dir / 'manifest.json'
             data = json.loads(manifest.read_text()) if manifest.exists() else {'stages': []}
-            if data.get('inputs') is not None:
-                # A run that names its inputs by reference is checked before every stage: a repository or store file
-                # changed under a prepared run refuses here, before a stage reads bytes the run did not record.
-                run_inputs.verify_manifest(run_dir, data)
+            # A run names its inputs by reference, and they are checked before every stage: a manifest that records
+            # no names cannot be verified, so it is refused rather than run unverified. A repository or store file
+            # changed under a prepared run refuses here too, before a stage reads bytes the run did not record.
+            run_inputs.verify_manifest(run_dir, data)
             previous = next((s for s in reversed(data['stages']) if s.get('name') == name), None)
             skipped = (data.get('skipped_stages') or {}).get(name)
             if skipped is not None:

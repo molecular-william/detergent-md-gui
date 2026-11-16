@@ -30,13 +30,11 @@ def _reference_run(runs_root):
               'stages/07_reference/lig.xtc': b'GROMACS xtc placeholder\n'}
     for relative, content in staged.items():
         _write(run / relative, content)
-    document = {'reference_eligible': True,
+    document = {'reference_eligible': True, 'edition': 1, 'molecule': 'LIG1',
                 'sha256': {relative: files.sha256(run / relative) for relative in staged}}
     files.atomic_json(run / 'stages/07_reference/reference.json', document)
     files.atomic_json(run / 'manifest.json', {'run_type': 'aa_only', 'status': 'completed', 'stages': []})
-    expected = dict(document['sha256'])
-    expected['stages/07_reference/reference.json'] = files.sha256(run / 'stages/07_reference/reference.json')
-    return run, expected
+    return run, document['edition']
 
 
 def _consumer_run(runs_root, expected=None):
@@ -48,7 +46,7 @@ def _consumer_run(runs_root, expected=None):
     _write(run / 'stages/3_initial_CG/LIG1.itp', b'[ moleculetype ]\nLIG1 1\n')
     manifest = {'run_type': 'aa_cg', 'status': 'completed', 'stages': []}
     if expected is not None:
-        manifest['shared_reference'] = {'source_run_id': REFERENCE_ID, 'sha256': expected}
+        manifest['shared_reference'] = {'source_run_id': REFERENCE_ID, 'edition': expected}
     files.atomic_json(run / 'manifest.json', manifest)
     return run
 

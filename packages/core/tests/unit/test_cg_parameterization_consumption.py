@@ -26,13 +26,13 @@ from dashboard.models.molecules import aa as aa_molecules
 from tests.harness.support import PACKAGE, PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
-REFERENCE = {'source_run_id': '1' * 12, 'sha256': {}}
+REFERENCE = {'source_run_id': '1' * 12, 'edition': 1}
 REVISION = {'engine': 'fast-forward', 'topology': '[ moleculetype ]\nDDM 1\n\n[ atoms ]\n',
             'options': {'constraints_threshold': 10000.0, 'temperature_k': 300.0,
                         'torsion_model': 'circular-harmonic', 'torsion_scale': 1.0},
             'ensemble': {'frames': 20001, 'trajectory': '2_mapping/mapped.xtc',
                          'source': 'the mapped AA frames'},
-            'aa_reference': {'run_id': 'a54ac8f64710', 'reference_sha256': 'ab' * 32,
+            'aa_reference': {'run_id': 'a54ac8f64710', 'reference_edition': 1,
                              'molecule_identity': 'cd' * 32, 'temperature_k': 300.0,
                              'production_ns': 10.0}}
 

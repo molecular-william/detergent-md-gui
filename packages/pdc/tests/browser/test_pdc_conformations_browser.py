@@ -16,7 +16,7 @@ from tests.harness import browser
 
 CATALOG = {
     'templates': [{'id': 'DDM:DDM', 'name': 'DDM skeleton', 'molecule': 'DDM', 'residue': 'DDM',
-                   'template': 'molecules/DDM/micelle_template.json', 'registered_type': 'registered-template',
+                   'template': 'molecules/DDM/v1/micelle_template.json', 'registered_type': 'registered-template',
                    'files_present': True, 'missing_files': [],
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [],

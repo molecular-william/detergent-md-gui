@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from dashboard import files
-from dashboard.execution import workflow
+from dashboard.execution import run_inputs, workflow
 
 
 def _plan():
@@ -42,10 +42,10 @@ def _tree(root):
     (root / 'stages/second/prod/partial.xtc').write_text('old trajectory')
     (root / 'logs').mkdir()
     (root / 'logs/console.log').write_text('original console')
-    metadata = {'id': '123456abcdef', 'run_type': 'aa_only', 'layout_version': 2, 'status': 'failed',
+    metadata = {'id': '123456abcdef', 'run_type': 'aa_only', 'layout_version': 4, 'status': 'failed',
                 'stage_plan': [item.name for item in plan],
                 'stages': [{'name': 'first', 'status': 'completed'}],
-                'input_snapshot_sha256': files.hashes(root / 'inputs')}
+                'inputs': run_inputs.write(root)}
     files.atomic_json(root / 'manifest.json', metadata)
     return plan, checkpoint
 

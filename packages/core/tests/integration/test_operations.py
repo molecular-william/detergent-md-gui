@@ -210,7 +210,9 @@ def test_new_layout_worker_records_stage_outputs_and_logs(dashboard, operations)
     def prepare(root, metadata):
         stage=root/'stages/mini'; stage.mkdir(parents=True)
         (stage/'run.sh').write_text('echo stage-output; echo result > result.txt')
-        files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini']})
+        (root/'inputs').mkdir()
+        files.atomic_json(root/'inputs/inputs.json',{'inputs':[]})
+        files.atomic_json(root/'manifest.json',{'stages':[],'stage_plan':['mini'],'inputs':[]})
     # The protocol object is what the coordinator resolves; its `prepare` is bound when the adapter builds it.
     # The run type's readiness and its prepare are stubbed: this test is about the worker's stage bookkeeping,
     # not about where a molecule or a model lives, and the CG run type refuses a payload with neither.

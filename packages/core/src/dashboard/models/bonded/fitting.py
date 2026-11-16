@@ -196,7 +196,9 @@ def resolve_reference(aa_reference, *, runs_root=None) -> dict:
 
     record = aa_reference if isinstance(aa_reference, dict) else {}
     run_id = aa_reference if isinstance(aa_reference, str) else record.get('run_id')
-    pin = record.get('edition') if record.get('edition') is not None else record.get('reference_sha256')
+    pin = (record.get('reference_edition') if record.get('reference_edition') is not None
+           else record.get('edition') if record.get('edition') is not None
+           else record.get('reference_sha256'))
     root = Path(runs_root) if runs_root is not None else paths.current().runs
     directory, data = aa_references.resolve(root, run_id, pin)
     reference_file = Path(directory) / 'reference.json'
@@ -215,8 +217,8 @@ def resolve_reference(aa_reference, *, runs_root=None) -> dict:
             'frames': (data.get('frames') or {}).get('count'),
             'aa_reference': {
                 'run_id': run_id,
-                'reference_sha256': digest,
-                'edition': edition,
+                # The store names the pin: a revision records the edition it resolved, never the digest.
+                'reference_edition': edition,
                 'molecule_identity': data.get('molecule_identity'),
                 'temperature_k': settings.get('temperature_k'),
                 'production_ns': (settings.get('aa_production_ps') or 0) / 1000.0 or None,

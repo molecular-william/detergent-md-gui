@@ -15,14 +15,14 @@ def test_a_pdc_payload_keeps_its_run_type_and_plan(tmp_path):
     client = app.test_client()
 
     response = client.post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
-                                     'template': 'molecules/DDM/micelle_template.json',
+                                     'template': 'molecules/DDM/v1/micelle_template.json',
                                      'label': 'an empty micelle, for the test'})
 
     assert response.status_code == 201, response.get_data(as_text=True)
     job = response.json
     assert job['run_type'] == 'pdc'
     assert job['stage_plan'] == [stage.name for stage in PDC_STAGES]
-    assert job['template'] == 'molecules/DDM/micelle_template.json'
+    assert job['template'] == 'molecules/DDM/v1/micelle_template.json'
     assert job['settings']['prepare_protein'] is False, \
         'an empty-micelle job must not carry the protein-only preparation default'
 
@@ -37,7 +37,7 @@ def test_the_panel_can_read_what_a_complex_build_needs_before_it_queues_one(tmp_
     client = app.test_client()
 
     response = client.get('/api/readiness', query_string={
-        'run_type': 'pdc', 'template': 'molecules/DDM/micelle_template.json', 'protein': ''})
+        'run_type': 'pdc', 'template': 'molecules/DDM/v1/micelle_template.json', 'protein': ''})
 
     assert response.status_code == 200, response.get_data(as_text=True)
     payload = response.json
@@ -71,7 +71,7 @@ def test_the_complex_build_payload_is_the_one_the_queue_route_reads(tmp_path):
     protein.write_text('ATOM      1  CA  ALA A   1       0.000   0.000   0.000\n')
 
     response = client.post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
-                                      'template': 'molecules/DDM/micelle_template.json', 'protein': str(protein),
+                                      'template': 'molecules/DDM/v1/micelle_template.json', 'protein': str(protein),
                                       'pdc_seed': 20261013, 'pdc_assessment_ns': 100, 'pdc_extension_ns': 900,
                                       'aggregation_number': 150})
 

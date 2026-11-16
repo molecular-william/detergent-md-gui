@@ -52,6 +52,23 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-16 Full named migration: molecules are versions, identities are names, references are editions.** The
+source-data layer followed the records. `molecules/<id>/v1/` now holds every folder (12, ledger
+`molecules/.named-migration/versions.json`; only DDM's rename is tracked) and `aa.resolve` refuses a flat folder.
+All 10 job rows and manifests were re-selected to `{molecule_id, version: v1}` (ledger
+`workspace/.named-migration/snapshots.json`), the three CG rows/manifests that embed a full `mapping_snapshot` had
+only its nested snapshot rewritten (same ledger, extended), and `IDENTITY_VERSION` 3 binds a schema-3 mapping to
+`{molecule_id, version}` + chemistry: 8 drafts re-keyed, 4 records restamped (top level, `current` and every revision),
+one orphan record left alone (`Glucose-carbohydrate-paper-draft` has no draft to compute from; it refuses a name
+reuse). References: `repair_reference_edition` removed `dbc366ae772b`'s vanished launcher with a recorded `repaired`
+note and stamped edition 1, `migrate_named_records` re-pinned its consumer, and `migrate_reference_pins` moved all six
+stored revisions from `reference_sha256` to `reference_edition`; `references.verify` accepts only an edition pin and a
+fit now records `reference_edition` too. The two data residuals are real and recorded: the Trehalose paper draft's
+bead assignments no longer match its molecule's canonical sugar fragments (proved pre-existing), and
+`pdc._templates` still lists a legacy id-folder entry beside its versioned ones. A fit job running during the
+migration (`f4364dc762d24da0`) was written by the old code and needs `migrate_reference_pins --apply` once it ends.
+Checks: fast **2941 passed / 1 xfailed**, browser **383 passed**, ruff clean; dashboard restarted on the migrated
+store.
 **2026-11-16 Named identity finished: the live store is migrated and the legacy readers are gone.** Scope A closed the
 two residuals (`pdc.prepare` records the Martini set by `martini3.VERSION` witness, and a versioned CG-only
 molecule's `micelle_template.json` is discovered under its version folder). Scope B (`cli/migrate_named_analyses.py`)

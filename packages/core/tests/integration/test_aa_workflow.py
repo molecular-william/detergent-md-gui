@@ -9,8 +9,8 @@ from tests.harness.support import PROJECT_ROOT
 
 
 def test_generic_input_dependencies_and_aa_capability(tmp_path):
-    source=PROJECT_ROOT/'molecules/DDM'
-    folder=tmp_path/'Example'; shutil.copytree(source,folder)
+    source=PROJECT_ROOT/'molecules/DDM/v1'
+    folder=tmp_path/'Example'/'v1'; shutil.copytree(source,folder)
     folder=folder/'results/MMFF'
     original=(folder/'lig1.itp').read_text()
     (folder/'parts').mkdir(); (folder/'parts/body.itp').write_text(original)

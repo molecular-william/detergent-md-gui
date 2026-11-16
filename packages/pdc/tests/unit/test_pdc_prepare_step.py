@@ -161,7 +161,7 @@ def test_a_posted_choice_reaches_the_job_the_panel_queues(tmp_path):
     app = create_app(Paths(workspace=tmp_path / 'ws'), {'TESTING': True, 'DISABLE_COORDINATOR': True})
 
     response = app.test_client().post('/', json={'molecule_id': 'DDM', 'run_type': 'pdc', 'method': 'bartender',
-                                                'template': 'molecules/DDM/micelle_template.json',
+                                                'template': 'molecules/DDM/v1/micelle_template.json',
                                                 'protein': str(protein), 'pdc_seed': 20261014,
                                                 'aggregation_number': 4, 'prepare_protein': True})
 
