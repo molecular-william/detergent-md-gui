@@ -19,15 +19,13 @@ templates, config). A directory whose inputs do not verify is refused by name ra
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
-from .. import paths
+from .. import paths, run_names
 from ..store import Store
 from . import run_inputs
 from .coordination import errors
 
-RUN_ID = re.compile(r'[a-f0-9]{12}')
 #: A pasted run is a finished one. A directory whose manifest says it is still running cannot be adopted: no worker
 #: owns it, so registering it would show a live run this server cannot stop.
 TERMINAL = ('completed', 'failed', 'cancelled', 'blocked')
@@ -125,7 +123,11 @@ def unregistered(selected=None):
     found = []
     for manifest_path in sorted(Path(selected.runs).glob('*/manifest.json')):
         run = manifest_path.parent
-        if run.is_symlink() or not RUN_ID.fullmatch(run.name) or run.name in rows:
+        try:
+            run_names.validate(run.name, what='Run directory name')
+        except ValueError:
+            continue
+        if run.is_symlink() or run.name in rows:
             continue
         try:
             manifest = json.loads(manifest_path.read_text())
@@ -141,8 +143,11 @@ def unregistered(selected=None):
 def build(selected, run_id):
     """The row this directory would become, plus the report a dry run prints. Nothing is written."""
     selected = selected or paths.current()
-    if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
-        raise errors.InvalidRunId('A run id is twelve lowercase hexadecimal characters')
+    try:
+        run_names.validate(run_id, what='Run name')
+    except ValueError:
+        raise errors.InvalidRunId('A run name is 1-80 letters, digits, "-" or "_", starting and ending with a '
+                                  'letter or digit') from None
     run = Path(selected.runs) / run_id
     if run.is_symlink() or not run.is_dir():
         raise errors.RunNotFound(f'no run directory {run_id} in {selected.workspace}')

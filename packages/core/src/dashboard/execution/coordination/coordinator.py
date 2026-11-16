@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from functools import wraps
 
-from dashboard import files, store
+from dashboard import files, run_names, store
 
 from ... import features
 from ...analysis import kinds
@@ -321,9 +321,12 @@ class Coordinator:
 
 
     def run_path(self, job):
-        # Never use arbitrary manifest/log paths supplied by a client or old metadata.
-        if not re.fullmatch(r'[a-f0-9]{12}', job['id']):
-            raise InvalidRunId('Invalid run ID')
+        # Never use arbitrary manifest/log paths supplied by a client or old metadata. One validator, because a name the
+        # resolver accepts and the view refuses is a run that exists and cannot be seen (run_names).
+        try:
+            run_names.validate(job['id'], what='Run name')
+        except (KeyError, TypeError, ValueError):
+            raise InvalidRunId('Invalid run name') from None
         path = self.RUNS / job['id']
         if path.is_symlink(): raise RunConflict('Run directories must not be symbolic links')
         return path
@@ -675,6 +678,7 @@ class Coordinator:
             required = 2*resources.usage(self.RUNS/source_id) if source_id else 0
             if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
             resources.admit(self.storage_report(), len(self.WORKERS)+len(self.ANALYSIS_WORKERS), required)
+            job['id'] = self._claim_name(job.get('label'))
             self.database().insert(job)
             self.WORKERS[job['id']] = worker
             threading.Thread(target=self.run_job, args=(job['id'], worker), daemon=True).start()
@@ -697,8 +701,19 @@ class Coordinator:
                 'layout_version':2,'scientifically_validated':False,'reference_eligible':False,'settings_preset':None}
 
 
+    def _claim_name(self, label):
+        """The run's name, from its label, unique casefolded among the live and the retired names.
+
+        The caller holds JOBS_LOCK, which is what makes the probe-then-insert atomic: two creates of one label cannot both
+        read the name free. A collision is not an error -- a retry or a clone of the same label is expected to collide -- it
+        is the next free suffix.
+        """
+        return run_names.unique(label, self.database().name_taken)
+
     def admit_jobs(self, records,first,result=None):
         with self.JOBS_LOCK:
+            for record in records:
+                record['id'] = self._claim_name(record.get('label'))
             self.admit_device(first)
             resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS)+len(records)-1,0)
             self.database().insert_many(records)

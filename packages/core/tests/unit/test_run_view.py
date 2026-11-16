@@ -35,9 +35,9 @@ def test_an_unusable_run_id_is_reported_in_the_view_not_raised():
     The coordinator used to abort(404) from inside the same method that builds the
     view; a pure view has nothing to abort, so it reports the record as unrepairable.
     """
-    view = views.run_view({'id': 'not-a-run-id', 'status': 'completed'}, run_dir=None)
+    view = views.run_view({'id': '../not-a-run', 'status': 'completed'}, run_dir=None)
     assert view['status'] == 'failed'
-    assert 'Invalid persisted run ID' in view['error']
+    assert 'Invalid persisted run name' in view['error']
     assert (view['can_cancel'], view['can_retry'], view['can_delete']) == (False, False, False)
     assert view['stages'] == [] and view['elapsed_seconds'] is None and view['analyses'] == []
 

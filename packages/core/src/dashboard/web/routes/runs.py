@@ -174,7 +174,7 @@ def adopt_run_api():
     data = json_object()
     run_id = data.get('run')
     if not run_id:
-        abort(400, 'run is required: the 12-character id of a directory under runs/')
+        abort(400, 'run is required: the name of a directory under runs/')
     report = adoption.adopt(current_app.config['PATHS'], run_id, apply=True)
     return jsonify(report), 201
 

@@ -41,6 +41,9 @@ class Store:
             _enable_wal(db, self.path)
             db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)')
             db.execute('CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, data TEXT, updated REAL)')
+            #: A deleted run's name is retired, never offered again: copied manifests, consumer records and parameterization
+            #: revisions still name the run, so a new run taking the name would silently inherit those links (run_names.unique).
+            db.execute('CREATE TABLE IF NOT EXISTS retired_runs (name TEXT PRIMARY KEY, retired_at TEXT NOT NULL)')
             db.execute('BEGIN IMMEDIATE')
             yield db
             db.commit()
@@ -60,9 +63,14 @@ class Store:
             return json.loads(row[0]) if row else None
 
     def replace(self, rows):
-        """Replace all records for isolated setup and controlled resets."""
+        """Replace all records for isolated setup and controlled resets.
+
+        A full reset also forgets the retired names: it is the one operation that claims the workspace holds exactly these
+        rows, and a test or a reset that reuses a fixture's name would otherwise be refused for a run that no longer exists.
+        """
         with self.connection() as db:
             db.execute('DELETE FROM jobs')
+            db.execute('DELETE FROM retired_runs')
             db.executemany('INSERT INTO jobs(id,data) VALUES (?,?)', [(r['id'], json.dumps(r)) for r in rows])
 
     def insert(self, job):
@@ -89,6 +97,21 @@ class Store:
     def delete(self, jid):
         self.delete_with_cleanup(jid, lambda: None)
 
+    def names(self):
+        """Every live run name, as stored (the casefolded comparison is the caller's)."""
+        with self.connection() as db:
+            return [row[0] for row in db.execute('SELECT id FROM jobs')]
+
+    def retired_names(self):
+        """Names a deleted run used, which a new run may not take."""
+        with self.connection() as db:
+            return [row[0] for row in db.execute('SELECT name FROM retired_runs')]
+
+    def name_taken(self, name):
+        """Whether a name is used or retired, compared casefolded."""
+        folded = name.casefold()
+        return any(existing.casefold() == folded for existing in self.names() + self.retired_names())
+
     def delete_with_cleanup(self, jid, cleanup):
         """Check retained dependencies before filesystem removal under the DB lock.
 
@@ -100,6 +123,9 @@ class Store:
             if dependent:
                 raise ValueError(f'Run {dependent[0]} depends on this source; delete its consumers first')
             cleanup()
+            from datetime import datetime, timezone
+            db.execute('INSERT OR IGNORE INTO retired_runs(name, retired_at) VALUES (?,?)',
+                       (jid, datetime.now(timezone.utc).isoformat()))
             db.execute('DELETE FROM jobs WHERE id=?', (jid,))
             db.execute('DELETE FROM artifacts WHERE id=?', (jid,))
 

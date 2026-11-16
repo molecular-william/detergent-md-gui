@@ -17,7 +17,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .. import features
+from .. import features, run_names
 from ..analysis.runs import layout
 from ..execution import workflow
 from ..execution.adapters import cg
@@ -37,8 +37,7 @@ ANALYSIS_SUMMARY_FIELDS = frozenset((
     'id','kind','status','created_at','started_at','ended_at','error','directory',
 ))
 STAGE_SUMMARY_FIELDS = frozenset(('name','status','started_at','ended_at'))
-RUN_ID = re.compile(r'[a-f0-9]{12}')
-UNREPAIRABLE = 'Invalid persisted run ID; repair the metadata before using this record'
+UNREPAIRABLE = 'Invalid persisted run name; repair the metadata before using this record'
 # GROMACS prints `Performance: <ns/day> <ns/day/GPU?> <hours> <hours>` per mdrun leg; the first number is the leg's
 # throughput. The parser sees only a log's tail, so one match per file is enough, and the highest wins across legs.
 PERFORMANCE = re.compile(r'Performance:\s+([0-9]+(?:\.[0-9]+)?)')
@@ -50,8 +49,16 @@ PERFORMANCE_CACHE_MAX = 4096
 
 
 def usable_run_id(job) -> bool:
-    """Whether a record's id can address a run directory at all."""
-    return isinstance(job.get('id'), str) and bool(RUN_ID.fullmatch(job['id']))
+    """Whether a record's id can address a run directory at all.
+
+    The rule is run_names' own, not a second spelling of it: the panel, the path resolver and adoption must agree, or a
+    run exists and cannot be seen.
+    """
+    try:
+        run_names.validate(job.get('id'))
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def tail(path, limit=65536) -> str:

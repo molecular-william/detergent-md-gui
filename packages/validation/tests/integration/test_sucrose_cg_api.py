@@ -34,7 +34,8 @@ def test_the_queue_route_keeps_only_the_sugar_vocabulary(dashboard):
 
     def fake_create_job(molecule, method, label, **kwargs):
         calls.append({'molecule': molecule, 'method': method, 'label': label, **kwargs})
-        return {'id': 'stub00000001', 'label': label, 'run_type': 'cg'}
+        # A record shape like create_job's own: the view reads status, and the stub id is a valid run name now.
+        return {'id': 'stub00000001', 'label': label, 'run_type': 'cg', 'status': 'queued'}
 
     with patch.object(dashboard.coordinator, 'create_job', side_effect=fake_create_job):
         r = dashboard.client.post('/', json={

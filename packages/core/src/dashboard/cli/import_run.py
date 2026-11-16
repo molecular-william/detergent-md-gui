@@ -69,7 +69,7 @@ def import_run(source, target, run_id, *, apply=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='detergent-import-run')
-    parser.add_argument('--run', required=True, help='the 12-character run id')
+    parser.add_argument('--run', required=True, help='the run name (a directory under runs/)')
     parser.add_argument('--from-workspace', help='the workspace holding the run and its row')
     parser.add_argument('--to-workspace', help='the workspace to copy the run and its row into')
     parser.add_argument('--adopt', action='store_true',
