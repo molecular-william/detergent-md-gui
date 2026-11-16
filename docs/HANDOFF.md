@@ -53,11 +53,11 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Next session
 
 **2026-11-16 The pre-assembled micelle belt is a cylinder, not a torus.** pdc_placement measures the transmembrane
-region as a cylinder (axis = PCA of the protein atoms inside the membrane slab, signed to the frame normal and
-falling back to it only on an exactly circular cross-section; radius = their radial extent, `radius_nm` a floor;
+region as a cylinder about the membrane frame's normal (the user's follow-up: the normal, not a PCA axis; radius = the
+slab atoms' radial extent, `radius_nm` a floor;
 height = their axial extent at the stated membrane thickness) and places each detergent at its own closest surface
 point: the sugar head one length outside along the local outward normal, the head-ward direction tilted 15 deg about
-the tangent so the tail sits nearer the axis, over a vertical band 1.5x the old half-height. The record carries the
+the tangent so the tail sits nearer the axis, over a vertical band 1.1x the old half-height. The record carries the
 cylinder and `orientation` provenance; the sphere/self-assembly path is untouched. Measured on fixtures: a tilted
 bundle gives a 24.2 deg axis; head-height spread exactly 1.5x; determinism and the overlap/clearance gates unchanged.
 The `radius_nm` floor and the absence of a hard headgroup clamp are the two known trade-offs (a clamp would break

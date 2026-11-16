@@ -222,7 +222,7 @@ def test_a_stated_membrane_puts_the_placement_on_the_cylinders_own_surface(tmp_p
     assert placed['placement_shape'] == 'belt-cylinder'
     assert cylinder['atom_count'] == 12, 'the in-slab ring is the transmembrane cloud'
     assert np.allclose(axis, [0.0, 0.0, 1.0])
-    assert cylinder['axis_source'] == 'frame-normal-degenerate', 'an exact ring has no unique principal axis'
+    assert cylinder['axis_source'] == 'frame-normal', 'the axis is always the membrane normal'
     assert cylinder['radius_nm'] == pytest.approx(1.0)
     assert cylinder['height_nm'] == pytest.approx(2.0), 'the axial extent widened to the stated slab thickness'
     # The surface is the measured 1.0 nm: the `radius_nm` setting is a floor under it and 1.0 is not above it.
@@ -246,12 +246,12 @@ def test_a_stated_membrane_puts_the_placement_on_the_cylinders_own_surface(tmp_p
     assert placed['protein_clearance_nm'] >= pdc_placement.MIN_CLEARANCE_NM
 
 
-def test_a_tilted_transmembrane_bundle_yields_its_own_axis_not_the_frame_normal(tmp_path):
-    """Acceptance (a): a tilted transmembrane bundle states its own principal axis, not the membrane normal.
+def test_a_tilted_transmembrane_bundle_still_uses_the_frame_normal(tmp_path):
+    """Acceptance (a): the axis is the membrane frame's normal even for a tilted bundle.
 
-    The frame normal is the slab's +z. The bundle's atoms run along a tilted direction and all sit inside the slab,
-    so PCA over them -- not the frame -- is what the cylinder's axis has to be. The axis is signed to agree with the
-    frame normal, and the radius is the furthest atom from that axis's line.
+    The frame normal is the slab's +z. The bundle's atoms run along a tilted direction and all sit inside the slab;
+    the cylinder keeps the membrane's own direction (the user's decision), and the radius is the furthest atom from
+    that axis's line, measured about the atoms' centroid.
     """
     tilt = np.asarray([0.45, 0.0, 1.0])
     tilt = tilt / np.linalg.norm(tilt)
@@ -268,11 +268,13 @@ def test_a_tilted_transmembrane_bundle_yields_its_own_axis_not_the_frame_normal(
     cylinder = placed['band']['cylinder']
     axis = np.asarray(cylinder['axis'])
     assert placed['placement_shape'] == 'belt-cylinder' and placed['valid'], placed['issues']
-    assert cylinder['axis_source'] == 'transmembrane-pca'
-    assert np.degrees(np.arccos(np.clip(float(axis @ tilt), -1.0, 1.0))) < 1e-3, 'the axis is the bundle\'s own'
-    assert float(axis @ np.asarray([0.0, 0.0, 1.0])) > 0.0, 'signed to agree with the frame normal'
+    assert cylinder['axis_source'] == 'frame-normal'
+    assert np.allclose(axis, [0.0, 0.0, 1.0]), 'the axis is the membrane normal, not the bundle direction'
     assert cylinder['atom_count'] == len(points)
-    assert cylinder['radius_nm'] == pytest.approx(0.35, abs=1e-6)
+    cloud = np.asarray(points, dtype=float)
+    relative = cloud - cloud.mean(axis=0)
+    radial = relative - np.outer(relative[:, 2], [0.0, 0.0, 1.0])
+    assert cylinder['radius_nm'] == pytest.approx(float(np.linalg.norm(radial, axis=1).max()), abs=1e-5)
     assert cylinder['surface_radius_nm'] == pytest.approx(1.0), 'the floor only pushes the surface outwards'
     assert cylinder['height_nm'] == pytest.approx(max(2.0 * 0.65, 2.0), abs=1e-6)
     assert cylinder['frame_axis'] == [0.0, 0.0, 1.0]

@@ -66,16 +66,13 @@ SHAPE_SPHERE = 'sphere'
 ORIENTATION_CYLINDER_TILTED = 'cylinder-outward-tilted'
 ORIENTATION_RADIAL = 'radial'
 ORIENTATION_RANDOM_OUTWARD = 'random-outward'
-# The cylinder's principal axis, and the one case where the cloud cannot state one: an exactly circular (isotropic)
-# cross-section has two equal eigenvalues, so the frame normal is the only axis left that is not an arbitrary
-# eigenvector sign. The record says which of the two the placement used (`axis_source`).
-CYLINDER_AXIS_PCA = 'transmembrane-pca'
-CYLINDER_AXIS_FRAME = 'frame-normal-degenerate'
-PCA_DEGENERATE = 1e-9
+# The cylinder's axis is the membrane frame's normal; the record states it so a reader needs no vector inspection.
+CYLINDER_AXIS_FRAME = 'frame-normal'
 # The belt's vertical half-height, as a multiple of the half-height it had as a torus -- the detergent's own length,
-# which every site's meridian reached. The same count therefore covers 1.5x the old vertical extent, symmetric about
-# the cylinder's mid-plane, instead of only the old half-circle's reach.
-VERTICAL_SPREAD = 1.5
+# which every site's meridian reached. The same count therefore covers VERTICAL_SPREAD times the old vertical extent,
+# symmetric about the cylinder's mid-plane. 1.1 is the reviewed setting: a little taller and lower than the torus,
+# without leaving the membrane's headgroup region.
+VERTICAL_SPREAD = 1.1
 # The belt's body is mostly the outward surface normal, tilted about the local tangent by this angle. The tilt's sign
 # is chosen so the head end leans away from the cylinder's mid-plane and the tail therefore dips towards it; the
 # radial component always shrinks, so the tail end is always closer to the axis than the head end.
@@ -694,12 +691,11 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
 def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, template, profile=None):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
-    The cylinder is measured from the protein atoms the frame's slab holds, not from the frame's own axis. Those
-    atoms' **principal axis** is the cylinder's axis (PCA over their positions, signed to agree with the frame
-    normal); their furthest distance from that axis is its **radius**; their axial extent, widened to the membrane
-    thickness the frame states, is its **height**; and their count is recorded with all three. The frame is the
-    authority for *which* atoms are transmembrane -- its explicit slab bounds when it has them, otherwise its own
-    stated half-thickness -- and the PCA is the authority for the axis itself.
+    The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
+    furthest distance from that axis is its **radius**; their axial extent, widened to the membrane thickness the
+    frame states, is its **height**; and their count is recorded with all three. The frame is the authority for
+    *which* atoms are transmembrane (its explicit slab bounds when it has them, otherwise its stated half-thickness)
+    and for the axis itself.
 
     Every site is a detergent's **head end**, standing `length` outside the cylinder surface on the outward normal at
     that detergent's own height and angle. Its head-ward direction is that normal tilted by `TILT_DEGREES` about the
@@ -708,8 +704,9 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, temp
     axis than the head and slightly nearer the membrane's centre. The head/tail convention the build stamps is
     unchanged -- only the sites and directions are.
 
-    The vertical half-height is `VERTICAL_SPREAD` times the old torus's half-height, the detergent's own length: the
-    same count covers 1.5x the old vertical extent, symmetric about the cylinder's mid-plane. The sites' own heights
+    The vertical half-height is `VERTICAL_SPREAD` (1.1) times the old torus's half-height, the detergent's own
+    length: the same count covers a little more than the old vertical extent, symmetric about the cylinder's
+    mid-plane. The sites' own heights
     are the golden-angle ladder's third coordinate scaled by that half-height, so the draw remains deterministic in
     the seed and the whole cylinder is covered.
 
@@ -815,40 +812,20 @@ def _slab_points(points, frame_axis, bounds):
 def _transmembrane_cylinder(inside, frame_axis, bounds):
     """The cylinder the transmembrane atoms state: their principal axis, radius, height and count.
 
-    PCA over the selected atoms' positions gives the principal axis; it is signed to agree with the frame normal so
-    the vector is reproducible rather than an eigensolver's arbitrary sign. A cloud whose two largest eigenvalues
-    are equal -- an exactly circular cross-section -- has no unique principal axis, so the frame normal is used and
-    the record's `axis_source` names that case instead of pretending an arbitrary eigenvector was measured.
-
-    The radius is the furthest atom from the axis's line, which passes through the atoms' centroid; the slab radius
+    The axis is the membrane frame's normal (the membrane's own direction), so a tilted bundle still fills a
+    cylinder whose ends are the membrane's planes; the record's `axis_source` states that. The radius is the furthest
+    atom from that axis's line, which passes through the atoms' centroid; the slab radius
     is kept beside it as the old measurement from the frame's own axis, so a reader can see both. The height is the
     atoms' axial extent widened to the frame's stated thickness, so a thin transmembrane bundle still states the
     membrane it was measured in.
     """
     cloud = np.asarray(inside, dtype=float)
     origin = cloud.mean(axis=0)
-    centred = cloud - origin
-    values, vectors = np.linalg.eigh(centred.T @ centred)
-    order = np.argsort(values)[::-1]
-    separation = float(values[order[0]] - values[order[1]])
-    scale = max(float(abs(values[order[0]])), 1.0)
-    if separation <= PCA_DEGENERATE * scale:
-        axis = np.asarray(frame_axis, dtype=float)
-        axis_source = CYLINDER_AXIS_FRAME
-    else:
-        axis = np.asarray(vectors[:, int(order[0])], dtype=float)
-        axis_source = CYLINDER_AXIS_PCA
+    axis = np.asarray(frame_axis, dtype=float)
     span = float(np.linalg.norm(axis))
-    axis = axis / span if span > 1e-12 else np.asarray(frame_axis, dtype=float)
-    agreement = float(np.dot(axis, frame_axis))
-    if agreement < 0.0:
-        axis = -axis
-    elif abs(agreement) <= 1e-12:
-        # A bundle perpendicular to the frame normal cannot be signed by it; use the largest component so the
-        # answer is still the same on every call.
-        largest = int(np.argmax(np.abs(axis)))
-        if axis[largest] < 0.0:
-            axis = -axis
+    axis = axis / span if span > 1e-12 else np.array([0.0, 0.0, 1.0])
+    axis_source = CYLINDER_AXIS_FRAME
+    centred = cloud - origin
     axial = centred @ axis
     radial = centred - np.outer(axial, axis)
     frame_axial = cloud @ frame_axis
