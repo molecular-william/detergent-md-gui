@@ -31,6 +31,124 @@ def validate_id(value):
     return value
 
 
+#: A version directory's name: a folder name, never a path, and never a dotted temporary one.
+VERSION_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}')
+
+
+def validate_version(value):
+    if not isinstance(value, str) or not VERSION_NAME.fullmatch(value):
+        raise ValueError('Molecule version must be a folder name, not a path')
+    return value
+
+
+def _version_key(version):
+    """Order versions as versions, not as strings: v2 is older than v10."""
+    return tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                 for part in re.split(r'(\d+)', str(version)) if part)
+
+
+def _version_folders(folder):
+    """The children of a molecule folder that state a version, as (path, version).
+
+    A child without a readable metadata, or without a version string in it, is not a version directory: the legacy
+    shape keeps its own subdirectories (a SwissParam results/ tree, for one), and none of them is a version of the
+    molecule. The stated version is returned rather than the directory name so a folder can be named one thing and
+    state another.
+    """
+    folder = Path(folder)
+    found = []
+    if folder.is_symlink() or not folder.is_dir():
+        return found
+    for path in sorted(folder.iterdir()):
+        if path.is_symlink() or not path.is_dir():
+            continue
+        try:
+            declared = _declared_metadata(path)
+        except (OSError, ValueError, IndexError, TypeError, UnicodeError):
+            continue
+        version = declared.get('version')
+        if isinstance(version, str) and VERSION_NAME.fullmatch(version):
+            found.append((path, version))
+    return found
+
+
+def _version_names(folder):
+    return {path.name for path, _version in _version_folders(folder)}
+
+
+def local_files(folder):
+    """The files a molecule folder itself holds, with a version directory's own tree left out.
+
+    A legacy folder may gain version directories beside its files (an import never replaces one), and discovery
+    reads one topology/coordinate pair from the folder's own files; a version's pair belongs to that version.
+    """
+    folder = Path(folder)
+    excluded = _version_names(folder)
+    return [path for path in (files.safe_files(folder) or [])
+            if not excluded or path.relative_to(folder).parts[0] not in excluded]
+
+
+def versions(root, molecule_id):
+    """The versions one molecule folder states, oldest first; empty for the unversioned legacy shape."""
+    validate_id(molecule_id)
+    found = _version_folders(Path(root) / molecule_id)
+    return [version for _path, version in sorted(found, key=lambda item: (_version_key(item[1]), item[0].name))]
+
+
+def resolve(root, molecule_id, version=None):
+    """The folder a molecule id names, and the version it read.
+
+    A molecule folder is molecules/<id>/<version>/ when it states metadata.version; the unversioned molecules/<id>/
+    is the legacy shape and reads as its own version. No version named resolves the newest one stated (metadata
+    version, then the directory name); a named version that is not installed is refused rather than answered by
+    another, because a run that named one must not simulate different files.
+    """
+    validate_id(molecule_id)
+    root = Path(root)
+    id_folder = root / molecule_id
+    if root.is_symlink() or id_folder.is_symlink() or not id_folder.is_dir():
+        raise ValueError('Molecule directory is unavailable or is a symlink')
+    installed = _version_folders(id_folder)
+    if version is not None:
+        validate_version(version)
+        for path, stated in installed:
+            if stated == version:
+                return path, stated
+        folder = id_folder / version
+        if folder.is_dir() and not folder.is_symlink():
+            # An import validates its folder before the metadata that names the version is written.
+            return folder, version
+        raise ValueError(f'molecules/{molecule_id}/{version} is not an installed version')
+    if installed:
+        path, stated = max(installed, key=lambda item: (_version_key(item[1]), item[0].name))
+        return path, stated
+    return id_folder, None
+
+
+def selected_folder(molecule_root, snapshot):
+    """The directory a selection names, under the molecule root it was selected from."""
+    root = Path(molecule_root)
+    recorded = snapshot.get('path')
+    if isinstance(recorded, str):
+        try:
+            return root / Path(recorded).relative_to('molecules')
+        except ValueError:
+            pass
+    return resolve(root, snapshot['id'], snapshot.get('version'))[0]
+
+
+def next_version(folder):
+    """The next free version directory of one molecule folder: v1, v2, ... -- never an existing name."""
+    folder = Path(folder)
+    names = {path.name for path in folder.iterdir() if path.is_dir() and not path.is_symlink()} \
+        if folder.is_dir() and not folder.is_symlink() else set()
+    numbers = [int(match.group(1)) for name in names if (match := re.fullmatch(r'v(\d+)', name))]
+    candidate = max(numbers, default=0) + 1
+    while f'v{candidate}' in names:
+        candidate += 1
+    return f'v{candidate}'
+
+
 def cg_residue_name(record_or_snapshot):
     """Coarse-grained residue name for a molecule record or snapshot.
 
@@ -140,7 +258,7 @@ def topology_tree(folder, entry="molecule.itp"):
 
 def discover(folder):
     """Choose a unique local topology/coordinate pair without following symlinks."""
-    paths = list(files.safe_files(folder))
+    paths = local_files(folder)
     topologies = [p for p in paths if p.suffix.lower() == '.itp']
     pairs = []
     for topology in topologies:
@@ -164,13 +282,14 @@ def discover(folder):
             'coordinate_format': coordinate.suffix.lower()[1:]}
 
 
-def ensure_metadata(folder, molecule_id, expanded, topology_type, charge):
+def ensure_metadata(folder, molecule_id, expanded, topology_type, charge, *, version=None):
     """Publish missing metadata atomically without replacing an existing user file."""
     target = folder/'metadata.json'
     if target.exists() or target.is_symlink():
         return
     swissparam = bool(re.search(r'by user SwissParam', expanded, re.I))
-    metadata = {'name': molecule_id, 'molecule_type': topology_type, 'net_charge': round(charge) if abs(charge-round(charge)) < 1e-4 else round(charge, 8),
+    metadata = {**({'version': version} if version is not None else {}),
+                'name': molecule_id, 'molecule_type': topology_type, 'net_charge': round(charge) if abs(charge-round(charge)) < 1e-4 else round(charge, 8),
                 'force_field': 'charmm36-jul2022.ff' if swissparam else 'unknown',
                 'water_model': 'tip3p' if swissparam else 'unknown',
                 'generated': True,
@@ -290,13 +409,17 @@ def _cg_result(result, folder, molecule_id, metadata):
     return result
 
 
-def inspect(root, molecule_id, *, generate_metadata=True):
-    validate_id(molecule_id)
-    root = Path(root); folder = root / molecule_id
-    if root.is_symlink() or folder.is_symlink() or not folder.is_dir():
-        raise ValueError('Molecule directory is unavailable or is a symlink')
-    result = {'id': molecule_id, 'name': molecule_id, 'path': f'molecules/{molecule_id}', 'kind': 'aa',
-              'valid': False, 'executable': False, 'issues': [], 'blockers': [], 'sha256': {}}
+def inspect(root, molecule_id, *, version=None, generate_metadata=True):
+    """One molecule record: the newest version a folder states, or the version a selection names."""
+    folder, resolved = resolve(root, molecule_id, version)
+    return _inspect_folder(molecule_id, folder, resolved, generate_metadata)
+
+
+def _inspect_folder(molecule_id, folder, version, generate_metadata):
+    folder = Path(folder)
+    result = {'id': molecule_id, 'name': molecule_id, 'version': version,
+              'path': f'molecules/{molecule_id}' if version is None else f'molecules/{molecule_id}/{folder.name}',
+              'kind': 'aa', 'valid': False, 'executable': False, 'issues': [], 'blockers': [], 'sha256': {}}
     kind = 'aa'
     try:
         declared = _declared_metadata(folder)
@@ -318,7 +441,7 @@ def inspect(root, molecule_id, *, generate_metadata=True):
             raise ValueError('Coordinates and ITP atom counts, residue names, or atom order do not match')
         metadata_path = folder / 'metadata.json'
         if generate_metadata:
-            ensure_metadata(folder, molecule_id, expanded, topology_type, charge)
+            ensure_metadata(folder, molecule_id, expanded, topology_type, charge, version=version)
         elif not metadata_path.is_file():
             raise ValueError('metadata.json is missing; select this molecule for a run to generate it')
         content = dict(dependencies)
@@ -403,31 +526,69 @@ def catalogue(root, *, generate_metadata=False):
             if path.is_dir() and not path.is_symlink() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', path.name)]
 
 
-def selection(root, molecule_id, run_type='aa_cg'):
-    record = inspect(root, molecule_id, generate_metadata=True)
+def selection(root, molecule_id, run_type='aa_cg', *, version=None, digests=False):
+    """One run's molecule selection: where it is, which version, and the metadata a run needs.
+
+    The selection names the molecule and its version; it deliberately carries no per-file digest, because the
+    version directory is the change detector. `digests=True` builds the shape an older run recorded -- files by
+    digest and no version -- so a queued run keeps verifying exactly as it always did.
+    """
+    return _selection(inspect(root, molecule_id, version=version, generate_metadata=True), run_type, digests)
+
+
+def _selection(record, run_type='aa_cg', digests=False):
     if run_type == 'cg':
         capability = record['capabilities']['cg']
         if not capability['executable']: raise ValueError('; '.join(capability['blockers']))
-        fields = ('id', 'name', 'path', 'kind', 'metadata', 'sha256', 'atom_count', 'inputs', 'reference_sha256',
-                  'cg_residue_name')
-        return {key: record[key] for key in fields}
-    if run_type=='aa_only':
-        capability=record['capabilities']['aa_only']
+    elif run_type == 'aa_only':
+        capability = record['capabilities']['aa_only']
         if not capability['executable']: raise ValueError('; '.join(capability['blockers']))
-        return {key:record[key] for key in ('id','name','path','metadata','sha256','atom_count','inputs','reference_sha256')} | {'adapter':'aa-charmm36'}
-    if run_type!='aa_cg':raise ValueError('Unknown run type')
-    if not record['executable']: raise ValueError('; '.join(record['blockers']))
-    fields = ('id','name','path','metadata','sha256','adapter','inputs','reference_sha256','cg_residue_name')
-    snapshot = {key: record[key] for key in fields}
+    elif run_type != 'aa_cg':
+        raise ValueError('Unknown run type')
+    elif not record['executable']:
+        raise ValueError('; '.join(record['blockers']))
+    snapshot = {key: record[key] for key in ('id', 'version', 'path', 'metadata', 'inputs')}
+    snapshot['atom_count'] = record['atom_count']
+    if digests:
+        # The shape written before versions: a name, no version, and one digest per file.
+        snapshot.pop('version', None)
+        snapshot.update(name=record['name'], sha256=record['sha256'],
+                        reference_sha256=record['reference_sha256'])
     if 'adapter_sources' in record:
         snapshot['adapter_sources'] = record['adapter_sources']
+    if run_type == 'cg':
+        snapshot.update(kind=record['kind'], cg_residue_name=record['cg_residue_name'])
+    elif run_type == 'aa_only':
+        snapshot['adapter'] = 'aa-charmm36'
+    else:
+        snapshot.update(adapter=record['adapter'], cg_residue_name=record['cg_residue_name'])
     return snapshot
 
 
 def verify_selection(root, snapshot):
+    """Refuse a selection whose molecule, version or shape no longer reads as it did when it was queued.
+
+    A selection that carries per-file digests was written before version directories: it is verified against the
+    folder the old catalogue read (the id folder itself) and its own digests, exactly as it always was.
+    """
+    if not isinstance(snapshot, dict):
+        raise ValueError('A molecule selection must be an object')
+    validate_id(snapshot.get('id'))
     # The snapshot's own kind decides the run type it was selected as: a `cg` record carries no adapter, and asking
     # the AA branch about it would report a molecule whose files are fine as a changed molecule.
     run_type = 'cg' if snapshot.get('kind') == 'cg' else (
         'aa_only' if snapshot.get('adapter') == 'aa-charmm36' else 'aa_cg')
-    if selection(root, snapshot['id'], run_type) != snapshot:
+    legacy_shape = ('sha256' in snapshot or 'reference_sha256' in snapshot
+                    or ('version' in snapshot and snapshot.get('version') is None))
+    if legacy_shape:
+        # The digest shape, or the unversioned folder named as its own version: both read the id folder itself, so an
+        # import of a new version beside it cannot move a queued run onto different files.
+        folder = Path(root) / snapshot['id']
+        if folder.is_symlink() or not folder.is_dir():
+            raise ValueError('Molecule directory is unavailable or is a symlink')
+        expected = _selection(_inspect_folder(snapshot['id'], folder, None, True), run_type,
+                              digests='sha256' in snapshot or 'reference_sha256' in snapshot)
+    else:
+        expected = selection(root, snapshot['id'], run_type, version=snapshot.get('version'))
+    if expected != snapshot:
         raise ValueError('Molecule files changed since this run was queued; select the molecule again')

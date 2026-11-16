@@ -82,6 +82,7 @@ def test_importing_a_structure_puts_it_in_the_catalogue_with_what_the_file_state
     assert response.status_code == 201
     record = response.get_json()
     assert record['pdbid'] == '1qj8' and record['half_thickness_nm'] == 1.18
+    assert record['file'] == '1qj8.pdb' and record['fetched_at'], 'the sidecar names the file it wrote and when'
     assert calls == ['https://biomembhub.org/shared/opm-assets/pdb/1qj8.pdb']
     assert (dashboard.paths.proteins / '1qj8.pdb').read_bytes() == STRUCTURE.encode()
 

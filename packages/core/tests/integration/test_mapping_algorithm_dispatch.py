@@ -40,7 +40,7 @@ def test_the_spectral_algorithm_keeps_the_ring_layer_and_records_itself(dashboar
     candidate = body['candidate']
     assert candidate['provenance']['algorithm'] == 'spectral'
     assert candidate['schema_version'] == 3 and candidate['molecule_id'] == 'DDM'
-    assert candidate['molecule_snapshot']['snapshot_sha256']
+    assert candidate['molecule_snapshot']['molecule_id'] == 'DDM'
     assert len(candidate['rings']) == 2, 'the sugar layer still owns the rings'
     assert any(bead.get('virtual_site') for bead in candidate['beads']), 'and their TC4 sites'
 

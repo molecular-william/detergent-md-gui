@@ -10,8 +10,10 @@ export function createMappings() {
   let moleculeOverlay = null;
 
   function editorStorageKey(context) {
-    if (!context?.molecule_id || !context?.snapshot?.snapshot_sha256) return null;
-    return `mapping.v3.${context.molecule_id}.${context.snapshot.snapshot_sha256}`;
+    const snapshot = context?.snapshot;
+    const tag = snapshot ? (snapshot.version || snapshot.snapshot_sha256 || 'flat') : null;
+    if (!context?.molecule_id || !tag) return null;
+    return `mapping.v3.${context.molecule_id}.${tag}`;
   }
   function persistEditor() {
     if (!moleculeEditor) return;
@@ -266,7 +268,10 @@ export function createMappings() {
       mappingData.bead_types = source.bead_types || catalogue.bead_types || [];
       const key = editorStorageKey(source.context);
       const recovered = key ? storage.get(key) : null;
-      const candidate = recovered?.molecule_snapshot?.snapshot_sha256 === source.context.snapshot.snapshot_sha256
+      const tag = (snapshot) => snapshot ? (snapshot.version || snapshot.snapshot_sha256 || 'flat') : null;
+      const sameMolecule = recovered?.molecule_snapshot?.molecule_id === source.context.snapshot?.molecule_id
+        && tag(recovered.molecule_snapshot) === tag(source.context.snapshot);
+      const candidate = sameMolecule
         ? recovered
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
       if (generation !== editorGeneration) return;

@@ -8,7 +8,7 @@ from ... import paths
 from .. import mappings
 from .. import sugars as carbohydrates
 from ..mappings import verdict
-from ..mappings.context import as_structure, build_context
+from ..mappings.context import as_structure, build_context, snapshot_matches
 from .packaged import bead_types
 
 CANDIDATE = mappings.SOURCE / 'mapping_candidate_smoke.json'
@@ -22,8 +22,12 @@ def _structure_for(data, molecule_root=None):
     if not isinstance(molecule_id, str) or not molecule_id:
         raise ValueError('schema 3 mappings require molecule_id')
     root = Path(molecule_root) if molecule_root is not None else paths.current().project_root / 'molecules'
-    context = build_context(root, molecule_id)
-    if data.get('molecule_snapshot') != context['snapshot']:
+    stored = data.get('molecule_snapshot')
+    # A stored snapshot names the version it was made against; one written before version directories carries its
+    # files by digest instead, and both are compared by the context itself.
+    version = stored.get('version') if isinstance(stored, dict) else None
+    context = build_context(root, molecule_id, version)
+    if not snapshot_matches(stored, context):
         raise ValueError('Molecule sources changed; reload the mapping workspace')
     return as_structure(context)
 

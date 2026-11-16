@@ -28,8 +28,15 @@ def identity(snapshot):
              or snapshot.get('sha256') or {})
     if not isinstance(digests, dict):
         raise ValueError('A molecule selection states per-file digests; this is a single digest')
+    chemistry={k:metadata[k] for k in ('force_field','water_model','molecule_type','net_charge')}
+    if not digests:
+        # A versioned selection names its folder, not its bytes: its identity is the molecule and the version it pinned,
+        # plus the chemistry. Two versions of one molecule must not share an identity, or every reference picker matches
+        # both and a fit measured on v1 is offered for v2's run.
+        return hashlib.sha256(json.dumps({'molecule':{'id':snapshot.get('id'),'version':snapshot.get('version')},
+            'chemistry':chemistry},sort_keys=True).encode()).hexdigest()
     return hashlib.sha256(json.dumps({'files':{k:v for k,v in digests.items() if k!='metadata.json'},
-        'chemistry':{k:metadata[k] for k in ('force_field','water_model','molecule_type','net_charge')}},sort_keys=True).encode()).hexdigest()
+        'chemistry':chemistry},sort_keys=True).encode()).hexdigest()
 
 
 def index_group(name,start,stop):
@@ -105,13 +112,24 @@ def referenced_sources(context):
     folder=context.get('molecule_directory');snapshot=context.get('molecule_snapshot') or {}
     if folder:
         folder=Path(folder)
-        for relative,digest in sorted((snapshot.get('sha256') or {}).items()):
-            path=folder/relative
-            if path.is_symlink() or not path.is_file():raise ValueError('Molecule file is missing: '+str(path))
-            measured=files.sha256(path)
-            if measured!=digest:raise ValueError('Molecule file changed since this run was prepared: '+relative)
-            sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
-                            'sha256':measured,'bytes':path.stat().st_size})
+        digests=snapshot.get('sha256') or {}
+        if digests:
+            for relative,digest in sorted(digests.items()):
+                path=folder/relative
+                if path.is_symlink() or not path.is_file():raise ValueError('Molecule file is missing: '+str(path))
+                measured=files.sha256(path)
+                if measured!=digest:raise ValueError('Molecule file changed since this run was prepared: '+relative)
+                sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
+                                'sha256':measured,'bytes':path.stat().st_size})
+        else:
+            # A versioned selection names its folder, not its bytes. The version directory is the promise; the
+            # publication still records every file it read, one by one, as evidence of what this reference was built
+            # from -- the record is provenance, and nothing compares it before a run starts.
+            for path in sorted(item for item in folder.rglob('*') if item.is_file() and not item.is_symlink()):
+                relative=path.relative_to(folder).as_posix()
+                measured=files.sha256(path)
+                sources.append({'role':'molecule','label':relative,'kind':'file',**_locator(path),
+                                'sha256':measured,'bytes':path.stat().st_size})
     return sources
 
 

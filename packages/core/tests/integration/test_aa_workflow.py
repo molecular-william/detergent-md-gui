@@ -16,7 +16,10 @@ def test_generic_input_dependencies_and_aa_capability(tmp_path):
     (folder/'parts').mkdir(); (folder/'parts/body.itp').write_text(original)
     (folder/'lig1.itp').write_text('#include "parts/body.itp"\n')
     snapshot=aa_molecules.selection(tmp_path,'Example',run_type='aa_only')
-    assert 'results/MMFF/parts/body.itp' in snapshot['sha256']
+    # A selection names its folder and files, not their bytes; the include closure is still what it reads, so a
+    # traversal is still refused below.
+    assert snapshot['inputs']['topology']=='results/MMFF/lig1.itp'
+    assert 'sha256' not in snapshot
     assert snapshot['adapter']=='aa-charmm36'
     (folder/'lig1.itp').write_text('#include "../outside.itp"\n')
     with pytest.raises(ValueError,match='include|traversal'):

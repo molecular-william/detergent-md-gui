@@ -1,5 +1,6 @@
 export function createEditor(context, candidate = null) {
-  if (!context || typeof context.molecule_id !== 'string' || !context.snapshot?.snapshot_sha256) {
+  // A legacy unversioned folder has no version name yet (version: null); the snapshot object itself is the promise.
+  if (!context || typeof context.molecule_id !== 'string' || !context.snapshot) {
     throw new Error('Mapping context is unavailable; reload the page or pick a molecule.');
   }
   return {

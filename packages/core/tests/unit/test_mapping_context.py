@@ -3,7 +3,7 @@ from dashboard.models.mappings.context import build_context
 from tests.harness.support import write_aa_fixture as write_fixture
 
 
-def test_context_keeps_atom_ids_and_source_changes(tmp_path):
+def test_context_keeps_atom_ids_and_a_legacy_edit_keeps_its_snapshot(tmp_path):
     folder = write_fixture(tmp_path)
     before = build_context(tmp_path, "Fixture")
     assert [a["id"] for a in before["atoms"]] == [1, 2, 3, 4, 5]
@@ -12,7 +12,10 @@ def test_context_keeps_atom_ids_and_source_changes(tmp_path):
     topology = folder / "molecule.itp"
     topology.write_text(topology.read_text() + "; changed source\n")
     after = build_context(tmp_path, "Fixture")
-    assert before["snapshot"] != after["snapshot"]
+    # The snapshot names {molecule_id, version} now, and this unversioned folder has no version name that can change:
+    # the version directory is the change detector. A run still refuses an edited legacy folder structurally
+    # (verify_selection), and mappings invalidate once the folder is migrated to a version (phase 3).
+    assert before["snapshot"] == after["snapshot"] == {"molecule_id": "Fixture", "version": None}
 
 
 def test_context_is_read_only_and_marks_fallback(tmp_path):

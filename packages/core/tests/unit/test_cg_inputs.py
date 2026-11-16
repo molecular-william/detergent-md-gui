@@ -212,7 +212,7 @@ def test_the_record_verifies_and_a_missing_installed_file_refuses_it(tmp_path, m
 
     assert run_inputs.verify_manifest(run, manifest) is not None
     solvents = martini3.path(martini3.REQUIRED[1])
-    assert solvents.parent == tmp_path / 'martini3', 'the removed file is this test\'s own install'
+    assert solvents.parent == tmp_path / 'martini3' / martini3.VERSION, 'the removed file is this test\'s own install'
     solvents.unlink()
     with pytest.raises(ValueError, match='martini_solvents is missing'):
         run_inputs.verify_manifest(run, manifest)

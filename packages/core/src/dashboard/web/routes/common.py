@@ -76,7 +76,8 @@ def payload_context(payload, *, require_molecule=False):
     if not payload.get('molecule_id'):
         return None
     try:
-        context = mapping_context.build_context(coordinator().ROOT / 'molecules', payload['molecule_id'])
+        context = mapping_context.build_context(coordinator().ROOT / 'molecules', payload['molecule_id'],
+                                                version=(payload.get('molecule_snapshot') or {}).get('version'))
     except (OSError, ValueError) as exc:
         abort(400, str(exc))
     if payload.get('molecule_snapshot') != context['snapshot']:

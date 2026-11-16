@@ -1,5 +1,4 @@
 """Molecules HTTP endpoints."""
-import hashlib
 import json
 import os
 import re
@@ -9,6 +8,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, request
 
+from ... import files
 from ...analysis.runs import references as aa_references
 from ...execution import forcefields, protocol
 from ...execution.adapters import aa, cg
@@ -54,39 +54,50 @@ def _import_file(payload, *, field, suffixes):
     return name, text, data
 
 
-def _import_metadata(payload, *, kind, molecule_id, sources):
+def _import_metadata(payload, *, kind, molecule_id, version, sources):
     """The `metadata.json` an import writes, or `None` when an AA import leaves generation to the catalogue.
 
-    A CG import always writes one: `kind` is what classifies the folder, and the sources it records are the only
-    place the submitted file names and digests survive the canonical folder names. An AA import with no metadata
-    writes none, so the catalogue's own `ensure_metadata` produces the record it produces for any unlabelled folder.
+    The version is what the folder is and the sources are the names it arrived as, so a later reader can say
+    which version it read and what was submitted -- no per-file digest: the version directory is the identity.
+    An AA import with no metadata writes none, so the catalogue's own `ensure_metadata` produces the record it
+    produces for any unlabelled folder; the route stamps the version, names and time onto it afterwards.
     """
+    stamp = files.now_iso()
     metadata = payload.get('metadata')
     if metadata is None:
-        return None if kind == 'aa' else {'kind': 'cg', 'name': molecule_id, 'sources': sources}
+        if kind == 'aa':
+            return None
+        return {'version': version, 'kind': kind, 'name': molecule_id, 'sources': sources, 'imported_at': stamp}
     if not isinstance(metadata, dict):
         raise ValueError('metadata must be a JSON object when given')
     if metadata.get('kind', kind) != kind:
         raise ValueError(f"metadata.kind says {metadata.get('kind')!r}, but this import is {kind!r}")
-    record = {**metadata, 'kind': kind}
+    record = {**metadata, 'version': version, 'kind': kind, 'sources': sources, 'imported_at': stamp}
     if kind == 'cg':
         record.setdefault('name', molecule_id)
-        record['sources'] = sources
     text = json.dumps(record, indent=2, allow_nan=False)
     if len(text.encode('utf-8')) > IMPORT_LIMIT:
         raise ValueError('metadata.json exceeds the 8 MiB input limit')
     return record
 
 
+def _stamp_generated_metadata(folder, *, version, sources):
+    """Record the version, the submitted names and the arrival time on metadata the catalogue generated."""
+    path = Path(folder) / 'metadata.json'
+    record = json.loads(path.read_text())
+    record.update(version=version, sources=sources, imported_at=files.now_iso())
+    files.atomic_json(path, record)
+
+
 @blueprint.post('/api/molecules/import')
 def import_molecule_api():
-    """Write one validated molecule folder from submitted topology/coordinate text.
+    """Write one validated molecule version from submitted topology/coordinate text.
 
     The body is `{id, kind: 'aa'|'cg', topology: {name, text}, coordinates: {name, text}, metadata?}`. Validation
     happens in a hidden directory under `molecules/` through the catalogue's own `inspect`, so an import is accepted
-    exactly when the catalogue would list it; only then is the folder renamed into `molecules/<id>`. A refusal names
-    the issue and leaves the tree as it was: the temporary folder is removed, and an existing `molecules/<id>` is
-    never replaced.
+    exactly when the catalogue would list it; only then is the version folder renamed into `molecules/<id>/<version>`.
+    A refusal names the issue and leaves the tree as it was. An import never replaces a version: an id that already
+    has one is given the next, so earlier submissions stay readable and a queued run keeps the files it named.
     """
     # The application's 1 MiB body cap is for form posts; two submitted molecules are up to 8 MiB each, plus JSON
     # quoting. The per-file limit is enforced on the decoded text above, so this only has to admit the envelope.
@@ -99,40 +110,55 @@ def import_molecule_api():
         kind = payload.get('kind')
         if kind not in ('aa', 'cg'):
             raise ValueError("kind must be 'aa' or 'cg'")
-        topology_name, topology_text, topology_bytes = _import_file(
+        topology_name, topology_text, _topology_bytes = _import_file(
             payload.get('topology'), field='topology', suffixes=('.itp',))
-        coordinates_name, coordinates_text, coordinates_bytes = _import_file(
+        coordinates_name, coordinates_text, _coordinates_bytes = _import_file(
             payload.get('coordinates'), field='coordinates', suffixes=('.gro', '.pdb') if kind == 'aa' else ('.gro',))
-        sources = {'topology': {'name': topology_name, 'sha256': hashlib.sha256(topology_bytes).hexdigest()},
-                   'coordinates': {'name': coordinates_name, 'sha256': hashlib.sha256(coordinates_bytes).hexdigest()}}
-        metadata = _import_metadata(payload, kind=kind, molecule_id=molecule_id, sources=sources)
+        sources = {'topology': {'name': topology_name}, 'coordinates': {'name': coordinates_name}}
     except ValueError as exc:
         abort(400, str(exc))
     root = coordinator().ROOT / 'molecules'
     root.mkdir(parents=True, exist_ok=True)
     target = root / molecule_id
-    if target.exists() or target.is_symlink():
-        abort(409, f'molecules/{molecule_id} already exists: an import never replaces a molecule folder')
-    # The temporary folder is a sibling of the target so the rename is one filesystem operation. Its name is hidden
-    # and refuses the catalogue's id shape, so a crash before the rename leaves nothing the catalogue would list.
+    if target.is_symlink():
+        abort(409, f'molecules/{molecule_id} is a symlink: an import never writes through one')
+    version = aa_molecules.next_version(target)
+    try:
+        metadata = _import_metadata(payload, kind=kind, molecule_id=molecule_id, version=version, sources=sources)
+    except ValueError as exc:
+        abort(400, str(exc))
+    # The temporary tree is a sibling of the target so the rename is one filesystem operation. Its name is hidden and
+    # refuses the catalogue's id shape, so a crash before the rename leaves nothing the catalogue would list.
     temporary = Path(tempfile.mkdtemp(prefix='.import-', dir=root))
     try:
-        folder = temporary / molecule_id
-        folder.mkdir()
+        folder = temporary / molecule_id / version
+        folder.mkdir(parents=True)
         if kind == 'cg':
             topology_name, coordinates_name = CG_TOPOLOGY, CG_COORDINATES
         (folder / topology_name).write_text(topology_text)
         (folder / coordinates_name).write_text(coordinates_text)
         if metadata is not None:
             (folder / 'metadata.json').write_text(json.dumps(metadata, indent=2, allow_nan=False))
-        record = aa_molecules.inspect(temporary, molecule_id, generate_metadata=(kind == 'aa' and metadata is None))
+        record = aa_molecules.inspect(temporary, molecule_id, version=version,
+                                      generate_metadata=(kind == 'aa' and metadata is None))
         required = record['capabilities']['cg']['executable'] if kind == 'cg' else record['executable']
         if not record['valid'] or not required:
             issue = '; '.join(record['issues']) or '; '.join(record['capabilities'][
                 'cg' if kind == 'cg' else 'aa_cg']['blockers'])
             raise ValueError(issue or 'the imported files did not validate')
+        if metadata is None:
+            # The catalogue generated this metadata; the route adds what only the import knows.
+            _stamp_generated_metadata(folder, version=version, sources=sources)
+            record = aa_molecules.inspect(temporary, molecule_id, version=version, generate_metadata=False)
         try:
-            os.replace(folder, target)
+            if target.is_dir():
+                if (target / version).exists() or (target / version).is_symlink():
+                    raise FileExistsError(f'molecules/{molecule_id}/{version} appeared while importing')
+                os.rename(folder, target / version)
+            elif target.exists():
+                raise FileExistsError(f'molecules/{molecule_id} is not a folder')
+            else:
+                os.rename(temporary / molecule_id, target)
         except OSError as exc:
             abort(409, f'molecules/{molecule_id} was not imported: {exc}')
     except ValueError as exc:
@@ -190,11 +216,11 @@ def molecule_virtual_sites(molecule_id):
     entry is not fatal because the derivation can still answer from the inline rows.
     """
     c = coordinator()
-    folder = c.ROOT / 'molecules' / molecule_id
     try:
         snapshot = aa_molecules.inspect(c.ROOT / 'molecules', molecule_id, generate_metadata=False)
     except (OSError, ValueError) as exc:
         abort(400, str(exc))
+    folder = aa_molecules.selected_folder(c.ROOT / 'molecules', snapshot)
     if not snapshot.get('valid'):
         abort(400, '; '.join(snapshot.get('issues') or ['the molecule is not a valid AA source']))
     name = str((snapshot.get('metadata') or {}).get('force_field') or '').removesuffix('.ff')

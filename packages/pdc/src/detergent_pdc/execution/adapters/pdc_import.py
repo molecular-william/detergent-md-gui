@@ -154,7 +154,9 @@ def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
     """Write the structure and its sidecar into `dest_dir`, and return the sidecar's record.
 
     Fetch first and write second, in that order: a sidecar is a claim that a file is there, so one is never written
-    beside nothing. `fetcher` and `fetched_at` are injected so a test never opens a socket and never reads a clock.
+    beside nothing. The record names the file it wrote and when, so an import says what arrived rather than only
+    what it was asked for. `fetcher` and `fetched_at` are injected so a test never opens a socket and never reads
+    a clock.
     """
     pdbid = canonical_id(pdbid)          # validated before anything is fetched or created
     url = ASSET_URL.format(pdbid=pdbid)
@@ -166,8 +168,9 @@ def import_structure(pdbid, dest_dir, *, fetcher=None, fetched_at=None):
     dest.mkdir(parents=True, exist_ok=True)
     structure_path(dest, pdbid).write_bytes(payload)
     text = payload.decode('utf-8', 'replace')
-    record = {'pdbid': pdbid, 'source_url': url, 'sha256': hashlib.sha256(payload).hexdigest(),
-              'bytes': len(payload), 'fetched_at': stamp, 'chains': structure_chains(text),
+    record = {'pdbid': pdbid, 'source_url': url, 'file': structure_name(pdbid),
+              'sha256': hashlib.sha256(payload).hexdigest(), 'bytes': len(payload),
+              'fetched_at': stamp, 'chains': structure_chains(text),
               **(membrane_statement(text) or {})}
     sidecar_path(dest, pdbid).write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     return record

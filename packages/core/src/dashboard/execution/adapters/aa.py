@@ -573,10 +573,11 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     aa_molecules.verify_selection(molecule_root,molecule_snapshot)
     stages=run_dir/'stages'; stages.mkdir()
     common=stages/'common'; common.mkdir(); molecule=common/'molecule'; molecule.mkdir()
-    # The store is the molecule's own directory: the run names its bytes and reads them where they live instead of
-    # carrying a second copy. Both checks the copy used to make still run, against the store.
-    molecule_root=Path(molecule_root).resolve(); source=molecule_root/molecule_snapshot['id']
-    files.verify(source,molecule_snapshot['sha256'])
+    # The store is the molecule's own version directory: the run names its files and reads them where they live
+    # instead of carrying a second copy. A selection written before version directories carries its files by digest,
+    # and that digest is still measured; a versioned selection names its version instead.
+    molecule_root=Path(molecule_root).resolve(); source=aa_molecules.selected_folder(molecule_root,molecule_snapshot)
+    if 'sha256' in molecule_snapshot: files.verify(source,molecule_snapshot['sha256'])
     # Preserve original filenames/includes; normalize only the run-local entry points.
     inputs=molecule_snapshot.get('inputs', {'topology':'molecule.itp', 'coordinates':'molecule.gro', 'coordinate_format':'gro'})
     preparation={'source_inputs':inputs, 'coordinate_conversion':None}
@@ -625,10 +626,17 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     # `molecules/<id>/` records `molecules/<id>/<file>` against the repository.
     force_field_entry=run_inputs.published_tree('force_field', tree, label=ff.label)
     force_field_path=run_inputs.resolve(force_field_entry)
+    # The files this selection reads, by name: a versioned selection names its inputs and the includes its topology
+    # pulls in, while a selection written before versions names the digest map it recorded.
+    recorded = (sorted(molecule_snapshot['sha256']) if 'sha256' in molecule_snapshot else [
+        *sorted(aa_molecules.topology_tree(source, inputs['topology'])[1]),
+        inputs['coordinates'],
+        *(['metadata.json'] if (source/'metadata.json').is_file() else [])])
     references=[force_field_entry, *[
-        run_inputs.published('molecule', source/relative, label=f'{molecule_snapshot["id"]}/{relative}',
+        run_inputs.published('molecule', source/relative,
+                             label=f'{molecule_snapshot["path"].removeprefix("molecules/")}/{relative}',
                              repo_root=molecule_root.parent)
-        for relative in sorted(molecule_snapshot['sha256'])]]
+        for relative in recorded]]
     caveats=[str(caveat) for caveat in (molecule_snapshot['metadata'].get('caveats') or [])]
     context={'protocol_version':VERSION,'settings':settings,'molecule_snapshot':molecule_snapshot,
              'input_preparation':preparation,'force_field':ff.name,'force_field_directory':tree.name,

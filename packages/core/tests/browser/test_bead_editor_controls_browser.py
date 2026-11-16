@@ -146,7 +146,8 @@ def test_clicking_a_beads_atoms_field_keeps_it_selected_and_edits_the_bead(dashb
     page.keyboard.type(' 99')
     expect(atoms).to_have_value(f'{before} 99')
 
-    snapshot = candidate['molecule_snapshot']['snapshot_sha256']
+    recorded = candidate['molecule_snapshot']
+    snapshot = recorded.get('version') or recorded.get('snapshot_sha256') or 'flat'
     stored = page.evaluate(f"() => JSON.parse(localStorage.getItem('ddm.mapping.v3.{MOLECULE}.{snapshot}'))")
     assert stored['beads'][index]['atoms'] == candidate['beads'][index]['atoms'] + [99], stored['beads'][index]
     assert errors == []

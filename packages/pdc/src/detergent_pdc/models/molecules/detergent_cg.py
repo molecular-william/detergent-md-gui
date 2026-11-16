@@ -116,7 +116,9 @@ def derive(candidate_path, molecule_root, project_root) -> dict:
     """
     data = candidate(candidate_path)
     residue = str(data['molecule_id'])[:5]
-    structure = as_structure(build_context(Path(molecule_root), data['molecule_id']))
+    # A mapping's own snapshot decides the version: a newer import must not silently re-derive its geometry.
+    structure = as_structure(build_context(Path(molecule_root), data['molecule_id'],
+                                          version=(data.get('molecule_snapshot') or {}).get('version')))
     generated = generation.generate(data, structure, Path(project_root))
     centres = bead_centres(data, structure)
     provenance = [term.get('provenance') or {} for term in generated['interactions']]

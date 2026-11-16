@@ -559,7 +559,9 @@ class Coordinator:
             except ValueError as exc: raise InvalidRequest(str(exc))
             if not composition_model:
                 try:
-                    selected = aa_molecules.selection(self.ROOT/'molecules', molecule_id)
+                    # A retry or clone stays on the version its record pinned; only a fresh selection reads the newest.
+                    selected = aa_molecules.selection(self.ROOT/'molecules', molecule_id,
+                                                      version=(molecule_snapshot or {}).get('version'))
                     if molecule_snapshot and selected != molecule_snapshot:
                         raise ValueError('Molecule files changed; clone with a fresh selection instead')
                     molecule_snapshot = selected
@@ -569,13 +571,23 @@ class Coordinator:
         elif mapping_candidate:
             if not isinstance(mapping_candidate, str): raise InvalidRequest('Mapping candidate must be a saved filename')
             try:
-                context = (mapping_context.build_context(self.ROOT / 'molecules', molecule_snapshot['id'])
+                context = (mapping_context.build_context(self.ROOT / 'molecules', molecule_snapshot['id'],
+                                                         version=molecule_snapshot.get('version'))
                            if molecule_snapshot else None)
                 mapping_snapshot = cg.draft_model.load(
                     mappings.get(mapping_candidate, context=context),
                     molecule_root=self.ROOT / 'molecules',
                 )
             except FileNotFoundError: raise InvalidRequest('Selected mapping is unavailable; refresh the candidate list')
+        # A mapping's beads were placed on one molecule version; the run must read that geometry, not whatever the
+        # molecule folder holds today. The mapping's own snapshot decides, and the job records the version it used.
+        if mapping_snapshot is not None and molecule_id is not None and not composition_model:
+            bound = (mapping_snapshot.get('molecule_snapshot') or {}).get('version')
+            if bound and (molecule_snapshot or {}).get('version') != bound:
+                try:
+                    molecule_snapshot = aa_molecules.selection(self.ROOT / 'molecules', molecule_id, version=bound)
+                except (OSError, ValueError) as exc:
+                    raise RunConflict(str(exc))
         # A run used to be able to name a fitted bonded state and reuse it instead of fitting (`bonded_state_id`
         # with `bonded_intent='reuse_state'`), which is what the three refusals here protected: the state had to
         # exist, had to belong to the selected mapping, and had to be complete. Fitting is a property of the run
@@ -607,7 +619,10 @@ class Coordinator:
             if not recorded_reference.get('run_id'):
                 raise SourceUnavailable('The chosen parameterization records no AA reference to reuse')
             reference_run_id = recorded_reference['run_id']
-            expected_reference = recorded_reference.get('reference_sha256')
+            # A revision pins the edition when it has one (the named identity); a revision written before editions
+            # carries the legacy digest, which `resolve` still compares exactly as it always did.
+            expected_reference = (recorded_reference.get('reference_edition')
+                                  or recorded_reference.get('reference_sha256'))
             try:
                 _,reference_snapshot=aa_references.resolve(self.RUNS,reference_run_id,expected_reference,
                                                            molecule_snapshot=molecule_snapshot)

@@ -85,18 +85,15 @@ def _chemical_sources(folder: Path, inputs: dict):
     coordinate_path = folder / inputs["coordinates"]
     topology_path = folder / inputs["topology"]
     roots = {topology_path.parent, coordinate_path.parent, folder}
-    for root in sorted(roots):
-        if not root.is_dir() or root.is_symlink():
+    # A version directory beside a legacy folder's files is that version's source set, not the folder's; the
+    # folder's own discovery reads its own pair and its own chemical sources.
+    for path in sorted(aa_molecules.local_files(folder)):
+        if path == coordinate_path or path.suffix.lower() not in suffixes:
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.is_symlink() or path == coordinate_path:
-                continue
-            if path.suffix.lower() in suffixes:
-                try:
-                    relative = path.relative_to(folder).as_posix()
-                except ValueError:
-                    continue
-                result[relative] = aa_molecules._read(path)
+        if not any(path.is_relative_to(root) for root in roots):
+            continue
+        relative = path.relative_to(folder).as_posix()
+        result[relative] = aa_molecules._read(path)
     return result
 
 
@@ -170,13 +167,47 @@ def as_structure(context: dict) -> dict:
     }
 
 
-def build_context(root: Path, molecule_id: str) -> dict:
-    """Build a validated, read-only mapping context for one molecule folder."""
+class Snapshot(dict):
+    """A mapping context's snapshot: the molecule id and version, plus the digests an older snapshot recorded.
+
+    A mapping saved now records exactly {molecule_id, version}; the version directory is its change detector, so
+    no per-file digest enters the document. A mapping saved before version directories records
+    {files, atom_order_sha256, snapshot_sha256} instead, and opening it must not be refused as a changed molecule:
+    that digest map is kept here as an attribute (never as a key) and compared by equality. Both spellings compare
+    equal to themselves, so every reader of a mapping snapshot keeps its own comparison unchanged.
+    """
+
+    legacy: dict
+
+    def __init__(self, molecule_id: str, version, legacy: dict | None = None):
+        super().__init__(molecule_id=molecule_id, version=version)
+        self.legacy = dict(legacy or {})
+
+    def __eq__(self, other):
+        if not isinstance(other, dict):
+            return NotImplemented
+        if 'molecule_id' in other or 'version' in other:
+            return dict.__eq__(self, other)
+        return dict.__eq__(self.legacy, other)
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        return result if result is NotImplemented else not result
+
+    __hash__ = None
+
+
+def snapshot_matches(stored, context: dict) -> bool:
+    """Whether a mapping's recorded snapshot still describes this molecule context, in either spelling."""
+    snapshot = (context or {}).get('snapshot')
+    return isinstance(stored, dict) and isinstance(snapshot, dict) and stored == snapshot
+
+
+def build_context(root: Path, molecule_id: str, version=None) -> dict:
+    """Build a validated, read-only mapping context for one molecule folder or one of its versions."""
     aa_molecules.validate_id(molecule_id)
     root = Path(root)
-    folder = root / molecule_id
-    if root.is_symlink() or folder.is_symlink() or not folder.is_dir():
-        raise ValueError("Molecule directory is unavailable or is a symlink")
+    folder, resolved = aa_molecules.resolve(root, molecule_id, version)
     inputs = aa_molecules.discover(folder)
     expanded, dependencies = aa_molecules.topology_tree(folder, inputs["topology"])
     topology_atoms, bonds = _parse_topology(expanded)
@@ -209,8 +240,11 @@ def build_context(root: Path, molecule_id: str) -> dict:
     file_hashes = {name: _sha256(value) for name, value in sorted(files.items())}
     atom_order = [{key: atom[key] for key in ("id", "name", "residue", "element", "heavy")} for atom in atoms]
     atom_order_hash = canonical_sha256(atom_order)
-    snapshot = {"files": file_hashes, "atom_order_sha256": atom_order_hash}
-    snapshot["snapshot_sha256"] = canonical_sha256(snapshot)
+    # The digest map is what a mapping saved before versions recorded; the context keeps it to compare against that
+    # snapshot, and writes only the named snapshot into the document a mapping saves now.
+    legacy = {"files": file_hashes, "atom_order_sha256": atom_order_hash}
+    legacy["snapshot_sha256"] = canonical_sha256(legacy)
+    snapshot = Snapshot(molecule_id, resolved, legacy)
     projection = _chemical_projection(chemical, atoms)
     if projection:
         positions, orders, source = projection
@@ -229,7 +263,7 @@ def build_context(root: Path, molecule_id: str) -> dict:
     return {
         "molecule_id": molecule_id,
         "name": molecule_id,
-        "path": f"molecules/{molecule_id}",
+        "path": f"molecules/{molecule_id}" if resolved is None else f"molecules/{molecule_id}/{folder.name}",
         "inputs": inputs,
         "atoms": atoms,
         "bonds": bonds,

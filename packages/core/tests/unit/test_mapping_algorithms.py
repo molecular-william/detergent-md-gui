@@ -46,7 +46,7 @@ def context_of(elements, bonds, *, chemical=True):
                        'order_source': 'chemical' if chemical else 'itp'} for first, second in bonds],
             'source_quality': {'bond_order': 'chemical' if chemical else 'fallback', 'chemical_sources': [],
                                'warnings': []},
-            'snapshot': {'snapshot_sha256': 'fixture'},
+            'snapshot': {'molecule_id': 'fixture', 'version': None},
             'capabilities': {'manual': {'available': True, 'reasons': []},
                              'automatic': {'available': True, 'reasons': []}}}
 
