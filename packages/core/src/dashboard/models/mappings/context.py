@@ -11,10 +11,9 @@ import math
 import re
 from pathlib import Path
 
+from ... import itp
 from ..molecules import aa as aa_molecules
 from .identity import canonical_sha256
-
-_SECTION_RE = re.compile(r"^\s*\[\s*([^]]+)\s*\]")
 
 
 def _sha256(value: bytes) -> str:
@@ -32,45 +31,40 @@ def _element(name: str) -> str | None:
 
 
 def _parse_topology(expanded: str):
-    section = ""
     atoms = {}
     bonds = []
     seen_bond_keys = set()
-    for raw in expanded.splitlines():
-        line = raw.split(";", 1)[0].strip()
-        match = _SECTION_RE.match(line)
-        if match:
-            section = match.group(1).strip().lower()
-            continue
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split()
-        if section == "atoms":
-            if len(fields) < 7:
-                raise ValueError("molecule.itp: incomplete atom definition")
-            index = int(fields[0])
-            if index != len(atoms) + 1:
-                raise ValueError("molecule.itp: atom IDs must be contiguous")
-            charge = float(fields[6])
-            mass = float(fields[7]) if len(fields) > 7 else None
-            if not math.isfinite(charge) or (mass is not None and not math.isfinite(mass)):
-                raise ValueError("molecule.itp: atom charge or mass is nonfinite")
-            atoms[index] = {
-                "name": fields[4],
-                "residue": fields[3],
-                "charge": charge,
-                "mass": mass,
-                "element": _element(fields[4]),
-            }
-        elif section in {"bonds", "constraints"} and len(fields) >= 2:
-            a, b = int(fields[0]), int(fields[1])
-            if a == b:
+    for section, lines in itp.sections(expanded):
+        for _number, line in lines:
+            if line.startswith("#"):
                 continue
-            key = tuple(sorted((a, b)))
-            if key not in seen_bond_keys:
-                seen_bond_keys.add(key)
-                bonds.append({"a": key[0], "b": key[1], "order": 1,
-                              "order_source": "itp"})
+            fields = line.split()
+            if section == "atoms":
+                if len(fields) < 7:
+                    raise ValueError("molecule.itp: incomplete atom definition")
+                index = int(fields[0])
+                if index != len(atoms) + 1:
+                    raise ValueError("molecule.itp: atom IDs must be contiguous")
+                charge = float(fields[6])
+                mass = float(fields[7]) if len(fields) > 7 else None
+                if not math.isfinite(charge) or (mass is not None and not math.isfinite(mass)):
+                    raise ValueError("molecule.itp: atom charge or mass is nonfinite")
+                atoms[index] = {
+                    "name": fields[4],
+                    "residue": fields[3],
+                    "charge": charge,
+                    "mass": mass,
+                    "element": _element(fields[4]),
+                }
+            elif section in {"bonds", "constraints"} and len(fields) >= 2:
+                a, b = int(fields[0]), int(fields[1])
+                if a == b:
+                    continue
+                key = tuple(sorted((a, b)))
+                if key not in seen_bond_keys:
+                    seen_bond_keys.add(key)
+                    bonds.append({"a": key[0], "b": key[1], "order": 1,
+                                  "order_source": "itp"})
     if not atoms:
         raise ValueError("molecule.itp: expected a nonempty atoms section")
     return atoms, bonds

@@ -3,10 +3,12 @@ from dashboard.models.sugars.coords import coordinates
 from dashboard.models.sugars.topology import topology
 from dashboard.models.sugars.validation import derive_representation
 
+from tests.harness.support import automatic_mapping
+
 
 def test_physical_only_has_ring_constraints_without_virtual_sites():
     structure = mappings.molecule()
-    tc4 = mappings.automatic_candidate(structure, 'DDM')
+    tc4 = automatic_mapping(structure, 'DDM')
     physical = derive_representation(tc4, 'physical_only_ring_constrained')
 
     tc4_itp = topology(tc4, structure, representation_mode='tc4')
@@ -21,7 +23,7 @@ def test_physical_only_has_ring_constraints_without_virtual_sites():
 
 def test_physical_only_coordinates_keep_scaled_ring_cogs_without_tc4_atoms():
     structure = mappings.molecule()
-    tc4 = mappings.automatic_candidate(structure, 'DDM')
+    tc4 = automatic_mapping(structure, 'DDM')
     physical = derive_representation(tc4, 'physical_only_ring_constrained')
     positions = [atom['xyz'] for atom in structure['atoms']]
 
@@ -30,7 +32,7 @@ def test_physical_only_coordinates_keep_scaled_ring_cogs_without_tc4_atoms():
 
 def test_scaled_coordinates_ignore_redundant_component_links():
     structure = mappings.molecule()
-    candidate = mappings.automatic_candidate(structure, 'DDM')
+    candidate = automatic_mapping(structure, 'DDM')
     candidate['connections'].append(['TAIL1', 'TAIL3'])
     positions = [atom['xyz'] for atom in structure['atoms']]
 

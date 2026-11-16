@@ -10,11 +10,11 @@ from dashboard.models import mappings, sugars
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.molecules import draft as draft_model
 
-from tests.harness.support import fast_forward_source
+from tests.harness.support import automatic_mapping, fast_forward_source
 
 
 def test_ddm_canonical_ownership_and_coverage():
-    c=mappings.automatic_candidate(mappings.molecule(), 'DDM'); physical=[b for b in c['beads'] if not b.get('virtual_site')]
+    c=automatic_mapping(mappings.molecule(), 'DDM'); physical=[b for b in c['beads'] if not b.get('virtual_site')]
     assert len(physical)==9 and len(c['beads'])==11
     assert sorted(a for b in physical for a in b['atoms'])==list(range(1,36))
     assert c['rings'][0]['carbons']==[14,34,32,19,16,17]
@@ -27,12 +27,12 @@ def test_ddm_canonical_ownership_and_coverage():
 
 
 def test_mapping_is_invariant_to_atom_renumbering_and_coordinates():
-    s=mappings.molecule(); expected=mappings.automatic_candidate(s,'DDM')
+    s=mappings.molecule(); expected=automatic_mapping(s,'DDM')
     permutation={a['id']:1000-a['id'] for a in s['atoms']}
     changed=copy.deepcopy(s)
     for a in changed['atoms']: a['id']=permutation[a['id']]; a['xyz']=[-v for v in a['xyz']]
     changed['atoms'].reverse();changed['bonds']=[[permutation[a],permutation[b]] for a,b in s['bonds']]
-    actual=mappings.automatic_candidate(changed,'renumbered')
+    actual=automatic_mapping(changed,'renumbered')
     # Tail order may reverse; chemical groups must remain identical.
     groups=lambda c:{frozenset(b['atoms']) for b in c['beads'] if not b.get('virtual_site')}
     inverse={v:k for k,v in permutation.items()}
@@ -40,7 +40,7 @@ def test_mapping_is_invariant_to_atom_renumbering_and_coordinates():
 
 
 def test_scaled_geometry_preserves_links_and_virtual_cog():
-    s=mappings.molecule();c=mappings.automatic_candidate(mappings.molecule(), 'DDM');names={b['name']:i for i,b in enumerate(c['beads'])}
+    s=mappings.molecule();c=automatic_mapping(mappings.molecule(), 'DDM');names={b['name']:i for i,b in enumerate(c['beads'])}
     raw=sugars.coordinates(c,[a['xyz'] for a in s['atoms']]);scaled=sugars.coordinates(c,[a['xyz'] for a in s['atoms']],scaled=True)
     pairs=sugars.ring_pairs(c)
     for a,b in pairs:
@@ -54,7 +54,7 @@ def test_scaled_geometry_preserves_links_and_virtual_cog():
 def test_topology_is_parseable_and_has_rigid_rings_and_link_torsion():
     from vermouth.forcefield import ForceField
     from vermouth.gmx import read_itp
-    c=mappings.automatic_candidate(mappings.molecule(), 'DDM'); ff=ForceField('check');read_itp(draft_model.initial_topology(c).splitlines(),ff)
+    c=automatic_mapping(mappings.molecule(), 'DDM'); ff=ForceField('check');read_itp(draft_model.initial_topology(c).splitlines(),ff)
     b=ff.blocks['DDM']
     assert len(b.interactions['constraints'])==6
     assert len(b.interactions['virtual_sitesn'])==2
@@ -71,15 +71,15 @@ def test_topology_is_parseable_and_has_rigid_rings_and_link_torsion():
 
 def test_virtual_site_cannot_claim_atoms_or_use_missing_parent():
     import pytest
-    c=mappings.automatic_candidate(mappings.molecule(), 'DDM');c['beads'][3]['atoms']=[1]
+    c=automatic_mapping(mappings.molecule(), 'DDM');c['beads'][3]['atoms']=[1]
     with pytest.raises(ValueError,match='no exclusive'):mappings.validate(c)
-    c=mappings.automatic_candidate(mappings.molecule(), 'DDM');c['beads'][3]['virtual_site']['parents'][0]='missing'
+    c=automatic_mapping(mappings.molecule(), 'DDM');c['beads'][3]['virtual_site']['parents'][0]='missing'
     with pytest.raises(ValueError,match='parent'):mappings.validate(c)
 
 
 def test_save_export_retains_architecture(tmp_path,monkeypatch):
     monkeypatch.setattr(mapping_store, 'storage_root', lambda: tmp_path)
-    c=mappings.automatic_candidate(mappings.molecule(), 'DDM');saved=mappings.save_draft(c)
+    c=automatic_mapping(mappings.molecule(), 'DDM');saved=mappings.save_draft(c)
     for k in ('rings','connections','provenance'):assert saved[k]==c[k]
     out=mappings.export_files(saved);model=json.loads(out['model.json'])
     assert model['rings']==c['rings'] and int(out['mapped.gro'].splitlines()[1])==11
@@ -98,7 +98,7 @@ def test_free_glucose_matches_official_fragment_types():
     s=mappings.molecule()
     ids={20,21,22,23,24,25,26,27,28,29,30,31}
     isolated={'atoms':[a for a in s['atoms'] if a['id'] in ids], 'bonds':[[a,b] for a,b in s['bonds'] if a in ids and b in ids]}
-    c=mappings.automatic_candidate(isolated,'glucose')
+    c=automatic_mapping(isolated,'glucose')
     assert [b['type'] for b in c['beads']]==['SP4r','SP4r','SP1r','TC4']
     assert mappings.validate(c,isolated)['checks_passed']
 
@@ -178,7 +178,7 @@ def test_three_repeat_units_get_additional_orientation_torsion():
             if a in ids and b in ids and not(repeat and 20 in (a,b)):bonds.append([a+100*repeat,b+100*repeat])
     bonds += [[27,121],[127,221]]
     structure={'atoms':atoms,'bonds':bonds}
-    c=mappings.automatic_candidate(structure,'trisaccharide')
+    c=automatic_mapping(structure,'trisaccharide')
     assert len(c['rings'])==3 and mappings.validate(c,structure)['checks_passed']
     ff=ForceField('three');read_itp(sugars.topology(c,structure).splitlines(),ff)
     assert len(ff.blocks['DDM'].interactions['dihedrals'])==3

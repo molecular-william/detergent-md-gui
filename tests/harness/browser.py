@@ -21,6 +21,8 @@ import time
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect
 
+from tests.harness.support import automatic_mapping
+
 #: What the bead legend calls each Martini 3 polarity family, keyed by the family code in the DOM. The legend is a
 #: contract of its own -- a reader reads these words -- so the expected labels live here once rather than in each test.
 BEAD_FAMILY_LABELS = {
@@ -55,6 +57,75 @@ def open_run_section(page, base_url, jid, section, card='#run-view-analysis-A'):
     pane = root.locator(f'.analysis-pane[data-section="{section}"]')
     expect(pane).to_be_visible()
     return pane
+
+
+def seed_mapping_candidate(dashboard, molecule):
+    """A scoped candidate in the fixture's workspace, saved the way the panel saves one."""
+    from dashboard.models.mappings import context as mapping_context
+
+    context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
+    candidate = automatic_mapping(mapping_context.as_structure(context), molecule)
+    candidate['molecule_id'] = molecule
+    candidate['molecule_snapshot'] = context['snapshot']
+    response = dashboard.client.post('/api/mappings/drafts', json=candidate)
+    assert response.status_code == 201, response.get_json()
+    return context, response.get_json()
+
+
+#: The bead editor's 3D overlay -- the seam both mapping overlay files read.
+MAPPING_OVERLAY = '#mapping-editor-overlay3d'
+
+
+def open_mapping_editor(page, base_url, molecule, *, ready=True):
+    """Open the bead editor on `molecule`, selecting it the way a reader does.
+
+    `ready=True` waits for the editor's own busy attributes to clear and for the 3D overlay to hold the molecule and
+    its beads. `ready=False` is the bond overlay's wait instead: the same two components, but only once the drawn
+    structure carries the model's own bonds (`bondStore`), because that file reads them.
+    """
+    page.goto(f'{base_url}/detergent-validation/bead-assignment')
+    # The mapping tab carries aria-label="CG mappings", so its accessible name is not the text on the button. The
+    # id is the one handle that does not depend on how it is labelled.
+    page.locator('#tab-mappings').click()
+    page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 0", timeout=30000)
+    page.locator('#mapping-molecule').select_option(molecule)
+    if ready:
+        # The overlay still holds the previously selected molecule until the load answers: wait for the editor's own
+        # busy state rather than for a stage the old molecule is already drawing.
+        expect(page.locator('.molecule-mapping-workspace')).to_have_attribute('aria-busy', 'false')
+        expect(page.locator(MAPPING_OVERLAY)).to_have_attribute('aria-busy', 'false')
+        check = (f"() => document.querySelector('{MAPPING_OVERLAY}')?.overlayStage"
+                 f" && document.querySelector('{MAPPING_OVERLAY}').overlayStage.compList.length >= 2")
+    else:
+        check = (f"() => document.querySelector('{MAPPING_OVERLAY}')?.overlayStage"
+                 f" && document.querySelector('{MAPPING_OVERLAY}').overlayStage.compList.length >= 2"
+                 f" && document.querySelector('{MAPPING_OVERLAY}').overlayStage.compList[0]?.structure?.bondStore")
+    page.wait_for_function(check, timeout=60000)
+
+
+def choose_fit_target(page, file, molecule=None):
+    """Point the merged fit card at one mapping: its own molecule select, then its own mapping select."""
+    page.wait_for_function(
+        "() => document.querySelectorAll('#bonded-fit-molecule option').length > 0", timeout=30000)
+    if molecule:
+        page.locator('#bonded-fit-molecule').select_option(molecule)
+    page.wait_for_function(
+        """(file) => Array.from(document.querySelectorAll('#bonded-fit-mapping option'))
+          .some(option => option.value === file)""", arg=file, timeout=30000)
+    if page.locator('#bonded-fit-mapping').input_value() != file:
+        page.locator('#bonded-fit-mapping').select_option(file)
+
+
+def seed_pdc_run(dashboard, job_id, *, created):
+    """A completed pdc run with one production stage, so the monitor has a run to open."""
+    prod = dashboard.coordinator.RUNS / job_id / 'stages/06_assessment/prod'
+    prod.mkdir(parents=True)
+    (prod / 'run.xtc').write_bytes(b'raw')
+    (prod / 'run.tpr').write_bytes(b'tpr')
+    (prod / 'run.gro').write_text('gro')
+    dashboard.coordinator.database().insert({'id': job_id, 'run_type': 'pdc', 'status': 'completed',
+                                             'stage': 'complete', 'molecule_id': 'DDM', 'label': 'A pdc run',
+                                             'created': created})
 
 
 def open_compositions(page, base_url):

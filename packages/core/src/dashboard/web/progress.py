@@ -141,9 +141,3 @@ def progress_from_file(stage_name, stage_dir, path):
     except OSError:
         return {}
     return reading(stage_name, stage_dir, legs, grompp)
-
-
-def progress_from_log(stage_name, stage_dir, text):
-    """Progress for a log already in hand, as one string."""
-    legs, grompp = scan(text.splitlines())
-    return reading(stage_name, stage_dir, legs, grompp)

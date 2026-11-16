@@ -8,6 +8,8 @@ molecule's PDB, and that file's serials *are* the mapping's atom ids, so labelli
 import pytest
 from playwright.sync_api import expect
 
+from tests.harness.support import automatic_mapping
+
 MOLECULE = 'Maltose'
 OVERLAY = '#mapping-editor-overlay3d'
 
@@ -26,11 +28,10 @@ REPRESENTATIONS = """(el) => {
 
 def seed_candidate(dashboard, molecule=MOLECULE):
     """A saved candidate for `molecule`, through the panel's own routes."""
-    from dashboard.models import mappings
     from dashboard.models.mappings import context as mapping_context
 
     context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
+    candidate = automatic_mapping(mapping_context.as_structure(context), molecule)
     candidate['molecule_id'] = molecule
     candidate['molecule_snapshot'] = context['snapshot']
     response = dashboard.client.post('/api/mappings/drafts', json=candidate)

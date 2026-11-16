@@ -15,7 +15,7 @@ from dashboard.models.mappings import schema
 from dashboard.models.sugars import validation
 from detergent_pdc.models.molecules import detergent_cg
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, automatic_mapping
 
 MOLECULE_ROOT = PROJECT_ROOT / 'molecules'
 
@@ -80,7 +80,7 @@ def test_the_validation_representation_accepts_the_stated_scale():
 
 def test_the_recogniser_still_writes_the_paper_scale():
     """Nothing about the default moves: a candidate the recogniser builds is still a 1.15 candidate."""
-    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    candidate = automatic_mapping(mappings.molecule(), 'DDM')
 
     assert candidate['rings'], 'this molecule has rings to check'
     assert {ring['scale'] for ring in candidate['rings']} == {1.15}

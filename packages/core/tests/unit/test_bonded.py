@@ -7,6 +7,8 @@ from dashboard.models import bonded, mappings
 from dashboard.models.mappings import store as mapping_store
 from dashboard.models.molecules import draft as draft_model
 
+from tests.harness.support import automatic_mapping
+
 
 def test_circular_fit_handles_seam_and_gromacs_harmonic_minimum():
     phase, k = bonded.circular_harmonic([178, 179, -179, -178], 300)
@@ -21,7 +23,7 @@ def test_circular_fit_handles_seam_and_gromacs_harmonic_minimum():
 
 def test_options_export_and_saved_draft_survive(monkeypatch, tmp_path):
     monkeypatch.setattr(mapping_store, 'storage_root', lambda: tmp_path)
-    c = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    c = automatic_mapping(mappings.molecule(), 'DDM')
     c['bonded_options'] = {'torsion_model': 'circular-harmonic', 'torsion_scale': 0.5}
     c['bonded_overrides'] = [{'section': 'bonds', 'beads': ['S1B', 'S2A'], 'function': 1, 'parameters': [0.33, 1900]}]
     saved = mappings.save_draft(c)
@@ -31,7 +33,7 @@ def test_options_export_and_saved_draft_survive(monkeypatch, tmp_path):
 
 
 def test_manual_parameters_survive_fitting_and_protect_constraints(tmp_path):
-    c = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    c = automatic_mapping(mappings.molecule(), 'DDM')
     seed = draft_model.initial_topology(c)
     c['bonded_options'] = {'torsion_model': 'circular-harmonic', 'torsion_scale': 1}
     c['bonded_overrides'] = [{'section': 'bonds', 'beads': ['S1B','S2A'], 'function': 1, 'parameters': [.33, 1900]}]
@@ -48,12 +50,12 @@ def test_manual_parameters_survive_fitting_and_protect_constraints(tmp_path):
 
 @pytest.mark.parametrize('options', [{'torsion_scale': float('nan')}, {'torsion_model':'unknown'}, {'distance_weight':2}])
 def test_invalid_fitting_options_rejected(options):
-    c = mappings.automatic_candidate(mappings.molecule(), 'DDM'); c['bonded_options'] = options
+    c = automatic_mapping(mappings.molecule(), 'DDM'); c['bonded_options'] = options
     with pytest.raises(ValueError): mappings.check_schema(c)
 
 
 def test_manual_connectivity_must_stay_connected():
-    c = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    c = automatic_mapping(mappings.molecule(), 'DDM')
     c['connections'].append(['S1C','TAIL3'])
     assert mappings.validate(c)['checks_passed']
     c['connections'] = [p for p in c['connections'] if 'TAIL1' not in p]

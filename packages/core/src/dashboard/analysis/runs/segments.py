@@ -24,10 +24,9 @@ are segments and opens none of them.
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
-from . import layout
+from . import layout, readers
 
 #: `{run type: (root) -> [segment dicts]}` and the directories that mark a run of that type on disk, registered by a
 #: feature. The engine answers a single-molecule run itself.
@@ -99,18 +98,7 @@ def relative(root: Path, path: Path) -> str:
 
 def _manifest(root: Path) -> dict:
     """The run's manifest, from the directory a reader was handed or from the run above its `stages/`."""
-    root = Path(root)
-    candidates = [root / 'manifest.json']
-    if root.name == layout.STAGES:
-        candidates.append(root.parent / 'manifest.json')
-    for path in candidates:
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, dict):
-            return data
-    return {}
+    return readers.run_manifest(root)
 
 
 def skipped_stages(root: Path) -> dict:

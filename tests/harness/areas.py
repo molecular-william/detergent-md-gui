@@ -23,6 +23,8 @@ AREAS = {
         'unit/test_cg2at_fragment.py',
         # The micelle builder is pdc's placement science; a change there is a change to a protein build.
         'unit/test_micelle_*', 'unit/test_conformations_*',
+        # pdc-structure's readers are the shared analysis readers it now imports.
+        'unit/test_structure_readers.py',
     ),
     'mapping': (
         'unit/test_mapping_*', 'unit/test_draft_*', 'unit/test_ring_scale.py',
@@ -69,6 +71,8 @@ AREAS = {
     'molecules': (
         'unit/test_detergent_*', 'unit/test_composition_*', 'unit/test_properties_*', 'unit/test_identity.py',
         'unit/test_reference_identity.py', 'unit/test_molecules_vsites.py',
+        # The molecule/topology text readers the mapping, AA and analysis paths share.
+        'unit/test_gro_readers.py', 'unit/test_topology_readers.py',
         'integration/test_detergent_list.py', 'integration/test_compositions_api.py',
         'integration/test_molecule_discovery.py', 'browser/test_composition_*',
     ),

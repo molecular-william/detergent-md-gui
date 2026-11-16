@@ -20,14 +20,13 @@ drew, and a sentence saying what was measured and on how many sampled frames.
 import math
 import re
 import subprocess
-from array import array
 from pathlib import Path
 
 import numpy as np
 
 from ... import features, files
 from ...execution import tools
-from . import frame_series, segments, structures
+from . import frame_series, readers, segments, structures
 from .statistics import series_summary
 
 try:
@@ -36,9 +35,8 @@ try:
 except ImportError:  # a trajectory overview needs a reader and a distance matrix; `run` refuses in its own words
     mda = cdist = None
 
-#: The most frames one overview reads. A 900 ns CG leg writes 45,000 frames; sampling 200 of them keeps the pass
-#: short while still showing the shape of the series.
-MAX_FRAMES = 200
+#: The most frames one overview reads: the shared sampling bound (`readers.MAX_FRAMES`).
+MAX_FRAMES = readers.MAX_FRAMES
 #: The `gmx energy` terms the figure draws, in the order the XVG columns appear.
 ENERGY_TERMS = ('Temperature', 'Pressure', 'Potential')
 #: The energy terms whose statistics belong with the thermodynamics, whatever else the EDR holds.
@@ -180,14 +178,14 @@ def sources(run_dir, payload=None):
 
 def _chosen(work):
     """The staged trajectory this overview reads: the largest `.xtc`, with its sibling structure."""
-    trajectory = max((path for path in Path(work).rglob('*.xtc') if path.is_file()),
-                     key=lambda path: (path.stat().st_size, str(path)))
-    directory = trajectory.parent
-    structures_found = sorted(path for path in directory.glob('*.gro') if path.is_file())
-    if not structures_found:
-        raise ValueError(f'the run stages no structure beside {trajectory.name}, so its atoms cannot be read')
-    preferred = [path for path in structures_found if path.name in ('run.gro', 'system.gro')]
-    return trajectory, (preferred or structures_found)[0]
+    try:
+        return readers.chosen_trajectory(work)
+    except readers.MissingTrajectory:
+        # The error the inline `max()` this replaced raised for a work tree with no trajectory.
+        raise ValueError('max() iterable argument is empty') from None
+    except readers.MissingStructure as error:
+        raise ValueError(f'the run stages no structure beside {error.trajectory.name}, so its atoms cannot be '
+                         'read') from None
 
 
 def _protein(universe, work):
@@ -226,7 +224,7 @@ def _molecules(universe, protein):
 
 def _minimum_image(delta, box):
     """Fold a displacement into the periodic cell: the shortest vector between two equivalent positions."""
-    return delta - np.round(delta / box) * box
+    return readers.minimum_image(delta, box)
 
 
 def _aggregates(molecule_sizes, positions, threshold, box):
@@ -348,40 +346,8 @@ def _kabsch_fit(mobile, reference):
 
 
 def _xvg_columns(path):
-    """One XVG file's time column, data columns and the legend each column carries.
-
-    `gmx energy` writes its columns in the energy file's own term order, not in the order they were selected -- a
-    request for Temperature, Pressure, Potential came back as Potential, Temperature, Pressure -- so a reader that
-    trusted the request order would label every curve with the term next to it.
-
-    The file is read line by line and each data column accumulates into an `array('d')`: an all-term EDR is a few
-    hundred thousand rows by up to 45 columns, and a list of Python floats would cost several hundred megabytes for
-    a record that keeps only summaries. The returned lists are per-column, in the XVG's own order.
-    """
-    labels, times, columns = [], array('d'), []
-    with Path(path).open() as handle:
-        for raw in handle:
-            line = raw.strip()
-            if line.startswith('@ s') and 'legend' in line:
-                labels.append(line.split('legend', 1)[1].strip().strip('"'))
-                continue
-            if not line or line.startswith(('#', '@')):
-                continue
-            try:
-                values = [float(value) for value in line.split()]
-            except ValueError:
-                continue
-            if len(values) < 2:
-                continue
-            if not columns:
-                columns = [array('d') for _ in range(len(values) - 1)]
-            times.append(values[0])
-            for index, column in enumerate(columns):
-                column.append(values[index + 1])
-    # A hand-written XVG may carry data without legends; name those columns positionally rather than dropping them.
-    while len(labels) < len(columns):
-        labels.append(f'column{len(labels) + 2}')
-    return labels, times, columns
+    """One XVG file's column labels, time column and data columns, through the shared reader."""
+    return readers.xvg_columns(path)
 
 
 def _energy_menu(text):
@@ -704,7 +670,7 @@ def run(work, payload=None):
     frames = len(universe.trajectory)
     if frames < 1:
         raise ValueError(f'{trajectory.name} holds no frames')
-    stride = max(1, math.ceil(frames / MAX_FRAMES))
+    stride = readers.frame_stride(frames)
     indices = list(range(0, frames, stride))
 
     universe.trajectory[indices[0]]

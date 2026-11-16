@@ -1,5 +1,7 @@
 from dashboard.models import mappings
 
+from tests.harness.support import automatic_mapping
+
 
 def test_mapping_context_lists_valid_molecule_and_scene(dashboard):
     client = dashboard.client
@@ -56,7 +58,7 @@ def test_validation_queue_rejects_unknown_representation(dashboard):
     client = dashboard.client
     owner = dashboard.coordinator
     owner.database().insert({'id': '123456abcdef', 'status': 'completed', 'molecule_id': 'Maltose', 'detergent': 'Maltose'})
-    mapping = mappings.automatic_candidate(mappings.molecule(), 'Maltose')
+    mapping = automatic_mapping(mappings.molecule(), 'Maltose')
     response = client.post('/api/jobs/123456abcdef/carbohydrate-validation', json={
         'molecule_id': 'Maltose', 'mapping_snapshot': mapping,
         'representation_mode': 'unknown', 'tier': 'setup', 'target_dataset_id': 'maltose-pilot-v1'})
@@ -71,7 +73,7 @@ def test_an_in_place_save_overwrites_its_candidate(dashboard):
     """
     client = dashboard.client
     from dashboard.models import mappings
-    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    candidate = automatic_mapping(mappings.molecule(), 'DDM')
     candidate['name'] = 'In-place'
     first = client.post('/api/mappings/drafts', json=candidate).json
 

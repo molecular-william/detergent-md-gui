@@ -29,6 +29,7 @@ from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
 from tests.harness import browser
+from tests.harness.support import automatic_mapping
 
 AA_RUN = 'aa00aa000001'
 OTHER_AA_RUN = 'aa00aa000002'
@@ -173,7 +174,7 @@ def save(dashboard, name='E3 maltose mapping', molecule='DDM'):
     panel now reads filters on both.
     """
     context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
+    candidate = automatic_mapping(mapping_context.as_structure(context), molecule)
     candidate['molecule_snapshot'] = context['snapshot']
     candidate.update(name=name, molecule_id=molecule)
     saved = mappings.save_draft(candidate)
@@ -264,19 +265,6 @@ def choose_revision(page, file, revision):
     pane(page, 'A').locator('#bonded-parameterization-display').select_option(f'revision:{file}:{revision}')
 
 
-def choose_fit_target(page, file, molecule=None):
-    """Point the merged fit card at one mapping: its own molecule select, then its own mapping select."""
-    page.wait_for_function(
-        "() => document.querySelectorAll('#bonded-fit-molecule option').length > 0", timeout=30000)
-    if molecule:
-        page.locator('#bonded-fit-molecule').select_option(molecule)
-    page.wait_for_function(
-        """(file) => Array.from(document.querySelectorAll('#bonded-fit-mapping option'))
-          .some(option => option.value === file)""", arg=file, timeout=30000)
-    if page.locator('#bonded-fit-mapping').input_value() != file:
-        page.locator('#bonded-fit-mapping').select_option(file)
-
-
 def open_panel(page, live_page, file):
     """The CG Bond Interactions panel, on the mapping the test means.
 
@@ -295,7 +283,7 @@ def open_panel(page, live_page, file):
         choose_mapping(page, file, detail['molecule_id'])
         # The fit card is one card for the panel: point it at the same mapping so the result/job tests read the
         # record they mean.
-        choose_fit_target(page, file, detail.get('molecule_id'))
+        browser.choose_fit_target(page, file, detail.get('molecule_id'))
         # The selector shows the new model while its record is still in flight, so the value alone does not say the
         # pane has loaded it: the pane's own busy state does, and it covers the whole switch.
         expect(pane(page, 'A')).to_have_attribute('aria-busy', 'false')
@@ -661,7 +649,7 @@ def test_a_superseded_job_never_repaints_the_screen(dashboard, live_page):
     expect(page.locator('#bonded-job-status')).to_have_text('running')
 
     # The job belongs to the fit card's target, so the fit target is what the reader moves; the panes are unaffected.
-    choose_fit_target(page, second['file'], second['molecule_id'])
+    browser.choose_fit_target(page, second['file'], second['molecule_id'])
     # The second mapping has a revision and no job, so its own card is the thing that says the switch landed.
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     expect(page.locator('#bonded-job')).to_be_hidden()
@@ -850,7 +838,7 @@ def test_a_fit_answer_that_arrives_after_the_reader_moved_on_does_not_paint_the_
     expect(page.locator('#bonded-fit')).to_be_disabled()
 
     # The reader moves on while the queue answer is still outstanding: the fit card's target is what a job belongs to.
-    choose_fit_target(page, second['file'], second['molecule_id'])
+    browser.choose_fit_target(page, second['file'], second['molecule_id'])
     expect(page.locator('#bonded-result-title')).to_have_text('Revision 1 · current')
     page.wait_for_timeout(1500)
 

@@ -5,9 +5,11 @@ import re
 from dashboard.models import mappings
 from playwright.sync_api import expect
 
+from tests.harness.support import automatic_mapping
+
 
 def test_tab_switch_preserves_form_and_mapping_edits(dashboard, live_page):
-    candidate = mappings.save_draft(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    candidate = mappings.save_draft(automatic_mapping(mappings.molecule(), 'DDM'))
     job = {'id': '123456abcdef', 'detergent': 'DDM', 'method': 'fast_forward', 'status': 'failed', 'stage': 'AA reference', 'created': dashboard.coordinator.now(), 'error': 'Missing mapping'}
     dashboard.coordinator.database().replace([job])
     page, errors = live_page
@@ -85,7 +87,7 @@ def test_delete_mapping_removes_the_saved_candidate(dashboard, live_page):
     page.route('**/api/mappings/automatic/preview',
                lambda route: route.fulfill(status=200, content_type='application/json',
                                            body=json.dumps({'available': True,
-                                                            'candidate': mappings.automatic_candidate(
+                                                            'candidate': automatic_mapping(
                                                                 mappings.molecule(), 'DDM')})))
 
     select = page.locator('#mapping-candidate-filter')
@@ -137,7 +139,7 @@ def test_a_saved_mapping_offers_no_second_copy_of_itself(live_page):
     page.route('**/api/mappings/automatic/preview',
                lambda route: route.fulfill(status=200, content_type='application/json',
                                            body=json.dumps({'available': True,
-                                                            'candidate': mappings.automatic_candidate(
+                                                            'candidate': automatic_mapping(
                                                                 mappings.molecule(), 'DDM')})))
     select = page.locator('#mapping-candidate-filter')
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
@@ -182,7 +184,7 @@ def test_deleting_a_mapping_states_the_rule_it_actually_implements(live_page):
     page.route('**/api/mappings/automatic/preview',
                lambda route: route.fulfill(status=200, content_type='application/json',
                                            body=json.dumps({'available': True,
-                                                            'candidate': mappings.automatic_candidate(
+                                                            'candidate': automatic_mapping(
                                                                 mappings.molecule(), 'DDM')})))
     expect(page.locator('#mapping-editor-status')).to_contain_text('loaded')
     page.locator('#generate-automatic').click()
@@ -264,7 +266,7 @@ def test_mapping_editor_clear_all_removes_local_assignments(live_page):
     # the candidate is the same one the recogniser would return, computed in Python through the same code path the
     # server uses, so the editor receives what it would have received without the wait. What the test is about is
     # that *Clear all* empties the editor, not that the recogniser is fast.
-    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    candidate = automatic_mapping(mappings.molecule(), 'DDM')
     page.route('**/api/mappings/automatic/preview',
                lambda route: route.fulfill(status=200, content_type='application/json',
                                            body=json.dumps({'available': True, 'candidate': candidate})))

@@ -4,9 +4,11 @@ import pytest
 from dashboard.models import mappings
 from dashboard.models.sugars.validation import derive_representation, validate_representation
 
+from tests.harness.support import automatic_mapping
+
 
 def test_physical_only_removes_tc4_but_preserves_physical_ring_data():
-    source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    source = automatic_mapping(mappings.molecule(), 'DDM')
     physical = derive_representation(source, 'physical_only_ring_constrained')
 
     assert all(not bead.get('virtual_site') for bead in physical['beads'])
@@ -17,7 +19,7 @@ def test_physical_only_removes_tc4_but_preserves_physical_ring_data():
 
 
 def test_tc4_derivation_is_identity_copy():
-    source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    source = automatic_mapping(mappings.molecule(), 'DDM')
     result = derive_representation(source, 'tc4')
 
     assert result == source
@@ -32,7 +34,7 @@ def test_physical_only_rejects_mapping_without_ring_definitions():
 
 
 def test_physical_only_schema_accepts_ring_without_virtual_site():
-    source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    source = automatic_mapping(mappings.molecule(), 'DDM')
     source['beads'] = [bead for bead in source['beads'] if not bead.get('virtual_site')]
     for ring in source['rings']:
         ring.pop('virtual_site', None)
@@ -41,7 +43,7 @@ def test_physical_only_schema_accepts_ring_without_virtual_site():
 
 
 def test_physical_only_mapping_passes_structural_validation():
-    source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    source = automatic_mapping(mappings.molecule(), 'DDM')
     physical = derive_representation(source, 'physical_only_ring_constrained')
     result = mappings.validate(physical)
     assert result['virtual_sites'] == 0
@@ -49,6 +51,6 @@ def test_physical_only_mapping_passes_structural_validation():
 
 
 def test_legacy_candidate_identity_does_not_change():
-    source = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    source = automatic_mapping(mappings.molecule(), 'DDM')
     clone = copy.deepcopy(source)
     assert mappings.candidate_identity(source) == mappings.candidate_identity(clone)

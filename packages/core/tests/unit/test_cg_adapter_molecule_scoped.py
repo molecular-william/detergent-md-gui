@@ -11,7 +11,7 @@ from dashboard.models import mappings
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.molecules import draft as draft_model
 
-from tests.harness.support import PACKAGE, PROJECT_ROOT
+from tests.harness.support import PACKAGE, PROJECT_ROOT, automatic_mapping
 
 
 def test_long_molecule_id_uses_short_source_residue_name_for_gro():
@@ -160,7 +160,7 @@ def test_the_cg_equilibration_integrates_more_finely_than_its_production():
 
 def test_maltose_mapping_validation_uses_its_bound_molecule():
     context = build_context(PROJECT_ROOT / 'molecules', 'Maltose')
-    mapping = mappings.automatic_candidate(as_structure(context), 'Maltose')
+    mapping = automatic_mapping(as_structure(context), 'Maltose')
     mapping.update(schema_version=3, molecule_id='Maltose',
                   molecule_snapshot=copy.deepcopy(context['snapshot']))
 
@@ -191,7 +191,7 @@ def test_maltose_mapping_validation_uses_its_bound_molecule():
 
 def test_maltose_mapping_without_virtual_sites_allows_advisory_size_warnings():
     context = build_context(PROJECT_ROOT / 'molecules', 'Maltose')
-    mapping = mappings.automatic_candidate(as_structure(context), 'Maltose')
+    mapping = automatic_mapping(as_structure(context), 'Maltose')
     mapping['beads'] = [bead for bead in mapping['beads'] if not bead.get('virtual_site')]
     mapping['rings'] = []
     physical = {bead['name'] for bead in mapping['beads']}

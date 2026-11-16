@@ -6,6 +6,8 @@ the ordering could make the two answers disagree about the same molecule.
 """
 from dashboard.models.mappings import schema, suggestions
 
+from tests.harness.support import automatic_mapping
+
 
 def chain(count, bonds):
     return {'atoms': [{'id': index, 'heavy': True, 'name': f'C{index}', 'xyz': [float(index), 0.0, 0.0]}
@@ -29,7 +31,7 @@ def test_only_heavy_atoms_join_a_fragment():
 def test_the_automatic_candidate_groups_through_the_same_function(monkeypatch):
     monkeypatch.setattr(schema, 'fragment_groups', lambda structure: [[9]])
     structure = {'atoms': [{'id': 9, 'heavy': True, 'name': 'C9', 'xyz': [0.0, 0.0, 0.0]}], 'bonds': []}
-    candidate = schema.automatic_candidate(structure, 'NoVerifiedTemplate')
+    candidate = automatic_mapping(structure, 'NoVerifiedTemplate')
     assert candidate['beads'][0]['atoms'] == [9]
 
 

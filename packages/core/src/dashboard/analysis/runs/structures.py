@@ -31,6 +31,7 @@ one class can be a polar sugar head and an apolar tail. Both are read from the s
 column, and `ngl-beads.js` holds the viewer's end of the same two tables.
 """
 import json
+import math
 import re
 from pathlib import Path
 
@@ -66,26 +67,51 @@ def read_gro(path):
     A parser rather than a dependency: the viewer route should not import a trajectory library to draw a system, and
     the format is fixed-width and trivial to read.
     """
-    lines = Path(path).read_text().splitlines()
+    return read_gro_text(Path(path).read_text(), source=str(path))
+
+
+def read_gro_text(text, *, source='<text>', check_numbering=False, finite_box=False):
+    """`read_gro` over text already read, with the two optional checks its other callers need.
+
+    `check_numbering` refuses a position that is nonfinite or an atom serial that does not match its row.
+    `finite_box` requires the single-frame atom count and a three- or nine-value finite box, and skips the
+    truncated-line and residue-number checks -- the historical `molecules/aa._gro` reading, which never made them.
+    `source` names the file in a message; with these flags the message is the one that reading produced.
+    """
+    lines = text.splitlines()
     if len(lines) < 2:
-        raise ValueError(f'{path} is not a .gro file')
+        raise ValueError(f'{source} is not a .gro file')
     try:
         count = int(lines[1].strip())
     except ValueError as exc:
-        raise ValueError(f'{path} does not state an atom count on its second line') from exc
+        if finite_box:
+            raise
+        raise ValueError(f'{source} does not state an atom count on its second line') from exc
+    if finite_box:
+        if count < 1 or len(lines) != count + 3:
+            raise ValueError(f'{source}: invalid atom count or missing box')
+        box = [float(value) for value in lines[-1].split()]
+        if len(box) not in (3, 9) or not all(math.isfinite(value) for value in box):
+            raise ValueError(f'{source}: invalid box')
     atoms = []
     body = lines[2:2 + count]
     if len(body) != count:
-        raise ValueError(f'{path} declares {count} atoms and holds {len(body)}')
-    for line in body:
-        if len(line) < 44:
-            raise ValueError(f'{path} has a truncated atom line: {line!r}')
+        raise ValueError(f'{source} declares {count} atoms and holds {len(body)}')
+    for index, line in enumerate(body, 1):
+        if len(line) < 44 and not finite_box:
+            raise ValueError(f'{source} has a truncated atom line: {line!r}')
         try:
             residue_id = int(line[0:5])
         except ValueError as exc:
-            raise ValueError(f'{path} has an unreadable residue number: {line!r}') from exc
+            if not finite_box:
+                raise ValueError(f'{source} has an unreadable residue number: {line!r}') from exc
+            residue_id = None
+        position = [float(line[20:28]), float(line[28:36]), float(line[36:44])]
+        if check_numbering and (not all(math.isfinite(value) for value in position)
+                                or int(line[15:20]) != index):
+            raise ValueError(f'{source}: invalid coordinates or atom numbering')
         atoms.append({'residue_id': residue_id, 'residue': line[5:10].strip(), 'name': line[10:15].strip(),
-                      'position': [float(line[20:28]), float(line[28:36]), float(line[36:44])]})
+                      'position': position})
     return atoms
 
 

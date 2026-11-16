@@ -47,6 +47,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from ... import itp
+
 __all__ = ['VsiteError', 'derive_from_itp', 'derive_from_rtp']
 
 _ELEMENTS = {1: 'H', 6: 'C', 7: 'N', 8: 'O', 15: 'P', 16: 'S'}
@@ -245,8 +247,24 @@ def _atomtype(path: Path, lineno: int, fields: list[str]) -> _AtomType:
     return _AtomType(name, atnum, mass)
 
 
+def _itp_headers(path: Path, text: str) -> list[tuple[int, str]]:
+    """The section headers in file order, refusing a header with no closing bracket."""
+    headers = []
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        clean = _clean(raw)
+        if not clean.startswith('['):
+            continue
+        end = clean.find(']')
+        if end < 0:
+            raise VsiteError(f'{path}:{lineno}: unterminated section header {clean!r}')
+        inside = clean[1:end].split()
+        headers.append((lineno, inside[0].lower() if inside else ''))
+    return headers
+
+
 def _parse_itp(path: Path, text: str, sha256: str) -> tuple[_Molecule, list[dict]]:
     _reject_directives(path, text)
+    headers = _itp_headers(path, text)
     diagnostics: list[dict] = []
     atomtypes: dict[str, _AtomType] = {}
     atoms: dict[int, _Atom] = {}
@@ -254,50 +272,41 @@ def _parse_itp(path: Path, text: str, sha256: str) -> tuple[_Molecule, list[dict
     angles: list[_Angle] = []
     moleculetype: str | None = None
     moleculetype_headers = 0
-    section = ''
 
-    for lineno, raw in enumerate(text.splitlines(), 1):
-        clean = _clean(raw)
-        if not clean:
-            continue
-        if clean.startswith('['):
-            end = clean.find(']')
-            if end < 0:
-                raise VsiteError(f'{path}:{lineno}: unterminated section header {clean!r}')
-            section = clean[1:end].strip().lower()
+    for header, (section, lines) in enumerate(itp.sections(text)):
+        header_lineno, header_section = headers[header]
+        if header_section == 'moleculetype':
+            moleculetype_headers += 1
+            if moleculetype_headers > 1:
+                raise VsiteError(f'{path}:{header_lineno}: exactly one [ moleculetype ] is supported')
+        for lineno, clean in lines:
+            fields = clean.split()
             if section == 'moleculetype':
-                moleculetype_headers += 1
-                if moleculetype_headers > 1:
-                    raise VsiteError(f'{path}:{lineno}: exactly one [ moleculetype ] is supported')
-            continue
-
-        fields = clean.split()
-        if section == 'moleculetype':
-            if moleculetype is not None:
-                raise VsiteError(f'{path}:{lineno}: [ moleculetype ] must contain one line')
-            if len(fields) < 2:
-                raise VsiteError(f'{path}:{lineno}: [ moleculetype ] needs a name and nrexcl')
-            moleculetype = fields[0]
-        elif section == 'atomtypes':
-            atomtype = _atomtype(path, lineno, fields)
-            if atomtype.name in atomtypes:
-                raise VsiteError(f'{path}:{lineno}: duplicate [ atomtypes ] entry {atomtype.name!r}')
-            atomtypes[atomtype.name] = atomtype
-        elif section == 'atoms':
-            if len(fields) < 7:
-                raise VsiteError(
-                    f'{path}:{lineno}: [ atoms ] line needs at least 7 fields '
-                    '(nr type resnr resid atom cgnr charge [mass])')
-            index = _integer(fields[0], f'{path}:{lineno}: atom number')
-            if index < 1:
-                raise VsiteError(f'{path}:{lineno}: atom numbers are 1-based ({index})')
-            if index in atoms:
-                raise VsiteError(f'{path}:{lineno}: duplicate atom number {index}')
-            atoms[index] = _Atom(index, fields[1], fields[4])
-        elif section == 'bonds':
-            _append_bond(path, lineno, fields, bonds, diagnostics, _integer)
-        elif section == 'angles':
-            _append_angle(path, lineno, fields, angles, diagnostics, _integer)
+                if moleculetype is not None:
+                    raise VsiteError(f'{path}:{lineno}: [ moleculetype ] must contain one line')
+                if len(fields) < 2:
+                    raise VsiteError(f'{path}:{lineno}: [ moleculetype ] needs a name and nrexcl')
+                moleculetype = fields[0]
+            elif section == 'atomtypes':
+                atomtype = _atomtype(path, lineno, fields)
+                if atomtype.name in atomtypes:
+                    raise VsiteError(f'{path}:{lineno}: duplicate [ atomtypes ] entry {atomtype.name!r}')
+                atomtypes[atomtype.name] = atomtype
+            elif section == 'atoms':
+                if len(fields) < 7:
+                    raise VsiteError(
+                        f'{path}:{lineno}: [ atoms ] line needs at least 7 fields '
+                        '(nr type resnr resid atom cgnr charge [mass])')
+                index = _integer(fields[0], f'{path}:{lineno}: atom number')
+                if index < 1:
+                    raise VsiteError(f'{path}:{lineno}: atom numbers are 1-based ({index})')
+                if index in atoms:
+                    raise VsiteError(f'{path}:{lineno}: duplicate atom number {index}')
+                atoms[index] = _Atom(index, fields[1], fields[4])
+            elif section == 'bonds':
+                _append_bond(path, lineno, fields, bonds, diagnostics, _integer)
+            elif section == 'angles':
+                _append_angle(path, lineno, fields, angles, diagnostics, _integer)
 
     if moleculetype_headers == 0:
         raise VsiteError(f'{path}: no [ moleculetype ] section')

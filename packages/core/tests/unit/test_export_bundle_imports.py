@@ -11,10 +11,12 @@ import sys
 from dashboard.models import mappings
 from dashboard.models.mappings import exports as mapping_exports
 
+from tests.harness.support import automatic_mapping
+
 
 def bundle_files(tmp_path):
     """A ring mapping's export, written out the way a download lands it."""
-    files = mapping_exports.export_files(mappings.automatic_candidate(mappings.molecule(), 'DDM'))
+    files = mapping_exports.export_files(automatic_mapping(mappings.molecule(), 'DDM'))
     for name, content in files.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)

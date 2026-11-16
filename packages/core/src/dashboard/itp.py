@@ -89,3 +89,17 @@ def sections(text, defines=None):
     branch, with `active_lines`.
     """
     yield from _sections(active_lines(text, defines) if defines is not None else _content_lines(text))
+
+
+def rows(text, section, defines=None):
+    """The content rows of one section as `(line_number, fields)`, in file order; empty when absent.
+
+    A repeated section contributes every occurrence, in order. The fields are the line split on whitespace,
+    so a caller reads the row's columns without restating the comment and header rules.
+    """
+    wanted = str(section).strip().lower()
+    found = []
+    for name, lines in sections(text, defines):
+        if name == wanted:
+            found.extend((number, line.split()) for number, line in lines)
+    return found

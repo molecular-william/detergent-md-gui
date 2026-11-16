@@ -74,20 +74,12 @@ def pdb_gro(text):
 
 
 def _gro(text):
-    lines = text.splitlines()
-    count = int(lines[1])
-    if count < 1 or len(lines) != count + 3:
-        raise ValueError('molecule.gro: invalid atom count or missing box')
-    box = [float(x) for x in lines[-1].split()]
-    if len(box) not in (3, 9) or not all(math.isfinite(x) for x in box):
-        raise ValueError('molecule.gro: invalid box')
-    atoms = []
-    for i, line in enumerate(lines[2:-1], 1):
-        xyz = [float(line[a:b]) for a,b in ((20,28),(28,36),(36,44))]
-        if not all(math.isfinite(v) for v in xyz) or int(line[15:20]) != i:
-            raise ValueError('molecule.gro: invalid coordinates or atom numbering')
-        atoms.append((line[5:10].strip(), line[10:15].strip(), xyz))
-    return atoms
+    """The .gro atoms as `(residue, name, position)`, with this reader's count, box and numbering checks."""
+    # Deferred: a run-local copy may lack the package this module belongs to, and the module import must not fail.
+    from ...analysis.runs import structures
+    return [(atom['residue'], atom['name'], atom['position'])
+            for atom in structures.read_gro_text(text, source='molecule.gro',
+                                                 check_numbering=True, finite_box=True)]
 
 
 def _itp(text):
@@ -97,22 +89,20 @@ def _itp(text):
     file is refused rather than silently accepted. A mass column after the charge is checked when the file states
     one -- a nonfinite mass is a topology `grompp` cannot integrate, and a coarse-grained bead has no other check.
     """
-    section = ''; atoms = []; molecule_types = []; charge = 0
-    for raw in text.splitlines():
-        line = raw.split(';',1)[0].strip()
-        if not line or line.startswith('#'): continue
-        if line.startswith('['):
-            section = line.strip('[] ').strip(); continue
-        parts = line.split()
-        if section == 'moleculetype': molecule_types.append(parts[0])
-        if section == 'atoms':
-            if len(parts) < 7 or int(parts[0]) != len(atoms)+1:
-                raise ValueError('molecule.itp: invalid atom numbering or incomplete atom definition')
-            q = float(parts[6])
-            if not math.isfinite(q): raise ValueError('molecule.itp: nonfinite charge')
-            if len(parts) > 7 and not math.isfinite(float(parts[7])):
-                raise ValueError('molecule.itp: nonfinite mass')
-            charge += q; atoms.append((parts[3], parts[4], parts[1]))
+    # Deferred: a run-local copy may lack the package this module belongs to, and the module import must not fail.
+    from ... import itp
+    molecule_types = [fields[0] for _number, fields in itp.rows(text, 'moleculetype')
+                      if not fields[0].startswith('#')]
+    atoms = []; charge = 0
+    for _number, parts in itp.rows(text, 'atoms'):
+        if parts[0].startswith('#'): continue
+        if len(parts) < 7 or int(parts[0]) != len(atoms)+1:
+            raise ValueError('molecule.itp: invalid atom numbering or incomplete atom definition')
+        q = float(parts[6])
+        if not math.isfinite(q): raise ValueError('molecule.itp: nonfinite charge')
+        if len(parts) > 7 and not math.isfinite(float(parts[7])):
+            raise ValueError('molecule.itp: nonfinite mass')
+        charge += q; atoms.append((parts[3], parts[4], parts[1]))
     if len(molecule_types) != 1 or not atoms:
         raise ValueError('molecule.itp: expected one moleculetype and a nonempty atoms section')
     return molecule_types[0], atoms, charge

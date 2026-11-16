@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ... import files
+from ... import files, itp
 from .identity import canonical_sha256
 
 TYPE_RE = re.compile(r"(?<![A-Za-z0-9])([STR]?[PQNCX][1-6][a-z]?)(?![A-Za-z0-9])")
@@ -27,24 +27,23 @@ def _record(fragment_id, bead_type, rank, path, locator, *, name=None, notes=Non
 
 def _parse_itp(path: Path, rank: int, source_name: str):
     records = []
-    section = ""; molecule = None; seen = set()
-    for line_number, raw in enumerate(path.read_text(errors="replace").splitlines(), 1):
-        line = raw.split(";", 1)[0].strip()
-        if line.startswith("["):
-            section = line.strip("[] ").lower(); continue
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split()
-        if section == "moleculetype":
-            molecule = fields[0]
-        elif section == "atoms" and len(fields) >= 2:
-            bead_type = fields[1]
-            if not TYPE_RE.fullmatch(bead_type) or (molecule, bead_type) in seen:
+    molecule = None
+    seen = set()
+    for section, lines in itp.sections(path.read_text(errors="replace")):
+        for line_number, line in lines:
+            if line.startswith("#"):
                 continue
-            seen.add((molecule, bead_type))
-            records.append(_record(f"{source_name}:{molecule}:{bead_type}", bead_type, rank, path,
-                                   f"line:{line_number}", name=molecule,
-                                   notes="Martini topology bead type; atom attachment requires a verified AA mapping."))
+            fields = line.split()
+            if section == "moleculetype":
+                molecule = fields[0]
+            elif section == "atoms" and len(fields) >= 2:
+                bead_type = fields[1]
+                if not TYPE_RE.fullmatch(bead_type) or (molecule, bead_type) in seen:
+                    continue
+                seen.add((molecule, bead_type))
+                records.append(_record(f"{source_name}:{molecule}:{bead_type}", bead_type, rank, path,
+                                       f"line:{line_number}", name=molecule,
+                                       notes="Martini topology bead type; atom attachment requires a verified AA mapping."))
     return records
 
 

@@ -13,6 +13,8 @@ import json
 
 from playwright.sync_api import expect
 
+from tests.harness import browser
+
 JOB = '0000000000ad'
 RUN_VIEW = f'/protein-detergent/run-view?run={JOB}'
 CARD = '#run-view-analysis-A'
@@ -70,19 +72,6 @@ RECORD = {
 }
 
 
-def seed_run(dashboard):
-    """A completed pdc run with one production stage, so the monitor has a run to open."""
-    prod = dashboard.coordinator.RUNS / JOB / 'stages/06_assessment/prod'
-    prod.mkdir(parents=True)
-    (prod / 'run.xtc').write_bytes(b'raw')
-    (prod / 'run.tpr').write_bytes(b'tpr')
-    (prod / 'run.gro').write_text('gro')
-    dashboard.coordinator.database().insert({'id': JOB, 'run_type': 'pdc', 'status': 'completed',
-                                             'stage': 'complete', 'molecule_id': 'DDM',
-                                             'label': 'A pdc run',
-                                             'created': '2026-11-09T00:00:00+00:00'})
-
-
 def publish(dashboard, record=None):
     """Leave behind what `analysis.worker` leaves behind for a completed pdc-structure attempt."""
     published = record if record is not None else RECORD
@@ -107,7 +96,7 @@ def open_section(page, live_page):
 
 def test_the_section_is_a_tab_and_starts_with_nothing_computed(dashboard, live_page):
     """A pdc run that never queued the kind says so, and its button queues through the generic route."""
-    seed_run(dashboard)
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-09T00:00:00+00:00')
     page, errors = live_page
     root = page.locator(CARD)
     page.goto(f'{live_page.base_url}{RUN_VIEW}')
@@ -138,7 +127,7 @@ def test_the_section_is_a_tab_and_starts_with_nothing_computed(dashboard, live_p
 
 
 def test_a_published_record_draws_the_leg_the_figures_and_the_caveats(dashboard, live_page):
-    seed_run(dashboard)
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-09T00:00:00+00:00')
     publish(dashboard)
     page, errors = live_page
     pane = open_section(page, live_page)
@@ -162,7 +151,7 @@ def test_a_published_record_draws_the_leg_the_figures_and_the_caveats(dashboard,
 
 def test_a_no_protein_record_states_the_interface_as_not_defined_and_names_its_fallback_leg(dashboard, live_page):
     """The two states §8 draws: no protein, and the assessment leg that answered instead of the extension."""
-    seed_run(dashboard)
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-09T00:00:00+00:00')
     record = json.loads(json.dumps(RECORD))
     record['protein_present'] = False
     record['contacts'] = None

@@ -6,8 +6,9 @@ enough: identification is stereochemistry-blind, and maltose's layout matches `L
 exception the policy names: its layout identifies `GAL`, the two entries are one mapping under different published
 lengths, and so the molecule's identity selects `GLC` and the model carries the sentence that says so.
 """
-from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
+
+from tests.harness.support import automatic_mapping
 
 
 def sections(topology):
@@ -130,7 +131,7 @@ def test_an_unknown_molecule_answers_bad_request(dashboard):
 def test_summary_rows_name_the_molecule_and_still_omit_beads(dashboard):
     client = dashboard.client
     context = client.get('/api/mappings/context?molecule_id=Maltose').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Maltose')
+    candidate = automatic_mapping(mapping_context.as_structure(context), 'Maltose')
     candidate['molecule_id'] = 'Maltose'
     candidate['molecule_snapshot'] = context['snapshot']
     saved = client.post('/api/mappings/drafts', json=candidate)

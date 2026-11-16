@@ -8,12 +8,12 @@ bridging oxygen now belongs to the first ring so the candidate reproduces the pu
 `test_sucrose_reference_candidate.py` pins as conforming. The second is the gate: the automatic path answers
 `{available: false, reasons}` instead of handing back a document `mapping_graph.validate` rejects.
 """
-from dashboard.models.mappings import algorithms, identity, schema
+from dashboard.models.mappings import algorithms, identity
 from dashboard.models.mappings.algorithms import spectral
 from dashboard.models.mappings.context import as_structure, build_context
 from dashboard.models.sugars import coords as sugar_coords
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, automatic_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
 
@@ -54,7 +54,7 @@ def context_of(elements, bonds, *, chemical=True):
 def test_every_tracked_molecule_still_generates_the_candidate_it_had():
     for molecule, pinned in PINNED.items():
         structure = as_structure(build_context(MOLECULES, molecule))
-        candidate = schema.automatic_candidate(structure, molecule)
+        candidate = automatic_mapping(structure, molecule)
         assert [[bead['name'], bead['size'], bead['atoms']] for bead in candidate['beads']] == pinned, molecule
 
 

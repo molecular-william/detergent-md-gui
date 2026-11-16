@@ -19,6 +19,9 @@ from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
+from tests.harness import browser
+from tests.harness.support import automatic_mapping
+
 PANE_A = '.bonded-column[data-side="A"]'
 PANE_B = '.bonded-column[data-side="B"]'
 #: The server's own sentence for a published reference. The panel quotes it rather than stating a local rule.
@@ -56,7 +59,7 @@ def save_revision(mapping):
 def save_mapping(dashboard, molecule='DDM', name=None):
     """One saved candidate built the way the editor builds it: scoped to a molecule and its snapshot."""
     context = dashboard.client.get(f'/api/mappings/context?molecule_id={molecule}').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), molecule)
+    candidate = automatic_mapping(mapping_context.as_structure(context), molecule)
     candidate['molecule_id'] = molecule
     candidate['molecule_snapshot'] = context['snapshot']
     if name:
@@ -99,19 +102,6 @@ def choose_mapping(page, file, molecule=None, side='A'):
     if pane_id(page, 'bonded-parameterization-display', side).input_value() != value:
         pane_id(page, 'bonded-parameterization-display', side).select_option(value)
     return value
-
-
-def choose_fit_target(page, file, molecule=None):
-    """Point the merged fit card at one mapping: its own molecule select, then its own mapping select."""
-    page.wait_for_function(
-        "() => document.querySelectorAll('#bonded-fit-molecule option').length > 0", timeout=30000)
-    if molecule:
-        page.locator('#bonded-fit-molecule').select_option(molecule)
-    page.wait_for_function(
-        """(file) => Array.from(document.querySelectorAll('#bonded-fit-mapping option'))
-          .some(option => option.value === file)""", arg=file, timeout=30000)
-    if page.locator('#bonded-fit-mapping').input_value() != file:
-        page.locator('#bonded-fit-mapping').select_option(file)
 
 
 def test_the_display_selector_is_the_only_history(dashboard, live_page):
@@ -211,7 +201,7 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
     saved = save_mapping(dashboard)
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    choose_fit_target(page, saved['file'], saved['molecule_id'])
+    browser.choose_fit_target(page, saved['file'], saved['molecule_id'])
     expect(page.locator('#bonded-torsion-status')).to_contain_text('keeps the periodic torsions', timeout=30000)
 
     model = page.locator('#bonded-torsion-model')
@@ -236,7 +226,7 @@ def test_the_torsion_switch_belongs_to_the_mapping_and_saves_to_it(dashboard, li
                                                              'torsion_scale': 0.5}
     expect(save).to_be_disabled()
     page.reload()
-    choose_fit_target(page, saved['file'], saved['molecule_id'])
+    browser.choose_fit_target(page, saved['file'], saved['molecule_id'])
     expect(page.locator('#bonded-torsion-model')).to_have_value('circular-harmonic')
     expect(page.locator('#bonded-torsion-scale')).to_have_value('0.5')
     assert errors == [], errors
@@ -252,7 +242,7 @@ def test_the_torsion_explainer_is_an_info_control_that_opens_and_closes(dashboar
     saved = save_mapping(dashboard)
     page, errors = live_page
     page.goto(f'{live_page.base_url}/detergent-validation/bond-interactions')
-    choose_fit_target(page, saved['file'], saved['molecule_id'])
+    browser.choose_fit_target(page, saved['file'], saved['molecule_id'])
 
     info = page.locator('#bonded-torsion-info')
     tip = page.locator('#bonded-torsion-tip')
@@ -291,7 +281,7 @@ def test_the_diagram_draws_the_candidates_own_molecule_and_not_the_packaged_one(
     from dashboard.models.mappings import context as mapping_context
 
     context = dashboard.client.get('/api/mappings/context?molecule_id=Sucrose').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'Sucrose')
+    candidate = automatic_mapping(mapping_context.as_structure(context), 'Sucrose')
     candidate['molecule_id'] = 'Sucrose'
     candidate['molecule_snapshot'] = context['snapshot']
     saved = mappings.save_draft(candidate)

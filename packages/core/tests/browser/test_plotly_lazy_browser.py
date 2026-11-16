@@ -28,6 +28,7 @@ from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
+from tests.harness.support import automatic_mapping
 from tests.harness.validation_fixtures import publish
 
 
@@ -61,7 +62,7 @@ def test_the_bonded_panel_fetches_plotly_once_and_draws(dashboard, live_page):
     # Built through the editor's own construction: the molecule and its snapshot are what the catalogue route
     # filters on, and a candidate missing either is one no molecule-scoped list can find.
     context = mapping_context.build_context(dashboard.paths.project_root / 'molecules', 'DDM')
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), 'DDM')
+    candidate = automatic_mapping(mapping_context.as_structure(context), 'DDM')
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     saved = mappings.save_draft(candidate)
     page, errors = live_page

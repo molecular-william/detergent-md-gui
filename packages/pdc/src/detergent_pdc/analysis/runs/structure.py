@@ -16,7 +16,6 @@ its method, its sampling, its cutoffs and its caveats beside every number.
 from __future__ import annotations
 
 import json
-import math
 import os
 import subprocess
 import tempfile
@@ -25,10 +24,11 @@ from pathlib import Path
 import numpy as np
 from dashboard import files
 from dashboard.analysis import progress
-from dashboard.analysis.runs import layout, structures, trajectory_header
+from dashboard.analysis.runs import layout, readers, structures, trajectory_header
 from dashboard.analysis.runs import segments as engine_segments
 from dashboard.analysis.runs.statistics import block_summary
-from dashboard.analysis.runs.trajectory_overview import MAX_FRAMES
+
+MAX_FRAMES = readers.MAX_FRAMES
 from dashboard.execution import tools
 from detergent_pdc import segments as pdc_segments
 from detergent_pdc.execution.adapters import pdc_assessment
@@ -65,36 +65,21 @@ def parse_xvg(path):
     """`(x, {legend: values})` from one XVG, every column labelled by its own `@ sN legend` line.
 
     The columns are not in the order a request named them, so a reader that counted columns would label every curve
-    with the one next to it. This is the rule `trajectory_overview._xvg_columns` keeps for `gmx energy`; `gmx
-    gyrate` writes `Rg`, `Rg/sX/N`, ... and `gmx mindist` writes `<reference>-<probe>`.
+    with the one next to it. This is the shared rule `readers.xvg_columns` keeps for `gmx energy`; `gmx gyrate`
+    writes `Rg`, `Rg/sX/N`, ... and `gmx mindist` writes `<reference>-<probe>`.
     """
-    x, columns, labels = [], {}, []
-    for line in Path(path).read_text().splitlines():
-        text = line.strip()
-        if text.startswith('@ s') and 'legend' in text:
-            labels.append(text.split('legend', 1)[1].strip().strip('"'))
-            continue
-        if not text or text.startswith(('#', '@')):
-            continue
-        try:
-            values = [float(value) for value in text.split()]
-        except ValueError:
-            continue
-        if len(values) < 2:
-            continue
-        x.append(values[0])
-        for index, value in enumerate(values[1:]):
-            legend = labels[index] if index < len(labels) else f'column{index + 2}'
-            columns.setdefault(legend, []).append(value)
-    return x, columns
+    labels, times, columns = readers.xvg_columns(path)
+    data: dict[str, list[float]] = {}
+    # Row-major, so two columns sharing a legend interleave exactly as they did when this walked the rows itself.
+    for row in range(len(times)):
+        for index, column in enumerate(columns):
+            data.setdefault(labels[index], []).append(column[row])
+    return list(times), data
 
 
 def stride_for(frames_in_file, max_frames=MAX_FRAMES):
     """The existing frame bound: one frame in every `stride`, at most `max_frames` frames."""
-    frames_in_file = int(frames_in_file)
-    if frames_in_file < 1:
-        raise ValueError('a trajectory with no frames has nothing to sample')
-    return max(1, math.ceil(frames_in_file / int(max_frames)))
+    return readers.frame_stride(frames_in_file, max_frames)
 
 
 def sample_arguments(frames_in_file, first_ns, dt_ps):
@@ -147,11 +132,6 @@ def shape_metrics(eigenvalues):
             'relative_shape_anisotropy': max(0.0, min(1.0, anisotropy))}
 
 
-def _minimum_image(delta, box):
-    """Fold a displacement into the periodic cell: the shortest vector between two equivalent positions."""
-    return delta - np.round(delta / box) * box
-
-
 def unwrap(molecules, positions, box):
     """Move whole molecules into one periodic image around the first molecule; nm in, nm out.
 
@@ -173,11 +153,7 @@ def unwrap(molecules, positions, box):
 # --------------------------------------------------------------------------------------------------------- the files
 
 def _manifest(work):
-    try:
-        data = json.loads((Path(work) / 'manifest.json').read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return readers.run_manifest(work)
 
 
 def _run_type(run_dir):
@@ -203,21 +179,20 @@ def _assessment_path(root):
     return None
 
 
-def _trajectory(work):
-    """The one staged trajectory this attempt reads."""
-    found = [path for path in Path(work).rglob('*.xtc') if path.is_file() and path.name != SAMPLE]
-    if not found:
-        raise layout.NoTrajectory('this run offers no trajectory to sample')
-    return max(found, key=lambda path: (path.stat().st_size, str(path)))
+def _leg(work):
+    """The one staged trajectory this attempt reads, with the structure beside it.
 
-
-def _structure(work, trajectory):
-    """The staged structure beside the trajectory: the leg's own `run.gro` when there is one."""
-    found = sorted(path for path in trajectory.parent.glob('*.gro') if path.is_file())
-    if not found:
-        raise ValueError(f'the run stages no structure beside {trajectory.name}, so its beads cannot be read')
-    preferred = [path for path in found if path.name in ('run.gro', 'system.gro')]
-    return (preferred or found)[0]
+    The shared reader selects both; this translates its refusals into this analysis's own vocabulary -- the leg's
+    absent trajectory is `NoTrajectory` (the worker records a producer with nothing to do as `skipped`), and the
+    structure it names is the beads this report reads.
+    """
+    try:
+        return readers.chosen_trajectory(work, exclude=(SAMPLE,))
+    except readers.MissingTrajectory:
+        raise layout.NoTrajectory('this run offers no trajectory to sample') from None
+    except readers.MissingStructure as error:
+        raise ValueError(f'the run stages no structure beside {error.trajectory.name}, so its beads cannot be '
+                         'read') from None
 
 
 def _staged_assessment(work):
@@ -515,8 +490,7 @@ def run(work, payload=None):
     if mda is None:
         raise RuntimeError('MDAnalysis is required for the aggregation pass of pdc-structure')
     work = Path(work)
-    trajectory = _trajectory(work)
-    structure = _structure(work, trajectory)
+    trajectory, structure = _leg(work)
     manifest = _manifest(work)
     criterion = _criterion(manifest, _staged_assessment(work))
     run_input = _run_input(work, trajectory)

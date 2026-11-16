@@ -9,6 +9,8 @@ import re
 
 from playwright.sync_api import expect
 
+from tests.harness import browser
+
 JOB = '0000000000ac'
 RUN_VIEW = f'/protein-detergent/run-view?run={JOB}'
 
@@ -24,19 +26,8 @@ ANSWER = {
 }
 
 
-def seed_run(dashboard):
-    prod = dashboard.coordinator.RUNS / JOB / 'stages/06_assessment/prod'
-    prod.mkdir(parents=True)
-    (prod / 'run.xtc').write_bytes(b'raw')
-    (prod / 'run.tpr').write_bytes(b'tpr')
-    (prod / 'run.gro').write_text('gro')
-    dashboard.coordinator.database().insert({'id': JOB, 'run_type': 'pdc', 'status': 'completed',
-                                             'stage': 'complete', 'molecule_id': 'DDM', 'label': 'A pdc run',
-                                             'created': '2026-11-05T00:00:00+00:00'})
-
-
 def test_the_whole_trajectory_card_is_offered_compact_and_posts_its_numbers(dashboard, live_page):
-    seed_run(dashboard)
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-05T00:00:00+00:00')
     page, errors = live_page
     posted = []
     page.route(re.compile(rf'/api/pdc/{JOB}/whole-trajectory$'),

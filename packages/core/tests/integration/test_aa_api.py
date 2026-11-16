@@ -12,7 +12,7 @@ from dashboard.execution.adapters import aa, cg
 from dashboard.models import mappings
 from dashboard.models.molecules import aa as aa_molecules
 
-from tests.harness.support import PROJECT_ROOT
+from tests.harness.support import PROJECT_ROOT, automatic_mapping
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def cg_job(dashboard, monkeypatch, source=None, **overrides):
     exercises the coordinator's derivation of `shared_reference` from that revision rather than a fit.
     """
     source = source or reference_fixture(dashboard, 'draft-smoke')
-    mapping_snapshot = {**mappings.automatic_candidate(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
+    mapping_snapshot = {**automatic_mapping(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
     revision = {'revision': 1, 'engine': 'fast-forward', 'options': {},
                 'aa_reference': {'run_id': source['id'], 'reference_sha256': None}}
     monkeypatch.setattr(cg, 'chosen_revision', lambda *args, **kwargs: revision)
@@ -211,7 +211,7 @@ def test_a_shared_source_that_changed_is_refused(dashboard, service, monkeypatch
     the AA-CG pair used to refuse a consumer whose inherited settings disagreed with its source.
     """
     source = reference_fixture(dashboard, 'draft-smoke')
-    mapping_snapshot = {**mappings.automatic_candidate(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
+    mapping_snapshot = {**automatic_mapping(mappings.molecule(), 'DDM'), 'file': 'ddm.map'}
     revision = {'revision': 1, 'engine': 'fast-forward',
                 'aa_reference': {'run_id': source['id'],
                                  'reference_sha256': {'stages/07_reference/lig.xtc': '0' * 64}}}

@@ -17,7 +17,6 @@ from .identity import candidate_identity, canonical_sha256, content_identity, le
 from .schema import (
                        LABELS,
                        SIZES,
-                       automatic_candidate,
                        check_schema,
 )
 from .store import (
@@ -33,7 +32,7 @@ from .store import (
 __all__ = [
     'SIZES', 'LABELS',
     'candidate_identity', 'content_identity', 'canonical_sha256', 'legacy_candidate_identity',
-    'legacy_content_identity', 'check_schema', 'automatic_candidate',
+    'legacy_content_identity', 'check_schema',
     'derive_representation', 'validate_representation', 'representation_modes',
     'validate', 'require_usable',
     'storage_root', 'candidate_paths', 'get', 'list_candidates',

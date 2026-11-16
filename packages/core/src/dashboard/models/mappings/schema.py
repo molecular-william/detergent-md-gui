@@ -1,8 +1,8 @@
 """Mapping document schema, size constants and blueprint builders.
 
 Pure functions; no filesystem access. Structural validation is separated from
-graph-based validation in mapping_graph.py. automatic_candidate takes an
-explicit structure so no molecule is privileged. Candidate identity lives in
+graph-based validation in mapping_graph.py. The automatic path is
+`algorithms.generate`, which takes a context. Candidate identity lives in
 ``identity.py``, which this module no longer restates.
 """
 from .. import bonded
@@ -104,33 +104,3 @@ def fragment_groups(structure):
             frontier |= (adjacency[atom] & unassigned)
         unassigned -= group; groups.append(sorted(group))
     return groups
-
-
-def automatic_candidate(structure, molecule_name):
-    """Build a graph-local starting mapping for any supported molecule.
-
-    The sugar-first fragment path runs when the structure matches a recognized
-    hexopyranose; otherwise a connected-graph fallback groups heavy atoms into
-    R/S/T beads sized by atomic count. Bead chemistry requires calibration
-    regardless of which path runs.
-    """
-    if not isinstance(structure, dict) or not structure.get('atoms'):
-        raise ValueError('automatic_candidate requires an explicit molecule structure')
-    if not isinstance(molecule_name, str) or not molecule_name.strip():
-        raise ValueError('automatic_candidate requires a molecule name')
-    # Deferred import keeps the schema module independent for pure callers.
-    from .. import sugars as carbohydrates
-    sugar = carbohydrates.candidate(structure, molecule_name)
-    if sugar is not None:
-        return sugar
-    atoms_by_id = {a['id']: a for a in structure['atoms']}
-    beads = []
-    for i, atoms in enumerate(fragment_groups(structure), 1):
-        size = 'R' if len(atoms) >= 4 else ('S' if len(atoms) >= 3 else 'T')
-        oxy = sum(atoms_by_id[a]['name'].upper().startswith('O') for a in atoms)
-        bead_type = 'P1' if oxy >= 2 else ('P2' if oxy == 1 else 'C1')
-        beads.append({'name': f'BEAD{i:02d}', 'size': size, 'type': ('' if size == 'R' else size) + bead_type, 'atoms': atoms})
-    return {'name': f'{molecule_name} generic graph draft', 'beads': beads,
-            'status': 'candidate-unvalidated', 'martini_version': '3',
-            'source_structure': structure.get('source', ''),
-            'algorithm': 'Generic connected graph fallback; no verified sugar template matched; bead chemistry requires calibration'}

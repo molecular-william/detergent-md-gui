@@ -24,7 +24,9 @@ def test_the_extension_announces_a_grompp_and_a_leg_the_reader_can_measure(tmp_p
     assert '+ gmx grompp -f extension.restart.mdp' in announced
     assert '+ gmx mdrun -deffnm prod/run -v' in announced
 
-    reading = progress.progress_from_log('CG extension MD', tmp_path, announced + 'step 2500000\n')
+    log = tmp_path / 'log.txt'
+    log.write_text(announced + 'step 2500000\n')
+    reading = progress.progress_from_file('CG extension MD', tmp_path, log)
 
     assert reading['leg'] == 'prod/run'
     assert reading['steps'] == 5000000 and reading['step'] == 2500000

@@ -129,12 +129,50 @@ def ddm_moleculetype() -> str:
             '[ exclusions ]\n4 1 2 3\n')
 
 
+def automatic_mapping(structure, molecule_name):
+    """Build a graph-local starting mapping for any supported molecule.
+
+    Test-construction parser, not the production algorithm: the live automatic path is
+    `mappings.suggestions.generate_baseline` -> `algorithms.generate`, which gates the document its
+    own validator rejects. This helper keeps `schema.automatic_candidate`'s body verbatim
+    (sugar-first, then the graph fallback) because fixtures need its ungated fallback output.
+
+    The sugar-first fragment path runs when the structure matches a recognized
+    hexopyranose; otherwise a connected-graph fallback groups heavy atoms into
+    R/S/T beads sized by atomic count. Bead chemistry requires calibration
+    regardless of which path runs.
+    """
+    if not isinstance(structure, dict) or not structure.get('atoms'):
+        raise ValueError('automatic_candidate requires an explicit molecule structure')
+    if not isinstance(molecule_name, str) or not molecule_name.strip():
+        raise ValueError('automatic_candidate requires a molecule name')
+    # Deferred imports keep this helper's callers free of a load-time cycle, and keep the sugar
+    # layer and the one grouping patchable from a test.
+    from dashboard.models import sugars as carbohydrates
+    from dashboard.models.mappings import schema
+    sugar = carbohydrates.candidate(structure, molecule_name)
+    if sugar is not None:
+        return sugar
+    atoms_by_id = {a['id']: a for a in structure['atoms']}
+    beads = []
+    for i, atoms in enumerate(schema.fragment_groups(structure), 1):
+        size = 'R' if len(atoms) >= 4 else ('S' if len(atoms) >= 3 else 'T')
+        oxy = sum(atoms_by_id[a]['name'].upper().startswith('O') for a in atoms)
+        bead_type = 'P1' if oxy >= 2 else ('P2' if oxy == 1 else 'C1')
+        beads.append({'name': f'BEAD{i:02d}', 'size': size, 'type': ('' if size == 'R' else size) + bead_type,
+                      'atoms': atoms})
+    return {'name': f'{molecule_name} generic graph draft', 'beads': beads,
+            'status': 'candidate-unvalidated', 'martini_version': '3',
+            'source_structure': structure.get('source', ''),
+            'algorithm': 'Generic connected graph fallback; no verified sugar template matched; bead chemistry '
+                         'requires calibration'}
+
+
 def saved_mapping(name='DDM'):
     """The saved-candidate shape the panel posts: the molecule's snapshot, exported by one mapper."""
-    from dashboard.models import mappings
     from dashboard.models.mappings.context import as_structure, build_context
     context = build_context(PROJECT_ROOT / 'molecules', 'DDM')
-    candidate = mappings.automatic_candidate(as_structure(context), name)
+    candidate = automatic_mapping(as_structure(context), name)
     candidate.update(schema_version=3, molecule_id='DDM',
                      molecule_snapshot=copy.deepcopy(context['snapshot']))
     return candidate
@@ -143,7 +181,7 @@ def saved_mapping(name='DDM'):
 def physical_mapping():
     """COG format fixture without virtual sites, for the basic FF mapper tests."""
     from dashboard.models import mappings
-    generated = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    generated = automatic_mapping(mappings.molecule(), 'DDM')
     return {'name': 'Physical COG format fixture',
             'beads': [b for b in generated['beads'] if not b.get('virtual_site')]}
 

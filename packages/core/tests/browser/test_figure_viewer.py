@@ -11,6 +11,8 @@ from dashboard.models import mappings
 from dashboard.models.mappings import context as mapping_context
 from playwright.sync_api import expect
 
+from tests.harness.support import automatic_mapping
+
 A_RUN = 'abcdef123456'
 B_RUN = 'abcdef123457'
 WORKSPACE = 'detergent-validation'
@@ -24,7 +26,7 @@ def seed(dashboard, *run_ids, figures=True):
     runs = dashboard.coordinator.RUNS
     runs.mkdir(parents=True, exist_ok=True)
     context = mapping_context.build_context(dashboard.coordinator.ROOT / 'molecules', 'DDM')
-    candidate = mappings.automatic_candidate(mappings.molecule(), 'DDM')
+    candidate = automatic_mapping(mappings.molecule(), 'DDM')
     candidate.update(molecule_id='DDM', molecule_snapshot=context['snapshot'])
     mappings.save_draft(candidate)
     dashboard.coordinator.database().replace([

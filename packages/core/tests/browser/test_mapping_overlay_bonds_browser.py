@@ -43,31 +43,6 @@ BONDS = """(el) => {
 }"""
 
 
-def _seed_candidate(dashboard):
-    """A scoped candidate in the fixture's workspace, saved the way the panel saves one."""
-    from dashboard.models import mappings
-    from dashboard.models.mappings import context as mapping_context
-
-    context = dashboard.client.get(f'/api/mappings/context?molecule_id={MOLECULE}').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), MOLECULE)
-    candidate['molecule_id'] = MOLECULE
-    candidate['molecule_snapshot'] = context['snapshot']
-    response = dashboard.client.post('/api/mappings/drafts', json=candidate)
-    assert response.status_code == 201, response.get_json()
-    return context, response.get_json()
-
-
-def _open_editor(page, live_page):
-    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
-    page.locator('#tab-mappings').click()
-    page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 0", timeout=30000)
-    page.locator('#mapping-molecule').select_option(MOLECULE)
-    page.wait_for_function(f"() => document.querySelector('{OVERLAY}')?.overlayStage"
-                           " && document.querySelector('" + OVERLAY + "').overlayStage.compList.length >= 2"
-                           f" && document.querySelector('{OVERLAY}').overlayStage.compList[0]?.structure?.bondStore",
-                           timeout=60000)
-
-
 def _drawn(page, expression, ready=lambda value: bool(value)):
     """Read the viewer once it is holding what the read needs.
 
@@ -95,7 +70,7 @@ def _drawn_holding_the_model_to_the_view(page, live_page, transform):
                       body=json.dumps(dict(body, pdb=transform(body['pdb']))))
 
     page.route('**/api/mappings/overlay3d', capture)
-    _open_editor(page, live_page)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE, ready=False)
 
     measured = _drawn(page, BONDS)
     assert measured['atoms'] in served, \
@@ -112,7 +87,7 @@ def _drawn_holding_the_model_to_the_view(page, live_page, transform):
 
 def test_the_overlay_draws_the_models_bonds_rather_than_guessing_them(dashboard, live_page):
     page, errors = live_page
-    _seed_candidate(dashboard)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
     _drawn_holding_the_model_to_the_view(page, live_page, regrouped)
     assert errors == []
 
@@ -120,6 +95,6 @@ def test_the_overlay_draws_the_models_bonds_rather_than_guessing_them(dashboard,
 def test_the_overlay_draws_the_models_bonds_on_the_real_file_too(dashboard, live_page):
     """The unmodified overlay file: this is the state the guard must not regress."""
     page, errors = live_page
-    _seed_candidate(dashboard)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
     _drawn_holding_the_model_to_the_view(page, live_page, lambda pdb: pdb)
     assert errors == []

@@ -6,6 +6,28 @@ the protein-detergent pipeline or the coordinator. This file keeps only what is 
 
 ## Next session
 
+**2026-11-16 deferred audit cleanup landed; it is additive, not a line reduction.** The seven deferred items were
+implemented with parity tests. Net +430 lines: production source +45 (the new analysis/runs/readers.py is 122 lines,
+outweighing the 77 deleted tracked source lines), harness +113, new parity tests +345, tracked test files -73. The
+earlier -214 estimate did not price the parity tests; the value is one implementation per reader, not fewer lines.
+
+Landed: automatic_candidate deleted from schema.py/__init__ and its body moved verbatim to
+tests/harness/support.py:automatic_mapping (the generic fragment path is NOT equivalent to algorithms.generate:
+10 beads vs available=False), with 20 test files plus saved_mapping/physical_mapping/browser seed helper swapped;
+itp.rows added and mappings/context._parse_topology, mappings/references._parse_itp, molecules/aa._itp,
+vsites._parse_itp converted against pinned goldens; sugars/reference and vsites._parse_rtp stay self-contained
+(bundle import; case-sensitive RTP residue headers); structures.read_gro split into read_gro/read_gro_text with
+check_numbering/finite_box, aa._gro delegating with both on; new analysis/runs/readers.py (xvg_columns,
+frame_stride, minimum_image, chosen_trajectory, run_manifest) with trajectory_overview/segments delegating and
+pdc structure.py importing it; progress_from_log deleted (tests now use progress_from_file); browser helpers moved
+to tests/harness/browser.py (seed_mapping_candidate, open_mapping_editor(ready=), choose_fit_target,
+seed_pdc_run(created=); panel-loading seed_run stays local because its construction differs); the five unittest
+files converted to pytest with the dashboard fixture, every case preserved. New tests are categorized in
+tests/harness/areas.py (molecules: gro/topology readers; pdc: structure readers). Checks: fast **2758 passed /
+1 xfailed**, browser **379 passed** plus the known test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row
+load flake (passes solo), slow **22 passed / 1 xfailed**, ruff clean. Stale generated copies under
+packages/core/build/lib/ still define automatic_candidate/progress_from_log; that is build output, not source.
+
 **2026-11-13 ponytail audit applied: -2,470 lines across 138 files.** A whole-repo over-engineering audit was applied, not just reported. Deleted: the review-only `analyses-draft.html` and its browser test; `cli/migration.py`, `cli/screen_candidates.py`; the retired `aa_cg` readiness path (`cg.readiness`, `cg._protocol_readiness`) and its test; the unreachable `sugar_cg` run-view/layout/preview; the paused micelle build route and its core adapter; the `observables`/`plots`/`stability` analysis kinds and their producers; `Kind.payload`/`legacy_sources`/`runs_for_every_run`/`Protocol.tool_report`/`Feature.evidence_sections`; four unused mapping routes and the RDKit 2D `depiction.render`; the vacuous half of `test_module_layout.py`; and legacy model helpers whose only callers were tests. Facts changed: `kinds.for_every_run()` no longer exists (AGENTS.md updated); analysis-lifecycle fixtures use `bonded-cross-check`; pdc stage scripts share `execution/scripts/topology.py`; `martini3.system_topology` is the one `system_EMPTY.top` writer. `test_operations.py`'s plots idempotency slow test is a strict xfail (its kind is gone; the subprocess path already failed at HEAD on PATH python) and its cancellation test now queues `bonded-cross-check`. Deliberately deferred: `mappings.schema.automatic_candidate` (shared build fixture, ~15 tests), `aa._gro` (no behavior-preserving seam), pdc `structure.py` reusing private core trajectory helpers, `progress_from_log` (test seam), the nine topology-reader consolidation, and the `unittest`-to-pytest scaffolding conversion. Checks: fast **2731 passed / 1 xfailed**, browser **380 passed**, slow **22 passed / 1 xfailed**, ruff clean.
 
 **2026-11-13 hybrid GPU-update vsites were prototyped and rejected.** Removing the incompatible `virtual_sites4` and

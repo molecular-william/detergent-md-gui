@@ -48,20 +48,6 @@ CENTRES = """(el) => {
 }"""
 
 
-def _seed_candidate(dashboard):
-    """A scoped candidate in the fixture's workspace, saved the way the panel saves one."""
-    from dashboard.models import mappings
-    from dashboard.models.mappings import context as mapping_context
-
-    context = dashboard.client.get(f'/api/mappings/context?molecule_id={MOLECULE}').get_json()['context']
-    candidate = mappings.automatic_candidate(mapping_context.as_structure(context), MOLECULE)
-    candidate['molecule_id'] = MOLECULE
-    candidate['molecule_snapshot'] = context['snapshot']
-    response = dashboard.client.post('/api/mappings/drafts', json=candidate)
-    assert response.status_code == 201, response.get_json()
-    return context, response.get_json()
-
-
 # What the click actually sees, so a failure names the reason instead of only the timeout.
 CLICK_EVIDENCE = """(el) => {
   const stage = el.overlayStage, canvas = stage.viewer.renderer.domElement;
@@ -101,26 +87,10 @@ def _drawn(page, expression, ready=lambda value: bool(value)):
         raise AssertionError(f'{failure}; overlay said {status!r}') from None
 
 
-def _open_editor(page, live_page):
-    page.goto(f'{live_page.base_url}/detergent-validation/bead-assignment')
-    # The mapping tab carries aria-label="CG mappings", so its accessible name is not the text on the button. The
-    # id is the one handle that does not depend on how it is labelled.
-    page.locator('#tab-mappings').click()
-    page.wait_for_function("() => document.querySelector('#mapping-molecule')?.options.length > 0", timeout=30000)
-    page.locator('#mapping-molecule').select_option(MOLECULE)
-    # The overlay still holds the previously selected molecule until the load answers: wait for the editor's own
-    # busy state rather than for a stage the old molecule is already drawing.
-    expect(page.locator('.molecule-mapping-workspace')).to_have_attribute('aria-busy', 'false')
-    expect(page.locator(OVERLAY)).to_have_attribute('aria-busy', 'false')
-    page.wait_for_function(f"() => document.querySelector('{OVERLAY}')?.overlayStage"
-                           " && document.querySelector('" + OVERLAY + "').overlayStage.compList.length >= 2",
-                           timeout=60000)
-
-
 def test_the_overlay_draws_the_molecule_and_one_sphere_per_bead(dashboard, live_page):
     page, errors = live_page
-    context, candidate = _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    context, candidate = browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     expect(page.locator(OVERLAY).locator('canvas')).to_be_visible()
     state = _drawn(page, STAGE, lambda value: value and value['components'] >= 2 and all(value['atoms']))
@@ -133,8 +103,8 @@ def test_the_overlay_draws_the_molecule_and_one_sphere_per_bead(dashboard, live_
 def test_every_sphere_sits_at_the_centre_of_the_atoms_its_bead_maps(dashboard, live_page):
     """The claim the view makes, checked against the coordinates the viewer holds rather than the ones it sent."""
     page, errors = live_page
-    context, candidate = _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    context, candidate = browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     drawn = _drawn(page, CENTRES)
     positions = {atom['id']: [value * 10 for value in atom['xyz']] for atom in context['atoms']}
@@ -157,8 +127,8 @@ def test_every_sphere_sits_at_the_centre_of_the_atoms_its_bead_maps(dashboard, l
 def test_the_spheres_are_drawn_translucent_and_sized_by_their_class(dashboard, live_page):
     """Opacity and per-class colour are why the beads are a file and representations rather than shapes."""
     page, errors = live_page
-    _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     reps = _drawn(page, STAGE, lambda value: value and value['beadReps'])['beadReps']
     assert reps, reps
@@ -201,8 +171,8 @@ def test_the_spheres_are_drawn_at_the_radius_their_own_size_class_has(dashboard,
     the classes and gets their proportions wrong (1.70 against 1.55 where the model's R/S is 1.15).
     """
     page, errors = live_page
-    _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     radii = _drawn(page, RADII, lambda value: value and any(value.values()))
     assert radii, 'the viewer reported no sphere radii'
@@ -225,8 +195,8 @@ def test_clicking_a_sphere_leaves_the_bead_assignment_alone(dashboard, live_page
     acted on. What must not move is what a reader can check: the bead table's atom lists.
     """
     page, errors = live_page
-    _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     fields = page.locator('#mapping-bead-rows input[aria-label$=" atoms"]')
     before = fields.evaluate_all('(inputs) => inputs.map(input => input.value)')
@@ -261,8 +231,8 @@ def test_the_selected_beads_atoms_are_highlighted_and_the_halo_goes_on_deselect(
     loaded structure -- no request, no rebuild -- and it must be exactly the bead's atoms, not the molecule's.
     """
     page, errors = live_page
-    _seed_candidate(dashboard)
-    _open_editor(page, live_page)
+    browser.seed_mapping_candidate(dashboard, MOLECULE)
+    browser.open_mapping_editor(page, live_page.base_url, MOLECULE)
 
     first = page.locator('#mapping-bead-rows tr').first
     atoms = [int(value) for value in first.locator('input.atoms-input').input_value().split()]
