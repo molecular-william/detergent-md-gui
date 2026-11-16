@@ -33,3 +33,52 @@ def test_a_missing_structure_is_an_error_rather_than_a_command(tmp_path):
     """A command built against a file that is not there fails inside a stage, where it costs a run."""
     with pytest.raises(ValueError, match='not found'):
         pdc_protein.martinize_command(tmp_path / 'absent.pdb', tmp_path)
+
+
+
+def test_the_position_restraint_flag_is_asked_for_on_every_build(tmp_path):
+    """The tool's `-p backbone` writes the POSRES block; the slack of the window is the mdp's, not the command's."""
+    (tmp_path / 'protein.pdb').write_text('ATOM')
+    command = pdc_protein.martinize_command(tmp_path / 'protein.pdb', tmp_path)
+
+    assert command[command.index('-p') + 1] == 'backbone'
+    assert '-pf' not in command, 'the tool default force constant is the one the block uses'
+
+
+def test_the_restraint_file_lands_in_the_recorded_stage_inputs(tmp_path):
+    """(d) A stub martinize2 writes the file its own flag names, and the legs' declared tree records it.
+
+    This vermouth (0.15.0) writes the `#ifdef POSRES` block inside `molecule_N.itp` rather than a separate
+    `posre.itp`; the recording claim is the same for either shape because every leg declares the whole `cg/` tree
+    as an input, so whatever the tool writes beside the topology is inside it.
+    """
+    import subprocess
+    import sys
+
+    from dashboard.execution import workflow
+
+    out = tmp_path / 'cg'
+    out.mkdir()
+    stub = tmp_path / 'martinize2'
+    stub.write_text(f'#!{sys.executable}\nimport pathlib\npathlib.Path("posre.itp").write_text("[ position_restraints ]\\n")\n')
+    stub.chmod(0o755)
+    (tmp_path / 'protein.pdb').write_text('ATOM\n')
+    command = pdc_protein.martinize_command(tmp_path / 'protein.pdb', out, executable=str(stub))
+    assert command[command.index('-p') + 1] == 'backbone'
+    subprocess.run(command, check=True, cwd=out)
+
+    assert (out / 'posre.itp').is_file(), 'the stub wrote the file the flag names'
+    # The executor reads each leg's declared inputs through this function and hashes every file it yields, so the
+    # file the build wrote is on the record beside the topology it was written with.
+    stages = tmp_path / 'run' / 'stages'
+    leg = stages / '03_minimisation'
+    leg.mkdir(parents=True)
+    probe = stages / '02_system' / 'cg'
+    probe.mkdir(parents=True)
+    (probe / 'posre.itp').write_text('[ position_restraints ]\n')
+    from detergent_pdc.execution.adapters import pdc
+
+    declared = pdc.stage_by_name('Energy minimisation').inputs
+    assert f'../02_system/{pdc.PROTEIN_TOPOLOGY_DIRECTORY}/' in declared
+    recorded = {path.resolve() for path in workflow._declared_paths(leg, '../02_system/cg/')}
+    assert (probe / 'posre.itp').resolve() in recorded, 'the restraint file is inside the recorded cg/ tree'

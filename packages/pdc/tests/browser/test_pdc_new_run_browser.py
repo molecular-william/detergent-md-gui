@@ -35,6 +35,9 @@ CATALOG = {
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
                  'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
+                 'pdc_restrain_protein': 'yes', 'pdc_minimisation_emtol': 100, 'pdc_minimisation_emstep': 0.001,
+                 'pdc_npt_pcoupl': 'c-rescale', 'pdc_npt_pcoupltype': 'isotropic', 'pdc_npt_ref_p': 1.0,
+                 'pdc_npt_tau_p': 4.0, 'pdc_npt_compressibility': 4.5e-5,
                  'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto'},
 }
 
@@ -95,7 +98,9 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                  'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks',
-                 'protein_vsite'):
+                 'protein_vsite', 'pdc_restrain_protein', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
+                 'pdc_npt_pcoupl', 'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p',
+                 'pdc_npt_compressibility'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
     assert page.locator('[name=snapshot_interval_ns], [name=snapshot_cap]').count() == 0, 'snapshot inputs are retired'
 
@@ -234,10 +239,12 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
     block = page.locator('#new-advanced')
     expect(block).to_be_visible()
-    assert page.locator('#new-advanced .new-pdc-option-group').count() == 7
-    assert page.locator('#new-advanced [name]').count() == 29
+    assert page.locator('#new-advanced .new-pdc-option-group').count() == 10
+    assert page.locator('#new-advanced [name]').count() == 37
     height = block.bounding_box()['height']
-    assert height < 800, f'the expanded block is {height:.0f} px tall; a scan should fit under 800'
+    # The block gained the restraint/minimisation/NPT groups (eight controls) in this change; the ceiling moves with
+    # the content it must show, and a phone still gets one column without horizontal scroll (measured below).
+    assert height < 900, f'the expanded block is {height:.0f} px tall; a scan should fit under 900'
 
     # A row keeps its label and control on one line: the input sits inside the label's own vertical band.
     first = page.locator('#new-advanced .new-pdc-option-rows > label').first
@@ -274,6 +281,13 @@ def test_every_other_run_option_has_a_default(dashboard, live_page):
     # `mdrun_gpu`, and the offload scheme no longer offers the `gpu` option beside it.
     assert 'mdrun_gpu' not in values, values
     assert values['mdrun_nb'] == 'auto'
+    # The restraint window and the minimisation/NPT groups start on the values the catalogue publishes, like every
+    # other field in the fold.
+    assert values['pdc_restrain_protein'] == 'yes'
+    assert (values['pdc_minimisation_emtol'], values['pdc_minimisation_emstep']) == ('100', '0.001')
+    assert (values['pdc_npt_pcoupl'], values['pdc_npt_pcoupltype']) == ('c-rescale', 'isotropic')
+    assert tuple(float(values[name]) for name in
+                 ('pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility')) == (1.0, 4.0, 4.5e-5)
     assert page.evaluate(
         "Array.from(document.querySelectorAll('[name=mdrun_nb] option')).every(o => o.value !== 'gpu')")
     assert errors == [], errors
@@ -400,6 +414,16 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('[name=pdc_production_dt_fs]').fill('20')
     page.locator('[name=pdc_nvt_ps]').fill('100')
     page.locator('[name=pdc_npt_ps]').fill('200')
+    # The restraint window and the minimisation/NPT tunables: the selects post their values and the numbers post
+    # theirs, under the adapter's advertised names.
+    page.locator('[name=pdc_restrain_protein]').select_option('no')
+    page.locator('[name=pdc_minimisation_emtol]').fill('250')
+    page.locator('[name=pdc_minimisation_emstep]').fill('0.002')
+    page.locator('[name=pdc_npt_pcoupl]').select_option('berendsen')
+    page.locator('[name=pdc_npt_pcoupltype]').select_option('semiisotropic')
+    page.locator('[name=pdc_npt_ref_p]').fill('2.5')
+    page.locator('[name=pdc_npt_tau_p]').fill('8')
+    page.locator('[name=pdc_npt_compressibility]').fill('0.0001')
     # Leaving the field runs the readiness check that re-enables the button; clicking while it is pending would hit a
     # disabled button (a number input's change fires on blur, before the click).
     page.locator('[name=pdc_production_dt_fs]').press('Tab')
@@ -423,6 +447,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
         'pdc_equil_dt_fs': 10, 'pdc_production_dt_fs': 20,
+        'pdc_restrain_protein': 'no', 'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
+        'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002,
+        'pdc_npt_ref_p': 2.5, 'pdc_npt_tau_p': 8, 'pdc_npt_compressibility': 0.0001,
         'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
         'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
         'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',

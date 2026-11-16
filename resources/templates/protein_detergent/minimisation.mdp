@@ -8,6 +8,11 @@
 ; templates use (rlist 1.35 nm with the buffer disabled and rcoulomb/rvdw 1.1), so the minimisation and the dynamics
 ; that follow it share one cut-off convention rather than two. Reaction field at epsilon_r 15 is the CG half's
 ; electrostatics everywhere else in this pipeline.
+;
+; `define = -DPOSRES` is stamped here by `prepare` when the run asks for the transient protein position-restraint
+; window (`pdc_restrain_protein`, the release default): it makes grompp read the `#ifdef POSRES` block martinize2
+; wrote into the protein's own itp. The elastic network is a bonded term in every leg and is unaffected; a run that
+; switches the window off renders this file with no define.
 integrator               = steep
 nsteps                   = 200000
 nstlog                   = 100
@@ -24,3 +29,5 @@ epsilon_rf               = 0
 vdw_type                 = cutoff
 vdw-modifier             = Potential-shift-verlet
 rvdw                     = 1.1
+emtol                    = 100
+emstep                   = 0.001

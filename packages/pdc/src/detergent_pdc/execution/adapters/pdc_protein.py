@@ -9,11 +9,23 @@ Flags verified against the installed tool's own help rather than assumed:
 So "an elastic network between all Ca atoms within 10 A at 1000 kJ/mol" is `-elastic -ef 1000 -eu 1.0`: the cutoff
 is the upper bound, not the lower one, and the unit is the nanometre the tool documents. The bead selection is left
 to the force field, which is one backbone bead per residue -- a C-alpha -- and `-eu` is what decides the distance.
+
+The protein's **position restraints** are the tool's `-p {none,all,backbone}`, default `none`; `-p backbone` writes
+a `[ position_restraints ]` block for every backbone bead, guarded by `#ifdef POSRES` and reading the
+`POSRES_FC` value the tool defines beside it. Verified against the installed tool (`martinize2 -h`, vermouth
+0.15.0) and measured on a real structure: this version writes that block **inside the molecule's own `molecule_N.itp`**,
+not a separate `posre.itp` -- so the restraints travel with the `cg/` tree every leg already declares as an input,
+and the run's transient window is chosen by the mdp's `define = -DPOSRES`, never by which itp was produced.
 """
 from pathlib import Path
 
 FORCE_CONSTANT = 1000          # kJ/mol/nm^2, the force constant the request names
 UPPER_BOUND_NM = 1.0           # 10 A, in the units the tool documents
+#: The tool's position-restraint selection: `backbone` writes one restraint per backbone bead, under the
+#: `#ifdef POSRES` the run's mdp defines. It is asked for on every build -- the block is inert without the define --
+#: so the same command can serve a restrained and an unrestrained run, and the setting chooses the window rather than
+#: the topology's shape.
+POSITION_RESTRAINTS = 'backbone'
 DEFAULT_FORCE_FIELD = 'martini3001'
 #: The command name the tool answers to when no caller has resolved one. A stage script relies on this -- its PATH is
 #: the one `execution/tools.search_path()` built, so whatever tool it finds there is the declared one -- while a caller
@@ -39,4 +51,6 @@ def martinize_command(protein_pdb, out_dir, *, executable=DEFAULT_EXECUTABLE, fo
         raise ValueError('the elastic network needs a positive force constant and cutoff')
     out = Path(out_dir)
     return [executable, '-f', str(pdb), '-x', str(out / structure_name), '-o', str(out / topology_name),
-            '-ff', force_field, '-elastic', '-ef', str(FORCE_CONSTANT), '-eu', str(UPPER_BOUND_NM)]
+            '-ff', force_field, '-elastic', '-ef', str(FORCE_CONSTANT), '-eu', str(UPPER_BOUND_NM),
+            # Generated on every build, so the run's optional POSRES window is a property of the mdp alone.
+            '-p', POSITION_RESTRAINTS]

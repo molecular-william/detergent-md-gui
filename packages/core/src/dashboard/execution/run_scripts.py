@@ -44,7 +44,10 @@ CODE_VERSIONS: dict[str, dict] = {
     'sugar_cg_simulation': {'path': 'dashboard/execution/scripts/sugar_cg_simulation.sh', 'version': 1},
     'osmotic_simulation': {'path': 'dashboard/execution/scripts/osmotic_simulation.sh', 'version': 1},
     'pdc_prepare': {'path': 'dashboard/execution/scripts/pdc_prepare.sh', 'version': 1},
-    'pdc_system': {'path': 'dashboard/execution/scripts/pdc_system.sh', 'version': 1},
+    # Version 2: the build this stage runs now asks martinize2 for the backbone position-restraint block
+    # (`pdc_protein.POSITION_RESTRAINTS`), so a run prepared under version 1 would not produce the file its own
+    # POSRES window expects. The shell is unchanged; the module it imports is not.
+    'pdc_system': {'path': 'dashboard/execution/scripts/pdc_system.sh', 'version': 2},
     'pdc_leg': {'path': 'dashboard/execution/scripts/pdc_leg.sh', 'version': 1},
     'pdc_assessment': {'path': 'dashboard/execution/scripts/pdc_assessment.sh', 'version': 1},
     'pdc_assess': {'path': 'dashboard/execution/scripts/pdc_assess.sh', 'version': 1},

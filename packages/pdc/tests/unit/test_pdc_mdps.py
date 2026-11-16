@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from dashboard.execution.mdp import PROFILES, render
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
 
@@ -54,14 +55,31 @@ def assessment_ns(settings: dict) -> float:
     return duration
 
 
+def restrained(settings: dict) -> bool:
+    """Whether the run asked for the transient POSRES window; the release default is `yes`."""
+    return settings.get('pdc_restrain_protein', 'yes') == 'yes'
+
+
 def values(profile: str, settings: dict) -> dict:
     """The run's numbers for one profile, computed the way `prepare` computes them."""
     if profile == 'pdc-minimisation-v1':
-        return {'nsteps': int(float(settings['minimisation_steps']))}
+        numbers = {'nsteps': int(float(settings['minimisation_steps'])),
+                   'emtol': settings['pdc_minimisation_emtol'],
+                   'emstep': settings['pdc_minimisation_emstep']}
+        if restrained(settings):
+            numbers['define'] = pdc_adapter.POSRES_DEFINE
+        return numbers
     if profile == 'pdc-nvt-v1':
         return {'nsteps': round(int(float(settings['nvt_ps'])) / dt(profile)), 'gen-seed': int(settings['seed'])}
     if profile == 'pdc-npt-v1':
-        return {'nsteps': round(int(float(settings['npt_ps'])) / dt(profile))}
+        numbers = {'nsteps': round(int(float(settings['npt_ps'])) / dt(profile)),
+                   'pcoupl': settings['pdc_npt_pcoupl'], 'pcoupltype': settings['pdc_npt_pcoupltype'],
+                   'ref-p': settings['pdc_npt_ref_p'], 'tau-p': settings['pdc_npt_tau_p'],
+                   'compressibility': settings['pdc_npt_compressibility']}
+        if restrained(settings):
+            numbers['define'] = pdc_adapter.POSRES_DEFINE
+            numbers['refcoord-scaling'] = 'com'
+        return numbers
     if profile in ('pdc-assessment-v1', 'pdc-extension-v1'):
         numbers = {'nsteps': round(assessment_ns(settings) * 1000 / dt('pdc-assessment-v1'))}
         # The production profile leaves its output cadence, cutoffs and ensemble targets to the run.
@@ -185,3 +203,113 @@ def test_no_prepared_mdp_is_a_copied_template(tmp_path):
     for name, profile in EXPECTED.items():
         text = (inputs_dir(run) / name).read_text()
         assert text.startswith(f'; {profile}: reviewed physics profile'), name
+
+
+
+# --- the transient POSRES window and the minimisation/NPT tunables -------------------------------------------------
+
+#: The legs whose files must never carry the POSRES define: the window belongs to minimisation and NPT only, and the
+#: production/restart files are the reviewed physics the run is not allowed to reach.
+UNRESTRAINED = ('nvt.mdp', 'assessment.mdp', 'extension.mdp', 'minimization.mdp', 'equilibration.mdp')
+
+
+def manifest_profile(run, name: str) -> str:
+    return json.loads((run / 'manifest.json').read_text())['mdp_profiles'][name]
+
+
+def test_unstated_settings_write_the_restraint_window_only_where_it_acts(tmp_path):
+    """(a) Nothing named: the reviewed MDPs, plus the default window in minimisation and NPT and nowhere else."""
+    run = prepared_run(tmp_path)
+
+    minimisation = parsed((inputs_dir(run) / 'minimisation.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+    assert minimisation['define'] == '-DPOSRES'
+    assert npt['define'] == '-DPOSRES' and npt['refcoord-scaling'] == 'com'
+    for name in UNRESTRAINED:
+        written = parsed((inputs_dir(run) / name).read_text())
+        # The restart minimisation keeps the CG template's own -DFLEXIBLE; the POSRES define is what must not reach
+        # any of these files, and refcoord-scaling belongs to the NPT leg alone.
+        assert written.get('define') != '-DPOSRES', name
+        assert 'refcoord-scaling' not in written, name
+
+
+def test_switching_the_restraint_window_off_leaves_both_legs_unrestrained(tmp_path):
+    """The choice is the window's only switch: no renders the reviewed files with no define at all."""
+    run = prepared_run(tmp_path, settings={'pdc_restrain_protein': 'no'})
+    settings = settings_of(run)
+
+    assert settings['pdc_restrain_protein'] == 'no'
+    for name in ('minimisation.mdp', 'npt.mdp'):
+        written = parsed((inputs_dir(run) / name).read_text())
+        assert 'define' not in written, name
+    assert 'refcoord-scaling' not in parsed((inputs_dir(run) / 'npt.mdp').read_text())
+    assert manifest_profile(run, 'minimisation.mdp') == 'pdc-minimisation-v1'
+
+
+def test_a_minimisation_tunable_reaches_only_the_minimisation_leg(tmp_path):
+    """(b) emtol/emstep are the minimisation's own; every other file keeps the reviewed numbers."""
+    run = prepared_run(tmp_path, settings={'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002})
+    settings = settings_of(run)
+    minimisation = parsed((inputs_dir(run) / 'minimisation.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+
+    assert settings['pdc_minimisation_emtol'] == 250 and settings['pdc_minimisation_emstep'] == 0.002
+    assert minimisation['emtol'] == '250' and minimisation['emstep'] == '0.002'
+    for other in ('nvt.mdp', 'npt.mdp', 'assessment.mdp', 'extension.mdp'):
+        written = parsed((inputs_dir(run) / other).read_text())
+        assert 'emtol' not in written and 'emstep' not in written, other
+    assert npt['pcoupl'] == 'c-rescale', 'the NPT leg keeps its own barostat'
+
+
+def test_an_npt_barostat_override_reaches_only_the_npt_leg(tmp_path):
+    """(b) The equilibration barostat is the NPT leg's; production keeps its reviewed Parrinello-Rahman trio."""
+    run = prepared_run(tmp_path, settings={'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
+                                           'pdc_npt_ref_p': 2.5, 'pdc_npt_tau_p': 8.0,
+                                           'pdc_npt_compressibility': 1e-4})
+    settings = settings_of(run)
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+
+    assert (settings['pdc_npt_pcoupl'], settings['pdc_npt_pcoupltype']) == ('berendsen', 'semiisotropic')
+    assert (npt['pcoupl'], npt['pcoupltype'], npt['ref-p']) == ('berendsen', 'semiisotropic', '2.5 2.5')
+    assert float(npt['tau-p']) == 8.0 and npt['compressibility'] == '0.0001 0.0001'
+    for name in ('assessment.mdp', 'extension.mdp'):
+        production = parsed((inputs_dir(run) / name).read_text())
+        assert (production['pcoupl'], production['pcoupltype']) == ('parrinello-rahman', 'isotropic'), name
+        assert float(production['ref-p']) == 1.0 and float(production['tau-p']) == 12.0, name
+        assert float(production['compressibility']) == 4.5e-5, name
+    assert parsed((inputs_dir(run) / 'minimisation.mdp').read_text())['nsteps'] == '200000'
+
+
+def test_unknown_barostat_choices_and_out_of_range_tunables_are_refused_by_name():
+    """(c) The form's two selects and the three numbers are the adapter's vocabulary, so a typo is its own refusal."""
+    with pytest.raises(ValueError, match='pdc_npt_pcoupl must be one of no, berendsen, parrinello-rahman, c-rescale'):
+        pdc_adapter.normalize_settings({'pdc_npt_pcoupl': 'andersen'})
+    with pytest.raises(ValueError, match='pdc_npt_pcoupltype must be one of'):
+        pdc_adapter.normalize_settings({'pdc_npt_pcoupltype': 'rhombic'})
+    for setting, low, high in (('pdc_minimisation_emtol', 0.1, 10000), ('pdc_minimisation_emstep', 0.0001, 0.01),
+                               ('pdc_npt_ref_p', 0.1, 100), ('pdc_npt_tau_p', 0.1, 100),
+                               ('pdc_npt_compressibility', 0.0, 1.0)):
+        below = low / 10 if low else -1.0
+        for value in (below, high * 10):
+            with pytest.raises(ValueError, match=rf'{setting} must be between'):
+                pdc_adapter.normalize_settings({setting: value})
+
+
+def test_the_restraint_choice_is_advertised_and_defaults_on():
+    """(a) pdc_restrain_protein is a choice the route keeps, defaulting to the window, and validated by name."""
+    assert pdc_adapter.CHOICE_SPECS['pdc_restrain_protein'][1] == ('yes', 'no')
+    assert pdc_adapter.DEFAULTS['pdc_restrain_protein'] == 'yes'
+    assert 'pdc_restrain_protein' in pdc_adapter.PROTOCOL.choice_specs()
+    with pytest.raises(ValueError, match='pdc_restrain_protein must be one of yes, no'):
+        pdc_adapter.normalize_settings({'pdc_restrain_protein': 'maybe'})
+
+
+
+def test_an_empty_micelle_writes_no_restraint_window(tmp_path):
+    """There is no protein block to activate, so the window stays off even though the setting's default is yes."""
+    run = prepared_run(tmp_path, protein=None)
+    settings = settings_of(run)
+
+    assert settings['pdc_restrain_protein'] == 'yes'
+    assert 'define' not in parsed((inputs_dir(run) / 'minimisation.mdp').read_text())
+    assert 'define' not in parsed((inputs_dir(run) / 'npt.mdp').read_text())

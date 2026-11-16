@@ -355,17 +355,23 @@ _PDC_LEG_COMMENTS = {
     'constraints': 'coarse-grained beads carry no distance constraints',
     'constraint-algorithm': 'named by the templates, with nothing to solve',
     'lincs-warnangle': 'the angle above which LINCS warns (degrees)',
+    'emtol': 'steepest descent converges when the force is below this (kJ mol^-1 nm^-1)',
+    'emstep': 'its initial step (nm)',
 }
 
 PDC_LEG_PROFILES = (
     Profile(settings={'integrator': 'steep', 'nsteps': None, 'nstlog': 100, 'cutoff-scheme': 'Verlet',
                       'nstlist': 20, 'ns-type': 'grid', 'pbc': 'xyz', 'verlet-buffer-tolerance': -1, 'rlist': 1.35,
                       'coulombtype': 'reaction-field', 'rcoulomb': 1.1, 'epsilon-r': 15, 'epsilon-rf': 0,
-                      'vdw-type': 'cutoff', 'vdw-modifier': 'Potential-shift-verlet', 'rvdw': 1.1},
+                      'vdw-type': 'cutoff', 'vdw-modifier': 'Potential-shift-verlet', 'rvdw': 1.1,
+                      'emtol': 100.0, 'emstep': 0.001},
             comments={**_PDC_LEG_COMMENTS, 'integrator': 'steep: steepest-descent minimisation',
                       'nstlog': 'the log every 100 steps',
                       'nsteps': "the run's own step count (`pdc_minimisation_steps`)"},
-            source=f'{_PDC_TEMPLATE}/minimisation.mdp', version='pdc-minimisation-v1'),
+            source=f'{_PDC_TEMPLATE}/minimisation.mdp', version='pdc-minimisation-v1',
+            # The run's convergence knobs, and the optional POSRES window (`define`) the adapter stamps only when
+            # the run asks for it. `define` has no reviewed value: absent is the unrestrained file.
+            variable=('emtol', 'emstep', 'define')),
     Profile(settings={'integrator': 'md', 'dt': 0.005, 'nsteps': None, 'nstcomm': 100, 'comm-grps': 'System',
                       'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0, 'nstlog': 1000,
                       'nstenergy': 100, 'nstxtcout': 100, 'xtc-precision': 100, 'cutoff-scheme': 'Verlet',
@@ -397,7 +403,11 @@ PDC_LEG_PROFILES = (
                       'gen-temp': "the template's value, inert with gen-vel = no",
                       'pcoupl': "c-rescale: the NPT leg's barostat",
                       'continuation': 'continues the NVT state'},
-            source=f'{_PDC_TEMPLATE}/npt.mdp', version='pdc-npt-v1', variable=('dt',)),
+            source=f'{_PDC_TEMPLATE}/npt.mdp', version='pdc-npt-v1',
+            # This leg's barostat is the run's, and the POSRES window adds the define and `refcoord-scaling = com`
+            # only when it is asked for. Neither has a reviewed value: absent is the unrestrained file.
+            variable=('dt', 'pcoupl', 'pcoupltype', 'ref-p', 'tau-p', 'compressibility', 'define',
+                      'refcoord-scaling')),
 )
 
 # The genion fix-up tpr, written from this profile rather than copied from a template.

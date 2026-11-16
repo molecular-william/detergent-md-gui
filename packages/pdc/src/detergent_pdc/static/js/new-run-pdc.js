@@ -29,8 +29,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_equil_dt_fs', 'pdc_production_dt_fs',
+                   'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
                    'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                    'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
+                   'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility',
                    'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
@@ -83,6 +85,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The back-map's `pdb2gmx -vsite` choice. It is not a number and not a boolean: the back-map stage's wrapper reads
   // it as one of three strings and appends the flag to the `pdb2gmx` calls CG2AT2 makes, and to no other command.
   const proteinVsite = () => field('protein_vsite')?.value || 'none';
+  // The transient protein-restraint window and the NPT leg's barostat: choices like `protein_vsite`, sent under the
+  // adapter's advertised names. Their selects lead with the reviewed profile's value, so a run that never touches
+  // them sends the value it renders; the adapter writes them into the minimisation/NPT MDPs only.
+  const restrainProtein = () => field('pdc_restrain_protein')?.value || 'yes';
+  const nptPcoupl = () => field('pdc_npt_pcoupl')?.value || 'c-rescale';
+  const nptPcoupltype = () => field('pdc_npt_pcoupltype')?.value || 'isotropic';
   // The removal/assessment pipeline is a choice, not an assumption. On is the regular assessment + removal +
   // checkpoint chain; off is one plain CG MD leg. The adapter owns the stage consequences; this panel makes the
   // choice visible and sends it.
@@ -1555,6 +1563,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // Stated always, like the back-map choice: a run whose pdb2gmx was asked for aromatic virtual sites must not be
       // readable as one that used the default.
       payload.protein_vsite = proteinVsite();
+      // The restraint window and the NPT barostat are stated always, like the back-map choice: a run that asked for
+      // the window (the default) must not be readable as one that did not, and a stated barostat must travel.
+      payload.pdc_restrain_protein = restrainProtein();
+      payload.pdc_npt_pcoupl = nptPcoupl();
+      payload.pdc_npt_pcoupltype = nptPcoupltype();
       // The plan's step 1, sent always: the adapter's default is off, and a run whose preparation was asked for must
       // not be readable as one that was not. A protein-free run cannot ask for it -- there is nothing to prepare --
       // so it is stated only where the run has a structure, exactly as the chain selection is.

@@ -52,6 +52,17 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-17 pdc restraints, minimisation convergence and NPT barostat.** The protein-in-micelle pipeline now
+generates martinize2 position restraints (`-p backbone`; vermouth 0.15 writes the `#ifdef POSRES` block inside the
+cg molecule itp, not a separate posre file, and the cg tree is already a recorded input) and a new
+`pdc_restrain_protein` choice (yes/no, default yes) adds `define = -DPOSRES` to minimisation and NPT plus
+`refcoord-scaling = com` on NPT, released in production; `no` reproduces the previous files. `emtol` (100) and
+`emstep` (0.001) are stated and tunable, and the NPT leg exposes `pdc_npt_pcoupl` (c-rescale default),
+`pcoupltype` (isotropic default; two/six direction values are repeated like the AA legs), `ref_p`, `tau_p` and
+`compressibility`; production physics is unchanged. The changed module bumps `pdc_system` 1->2, so a run prepared
+under v1 refuses its not-yet-run System stage by design (reprepare/code_repair). Limits: `posre.itp` is not emitted
+by this martinize2 version; multi-direction coupling repeats the one stated number. Checks: pdc area 754 / 1 xfail;
+form/pairing browser tests 20; core mdp/run_scripts 73; ruff clean.
 **2026-11-17 CG equilibration barostat controls.** The detergent-validation CG equilibration editor now states its
 Barostat (`cg_equil_pcoupl`: no/Berendsen/Parrinello-Rahman/C-rescale), pressure-coupling type
 (`cg_equil_pcoupltype`: isotropic/semiisotropic/anisotropic/surface-tension/volumetric) and target pressure

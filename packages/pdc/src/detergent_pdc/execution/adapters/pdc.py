@@ -94,7 +94,21 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # ``gmx pdb2gmx -vsite``, passed by the back-map wrapper to every pdb2gmx CG2AT2 runs. A string choice
             # rather than a number, advertised in ``CHOICE_SPECS`` so ``runs.py:queue`` keeps it. ``none`` is the
             # default: a run or clone written before this setting existed back-maps exactly as it did before.
-            'protein_vsite': 'none'}
+            'protein_vsite': 'none',
+            # Whether the minimisation and NPT legs hold the protein's backbone with the POSRES block martinize2
+            # wrote. On by default: the transient window is the decision this pipeline now releases with, and a run
+            # that wants the elastic network on its own says so. A choice, so it is advertised in ``CHOICE_SPECS``
+            # and validated with the other choices; the value is written into those two mdps only.
+            'pdc_restrain_protein': 'yes',
+            # The minimisation's own steepest-descent knobs. The profile states the same reviewed values, so an
+            # untouched run renders the reviewed file; a run that states one replaces it.
+            'pdc_minimisation_emtol': 100.0, 'pdc_minimisation_emstep': 0.001,
+            # The NPT leg's barostat. The reviewed profile states exactly these values (c-rescale, isotropic,
+            # 1 bar, 4 ps, 4.5e-5), so naming the defaults renders the reviewed file byte for byte; each is an
+            # override of its own leg only. The production leg's own barostat is the separate tau_p/ref_p/
+            # compressibility trio above and is untouched by any of these.
+            'pdc_npt_pcoupl': 'c-rescale', 'pdc_npt_pcoupltype': 'isotropic',
+            'pdc_npt_ref_p': 1.0, 'pdc_npt_tau_p': 4.0, 'pdc_npt_compressibility': 4.5e-5}
 _PROTEIN_LIMIT = 50
 # Values a spec allows as a fraction but that the builders use as counts or seeds.
 # Canonical settings that are counts, not sizes: a supplied value is stored as an `int`, so the run's record says `120`
@@ -149,8 +163,18 @@ SETTING_SPECS = {
     # that leg rather than a very short one: `prepare` writes no directory and no script for it, and the manifest
     # records it skipped with its reason.
     'pdc_minimisation_steps': ('CG minimisation steps', 0, 1000000),
+    # The minimisation's convergence threshold and initial step, in GROMACS' own units. The reviewed profile states
+    # the same numbers, so a run that names neither renders the reviewed file; the bounds are the range the form
+    # offers and the adapter accepts.
+    'pdc_minimisation_emtol': ('Minimisation tolerance (kJ mol^-1 nm^-1)', 0.1, 10000),
+    'pdc_minimisation_emstep': ('Minimisation initial step (nm)', 0.0001, 0.01),
     'pdc_nvt_ps': ('CG NVT equilibration (ps)', 0, 1000000),
     'pdc_npt_ps': ('CG NPT equilibration (ps)', 0, 1000000),
+    # The NPT leg's barostat numbers. The profile states the reviewed values (1 bar, 4 ps, 4.5e-5), so these are
+    # overrides of the equilibration leg only; production's own trio is named above and is never reached from here.
+    'pdc_npt_ref_p': ('NPT target pressure (bar)', 0.1, 100),
+    'pdc_npt_tau_p': ('NPT barostat coupling (ps)', 0.1, 100),
+    'pdc_npt_compressibility': ('NPT compressibility (bar^-1)', 0.0, 1.0),
     # An index into the devices the host reports, and the check that matters is against those, at prepare.
     'mdrun_gpu': ('mdrun GPU device', 0, 64),
     # The checkpoint cadence, in minutes. No entry in `DEFAULTS`, so a run that names none writes no flag and keeps
@@ -386,6 +410,13 @@ def validate_payload(payload):
     if vsite not in CHOICE_SPECS['protein_vsite'][1]:
         raise ValueError('the pdc protein virtual-site choice must be one of '
                          + ', '.join(CHOICE_SPECS['protein_vsite'][1]) + f', not {vsite!r}')
+    # The transient position-restraint window is a choice too: `yes` writes the POSRES define into the
+    # minimisation and NPT mdps, `no` leaves them as the reviewed files. Checked here as well as in
+    # `normalize_settings` because `prepare` and the preview read this function's answer.
+    restrain = payload.get('pdc_restrain_protein', DEFAULTS['pdc_restrain_protein'])
+    if restrain not in CHOICE_SPECS['pdc_restrain_protein'][1]:
+        raise ValueError('the pdc protein-restraint choice must be one of '
+                         + ', '.join(CHOICE_SPECS['pdc_restrain_protein'][1]) + f', not {restrain!r}')
     # The plan's step 1 is a choice too, and it is checked here for the same reason: a string that means "yes" to a
     # caller would silently mean "no" to the builder.
     # The default is the adapter's -- on -- but a step *about a protein* cannot be on for a build that has none: an empty
@@ -405,7 +436,7 @@ def validate_payload(payload):
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
             'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
             'prepare_protein': prepare_protein, 'remove_out_of_micelle': remove_out,
-            'protein_vsite': vsite,
+            'protein_vsite': vsite, 'restrain_protein': restrain,
             'conformation_library': library,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
@@ -543,7 +574,8 @@ def _portable(path, root):
 # translates here too and `validate_payload` is where it is checked.
 _ALIASES = {'pdc_seed': 'seed', 'pdc_assessment_ns': 'assessment_ns', 'pdc_extension_ns': 'extension_ns',
             'pdc_placement_mode': 'placement_mode',
-            'pdc_minimisation_steps': 'minimisation_steps', 'pdc_nvt_ps': 'nvt_ps', 'pdc_npt_ps': 'npt_ps'}
+            'pdc_minimisation_steps': 'minimisation_steps',
+            'pdc_nvt_ps': 'nvt_ps', 'pdc_npt_ps': 'npt_ps'}
 
 # The reviewed physics profile behind each MDP this adapter writes, keyed by the file name in `inputs/` that a stage
 # reads. `prepare` records it in the manifest as `mdp_profiles`, so a reader can name the physics without opening the
@@ -567,6 +599,17 @@ def _profile_dt(profile: str) -> float:
 #: one division by 1000 sits between them, in `_dt_ps`.
 EQUIL_TIMESTEP = 'pdc_equil_dt_fs'
 PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
+
+#: The mdp define that opens the transient position-restraint window: with it, `grompp` reads the
+#: `#ifdef POSRES` block martinize2 wrote into the protein's own itp. The martinize2 elastic network is a bonded
+#: term in every leg regardless; this is the extra, optional window, and `pdc_restrain_protein` chooses it.
+POSRES_DEFINE = '-DPOSRES'
+RESTRAINT_SETTING = 'pdc_restrain_protein'
+
+
+def _restrained(settings: dict) -> bool:
+    """Whether this run asks for the minimisation/NPT POSRES window; the default is the adapter's own."""
+    return settings.get(RESTRAINT_SETTING, DEFAULTS[RESTRAINT_SETTING]) == 'yes'
 
 
 def _dt_ps(profile: str, settings: dict, setting: str) -> float:
@@ -661,7 +704,7 @@ def _extension_inputs(inputs: Path, settings: dict, skipped: dict, assessment_st
     return extension_ps
 
 
-def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict) -> dict:
+def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_protein: bool = True) -> dict:
     """The three legs' mdps, written from their profiles at the run's own numbers, and the record each leg reads.
 
     Each profile is the reviewed physics of `resources/templates/protein_detergent/`: the timestep, the couplings,
@@ -669,9 +712,17 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict) -> dict:
     duration, and for the velocity-drawing leg the seed those velocities come from. A leg the run asks none of gets
     no mdp, no record and no directory; its step count is recorded as zero.
 
+    Each leg is also the run's own where the profile marks an option `variable`: the minimisation's convergence
+    knobs, the NPT leg's barostat, and the optional POSRES window. The window is the one conditional value here --
+    `define = -DPOSRES` and, on the pressure leg, `refcoord-scaling = com` are written only when the run asks for
+    it, so a run that says no renders a file with no define at all.
+
     Returns each leg's step count, so the run's record carries what the chain costs before it costs it.
     """
     steps = {}
+    # A protein-free build has no restraint block to activate, so the window is not written even when the setting
+    # says yes: the define would be inert, and the file would claim a restraint the system does not carry.
+    restrained = has_protein and _restrained(settings)
     for name, leg in LEGS.items():
         stage = stage_by_name(name)
         if name in skipped:
@@ -683,15 +734,38 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict) -> dict:
         # setting is already a step count.
         if leg['setting'] == 'minimisation_steps':
             count = int(wanted)
-            values = {'nsteps': count}
+            values = {'nsteps': count,
+                      'emtol': settings['pdc_minimisation_emtol'],
+                      'emstep': settings['pdc_minimisation_emstep']}
         else:
             dt = _dt_ps(leg['profile'], settings, EQUIL_TIMESTEP)
             count = round(wanted / dt)
             values = {'nsteps': count}
+            if leg['key'] == 'npt':
+                # The equilibration barostat is this leg's alone; the production files keep their own reviewed
+                # `parrinello-rahman` and the `tau_p`/`ref_p`/`compressibility` trio.
+                # GROMACS wants one value per coupled direction: two for semiisotropic/surface-tension and six
+                # for anisotropic. The run states one number, so a larger kind repeats it -- the same rule the AA
+                # legs follow -- and the file stays executable instead of grompp refusing a short list.
+                coupling = settings['pdc_npt_pcoupltype']
+                directions = {'semiisotropic': 2, 'surface-tension': 2, 'anisotropic': 6}.get(coupling, 1)
+                pressure = settings['pdc_npt_ref_p']
+                compressibility = settings['pdc_npt_compressibility']
+                values.update({'pcoupl': settings['pdc_npt_pcoupl'],
+                               'pcoupltype': coupling,
+                               'ref-p': (pressure,) * directions if directions > 1 else pressure,
+                               'tau-p': settings['pdc_npt_tau_p'],
+                               'compressibility': (compressibility,) * directions if directions > 1 else compressibility})
+                if restrained:
+                    # The reference coordinates follow the box the barostat changes; without this the restraints
+                    # pull against the pressure coupling instead of holding the protein in a scaling box.
+                    values['refcoord-scaling'] = 'com'
             if EQUIL_TIMESTEP in settings:
                 values['dt'] = dt
         if leg.get('seed_velocities'):
             values['gen-seed'] = int(settings['seed'])
+        if restrained and leg['key'] in ('minimisation', 'npt'):
+            values['define'] = POSRES_DEFINE
         write_mdp(leg['profile'], inputs / leg['mdp'], values)
         _write_leg_record(inputs, stage, leg)
         steps[leg['key']] = count
@@ -955,6 +1029,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
                     'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
                     'protein_vsite': choices['protein_vsite'],
+                    'pdc_restrain_protein': choices['restrain_protein'],
                     'radius_nm': numbers.get('radius_nm') or round(float(DEFAULT_RADIUS_NM), 6)})
 
     run_dir = Path(run_dir)
@@ -1132,7 +1207,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         indent=2, sort_keys=True))
     assessment_steps = _assessment_mdp(inputs, numbers)
     extension_ps = _extension_inputs(inputs, numbers, skipped, assessment_steps)
-    equilibration_steps = _equilibration_mdps(inputs, numbers, skipped)
+    equilibration_steps = _equilibration_mdps(inputs, numbers, skipped, has_protein=protein_path is not None)
     if 'Energy minimisation' not in skipped or 'CG extension MD' not in skipped:
         # Solvation's fix-up mdp and the water it packs, for the first leg and for the extension's restart alike.
         write_mdp('pdc-ions-v1', inputs / 'ions.mdp')
@@ -1292,6 +1367,15 @@ def _protocol_prepare(run_dir, metadata):
 # protein happens to name, the second is a boolean -- so their options are declared empty or as the two booleans, and
 # their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
 CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
+                # The optional transient POSRES window for the minimisation and NPT legs. `yes` is the release
+                # default; martinize2 always writes the block, and only the mdp's define decides whether it acts.
+                'pdc_restrain_protein': ('Protein restraints', ('yes', 'no')),
+                # The NPT leg's barostat, advertised as the GROMACS choices they are; `c-rescale`/`isotropic` are
+                # the reviewed profile's own, so an untouched run renders it.
+                'pdc_npt_pcoupl': ('NPT barostat',
+                                   ('no', 'berendsen', 'parrinello-rahman', 'c-rescale')),
+                'pdc_npt_pcoupltype': ('NPT pressure coupling type',
+                                       ('isotropic', 'semiisotropic', 'anisotropic', 'surface-tension', 'volumetric')),
                 'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu', 'gpu')),
                 'protein_chains': ('Protein chains', ()),
                 'backmap': ('Back-mapping (CG2AT2)', (True, False)),
