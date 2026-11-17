@@ -39,7 +39,10 @@ CODE_VERSIONS: dict[str, dict] = {
     'use_parameterization': {'path': 'dashboard/execution/scripts/use_parameterization.sh', 'version': 1},
     'stage_coordinates': {'path': 'dashboard/execution/scripts/stage_coordinates.sh', 'version': 1},
     'assess': {'path': 'dashboard/execution/scripts/assess.sh', 'version': 1},
-    'sasa': {'path': 'dashboard/execution/scripts/sasa.sh', 'version': 1},
+    # Version 2: the script now runs both passes at 48 dots per atom instead of 4800 (the trajectory mean is
+    # unchanged, the per-frame curve is noisier), so a run prepared under version 1 would not publish the series its
+    # own record claims.
+    'sasa': {'path': 'dashboard/execution/scripts/sasa.sh', 'version': 2},
     'composition_assessment': {'path': 'dashboard/execution/scripts/composition_assessment.sh', 'version': 1},
     'sugar_cg_simulation': {'path': 'dashboard/execution/scripts/sugar_cg_simulation.sh', 'version': 1},
     'osmotic_simulation': {'path': 'dashboard/execution/scripts/osmotic_simulation.sh', 'version': 1},

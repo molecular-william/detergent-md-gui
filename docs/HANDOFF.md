@@ -10,6 +10,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **SASA stage runs at 48 dots/atom (2026-11-17).** `sasa.sh` passes `-ndots 48` to both passes (was 4800) and
+  `CODE_VERSIONS['sasa']` is version 2, so a run prepared under version 1 refuses stage 5 rather than publish a series
+  its record does not claim. The user's decision, measured before the edit (below). The validation `surfaces` analysis
+  keeps its own `NDOTS = 240`; only the CG run's stage changed.
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
   It was restarted 2026-11-17 12:40 HKT on the per-stage-physics tree (no run was in flight), and
   before that 12:05 on the stage-settings/deletable-library tree and 2026-11-16 18:23 on `696fae7`. Restart after a
@@ -494,6 +498,13 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 
 ### Current measurements
 
+- SASA `-ndots` sweep (2026-11-17, whole trajectories on one core; glucose AA 24 atoms/20,001 frames, glucose CG
+  4/20,021, DDM AA 81/20,001, DDM CG 11/20,001): the trajectory **mean is insensitive** -- 24 dots already matches 4800
+  within 0.06%, and the AA-vs-CG gap (2.99% glucose, 7.29% DDM) is unchanged at every setting -- while **per-frame
+  values and the spread are not**: at 24 dots a frame is 2-3% off (max 13%) and `std` is 3.6x high on glucose AA and
+  34x on glucose CG; at the chosen 48 dots, ~1.0-1.2% per frame and glucose CG's std still 18x high. Time is
+  sublinear, ~`ndots^0.75`: a real stage run went 48.5 -> 4.0 s (glucose) and 217 -> 11.2 s (DDM), means moving
+  <=0.02%. 960 is the knee if frame-level variability is ever a decision input (0.2% per frame, std within 3%).
 - `b920391735dd`: protein-free pdc run (DDM, no removal, no back-map), 5,000,000 steps at 20 fs = 100 ns in one
   assessment leg, the ruled-out stages absent. Its series: 120 models over 0–99.246 ns, 8,604 atoms, 15.7 MB, and
   180,000 CONECT records measured on the assembled acceptance series. It is the surviving live pdc example.
