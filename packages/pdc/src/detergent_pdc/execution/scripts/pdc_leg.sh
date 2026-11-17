@@ -72,5 +72,9 @@ if [ "$(field solvate)" = "True" ]; then
     --salt-molar "$(setting salt_molar)"
 fi
 
-gmx grompp -f "$MDP" -p system.top -c system.gro $CHECKPOINT -o system.tpr -maxwarn 1
+# `-r` is required since GROMACS 2018 whenever the mdp opens a position-restraint window (-DPOSRES): the
+# minimisation and NPT legs of a restrained protein carry one, and grompp refuses to guess the reference
+# coordinates. The leg's own input structure is the reference, so a leg with no restraints passes the same file
+# harmlessly.
+gmx grompp -f "$MDP" -p system.top -c system.gro -r system.gro $CHECKPOINT -o system.tpr -maxwarn 1
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm system ${LEG_FLAGS} -v

@@ -48,7 +48,7 @@ CODE_VERSIONS: dict[str, dict] = {
     # (`pdc_protein.POSITION_RESTRAINTS`), so a run prepared under version 1 would not produce the file its own
     # POSRES window expects. The shell is unchanged; the module it imports is not.
     'pdc_system': {'path': 'dashboard/execution/scripts/pdc_system.sh', 'version': 2},
-    'pdc_leg': {'path': 'dashboard/execution/scripts/pdc_leg.sh', 'version': 1},
+    'pdc_leg': {'path': 'dashboard/execution/scripts/pdc_leg.sh', 'version': 2},
     'pdc_assessment': {'path': 'dashboard/execution/scripts/pdc_assessment.sh', 'version': 1},
     'pdc_assess': {'path': 'dashboard/execution/scripts/pdc_assess.sh', 'version': 1},
     'pdc_extension': {'path': 'dashboard/execution/scripts/pdc_extension.sh', 'version': 1},

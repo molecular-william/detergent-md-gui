@@ -282,7 +282,7 @@ def test_a_leg_without_a_continue_checkpoint_runs_the_commands_it_always_did(tmp
     assert done.returncode == 0, done.stderr
     for command in ('+ cp -f ../03_minimisation/system.gro ../03_minimisation/system.top .',
                     '+ cp -f ../../inputs/nvt.mdp .',
-                    '+ gmx grompp -f nvt.mdp -p system.top -c system.gro -o system.tpr -maxwarn 1',
+                    '+ gmx grompp -f nvt.mdp -p system.top -c system.gro -r system.gro -o system.tpr -maxwarn 1',
                     '+ gmx mdrun -deffnm system -ntomp 8 -v'):
         assert command in done.stderr, (command, done.stderr)
     assert '-cpi' not in done.stderr and '-append' not in done.stderr
