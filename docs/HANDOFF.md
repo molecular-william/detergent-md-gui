@@ -52,6 +52,17 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-17 pdc restraint window needed grompp -r; the DDM micelle run then failed at NVT on its own timestep.**
+The transient POSRES window added `define = -DPOSRES` to the minimisation and NPT legs, but the shared leg script
+called grompp without reference coordinates, so GROMACS refused with "Cannot find position restraint file
+restraint.gro (option -r)"; the fix (`dcc8f5f`) passes `-r system.gro` (the leg's own input structure) and moves
+`pdc_leg` to version 2. The live run `DDM_4iar_1conf_1us-5` was repaired with a recorded `code_repair` (its
+manifest original is under `workspace/.named-migration/code-repairs/`), and minimisation then converged in 534
+steps (Fmax 609, machine precision reached before the 100 target). Its NVT leg failed at step 1 with LINCS errors:
+the run records `pdc_equil_dt_fs = 20` and `pdc_production_dt_fs = 30`, so the equilibration ran at 20 fs instead
+of the reviewed 5 fs (CG production is 20 fs); the equilibration bound (0.5-20) permits it, so the run needs a
+fresh start at 5 fs. Minimisation's Fmax 609 also shows the 100 kJ mol-1 nm-1 target is not reached on this dense
+CG micelle, which is why the reference minim.mdp keeps the same target.
 **2026-11-17 pdc restraints, minimisation convergence and NPT barostat.** The protein-in-micelle pipeline now
 generates martinize2 position restraints (`-p backbone`; vermouth 0.15 writes the `#ifdef POSRES` block inside the
 cg molecule itp, not a separate posre file, and the cg tree is already a recorded input) and a new
