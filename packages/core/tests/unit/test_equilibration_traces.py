@@ -190,7 +190,10 @@ def test_one_file_answering_two_legs_is_recorded_once(tmp_path, monkeypatch):
 def test_the_targets_and_build_come_from_the_run_manifest(tmp_path, monkeypatch):
     paths = write_stage_edrs(tmp_path)
     write_manifest(tmp_path, settings={'temperature_k': 310, 'cg_equil_ref_p': 2.5},
-                   tools={'gmx': {'version_output': 'GROMACS version: 2026.3\nPrecision: mixed\n'}})
+                   tools={'gmx': {'version_output': (
+                       '                         :-) GROMACS - gmx, 2026.3 (-:\n\n'
+                       'Command line:\n  gmx --version\n\n'
+                       'GROMACS version:     2026.3\nPrecision:           mixed\n')}})
     fake_gmx_energy(monkeypatch, edrs=three_tables(paths))
 
     equilibration_traces.run(tmp_path)

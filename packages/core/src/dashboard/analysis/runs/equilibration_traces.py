@@ -10,11 +10,16 @@ leg's energy file from explicit candidate paths and reads it through `gmx energy
 own; it asks `read_energy` once per leg and keeps the three terms the panel draws.
 """
 import math
+import re
 from pathlib import Path
 
 from ... import files
 from . import readers, segments
 from .trajectory_overview import ENERGY_POINTS, STAGE_ENERGY, read_energy
+
+#: The tool's own version line, e.g. "GROMACS version:     2026.3". The recorded output is the whole of `gmx --version`,
+#: banner and "Command line:" section included, so the line is found by its label rather than by position.
+_VERSION_LINE = re.compile(r'^GROMACS version:\s*(\S+)', re.MULTILINE)
 
 #: The terms the panel draws, in the order its charts are stacked. A term an EDR does not carry is omitted from that
 #: leg's `terms` rather than drawn empty.
@@ -42,11 +47,12 @@ def _gmx_version(work):
     """
     recorded = (readers.run_manifest(Path(work)).get('tools') or {}).get('gmx') or {}
     text = recorded.get('version_output') if isinstance(recorded, dict) else None
-    lines = [line.strip() for line in str(text or '').splitlines() if line.strip()]
-    named = next((line for line in lines if 'version' in line.lower()), None)
-    if named is not None:
-        # "GROMACS version:    2026.3" -> "2026.3": the panel's own caption already says GROMACS.
-        return named.split(':', 1)[1].strip() if ':' in named else named
+    body = str(text or '')
+    found = _VERSION_LINE.search(body)
+    if found is not None:
+        return found.group(1)
+    # A record with no labelled line keeps something rather than nothing: the first line it has.
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
     return lines[0] if lines else None
 
 
