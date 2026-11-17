@@ -197,7 +197,9 @@ def test_the_targets_and_build_come_from_the_run_manifest(tmp_path, monkeypatch)
 
     record = read_record(tmp_path)
     assert record['targets'] == {'Temperature': 310.0, 'Pressure': 2.5}
-    assert record['gmx_version'] == 'GROMACS version: 2026.3'
+    # The version, not the banner line the tool prints first, and not the word GROMACS twice: the panel's own caption
+    # already names the tool.
+    assert record['gmx_version'] == '2026.3'
 
 
 def test_the_kind_row_names_the_leg_energy_files_and_records_the_build():

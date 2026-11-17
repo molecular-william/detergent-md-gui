@@ -35,10 +35,19 @@ def _number(value):
 
 
 def _gmx_version(work):
-    """The GROMACS build the run recorded in its own manifest, as one line, or None."""
+    """The GROMACS build the run recorded in its own manifest, as one line, or None.
+
+    The tool prints its banner first, so the line that names the version is preferred over the first non-empty one;
+    a record whose output has no such line keeps that first line rather than nothing.
+    """
     recorded = (readers.run_manifest(Path(work)).get('tools') or {}).get('gmx') or {}
     text = recorded.get('version_output') if isinstance(recorded, dict) else None
-    return next((line.strip() for line in str(text or '').splitlines() if line.strip()), None)
+    lines = [line.strip() for line in str(text or '').splitlines() if line.strip()]
+    named = next((line for line in lines if 'version' in line.lower()), None)
+    if named is not None:
+        # "GROMACS version:    2026.3" -> "2026.3": the panel's own caption already says GROMACS.
+        return named.split(':', 1)[1].strip() if ':' in named else named
+    return lines[0] if lines else None
 
 
 def _targets(work):
