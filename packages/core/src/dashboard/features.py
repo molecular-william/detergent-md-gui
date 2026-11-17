@@ -111,6 +111,9 @@ class Feature:
     #: `{run type: tuple of legacy stage directory names}` a feature's runs may hold at the run root. The run-layout
     #: migration reads this to recognise a pre-numbering tree; the engine does not keep a list of a feature's stages.
     legacy_stages: Mapping[str, tuple] = field(default_factory=dict)
+    #: Callables `(workspace, mapping_sha256) -> list[str]` that remove what the feature built from a deleted
+    #: mapping. The engine deletes the mapping file; a feature owns the artifacts only it knows about.
+    mapping_deletions: tuple = ()
 
 
 _features: list[Feature] | None = None
@@ -311,6 +314,30 @@ def protein_topologies(run_dir):
             if topologies:
                 return topologies
     return []
+
+
+def forget_mapping(workspace, mapping_sha256):
+    """Ask every installed feature to remove what it built from a mapping that is being deleted.
+
+    The engine never imports a feature, and a feature owns artifacts the mapping store cannot name -- the pdc
+    distribution's stored detergent-shape libraries are the first. So the engine asks the question and each feature
+    answers by deleting its own; the answer is `{feature name: [keys]}` with empty lists left out, because a mapping
+    deletion that removed nothing should say so with an empty object rather than a list of empties.
+
+    One callback failing is logged and the rest still run: a broken cleanup must not keep a mapping from being
+    deleted, and the report says what was removed rather than what failed.
+    """
+    removed: dict[str, list[str]] = {}
+    for feature in ensure():
+        for deletion in feature.mapping_deletions:
+            try:
+                keys = deletion(workspace, mapping_sha256)
+            except Exception as error:  # noqa: BLE001 - one feature's cleanup cannot fail the deletion
+                _log.warning('feature %r could not forget mapping %s: %s', feature.name, mapping_sha256, error)
+                continue
+            if keys:
+                removed.setdefault(feature.name, []).extend(keys)
+    return removed
 
 
 def planned_skips(job, manifest=None):

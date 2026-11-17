@@ -23,7 +23,9 @@ import numpy as np
 import pytest
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting, parameterization
+from detergent_pdc import conformations
 
+from tests.harness import conformation_fixtures
 from tests.harness.support import PROJECT_ROOT, saved_mapping
 
 MOLECULES = PROJECT_ROOT / 'molecules'
@@ -498,6 +500,29 @@ def test_deleting_a_parameterization_removes_the_model_and_leaves_the_mapping_al
     assert saved.is_file() and json.loads(saved.read_text())['beads'] == candidate['beads']
 
 
+def test_deleting_a_parameterization_purges_the_library_built_from_its_mapping(dashboard):
+    """The mapping stays, but the shapes built from it are the mapping's artifacts: the route removes them and says so."""
+    candidate = saved_mapping()
+    fit(candidate)
+    name = parameterization.address(candidate)
+    drafts = Path(dashboard.paths.mapping_drafts)
+    drafts.mkdir(parents=True, exist_ok=True)
+    saved = drafts / 'mapping_candidate_ddm.json'
+    saved.write_text(json.dumps(candidate))
+    run_id = 'c0f0e1234568'
+    conformation_fixtures.run_tree(dashboard.paths.workspace, run_id=run_id,
+                                   mapping_sha256=hashlib.sha256(saved.read_bytes()).hexdigest())
+    library = conformations.resolve(dashboard.paths.workspace, {'runs': [run_id], 'size': 2, 'seed': 0})
+
+    response = dashboard.client.delete(f'/api/bonded-parameterizations/{name}',
+                                       json={'confirm': True, 'revision': 1})
+
+    assert response.status_code == 200, response.data
+    assert response.json['conformations'] == {'pdc': [library.key]}
+    assert not library.path.parent.exists()
+    assert saved.is_file(), 'this route deletes a parameterization, not the mapping it was fitted for'
+
+
 def test_deleting_a_parameterization_needs_confirmation_and_a_revision_that_still_matches(dashboard):
     """Two refusals, both about irreversibility: no confirmation, and a record that moved on since the panel read it."""
     candidate = saved_mapping()
@@ -527,6 +552,7 @@ def test_deleting_a_parameterization_that_does_not_exist_is_not_an_error(dashboa
 
     assert response.status_code == 200
     assert response.json['deleted'] is False and response.json['revisions'] == []
+    assert response.json['conformations'] == {}, 'no saved mapping answers this name, so nothing was guessed'
 
 
 # --- POST /api/bonded-parameterizations/<name>/terms ----------------------------------------------------------

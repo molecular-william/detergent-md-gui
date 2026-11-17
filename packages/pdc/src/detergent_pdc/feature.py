@@ -10,6 +10,7 @@ from . import legacy
 from . import segments as pdc_segments
 from . import topologies as pdc_topologies
 from . import view as pdc_view
+from .conformations import cleanup as conformation_cleanup
 from .execution.adapters import pdc
 from .web.routes import pdc as pdc_routes
 
@@ -72,6 +73,9 @@ FEATURE = features.Feature(
     extension_modules=('js/new-run-pdc.js', 'js/run-view-pdc.js', 'js/run-view-pdc-analysis.js'),
     planned_skips=pdc_view.planned_skips,
     protein_topologies=pdc_topologies.read_protein_topologies,
+    # A stored detergent-shape library records the mapping it was built from, so deleting that mapping (or the
+    # parameterization that belongs to it) removes the shapes made from it; the registry asks, this deletes.
+    mapping_deletions=(conformation_cleanup.forget_mapping,),
     section=('simulations', {
         'slug': 'protein-detergent',
         'label': 'Protein-detergent simulations',

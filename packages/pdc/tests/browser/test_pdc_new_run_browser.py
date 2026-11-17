@@ -45,11 +45,12 @@ CATALOG = {
 
 
 def open_panel(page, base_url):
-    # The shape card reads two routes this lane's server does not serve yet; an empty answer keeps the form's
-    # existing claims independent of that feature while still exercising the card's own mount.
+    # The shape card and the preset bar read routes this lane's server does not serve yet; empty answers keep the
+    # form's existing claims independent of those features while still exercising their mount.
     browser.serve_files(page,
                         (re.compile(r'/api/pdc/conformations/runs'), {'runs': []}),
-                        (re.compile(r'/api/pdc/conformations/libraries'), {'libraries': []}))
+                        (re.compile(r'/api/pdc/conformations/libraries'), {'libraries': []}),
+                        (re.compile(r'/api/setting-presets'), {'presets': [], 'default': None}))
     return browser.open_pdc_new_run(page, base_url)
 
 
@@ -62,8 +63,7 @@ def serve_catalogue(page, proteins=None):
 
 
 def enter_seed(page, value):
-    """The seed lives in the advanced block, whose summary names it, so it is opened before it is filled."""
-    page.locator('#new-advanced > summary').click()
+    """The seed is one of the Stage settings fieldset's own controls now."""
     page.locator('[name=pdc_seed]').fill(value)
 
 
@@ -102,12 +102,15 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
         page.locator(f'#run-form details[data-stage={stage}] summary').click()
     expect(page.locator('#new-assessment-ns')).to_be_visible()
     expect(page.locator('#new-extension-ns')).to_be_visible()
-    expect(page.locator('#new-advanced')).to_be_visible()
+    # There is no separate fold any more: every one of these controls is inside the Stage settings fieldset.
+    assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
+    assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 6
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                  'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks',
-                 'protein_vsite', 'pdc_equil_dt_fs', 'pdc_production_dt_fs',
+                 'protein_vsite', 'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs',
+                 'pdc_extension_dt_fs',
                  'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
                  'pdc_posres_min', 'pdc_posres_nvt', 'pdc_posres_npt',
                  'pdc_npt_pcoupl', 'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p',
@@ -147,6 +150,15 @@ def test_the_two_halves_sit_side_by_side_and_stack_at_the_breakpoint(dashboard, 
     page.set_viewport_size({'width': 1000, 'height': 900})
     stacked = (page.locator('.new-run-inputs').bounding_box(), page.locator('.new-run-settings').bounding_box())
     assert stacked[1]['y'] >= stacked[0]['y'] + stacked[0]['height'] - 1, stacked
+    assert errors == [], errors
+
+
+def test_the_preview_viewer_is_tall_enough_to_read(dashboard, live_page):
+    """The 3D box is measured, not assumed: a host with the old 320 px height would fail this by 140 px."""
+    page, errors = live_page
+    open_panel(page, live_page.base_url)
+    box = page.locator('#run-form .new-pdc-preview-viewer').bounding_box()
+    assert box['height'] >= 460, f'the preview viewer is only {box["height"]:.0f} px tall'
     assert errors == [], errors
 
 
@@ -226,8 +238,7 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     expect(page.locator('#start-run')).to_be_enabled()
     expect(page.locator('#review-status')).to_have_text('Inputs ready')
 
-    # Emptied by hand, the gate names the seed again. The seed lives in the collapsed advanced block.
-    page.locator('#new-advanced > summary').click()
+    # Emptied by hand, the gate names the seed again.
     page.locator('[name=pdc_seed]').fill('')
     expect(page.locator('#launch-blocker')).to_contain_text('Choose a random seed')
     expect(page.locator('#start-run')).to_be_disabled()
@@ -235,44 +246,42 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     assert errors == [], errors
 
 
-def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
-    """The expanded block is a form to scan: 27 fields in two columns, not a page of stacked controls.
+def test_the_six_groups_are_sections_inside_the_stage_settings(dashboard, live_page):
+    """The old Other run options fold is gone; its six groups are sections of the fieldset, in the validation shape.
 
-    A host with a device is stated, so the count is the full form and not the machine this runs on: a host with
-    no GPU hides the device control and one field goes with it.
+    A group that merely exists proves little -- the fold rendered them too. They are asserted to be inside the
+    fieldset, after the five stage editors, each with an h4.new-option-title over a settings grid, and the page must
+    still fit a phone: at 390 px the groups wrap rather than widen the document.
     """
     page, errors = live_page
     page.route('**/api/run/devices', lambda route: route.fulfill(
         json={'devices': [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'}],
               'in_use': {}}))
     open_panel(page, live_page.base_url)
-    page.locator('#new-advanced > summary').click()
 
-    block = page.locator('#new-advanced')
-    expect(block).to_be_visible()
-    # Six groups: the stage settings took the timesteps, the restraints, the minimisation knobs and the NPT coupling
-    # out of this fold, which is the point of the change -- what is left is the run's output and execution.
-    assert page.locator('#new-advanced .new-pdc-option-group').count() == 6
-    assert page.locator('#new-advanced [name]').count() == 27
-    height = block.bounding_box()['height']
-    assert height < 700, f'the expanded block is {height:.0f} px tall; a scan should fit under 700'
+    fieldset = page.locator('#run-form fieldset.new-pdc-stages')
+    assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
+    groups = fieldset.locator(':scope > section.new-option-group')
+    assert groups.count() == 6, 'the six former option groups are not sections of the fieldset'
+    assert page.locator('#run-form .new-option-group [name]').count() == 27, 'a control was lost with the fold'
+    for index in range(6):
+        group = groups.nth(index)
+        expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
+        expect(group.locator(':scope > div.settings-grid')).to_be_visible()
+    # The stages come first: every group sits after the fifth stage editor in document order.
+    last_stage = page.locator('#run-form details.stage-editor').nth(4)
+    assert last_stage.evaluate("el => el.compareDocumentPosition(el.closest('fieldset').querySelector('.new-option-group'))"
+                              " === Node.DOCUMENT_POSITION_FOLLOWING")
 
-    # A row keeps its label and control on one line: the input sits inside the label's own vertical band.
-    first = page.locator('#new-advanced .new-pdc-option-rows > label').first
-    label_box, input_box = first.bounding_box(), first.locator('input').bounding_box()
-    assert label_box['y'] <= input_box['y']
-    assert input_box['y'] + input_box['height'] <= label_box['y'] + label_box['height'] + 1
-
-    # And it folds back to the label-above-control shape rather than widening a phone.
     page.set_viewport_size({'width': 390, 'height': 900})
     browser.assert_no_horizontal_scroll(page)
     assert errors == [], errors
 
 
 def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_page):
-    """Every stage box starts on the number the adapter's defaults state, and only the two timesteps stay blank.
+    """Every stage box starts on the number the adapter's defaults state, and only the four timesteps stay blank.
 
-    A blank timestep is not a missing value: it is the reviewed profile's own dt, which the run records no override
+    A blank timestep is not a missing value: it is that leg's reviewed profile dt, which the run records no override
     for. The durations the panel never showed a starting value for (the equilibration pair) are filled here, which is
     the alias this change had to repair: they used to render blank while the run used 500 and 4 500 ps.
     """
@@ -292,7 +301,7 @@ def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_
     assert tuple(float(values[name]) for name in
                  ('pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility')) == (1.0, 4.0, 4.5e-5)
     assert {name for name, value in values.items() if value in ('', None)} == {
-        'pdc_equil_dt_fs', 'pdc_production_dt_fs'}, values
+        'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs'}, values
     assert errors == [], errors
 
 
@@ -312,18 +321,29 @@ def test_each_stage_editor_states_what_it_holds_even_while_closed(dashboard, liv
     assert facts['assessment'] == '100 ns', facts
     assert facts['extension'] == '900 ns', facts
 
-    # A stated timestep adds the step count it implies, and the count moves with the duration: the same arithmetic
-    # the adapter prepares with (steps = duration / dt).
+    # The three boxes of a dynamics stage: the duration and its own timestep imply the step count, at the same
+    # arithmetic the adapter prepares with (steps = duration / dt).
     page.locator('[name=pdc_nvt_ps]').fill('250')
-    page.locator('[name=pdc_equil_dt_fs]').fill('5')
+    page.locator('[name=pdc_nvt_dt_fs]').fill('5')
     expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text('250 ps · 5 fs · 50 000 steps · free')
+    expect(page.locator('.pdc-steps[data-stage=nvt]')).to_have_value('50000')
+    # Editing the count back-solves the duration at that stage's own timestep.
+    page.locator('.pdc-steps[data-stage=nvt]').fill('10000')
+    expect(page.locator('[name=pdc_nvt_ps]')).to_have_value('50')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text('50 ps · 5 fs · 10 000 steps · free')
     # The restored window shows on the same line, so a closed editor still says whether it holds the backbone.
     page.locator('[name=pdc_posres_nvt]').select_option('yes')
     expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text(
-        '250 ps · 5 fs · 50 000 steps · restrained')
+        '50 ps · 5 fs · 10 000 steps · restrained')
     # Zero duration is a leg the run skips, and the line says so instead of 0 ps.
     page.locator('[name=pdc_nvt_ps]').fill('0')
     expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_contain_text('skipped')
+    # A blank timestep leaves the count unknown to the browser, and says why.
+    page.locator('[name=pdc_nvt_dt_fs]').fill('')
+    steps = page.locator('.pdc-steps[data-stage=nvt]')
+    expect(steps).to_have_value('')
+    assert steps.evaluate('el => el.readOnly')
+    assert 'timestep' in steps.get_attribute('title')
     assert errors == [], errors
 
 
@@ -441,10 +461,14 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').fill('220')
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
-    # The two timesteps sit at the top of the stage settings and the two equilibration durations in their own editors;
-    # stated, all four post under the adapter's advertised names.
-    page.locator('[name=pdc_equil_dt_fs]').fill('10')
-    page.locator('[name=pdc_production_dt_fs]').fill('20')
+    # Each dynamics stage carries its own timestep beside its duration; stated, all eight post under the adapter's
+    # advertised names. The two production editors are closed until a reader opens them.
+    for stage in ('assessment', 'extension'):
+        page.locator(f'#run-form details[data-stage={stage}] summary').click()
+    page.locator('[name=pdc_nvt_dt_fs]').fill('10')
+    page.locator('[name=pdc_npt_dt_fs]').fill('10')
+    page.locator('[name=pdc_assessment_dt_fs]').fill('20')
+    page.locator('[name=pdc_extension_dt_fs]').fill('20')
     page.locator('[name=pdc_nvt_ps]').fill('100')
     page.locator('[name=pdc_npt_ps]').fill('200')
     # The minimisation's own boxes and one restraint choice per leg: each editor states its own window, and the
@@ -461,7 +485,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('[name=pdc_npt_compressibility]').fill('0.0001')
     # Leaving the field runs the readiness check that re-enables the button; clicking while it is pending would hit a
     # disabled button (a number input's change fires on blur, before the click).
-    page.locator('[name=pdc_production_dt_fs]').press('Tab')
+    page.locator('[name=pdc_extension_dt_fs]').press('Tab')
     expect(page.locator('#start-run')).to_be_enabled()
     page.locator('#start-run').click()
 
@@ -481,7 +505,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
-        'pdc_equil_dt_fs': 10, 'pdc_production_dt_fs': 20,
+        'pdc_nvt_dt_fs': 10, 'pdc_npt_dt_fs': 10,
+        'pdc_assessment_dt_fs': 20, 'pdc_extension_dt_fs': 20,
         'pdc_posres_min': 'no', 'pdc_posres_nvt': 'no', 'pdc_posres_npt': 'no',
         'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
         'pdc_minimisation_steps': 400000, 'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002,

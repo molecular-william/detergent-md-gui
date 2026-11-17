@@ -55,6 +55,8 @@ ROW_TOLERANCE_PX = 3
 
 def serve(page, catalog=CATALOG):
     browser.serve_pdc_new_run(page, catalogue=catalog)
+    page.route(re.compile(r'/api/setting-presets'),
+               lambda route: route.fulfill(json={'presets': [], 'default': None}))
     page.route(re.compile(r'/encapsulation'),
                lambda route: route.fulfill(status=400, json={'error': 'sizing is not exercised here'}))
 

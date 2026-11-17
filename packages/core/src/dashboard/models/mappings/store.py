@@ -47,6 +47,33 @@ def candidate_paths():
     return {p.name: p for root in (SOURCE, storage_root()) for p in sorted(root.glob('mapping_candidate*.json'))}
 
 
+def sha256_for_parameterization(name):
+    """The byte digests of every saved mapping whose parameterization record this name addresses.
+
+    A parameterization belongs to the mapping whose display name it was fitted for, and the store stamps that name on
+    each candidate (`_read_candidate`'s `parameterization_name`). The file is read without the graph validation `get`
+    runs, because the question is which file a record belongs to and a draft of another molecule must not hide
+    itself. More than one file can answer for one name (a hand-written copy); all are returned, since every one is a
+    mapping whose parameterization the caller is about to lose.
+    """
+    wanted = run_names.slug(name)
+    digests = []
+    for path in candidate_paths().values():
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if run_names.slug(data.get('name') or path.name) != wanted:
+            continue
+        try:
+            digests.append(hashlib.sha256(path.read_bytes()).hexdigest())
+        except OSError:
+            continue
+    return digests
+
+
 def get(name, *, context=None):
     path = candidate_paths().get(name)
     if path is None:
@@ -183,8 +210,12 @@ def delete_draft(name):
     if not path.is_file():
         raise KeyError(name)
     data = _draft_data(path)
+    # The byte digest of the file itself, read before it goes: this is the same digest a run records as its mapping
+    # input and a stored library records as the mapping it was built from, so the caller can purge what it shaped.
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
     path.unlink()
-    return {'deleted': name, 'parameterization': _forget_parameterization(data)}
+    return {'deleted': name, 'mapping_sha256': digest,
+            'parameterization': _forget_parameterization(data)}
 
 
 def _draft_data(path):

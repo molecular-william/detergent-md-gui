@@ -154,10 +154,16 @@ SETTING_SPECS = {
     'ref_p': ('Pressure (bar)', 0.1, 100.0),
     'tau_p': ('Barostat coupling (ps)', 0.1, 100.0),
     'compressibility': ('Compressibility (bar^-1)', 0.0, 1.0),
-    # The two timesteps the CG legs integrate at, in fs, and deliberately no `DEFAULTS` entry: unset is the reviewed
-    # profile's own number (5 fs equilibration, 20 fs production), so an untouched run renders the reviewed file. A
-    # run that names one keeps its duration in ps and changes only the step count that duration becomes. The bounds
-    # are the CG precedent's, whose production ceiling is a stability decision rather than an oversight.
+    # One timestep per dynamics leg, in fs, and deliberately no `DEFAULTS` entry: unset is the reviewed profile's
+    # own number (5 fs equilibration, 20 fs production), so an untouched run renders the reviewed file. A run that
+    # names one keeps its duration in ps and changes only the step count that duration becomes. The bounds are the
+    # CG precedent's, whose production ceiling is a stability decision rather than an oversight.
+    'pdc_nvt_dt_fs': ('CG NVT timestep (fs)', 0.5, 20),
+    'pdc_npt_dt_fs': ('CG NPT timestep (fs)', 0.5, 20),
+    'pdc_assessment_dt_fs': ('CG assessment timestep (fs)', 0.5, 50),
+    'pdc_extension_dt_fs': ('CG extension timestep (fs)', 0.5, 50),
+    # The two settings the per-leg split retired. Still advertised so a payload, preset or clone written before the
+    # split validates, and translated into the four above in `_numbers`; a run never renders them.
     'pdc_equil_dt_fs': ('Equilibration timestep (fs)', 0.5, 20),
     'pdc_production_dt_fs': ('Production timestep (fs)', 0.5, 50),
     'mdrun_ntomp': ('mdrun OpenMP threads per rank', 1, 72),
@@ -185,6 +191,16 @@ SETTING_SPECS = {
     'mdrun_cpt': ('Checkpoint interval (minutes)', 1, 100000),
 }
 
+#: The four per-leg timestep settings, one per dynamics leg. The form states femtoseconds and the MDP writes ps, so
+#: one division by 1000 sits between them, in `_dt_ps`.
+NVT_TIMESTEP = 'pdc_nvt_dt_fs'
+NPT_TIMESTEP = 'pdc_npt_dt_fs'
+ASSESSMENT_TIMESTEP = 'pdc_assessment_dt_fs'
+EXTENSION_TIMESTEP = 'pdc_extension_dt_fs'
+#: The two settings the per-leg split retired. Read in `_numbers` and translated to the four above, never rendered.
+RETIRED_EQUIL_TIMESTEP = 'pdc_equil_dt_fs'
+RETIRED_PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
+
 # What each equilibration leg's shared script has to know: the mdp it runs, the phase it copies its system from, the
 # reviewed profile that mdp is written from, and the setting that turns into steps. Keyed by the stage's own name, so
 # the declaration in `STAGES`, the generated `inputs/<stage>.json` record and the script cannot name two different legs.
@@ -197,11 +213,13 @@ LEGS = {
         'reason': 'the run asks for 0 minimisation steps, so this stage has nothing to do'},
     'NVT equilibration': {
         'key': 'nvt', 'mdp': 'nvt.mdp', 'profile': 'pdc-nvt-v1', 'setting': 'nvt_ps', 'seed_velocities': True,
+        'timestep': NVT_TIMESTEP,
         'from': '03_minimisation',
         'purpose': 'hold the system at fixed volume while the thermostat brings it to 300 K',
         'reason': 'the run asks for a 0 ps NVT equilibration, so this stage has nothing to do'},
     'NPT equilibration': {
         'key': 'npt', 'mdp': 'npt.mdp', 'profile': 'pdc-npt-v1', 'setting': 'npt_ps',
+        'timestep': NPT_TIMESTEP,
         'checkpoint': '../04_nvt/system.cpt',
         'from': '04_nvt',
         'purpose': 'hold the system at 1 bar so the box reaches its density before production',
@@ -605,11 +623,6 @@ def _profile_dt(profile: str) -> float:
     return float(PROFILES[profile].settings['dt'])
 
 
-#: The settings a run may name to replace a reviewed timestep. The form states femtoseconds and the MDP writes ps, so
-#: one division by 1000 sits between them, in `_dt_ps`.
-EQUIL_TIMESTEP = 'pdc_equil_dt_fs'
-PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
-
 #: The mdp define that opens the transient position-restraint window: with it, `grompp` reads the
 #: `#ifdef POSRES` block martinize2 wrote into the protein's own itp. The martinize2 elastic network is a bonded
 #: term in every leg regardless; this is the extra, optional window, and one choice per leg opens it.
@@ -650,6 +663,30 @@ def _dt_ps(profile: str, settings: dict, setting: str) -> float:
     """The timestep one mdp is written at, in ps: the run's own override, else the reviewed profile's own number."""
     override = settings.get(setting)
     return float(override) / 1000 if override is not None else _profile_dt(profile)
+
+
+def _with_leg_timesteps(supplied: dict) -> dict:
+    """One run's timesteps, in the per-leg spelling the writer reads.
+
+    A caller that states any per-leg setting states its own; a caller that still sends only the two retired settings
+    is translated to what they meant -- the equilibration pair and the production pair -- and the retired keys are
+    dropped, so the record cannot carry two answers to one question. A caller that mixes the two spellings is read
+    as stating its own legs, and the retired keys are dropped without inventing values for the legs it left out.
+    """
+    retired = (RETIRED_EQUIL_TIMESTEP, RETIRED_PRODUCTION_TIMESTEP)
+    legs = (NVT_TIMESTEP, NPT_TIMESTEP, ASSESSMENT_TIMESTEP, EXTENSION_TIMESTEP)
+    if not isinstance(supplied, dict):
+        return supplied
+    if any(setting in supplied for setting in legs):
+        return {key: value for key, value in supplied.items() if key not in retired}
+    translated = {}
+    if RETIRED_EQUIL_TIMESTEP in supplied:
+        translated[NVT_TIMESTEP] = translated[NPT_TIMESTEP] = supplied[RETIRED_EQUIL_TIMESTEP]
+    if RETIRED_PRODUCTION_TIMESTEP in supplied:
+        translated[ASSESSMENT_TIMESTEP] = translated[EXTENSION_TIMESTEP] = supplied[RETIRED_PRODUCTION_TIMESTEP]
+    if not translated:
+        return supplied
+    return {key: value for key, value in supplied.items() if key not in retired} | translated
 
 
 #: The reviewed MDP names the run supplies, mapped to the settings key the panel sends. The production profiles
@@ -698,36 +735,42 @@ def _assessment_mdp(inputs: Path, settings: dict) -> int:
     system the NPT leg left. Without removal there is no second leg to extend, so the requested sampling is one
     plain CG MD leg and both durations are folded into this one.
 
-    The duration is converted into steps with the reviewed profile's own `dt`, or with the run's own when it names
-    one, and the profile states the integration settings the reviewed profile states, so the coarse-grained half of a
-    solved CG run and this stage cannot disagree about the timestep.
+    The duration is converted into steps with the assessment leg's own `dt` setting, or with the reviewed profile's
+    own when the run names none, and the profile states the integration settings the reviewed profile states, so the
+    coarse-grained half of a solved CG run and this stage cannot disagree about the timestep.
     """
     profile = 'pdc-assessment-v1'
     duration_ns = float(settings['assessment_ns'])
     if not settings.get('remove_out_of_micelle', True):
         duration_ns += float(settings['extension_ns'])
-    dt = _dt_ps(profile, settings, PRODUCTION_TIMESTEP)
+    dt = _dt_ps(profile, settings, ASSESSMENT_TIMESTEP)
     steps = round(duration_ns * 1000 / dt)
     values = _mdp_run_values(profile, settings, {'nsteps': steps})
-    if PRODUCTION_TIMESTEP in settings:
+    if ASSESSMENT_TIMESTEP in settings:
         values['dt'] = dt
     write_mdp(profile, inputs / 'assessment.mdp', values)
     return steps
 
 
-def _extension_inputs(inputs: Path, settings: dict, skipped: dict, assessment_steps: int) -> int:
+def _extension_inputs(inputs: Path, settings: dict, skipped: dict) -> int:
     """The extension phase's data: the assessment profile continuing instead of starting, and the restart's own pieces.
 
     Velocities are not regenerated -- this phase continues the trajectory it was given, which is the profile's
     `gen-vel = no` -- and the duration travels as picoseconds, which is what `convert-tpr -extend` takes. A run with
     removal off has no extension stage and gets none of this data.
+
+    The file's own `dt` and `nsteps` are the restart path's numbers: `pdc_extension.restart_mdp` reads `dt` from it
+    and recomputes the step count for the requested duration, so writing both here from the same extension duration
+    keeps the two consistent. The continue path does not read them at all -- it extends the assessment tpr, which
+    keeps the assessment's `dt` -- so the extension's own timestep reaches only the restarted system.
     """
     extension_ps = round(float(settings['extension_ns']) * 1000)
     if 'CG extension MD' in skipped:
         return extension_ps
-    values = {'nsteps': assessment_steps}
-    if PRODUCTION_TIMESTEP in settings:
-        values['dt'] = _dt_ps('pdc-extension-v1', settings, PRODUCTION_TIMESTEP)
+    dt = _dt_ps('pdc-extension-v1', settings, EXTENSION_TIMESTEP)
+    values = {'nsteps': round(extension_ps / dt)}
+    if EXTENSION_TIMESTEP in settings:
+        values['dt'] = dt
     write_mdp('pdc-extension-v1', inputs / 'extension.mdp',
               _mdp_run_values('pdc-extension-v1', settings, values))
     # The removal path rebuilds the system from the kept coordinates, so this stage needs the same mdps and water the
@@ -763,16 +806,17 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
         # says yes: the define would be inert, and the file would claim a restraint the system does not carry.
         restrained = has_protein and leg['key'] in POSRES_SETTINGS and _posres(settings, leg['key'])
         wanted = float(settings[leg['setting']])
-        # The profile decides the unit: a duration becomes steps at the run's own timestep when it names one, else at
-        # *its* own, so lowering a timestep cannot silently shorten the leg the run asked for. The minimisation's
-        # setting is already a step count.
+        # The profile decides the unit: a duration becomes steps at this leg's own timestep when the run names one,
+        # else at the profile's own, so lowering a timestep cannot silently shorten the leg the run asked for. The
+        # minimisation's setting is already a step count.
         if leg['setting'] == 'minimisation_steps':
             count = int(wanted)
             values = {'nsteps': count,
                       'emtol': settings['pdc_minimisation_emtol'],
                       'emstep': settings['pdc_minimisation_emstep']}
         else:
-            dt = _dt_ps(leg['profile'], settings, EQUIL_TIMESTEP)
+            dt_setting = leg['timestep']
+            dt = _dt_ps(leg['profile'], settings, dt_setting)
             count = round(wanted / dt)
             values = {'nsteps': count}
             if leg['key'] == 'npt':
@@ -794,7 +838,7 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
                     # The reference coordinates follow the box the barostat changes; without this the restraints
                     # pull against the pressure coupling instead of holding the protein in a scaling box.
                     values['refcoord-scaling'] = 'com'
-            if EQUIL_TIMESTEP in settings:
+            if dt_setting in settings:
                 values['dt'] = dt
         if leg.get('seed_velocities'):
             values['gen-seed'] = int(settings['seed'])
@@ -828,7 +872,7 @@ def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
     other four adapters raise for both; this is the same rule, in one place, for the two entry points here.
     """
     numbers = normalize(
-        supplied, DEFAULTS, specs=_SPEC_BY_NUMBER, choices=CHOICE_SPECS, aliases=_ALIASES,
+        _with_leg_timesteps(supplied), DEFAULTS, specs=_SPEC_BY_NUMBER, choices=CHOICE_SPECS, aliases=_ALIASES,
         ignore_unknown=ignore_unknown, object_message='PDC settings must be an object',
         unknown_prefix='Unknown PDC setting: ', bool_message='PDC settings must be numeric',
         integrals=_INTEGRAL_MESSAGES, integral_in_loop=True)
@@ -836,12 +880,14 @@ def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
     return numbers
 
 
-#: How each duration setting becomes steps: the leg it names, the profile whose timestep it falls back to, and the
-#: timestep setting an override arrives under. The extension's own duration travels to `convert-tpr` in ps, so its
-#: timestep is the assessment tpr's and needs no separate conversion here.
-_DURATION_LEGS = (('nvt_ps', 'pdc-nvt-v1', EQUIL_TIMESTEP, 'NVT equilibration'),
-                  ('npt_ps', 'pdc-npt-v1', EQUIL_TIMESTEP, 'NPT equilibration'),
-                  ('assessment_ns', 'pdc-assessment-v1', PRODUCTION_TIMESTEP, 'CG assessment MD'))
+#: How each duration setting becomes steps: the leg it names, the profile whose timestep it falls back to, and that
+#: leg's own timestep setting. The extension's own duration travels to `convert-tpr` in ps on the continue path, so
+#: only its restarted system's step count is converted from it here; that conversion is the restart's own file, and
+#: the guard below still refuses a timestep that would leave the requested extension at no step.
+_DURATION_LEGS = (('nvt_ps', 'pdc-nvt-v1', NVT_TIMESTEP, 'NVT equilibration'),
+                  ('npt_ps', 'pdc-npt-v1', NPT_TIMESTEP, 'NPT equilibration'),
+                  ('assessment_ns', 'pdc-assessment-v1', ASSESSMENT_TIMESTEP, 'CG assessment MD'),
+                  ('extension_ns', 'pdc-extension-v1', EXTENSION_TIMESTEP, 'CG extension MD'))
 
 
 def _refuse_a_zero_step_leg(numbers: dict) -> None:
@@ -849,17 +895,20 @@ def _refuse_a_zero_step_leg(numbers: dict) -> None:
 
     Every duration becomes `round(duration / dt)`, so a timestep coarser than the leg is 0 steps: mdrun would be asked
     for nothing while the manifest claimed the leg runs. Only a run that names a timestep is judged, so an untouched
-    run keeps the reviewed arithmetic exactly, and the refusal names the field the reader set.
+    run keeps the reviewed arithmetic exactly, and the refusal names that leg's own setting.
     """
     for setting, profile, dt_setting, label in _DURATION_LEGS:
         if dt_setting not in numbers:
             continue
-        if setting == 'assessment_ns':
-            duration_ps = float(numbers.get(setting, 0)) * 1000
-            if not numbers.get('remove_out_of_micelle', True):
-                duration_ps += float(numbers.get('extension_ns', 0)) * 1000
-        else:
-            duration_ps = float(numbers.get(setting, 0))
+        # The extension stage does not run when removal is off: its duration is folded into the assessment leg, which
+        # the assessment's own entry already guards.
+        if setting == 'extension_ns' and not numbers.get('remove_out_of_micelle', True):
+            continue
+        duration_ps = float(numbers.get(setting, 0))
+        if setting.endswith('_ns'):
+            duration_ps *= 1000
+        if setting == 'assessment_ns' and not numbers.get('remove_out_of_micelle', True):
+            duration_ps += float(numbers.get('extension_ns', 0)) * 1000
         if duration_ps > 0 and round(duration_ps / _dt_ps(profile, numbers, dt_setting)) == 0:
             raise ValueError(f'{dt_setting} = {float(numbers[dt_setting]):g} fs leaves the {label} at 0 steps; '
                              'lower the timestep or lengthen the leg')
@@ -1239,7 +1288,7 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
          **numbers},
         indent=2, sort_keys=True))
     assessment_steps = _assessment_mdp(inputs, numbers)
-    extension_ps = _extension_inputs(inputs, numbers, skipped, assessment_steps)
+    extension_ps = _extension_inputs(inputs, numbers, skipped)
     equilibration_steps = _equilibration_mdps(inputs, numbers, skipped, has_protein=protein_path is not None)
     if 'Energy minimisation' not in skipped or 'CG extension MD' not in skipped:
         # Solvation's fix-up mdp and the water it packs, for the first leg and for the extension's restart alike.

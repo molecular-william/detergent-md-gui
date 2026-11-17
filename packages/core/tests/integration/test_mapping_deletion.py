@@ -8,8 +8,14 @@ its recorded content identity is gone with it.
 These tests drive the real store and the real route -- no stubbed deletion -- in the workspace the
 `dashboard` fixture built under `tmp_path`; the developer's `workspace/` is never read.
 """
+from pathlib import Path
+
 import pytest
+from dashboard import features, files
 from dashboard.models.bonded import parameterization
+from detergent_pdc import conformations
+
+from tests.harness import conformation_fixtures
 
 TOPOLOGY = ('[ moleculetype ]\nDDM 1\n\n[ atoms ]\n'
             '1 C1 1 DDM B01 1 0 72\n2 C1 1 DDM B02 2 0 72\n\n'
@@ -112,3 +118,40 @@ def test_a_mapping_hash_does_not_answer_for_a_deleted_draft_either(client):
                        query_string={'mapping_hash': draft['mapping_hash']}).json
     assert after['summary']['parameterized'] is False
     assert after['revisions'] == []
+
+
+def stored_library(dashboard, draft, run_id='c0f0e1234567'):
+    """The shape a pdc run built from this mapping, in the workspace the route will delete from."""
+    mapping = Path(dashboard.paths.mapping_drafts) / draft['file']
+    conformation_fixtures.run_tree(dashboard.paths.workspace, run_id=run_id,
+                                   mapping_sha256=files.sha256(mapping))
+    return conformations.resolve(dashboard.paths.workspace, {'runs': [run_id], 'size': 2, 'seed': 0})
+
+
+def test_deleting_a_mapping_purges_the_stored_libraries_built_from_it(client, dashboard):
+    """The mapping's digest is what a library records, so the route removes the shapes made from it and says which."""
+    draft = save(client)
+    mapping = Path(dashboard.paths.mapping_drafts) / draft['file']
+    digest = files.sha256(mapping)
+    library = stored_library(dashboard, draft)
+
+    response = client.delete('/api/mappings/drafts/' + draft['file'])
+
+    assert response.status_code == 200
+    assert response.json['mapping_sha256'] == digest
+    assert response.json['conformations'] == {'pdc': [library.key]}
+    assert not library.path.parent.exists()
+    assert client.get('/api/pdc/conformations/libraries').json['libraries'] == []
+
+
+def test_deleting_a_mapping_with_no_feature_that_owns_libraries_is_a_no_op(client, dashboard, monkeypatch):
+    """The engine asks the registry and never imports a feature: with no callback, only the mapping goes."""
+    draft = save(client)
+    library = stored_library(dashboard, draft)
+    monkeypatch.setattr(features, 'ensure', lambda: [])
+
+    response = client.delete('/api/mappings/drafts/' + draft['file'])
+
+    assert response.status_code == 200
+    assert response.json['conformations'] == {}
+    assert library.path.is_file(), 'nothing the engine cannot name is removed'

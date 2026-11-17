@@ -178,6 +178,30 @@ def pdc_conformations_libraries():
     return jsonify({'libraries': conformations.available(paths.current().workspace, residue)})
 
 
+@blueprint.delete('/api/pdc/conformations/libraries/<key>')
+def pdc_conformations_library_delete(key):
+    """Delete one stored library, after a browser confirm.
+
+    A stored library is an input a prepared run may pin, so this is irreversible in the same sense the panel's other
+    destructive controls are: `confirm: true` is required, and a key that is not the store's own 16-hex form is a
+    malformed request rather than a lookup that misses. The store validates the key again and only ever removes a
+    directory it found under its own root, so this route cannot name a path. A verified library that is already gone
+    is a 404 -- a panel showing a stale row is a missing file, not a bad request.
+    """
+    from detergent_pdc.conformations import library
+
+    payload = json_object(optional=True)
+    if payload.get('confirm') is not True:
+        return jsonify({'error': 'Deleting a stored library requires confirmation'}), 400
+    try:
+        deleted = library.delete(paths.current().workspace, key)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    except KeyError:
+        return jsonify({'error': f'the store holds no library {key!r}'}), 404
+    return jsonify({'deleted': deleted['key'], 'residue': deleted['residue'], 'path': deleted['path']})
+
+
 def model_entry(record):
     """One saved mapping as a model the picker can offer, or `None` for one a build could not reuse.
 

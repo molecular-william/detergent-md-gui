@@ -1,6 +1,7 @@
 """Mapping workspace endpoints: candidates, drafts, review."""
 from flask import Blueprint, abort, jsonify, request
 
+from ... import features, paths
 from ...models import mappings
 from ...models.bonded import parameterization
 from ...models.mappings import (
@@ -166,12 +167,16 @@ def mapping_delete_draft(name):
 
     Both halves of the answer come from the store, and `parameterization` is the store's report of what
     it removed -- or, for shared content, which saved mappings kept it and why. `deleted` is still the
-    name alone, because that is what the panel's own delete reads.
+    name alone, because that is what the panel's own delete reads. The file's digest goes to the feature
+    registry after the delete, so a feature can remove what it built from this mapping, and `conformations`
+    is its report of the keys that went.
     """
     try:
-        return jsonify(**mappings.delete_draft(name))
+        report = mappings.delete_draft(name)
     except KeyError:
         abort(404, 'Unknown draft candidate')
     except ValueError:
         abort(400, 'Invalid draft candidate name')
+    report['conformations'] = features.forget_mapping(paths.current().workspace, report.get('mapping_sha256'))
+    return jsonify(**report)
 

@@ -27,6 +27,8 @@ CATALOG = {
 
 def serve(page):
     browser.serve_pdc_new_run(page, catalogue=CATALOG)
+    page.route(re.compile(r'/api/setting-presets'),
+               lambda route: route.fulfill(json={'presets': [], 'default': None}))
     page.route(re.compile(r'/encapsulation'),
                lambda route: route.fulfill(status=400, json={'error': 'sizing is not exercised here'}))
 
@@ -109,8 +111,8 @@ def test_the_toggle_value_reaches_the_payload(dashboard, live_page):
 def test_the_protein_virtual_site_choice_is_offered_and_reaches_the_payload(dashboard, live_page):
     """The back-map's pdb2gmx choice: three values, `none` by default, and the chosen one on the payload.
 
-    The control lives in Other run options, which is why the test opens that block. The review names the value and the
-    flag it becomes, so a reader can tell whether this run's pdb2gmx will virtualise the protein.
+    The control is a section of the Stage settings fieldset now. The review names the value and the flag it becomes,
+    so a reader can tell whether this run's pdb2gmx will virtualise the protein.
     """
     page, errors = live_page
     posted = {}
@@ -125,7 +127,6 @@ def test_the_protein_virtual_site_choice_is_offered_and_reaches_the_payload(dash
 
     page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
     open_panel(page, live_page.base_url)
-    page.locator('#new-advanced > summary').click()
 
     choice = page.locator('[name=protein_vsite]')
     expect(choice).to_be_visible()

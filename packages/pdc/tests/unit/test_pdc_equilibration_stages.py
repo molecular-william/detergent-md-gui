@@ -147,6 +147,19 @@ def test_the_npt_leg_pressures_the_system_with_the_equilibration_coupling(tmp_pa
     assert numbers['gen-vel'] == 'no', 'the NPT leg continues the NVT leg rather than re-drawing its velocities'
 
 
+def test_each_equilibration_leg_integrates_at_its_own_timestep(tmp_path):
+    """NVT and NPT are separate legs, so one may be gentler than the other without moving the other's numbers."""
+    run = prepared(tmp_path, nvt_ps=100, npt_ps=100, pdc_nvt_dt_fs=10, pdc_npt_dt_fs=2)
+
+    nvt = mdp_numbers(leg_mdp(run, 'NVT equilibration'))
+    npt = mdp_numbers(leg_mdp(run, 'NPT equilibration'))
+
+    assert float(nvt['dt']) == 0.01 and int(nvt['nsteps']) == round(100 / 0.01)
+    assert float(npt['dt']) == 0.002 and int(npt['nsteps']) == round(100 / 0.002)
+    record = json.loads((run / 'manifest.json').read_text())
+    assert record['equilibration_steps'] == {'minimisation': 200000, 'nvt': 10000, 'npt': 50000}
+
+
 def test_each_leg_reads_the_system_the_leg_before_it_left(tmp_path):
     run = prepared(tmp_path)
 

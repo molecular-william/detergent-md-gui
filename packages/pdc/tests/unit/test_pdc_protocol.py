@@ -70,9 +70,10 @@ def test_a_pdc_setting_is_held_to_the_bounds_the_adapter_publishes():
                               ({'bogus_key': 1}, 'Unknown PDC setting: bogus_key'),
                               ({'pdc_npt_ps': 'abc'}, 'npt_ps must be numeric'),
                               ({'pdc_seed': 4.5}, 'seed must be an integer'),
-                              ({'pdc_equil_dt_fs': 0.4}, 'pdc_equil_dt_fs must be between 0.5 and 20'),
-                              ({'pdc_equil_dt_fs': 25}, 'pdc_equil_dt_fs must be between 0.5 and 20'),
-                              ({'pdc_production_dt_fs': 60}, 'pdc_production_dt_fs must be between 0.5 and 50'),
+                              ({'pdc_nvt_dt_fs': 0.4}, 'pdc_nvt_dt_fs must be between 0.5 and 20'),
+                              ({'pdc_npt_dt_fs': 25}, 'pdc_npt_dt_fs must be between 0.5 and 20'),
+                              ({'pdc_assessment_dt_fs': 60}, 'pdc_assessment_dt_fs must be between 0.5 and 50'),
+                              ({'pdc_extension_dt_fs': 0.4}, 'pdc_extension_dt_fs must be between 0.5 and 50'),
                               ({'backmap': 'yes'}, 'backmap must be one of True, False')]:
         with pytest.raises(ValueError) as refused:
             adapter.normalize_settings(supplied)
@@ -92,33 +93,84 @@ def test_a_setting_supplied_under_either_spelling_reaches_the_builder_the_same_w
     assert long_form['npt_ps'] == adapter.stage_defaults()['npt_ps']
 
 
-def test_the_two_timesteps_are_advertised_with_the_cg_bounds_and_no_default():
-    """The form's two new controls must survive the queue's advertised-key filter and start as the profile's own."""
+def test_each_leg_advertises_its_own_timestep_with_the_cg_bounds_and_no_default():
+    """The form's four controls must survive the queue's advertised-key filter and start as each profile's own dt."""
     adapter = protocol.adapter_for('pdc')
     specs = adapter.settings_specs()
 
+    assert specs['pdc_nvt_dt_fs'] == ('CG NVT timestep (fs)', 0.5, 20)
+    assert specs['pdc_npt_dt_fs'] == ('CG NPT timestep (fs)', 0.5, 20)
+    assert specs['pdc_assessment_dt_fs'] == ('CG assessment timestep (fs)', 0.5, 50)
+    assert specs['pdc_extension_dt_fs'] == ('CG extension timestep (fs)', 0.5, 50)
+    for setting in ('pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs'):
+        assert setting not in adapter.stage_defaults(), 'unset means the reviewed profile dt'
+    # The retired spellings stay advertised so a payload, preset or clone written before the split still validates;
+    # a run never renders them, because `_numbers` translates them to the per-leg pair.
     assert specs['pdc_equil_dt_fs'] == ('Equilibration timestep (fs)', 0.5, 20)
     assert specs['pdc_production_dt_fs'] == ('Production timestep (fs)', 0.5, 50)
-    assert 'pdc_equil_dt_fs' not in adapter.stage_defaults(), 'unset means the reviewed profile dt'
-    assert 'pdc_production_dt_fs' not in adapter.stage_defaults()
-    numbers = adapter.normalize_settings({'pdc_equil_dt_fs': 7.5, 'pdc_production_dt_fs': 25})
-    assert (numbers['pdc_equil_dt_fs'], numbers['pdc_production_dt_fs']) == (7.5, 25)
+
+
+def test_the_retired_timesteps_translate_to_the_four_per_leg_numbers():
+    """One old equilibration dt means both equilibration legs; one old production dt means both production legs."""
+    adapter = protocol.adapter_for('pdc')
+    legs = ('pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs')
+
+    retired = adapter.normalize_settings({'pdc_equil_dt_fs': 7.5, 'pdc_production_dt_fs': 25})
+    supplied = adapter.normalize_settings({'pdc_nvt_dt_fs': 7.5, 'pdc_npt_dt_fs': 7.5,
+                                           'pdc_assessment_dt_fs': 25, 'pdc_extension_dt_fs': 25})
+
+    assert {key: retired[key] for key in legs} == {key: supplied[key] for key in legs} == {
+        'pdc_nvt_dt_fs': 7.5, 'pdc_npt_dt_fs': 7.5,
+        'pdc_assessment_dt_fs': 25, 'pdc_extension_dt_fs': 25}
+    assert 'pdc_equil_dt_fs' not in retired and 'pdc_production_dt_fs' not in retired, \
+        'the record cannot carry two answers to one question'
+
+
+def test_stating_a_per_leg_timestep_drops_the_retired_keys_without_inventing_the_others():
+    """A caller that states new keys states its own; the retired pair is not allowed to fill in the missing legs."""
+    adapter = protocol.adapter_for('pdc')
+
+    numbers = adapter.normalize_settings({'pdc_nvt_dt_fs': 10, 'pdc_equil_dt_fs': 20,
+                                          'pdc_production_dt_fs': 30})
+
+    assert numbers['pdc_nvt_dt_fs'] == 10
+    for setting in ('pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
+                    'pdc_equil_dt_fs', 'pdc_production_dt_fs'):
+        assert setting not in numbers, setting
 
 
 def test_a_timestep_that_leaves_a_leg_at_no_step_is_refused_by_name():
-    """A dt coarser than a requested leg would ask mdrun for nothing; the refusal names the field the reader set."""
+    """A dt coarser than a requested leg would ask mdrun for nothing; the refusal names that leg's own setting."""
     adapter = protocol.adapter_for('pdc')
 
-    with pytest.raises(ValueError, match='pdc_equil_dt_fs = 20 fs leaves the NVT equilibration at 0 steps'):
-        adapter.normalize_settings({'pdc_nvt_ps': 0.01, 'pdc_equil_dt_fs': 20})
+    with pytest.raises(ValueError, match='pdc_nvt_dt_fs = 20 fs leaves the NVT equilibration at 0 steps'):
+        adapter.normalize_settings({'pdc_nvt_ps': 0.01, 'pdc_nvt_dt_fs': 20})
+    with pytest.raises(ValueError, match='pdc_npt_dt_fs = 20 fs leaves the NPT equilibration at 0 steps'):
+        adapter.normalize_settings({'pdc_npt_ps': 0.01, 'pdc_npt_dt_fs': 20})
+    # The assessment's duration floor is 1 ns and its coarsest step 50 fs, so a 0-step assessment is unreachable
+    # from the form; the guard is told so directly.
+    with pytest.raises(ValueError, match='pdc_assessment_dt_fs = 50 fs leaves the CG assessment MD at 0 steps'):
+        pdc._refuse_a_zero_step_leg({'assessment_ns': 0.00001, 'pdc_assessment_dt_fs': 50})
     # The zero-duration leg is a skip request rather than a zero-step run, so the same timestep is not refused alone.
-    assert adapter.normalize_settings({'pdc_nvt_ps': 0, 'pdc_equil_dt_fs': 20})['pdc_equil_dt_fs'] == 20
+    assert adapter.normalize_settings({'pdc_nvt_ps': 0, 'pdc_nvt_dt_fs': 20})['pdc_nvt_dt_fs'] == 20
+
+
+def test_the_extension_timestep_is_guarded_only_when_that_stage_will_run():
+    """The form's 1 ns floor never rounds to 0 steps, so the guard is pinned where it lives.
+
+    With removal off the extension stage is skipped and its duration is folded into the assessment leg, so the
+    extension's own timestep has no leg to leave empty.
+    """
+    with pytest.raises(ValueError, match='pdc_extension_dt_fs = 50 fs leaves the CG extension MD at 0 steps'):
+        pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50})
+    pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50,
+                                 'remove_out_of_micelle': False})
 
 
 def test_prepare_refuses_the_timestep_that_would_run_no_step(tmp_path):
     """The guard is in the one normalizer `prepare` reads, so the run is refused before a stage is written."""
-    with pytest.raises(ValueError, match='pdc_equil_dt_fs'):
-        prepared_run(tmp_path, settings={'nvt_ps': 0.01, 'pdc_equil_dt_fs': 20})
+    with pytest.raises(ValueError, match='pdc_nvt_dt_fs'):
+        prepared_run(tmp_path, settings={'nvt_ps': 0.01, 'pdc_nvt_dt_fs': 20})
 
 
 def test_the_production_output_cadence_is_a_run_setting():

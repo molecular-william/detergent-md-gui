@@ -26,6 +26,7 @@ import fcntl
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import time
 from dataclasses import dataclass
@@ -392,6 +393,26 @@ def _atomic_write(path, payload):
             os.unlink(temporary)
 
 
+def delete(workspace, key):
+    """Remove one stored library from the workspace and answer `{'key', 'residue', 'path'}`.
+
+    `key` is checked against the store's own format before it is used to look anything up, and the lookup is the
+    store's own `_locate`, so a KeyError names absence while a key shaped like a path is a ValueError and never a
+    delete somewhere else. A delete is one `shutil.rmtree` of the store's own `<residue>/<key>`: there is no
+    half-deleted library the way there is no half-written one, but it is a directory removal and not a transaction, so
+    a caller that needs the digest it pinned fails the way any later reader of a removed library does. Absence is a
+    KeyError rather than an empty answer, because "already gone" is a different thing for a caller to report.
+    """
+    key = _hex(key, 16, 'key')
+    directory = _locate(Path(workspace), key)
+    if directory is None:
+        raise KeyError(key)
+    residue = directory.parent.name
+    document = directory / DOCUMENT
+    shutil.rmtree(directory)
+    return {'key': key, 'residue': residue, 'path': str(document)}
+
+
 def available(workspace, residue=None):
     """The stored libraries a caller may select, newest-agnostic and sorted: only readable, verified directories."""
     root = store_root(workspace)
@@ -408,7 +429,8 @@ def available(workspace, residue=None):
             except (OSError, ValueError):
                 continue
             found.append({'key': library.key, 'residue': library.residue, 'size': library.size,
-                          'sha256': library.sha256, 'sources': [entry['run_id'] for entry in library.sources],
+                          'sha256': library.sha256, 'mapping_sha256': library.mapping_sha256,
+                          'sources': [entry['run_id'] for entry in library.sources],
                           'path': str(directory / DOCUMENT)})
     return found
 

@@ -122,3 +122,49 @@ def test_removal_off_folds_both_requested_durations_into_one_cg_leg(tmp_path):
     for directory in ('07_micelle_assessment', '08_extension', '09_final_assessment'):
         assert not (run / pdc.STAGES_DIRECTORY / directory).exists(), directory
     assert (inputs_dir(run) / pdc.SETTINGS_NAME).is_file(), 'the settings still record the removal choice'
+
+
+def mdp_numbers(path: Path) -> dict:
+    numbers = {}
+    for raw in path.read_text().splitlines():
+        line = raw.split(';', 1)[0].strip()
+        if '=' in line:
+            name, value = (part.strip() for part in line.split('=', 1))
+            numbers[name.lower().replace('_', '-')] = value
+    return numbers
+
+
+def test_the_assessment_leg_integrates_at_its_own_timestep(tmp_path):
+    run = prepared(tmp_path, assessment_ns=100, pdc_assessment_dt_fs=10)
+    numbers = mdp_numbers(inputs_dir(run) / 'assessment.mdp')
+
+    assert float(numbers['dt']) == 0.01
+    assert int(numbers['nsteps']) == round(100_000 / 0.01)
+
+
+def test_removal_off_folds_both_durations_at_the_assessment_timestep(tmp_path):
+    """The one plain CG leg covers both requested times, and the assessment's dt converts the folded duration."""
+    run = prepared(tmp_path, remove_out_of_micelle=False, assessment_ns=100, extension_ns=900,
+                   pdc_assessment_dt_fs=10)
+    numbers = mdp_numbers(inputs_dir(run) / 'assessment.mdp')
+
+    assert float(numbers['dt']) == 0.01
+    assert int(numbers['nsteps']) == round(1_000_000 / 0.01)
+
+
+def test_the_extension_timestep_reaches_only_the_restarted_system(tmp_path):
+    """The assessment keeps its own dt; `extension.mdp` is the restart's file, at the extension's dt and duration.
+
+    The continue path extends the assessment tpr (`extension.ps`), so it keeps the assessment's dt -- the user chose
+    that -- and only a restart, which rebuilds the system, reads `extension.mdp`.
+    """
+    run = prepared(tmp_path, assessment_ns=100, extension_ns=900,
+                   pdc_assessment_dt_fs=10, pdc_extension_dt_fs=25)
+    assessment = mdp_numbers(inputs_dir(run) / 'assessment.mdp')
+    extension = mdp_numbers(inputs_dir(run) / 'extension.mdp')
+
+    assert float(assessment['dt']) == 0.01 and int(assessment['nsteps']) == round(100_000 / 0.01)
+    assert float(extension['dt']) == 0.025
+    assert int(extension['nsteps']) == round(900_000 / 0.025), 'the restart duration at its own dt'
+    assert (inputs_dir(run) / 'extension.ps').read_text().strip() == '900000', \
+        'convert-tpr takes the extension duration itself, not a step count'

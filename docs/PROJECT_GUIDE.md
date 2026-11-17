@@ -570,8 +570,7 @@ build can reuse, joins each to its parameterization by content hash (a revision 
 and a record's `owners` list is inferred, so a name is not an address), puts fitted ones first and labels
 every entry with what it carries (`revision 2 · 11 beads · 26 terms · fitted 2026-10-22`, or `… · derived
 terms`) — the **initialisation** style (`lattice` or `self-assembly`), an aggregation number, salt, a positive
-integer seed, assessment/extension durations, the three equilibration legs (minimisation steps, NVT ps, NPT
-ps), the protein **subunit** selection, whether the back-map runs, the back-map's **protein virtual sites**
+integer seed, the protein **subunit** selection, whether the back-map runs, the back-map's **protein virtual sites**
 (`protein_vsite`: `none`, `hydrogens` or `aromatics`, passed as `gmx pdb2gmx -vsite` to every protein topology
 CG2AT2 builds; `none` adds no flag), and the **Prepare protein** toggle
 (`prepare_protein`, on by default wherever the build has a protein: the stage skips by name when `pdb2pqr` is
@@ -597,14 +596,36 @@ derived value. The **encapsulation estimate** (`GET /api/pdc/proteins/<entry>/en
 detergents the apolar surface implies. Structural import lands the file in the workspace's `proteins/` with a
 sidecar.
 
+Its **Stage settings** are one `fieldset.run-settings` with five editors — minimisation, NVT, NPT, assessment,
+extension — and, below them, the six groups that used to be a folded *Other run options* block: output cadence,
+neighbour search and cutoffs, thermostat and barostat, salt/seed/box, back-map and execution. Every dynamics
+editor opens with three boxes: **Duration**, the leg's own **timestep**, and the **step count** those imply. The
+count carries no `name` (it is derived, never posted) and editing it back-solves the duration; a blank timestep
+is the reviewed profile's own dt (5 fs equilibration, 20 fs production), so an untouched run writes the reviewed
+MDP byte for byte. The four settings are `pdc_nvt_dt_fs`, `pdc_npt_dt_fs`, `pdc_assessment_dt_fs` and
+`pdc_extension_dt_fs`; the retired pair `pdc_equil_dt_fs`/`pdc_production_dt_fs` is still accepted and translated
+in `_numbers` (the pair to NVT+NPT, the pair to assessment+extension). The extension's own timestep reaches only
+the restarted system (detergents were removed and it re-runs minimisation → equilibration → ramp → production);
+the `convert-tpr -extend` continue path keeps the assessment tpr's dt, and the editor says so. A preset bar at the
+top of the fieldset saves and loads every named control in it for the `pdc` run type
+(`/api/setting-presets?run_type=pdc`), with one default the form applies on mount; the store answers the
+adapter's canonical names, so the panel translates them back to its own on load.
+
 The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
 conformation (the default, and every run before 2026-11-02), a library built from micelle-only runs, or a stored
 library. *Build from runs* lists `GET /api/pdc/conformations/runs` (completed pdc runs newest first, each with its
 verdict and the refusing sentence, never hidden) and carries a size and a seed; *Stored library* lists
-`GET /api/pdc/conformations/libraries?residue=` and selects one by key and digest. The submit sends
-`conformation_library` only for the two library modes; the preview query carries the same object as URL-encoded JSON
-(`conformation_library=`), and the System preview card prints the resolved key, size and source count, never
-coordinates.
+`GET /api/pdc/conformations/libraries?residue=` and selects one by key and digest. Each stored row also has a
+**Delete** button: the browser confirms, then `DELETE /api/pdc/conformations/libraries/<key>` with
+`{confirm: true}` removes that one directory (400 for a key that is not the store's 16-hex form, 404 for one the
+store does not hold). A library records `detergent.mapping_sha256`, the byte digest of the mapping candidate it
+was built from, so the same digest lets the engine purge it: `dashboard.features.forget_mapping(workspace,
+digest)` calls each installed feature's `mapping_deletions` callback, and the pdc one removes every verified
+library built from that mapping. Both `DELETE /api/mappings/drafts/<name>` and
+`DELETE /api/bonded-parameterizations/<identifier>` call it and report the removed keys under `conformations`.
+The submit sends `conformation_library` only for the two library modes; the preview query carries the same object
+as URL-encoded JSON (`conformation_library=`), and the System preview card prints the resolved key, size and
+source count, never coordinates.
 
 ### Osmotic Series
 A sugar concentration series is **one run owning N concentrations** (`settings.molalities`), gated to sugars and built by `execution/adapters/osmotic.py`; the old one-concentration `osmotic_molality` shape is removed rather than deprecated. Each concentration gets its own directory (`condition_directory`) and its own checkpoint, resumed with `gmx mdrun -cpi` up to `osmotic_attempts_max` attempts, and a failed condition either carries on or stops the series (`series_on_failure`). The panel reads `GET /api/osmotic/catalogue`, queues the series with `POST /api/osmotic/series`, and reads the series as it stands from `GET /api/osmotic/conditions`. The dividing area and the water/solute counts are recorded at build time so the analysis divides by the number the build agreed to.
@@ -1078,7 +1099,11 @@ hex of the canonical spec over the format, the detergent signature, the selectio
 `(run_id, trajectory_identity)` pairs. A spec is one of two shapes: `{runs, size, seed}` (a build, reused from the
 store by key when present) or `{key, sha256}` (a reference, used as-is and never rebuilt; the source runs need not
 exist). `resolve` is the one resolver; the CLI is
-`python -m detergent_pdc.conformations build|show --workspace <ws>`.
+`python -m detergent_pdc.conformations build|show --workspace <ws>`. `library.delete(workspace, key)` removes one
+stored directory (the key checked against the store's 16-hex form, the lookup through `_locate`, so a key shaped
+like a path is a refusal and not a delete elsewhere), and `conformations/cleanup.py` deletes every verified library
+whose `mapping_sha256` is a mapping that is going away; an unreadable directory is left alone because it is not proof
+of anything, and an empty digest deletes nothing rather than everything.
 
 A run records the resolved library like any other input: `pdc.prepare` resolves it, matches it against the run's own
 mapping (residue, bead names in order, mapping digest), stores `conformations_library` (absolute path), `_key`,

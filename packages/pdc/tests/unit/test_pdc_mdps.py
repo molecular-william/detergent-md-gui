@@ -61,6 +61,12 @@ def restrained(settings: dict, leg: str) -> bool:
     return settings.get(setting, pdc_adapter.DEFAULTS[setting]) == 'yes'
 
 
+def leg_dt(profile: str, settings: dict, setting: str) -> float:
+    """One leg's timestep in ps: its own setting when stated, else the reviewed profile's own."""
+    stated = settings.get(setting)
+    return float(stated) / 1000 if stated is not None else dt(profile)
+
+
 def values(profile: str, settings: dict) -> dict:
     """The run's numbers for one profile, computed the way `prepare` computes them."""
     if profile == 'pdc-minimisation-v1':
@@ -71,21 +77,37 @@ def values(profile: str, settings: dict) -> dict:
             numbers['define'] = pdc_adapter.POSRES_DEFINE
         return numbers
     if profile == 'pdc-nvt-v1':
-        numbers = {'nsteps': round(int(float(settings['nvt_ps'])) / dt(profile)), 'gen-seed': int(settings['seed'])}
+        step = leg_dt(profile, settings, pdc_adapter.NVT_TIMESTEP)
+        numbers = {'nsteps': round(int(float(settings['nvt_ps'])) / step), 'gen-seed': int(settings['seed'])}
+        if pdc_adapter.NVT_TIMESTEP in settings:
+            numbers['dt'] = step
         if restrained(settings, 'nvt'):
             numbers['define'] = pdc_adapter.POSRES_DEFINE
         return numbers
     if profile == 'pdc-npt-v1':
-        numbers = {'nsteps': round(int(float(settings['npt_ps'])) / dt(profile)),
+        step = leg_dt(profile, settings, pdc_adapter.NPT_TIMESTEP)
+        numbers = {'nsteps': round(int(float(settings['npt_ps'])) / step),
                    'pcoupl': settings['pdc_npt_pcoupl'], 'pcoupltype': settings['pdc_npt_pcoupltype'],
                    'ref-p': settings['pdc_npt_ref_p'], 'tau-p': settings['pdc_npt_tau_p'],
                    'compressibility': settings['pdc_npt_compressibility']}
+        if pdc_adapter.NPT_TIMESTEP in settings:
+            numbers['dt'] = step
         if restrained(settings, 'npt'):
             numbers['define'] = pdc_adapter.POSRES_DEFINE
             numbers['refcoord-scaling'] = 'com'
         return numbers
     if profile in ('pdc-assessment-v1', 'pdc-extension-v1'):
-        numbers = {'nsteps': round(assessment_ns(settings) * 1000 / dt('pdc-assessment-v1'))}
+        # Assessment folds the extension duration only when removal is off; the extension always runs its own.
+        if profile == 'pdc-assessment-v1':
+            step = leg_dt(profile, settings, pdc_adapter.ASSESSMENT_TIMESTEP)
+            numbers = {'nsteps': round(assessment_ns(settings) * 1000 / step)}
+            if pdc_adapter.ASSESSMENT_TIMESTEP in settings:
+                numbers['dt'] = step
+        else:
+            step = leg_dt(profile, settings, pdc_adapter.EXTENSION_TIMESTEP)
+            numbers = {'nsteps': round(float(settings['extension_ns']) * 1000 / step)}
+            if pdc_adapter.EXTENSION_TIMESTEP in settings:
+                numbers['dt'] = step
         # The production profile leaves its output cadence, cutoffs and ensemble targets to the run.
         for key, default in PROFILES[profile].settings.items():
             if default is None and key not in numbers:
@@ -137,21 +159,25 @@ def test_an_unset_timestep_keeps_the_reviewed_profiles_own_number(tmp_path):
     settings = settings_of(run)
     manifest = json.loads((run / 'manifest.json').read_text())
 
-    assert 'pdc_equil_dt_fs' not in settings and 'pdc_production_dt_fs' not in settings
+    assert not {pdc_adapter.NVT_TIMESTEP, pdc_adapter.NPT_TIMESTEP, pdc_adapter.ASSESSMENT_TIMESTEP,
+                pdc_adapter.EXTENSION_TIMESTEP} & set(settings)
     nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
     npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
     assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
+    extension = parsed((inputs_dir(run) / 'extension.mdp').read_text())
     assert float(nvt['dt']) == dt('pdc-nvt-v1') == 0.005
     assert int(nvt['nsteps']) == round(500 / 0.005)
     assert float(npt['dt']) == 0.005 and int(npt['nsteps']) == round(4500 / 0.005)
     assert float(assessment['dt']) == dt('pdc-assessment-v1') == 0.02
     assert int(assessment['nsteps']) == round(100_000 / 0.02)
+    # The extension's own file states its own duration at the reviewed production dt, not the assessment's step count.
+    assert float(extension['dt']) == 0.02 and int(extension['nsteps']) == round(900_000 / 0.02)
     assert manifest['equilibration_steps'] == {'minimisation': 200000, 'nvt': 100000, 'npt': 900000}
     assert manifest['assessment_steps'] == 5_000_000
 
 
 def test_an_equilibration_timestep_moves_the_nvt_and_npt_legs_only(tmp_path):
-    """(b) The equilibration setting rewrites NVT/NPT dt and the steps their durations become, never production."""
+    """(b) The retired equilibration setting is translated; it rewrites NVT/NPT dt, never production."""
     run = prepared_run(tmp_path, settings={'pdc_equil_dt_fs': 10, 'nvt_ps': 500, 'npt_ps': 4500,
                                            'assessment_ns': 100})
     settings = settings_of(run)
@@ -159,7 +185,9 @@ def test_an_equilibration_timestep_moves_the_nvt_and_npt_legs_only(tmp_path):
     nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
     npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
 
-    assert settings['pdc_equil_dt_fs'] == 10 and manifest['settings']['pdc_equil_dt_fs'] == 10
+    assert 'pdc_equil_dt_fs' not in settings
+    assert (settings['pdc_nvt_dt_fs'], settings['pdc_npt_dt_fs']) == (10, 10)
+    assert (manifest['settings']['pdc_nvt_dt_fs'], manifest['settings']['pdc_npt_dt_fs']) == (10, 10)
     assert float(nvt['dt']) == 0.01 and int(nvt['nsteps']) == round(500 / 0.01)
     assert float(npt['dt']) == 0.01 and int(npt['nsteps']) == round(4500 / 0.01)
     assert manifest['equilibration_steps'] == {'minimisation': 200000, 'nvt': 50000, 'npt': 450000}
@@ -169,19 +197,33 @@ def test_an_equilibration_timestep_moves_the_nvt_and_npt_legs_only(tmp_path):
     assert manifest['assessment_steps'] == round(100_000 / 0.02)
 
 
+def test_each_equilibration_leg_can_carry_its_own_timestep(tmp_path):
+    """NVT and NPT are separate settings, so one leg can integrate finer than the other."""
+    run = prepared_run(tmp_path, settings={'pdc_nvt_dt_fs': 2, 'pdc_npt_dt_fs': 10,
+                                           'nvt_ps': 500, 'npt_ps': 4500})
+    nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+
+    assert float(nvt['dt']) == 0.002 and int(nvt['nsteps']) == round(500 / 0.002)
+    assert float(npt['dt']) == 0.01 and int(npt['nsteps']) == round(4500 / 0.01)
+
+
 def test_a_production_timestep_moves_the_production_legs_only(tmp_path):
-    """(c) The production setting rewrites assessment/extension dt and steps, and leaves the legs in front alone."""
+    """(c) The retired production setting rewrites assessment/extension dt and their own step counts."""
     run = prepared_run(tmp_path, settings={'pdc_production_dt_fs': 10, 'nvt_ps': 500, 'npt_ps': 4500,
                                            'assessment_ns': 100, 'extension_ns': 900})
     manifest = json.loads((run / 'manifest.json').read_text())
     assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
     extension = parsed((inputs_dir(run) / 'extension.mdp').read_text())
 
-    assert manifest['settings']['pdc_production_dt_fs'] == 10
+    assert 'pdc_production_dt_fs' not in manifest['settings']
+    assert (manifest['settings']['pdc_assessment_dt_fs'],
+            manifest['settings']['pdc_extension_dt_fs']) == (10, 10)
     assert float(assessment['dt']) == 0.01
     assert int(assessment['nsteps']) == round(100_000 / 0.01) == 10_000_000
     assert float(extension['dt']) == 0.01
-    assert int(extension['nsteps']) == int(assessment['nsteps']), 'the extension continues the assessment at its dt'
+    # The extension's own duration at its own dt, not the assessment's step count: 900 ns, not 100.
+    assert int(extension['nsteps']) == round(900_000 / 0.01) == 90_000_000
     assert manifest['assessment_steps'] == 10_000_000
     for name, profile, ps in (('nvt.mdp', 'pdc-nvt-v1', 500), ('npt.mdp', 'pdc-npt-v1', 4500)):
         leg = parsed((inputs_dir(run) / name).read_text())
@@ -192,7 +234,7 @@ def test_a_production_timestep_moves_the_production_legs_only(tmp_path):
 
 def test_a_production_timestep_converts_the_folded_duration_when_removal_is_off(tmp_path):
     """The removal-off assessment folds both durations, and the override converts the folded ps in one place."""
-    run = prepared_run(tmp_path, settings={'remove_out_of_micelle': False, 'pdc_production_dt_fs': 10,
+    run = prepared_run(tmp_path, settings={'remove_out_of_micelle': False, 'pdc_assessment_dt_fs': 10,
                                            'assessment_ns': 100, 'extension_ns': 900})
     assessment = parsed((inputs_dir(run) / 'assessment.mdp').read_text())
 

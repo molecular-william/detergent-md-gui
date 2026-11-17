@@ -11,7 +11,8 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Current state (2026-11-16)
 
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
-  It was restarted 2026-11-16 18:23 on `696fae7`, after the named-store migration was applied. Restart after a
+  It was restarted 2026-11-17 12:05 HKT on the stage-settings and deletable-library tree (no run was in flight), and
+  before that 2026-11-16 18:23 on `696fae7`. Restart after a
   Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
@@ -46,6 +47,27 @@ state, what is next, what is open, and the measurements and incidents a reader h
   the tool's `nan`; a failed stage's record and Runs card quote the tail of the stage log instead of the wrapper's
   exit-status line; the Run view gets de Jong et al.'s energy-conservation analysis, and a CG run no longer names a
   PME scheme.
+- **pdc New run: one Stage settings fieldset, per-stage timesteps, presets, deletable shape libraries (2026-11-17).**
+  Plan: `docs/plans/2026-11-17-pdc-stage-settings-and-library-deletion.md` (local). The form's *Other run options*
+  fold is gone; its six groups are sections inside `fieldset.new-pdc-stages`, after the five stage editors. NVT, NPT,
+  assessment and extension each open with **Duration · Timestep · Steps**: the four new settings are
+  `pdc_nvt_dt_fs`/`pdc_npt_dt_fs` (0.5-20 fs) and `pdc_assessment_dt_fs`/`pdc_extension_dt_fs` (0.5-50 fs), blank
+  meaning the reviewed profile's dt. The retired `pdc_equil_dt_fs`/`pdc_production_dt_fs` are still advertised for
+  old payloads and translated in `_numbers`; the extension's own dt reaches only the restarted path (the
+  `convert-tpr -extend` continue keeps the assessment tpr's dt, and the editor says so); the Steps box has no `name`
+  and back-solves the duration. A preset bar (the validation ids, read through `preset-*` classes because
+  `test_rendered_hosts` allows one writer per host) saves every named control for run type `pdc`; the store answers
+  the adapter's builder names (`nvt_ps`, `seed`, ...) and the panel translates them back. Both preview disclosure
+  blocks are deleted and the 3D viewer is 480 px. Stored shape libraries are deletable per row (browser confirm, then
+  `DELETE /api/pdc/conformations/libraries/<key>` `{confirm:true}`); `Feature.mapping_deletions` and
+  `features.forget_mapping(workspace, mapping_sha256)` let a mapping or parameterization deletion purge every library
+  built from it (a library records the mapping file's byte digest), and both delete routes report `conformations`.
+  Checks: fast tier **3017 passed / 1 xfailed**; pdc area **775 passed / 1 xfailed**; full browser tier **394 passed**
+  at `-n 8`; ruff clean; live check on the restarted dashboard (form renders, presets/libraries routes answer, an
+  unknown library key is 404 and a missing `confirm` 400). At `-n 16` two tests flaked under load
+  (`test_pdc_preview_browser.py::test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its_families`
+  and `test_pdc_new_run_browser.py::test_the_stage_settings_start_on_the_catalogues_own_numbers`); both pass alone and
+  the whole tier is green at `-n 8`, which is contention rather than a code failure.
 - **Known gaps.** `dbc366ae772b` (the DDM AA reference) lacks `07_reference/run.sh`, so the DDM mapping `10c318949`
   refuses at `files.verify`; a CG-only reference run cannot be compared with a separate AA run; `docs/design/drafts`
   is 31 MB of local screenshots (gitignored, 152 files).

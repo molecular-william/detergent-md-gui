@@ -28,14 +28,20 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
-                   'pdc_equil_dt_fs', 'pdc_production_dt_fs',
+                   'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
                    'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                    'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
                    'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility',
                    'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];
-  // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
-  const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
+  // The four per-stage timesteps have no catalogue default: a blank box is the reviewed profile's own dt. Their
+  // Default button therefore clears, rather than writing a number the catalogue does not publish.
+  const DT_FIELDS = new Set(['pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs']);
+  // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's. The
+  // preset store answers the same builders' names, so this map is also the one that puts a loaded preset back on its
+  // controls -- `seed` included, which no catalogue default carries but a preset always does.
+  const DEFAULT_ALIASES = {seed: 'pdc_seed',
+                           assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
                            placement_mode: 'pdc_placement_mode',
                            // The adapter stores the equilibration durations under the builder's names, and both were
                            // missing from this map: the two controls rendered blank while the run still used 500 and
@@ -234,6 +240,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // state at all, and reads as though it had. The two checkboxes this pipeline has (`backmap`, the prepare step)
       // carry their defaults in the markup, where a reader can see them.
       if (!input || input.type === 'checkbox') continue;
+      // A per-stage timestep has no catalogue default; filling it here would state the profile's dt as an override.
+      if (DT_FIELDS.has(input.name)) continue;
       if (input.value === '') input.value = value;
     }
   }
@@ -359,9 +367,40 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       const digest = String(library.sha256 || '');
       meta.textContent = digest ? `digest ${digest.slice(0, 4)}…${digest.slice(-4)}` : 'digest not recorded';
       const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'stored';
-      row.append(radio, key, where, meta, tag);
+      // A stored library is the workspace's, so a reader can remove it. The button sits inside the row's label, so
+      // it stops the label's own activation: deleting a library must never select it first.
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'secondary danger stored-library-delete';
+      remove.textContent = 'Delete';
+      remove.setAttribute('aria-label', `Delete the stored library ${library.key}`);
+      remove.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        deleteShapeLibrary(library);
+      });
+      row.append(radio, key, where, meta, tag, remove);
       return row;
     }));
+  }
+
+  // Delete one stored library, after a confirm that names what is lost. The coordinates are the workspace's own, so
+  // the question is asked here and nowhere else; the server still requires `confirm: true` as its own guard.
+  async function deleteShapeLibrary(library) {
+    const key = library.key;
+    if (!window.confirm(`Delete the stored library ${key}? Its coordinates are removed from this workspace and any run that selected it will no longer be able to use it.`)) return;
+    try {
+      await api(`/api/pdc/conformations/libraries/${encodeURIComponent(key)}`,
+                {method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({confirm: true})});
+    } catch (error) {
+      say('.shape-stored-status', `The stored library ${key} was not deleted: ${error.message}`);
+      return;
+    }
+    // The list is re-read rather than edited in place: the server owns what remains, and `loadShapeLibraries`
+    // already moves the selection to the first survivor when the deleted key was the chosen one.
+    await loadShapeLibraries();
+    notice(`Stored library ${key} deleted.`);
   }
 
   function syncShapeStatus() {
@@ -537,11 +576,33 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const STAGE_FACTS = [
     {stage: 'minimisation', steps: 'pdc_minimisation_steps', emtol: 'pdc_minimisation_emtol',
      emstep: 'pdc_minimisation_emstep', restraint: 'pdc_posres_min'},
-    {stage: 'nvt', ps: 'pdc_nvt_ps', dt: 'pdc_equil_dt_fs', restraint: 'pdc_posres_nvt'},
-    {stage: 'npt', ps: 'pdc_npt_ps', dt: 'pdc_equil_dt_fs', restraint: 'pdc_posres_npt'},
-    {stage: 'assessment', ns: 'pdc_assessment_ns', dt: 'pdc_production_dt_fs'},
-    {stage: 'extension', ns: 'pdc_extension_ns', dt: 'pdc_production_dt_fs'},
+    {stage: 'nvt', ps: 'pdc_nvt_ps', dt: 'pdc_nvt_dt_fs', restraint: 'pdc_posres_nvt'},
+    {stage: 'npt', ps: 'pdc_npt_ps', dt: 'pdc_npt_dt_fs', restraint: 'pdc_posres_npt'},
+    {stage: 'assessment', ns: 'pdc_assessment_ns', dt: 'pdc_assessment_dt_fs'},
+    {stage: 'extension', ns: 'pdc_extension_ns', dt: 'pdc_extension_dt_fs'},
   ];
+  // The three boxes one dynamics stage reads: duration, its own timestep, and the step count the two imply. The
+  // count is derived and carries no `name`, so it never reaches the payload; editing it back-solves the duration at
+  // the stated timestep. `unit` is the duration's, and the arithmetic is the adapter's own (steps = duration / dt).
+  const TIME_ROWS = {
+    nvt: {duration: 'pdc_nvt_ps', dt: 'pdc_nvt_dt_fs', unit: 'ps'},
+    npt: {duration: 'pdc_npt_ps', dt: 'pdc_npt_dt_fs', unit: 'ps'},
+    assessment: {duration: 'pdc_assessment_ns', dt: 'pdc_assessment_dt_fs', unit: 'ns'},
+    extension: {duration: 'pdc_extension_ns', dt: 'pdc_extension_dt_fs', unit: 'ns'},
+  };
+  const STEPS_UNKNOWN_TITLE = 'A reviewed timestep is not known in the browser, so the step count cannot be worked out here.';
+  const durationFs = row => row.unit === 'ps' ? 1000 : 1000000;
+  function syncTimeRow(stage) {
+    const row = TIME_ROWS[stage], box = pdcNode(`.pdc-steps[data-stage="${stage}"]`);
+    if (!row || !box) return;
+    const duration = stageNumber(row.duration), dt = stageNumber(row.dt);
+    // No dt means no step count the browser can state: the reviewed profile's dt is the server's own. Read-only,
+    // not disabled, so the reason in the title is reachable and the box cannot silently look like an answer.
+    box.readOnly = dt === null;
+    box.title = dt === null ? STEPS_UNKNOWN_TITLE : '';
+    box.value = duration === null || dt === null ? '' : String(Math.round(duration * durationFs(row) / dt));
+  }
+  function syncTimeRows() { for (const stage of Object.keys(TIME_ROWS)) syncTimeRow(stage); }
   const groupedNumber = value => Number(value).toLocaleString('en-GB').replace(/,/g, ' ');
   function stageNumber(name) {
     const text = String(field(name)?.value ?? '').trim();
@@ -573,6 +634,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       }
       host.textContent = parts.join(' · ');
     }
+    syncTimeRows();
   }
 
   // The count is an input in both modes -- it is the belt's size with a protein and the micelle's without -- and
@@ -1520,8 +1582,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   for (const name of NUMBERS) {
     const input = field(name);
     if (!input) continue;
-    input.addEventListener('input', () => { syncSummary(); store(); refreshReadinessSoon(); });
-    input.addEventListener('change', () => { syncSummary(); store(); checkReadiness(); });
+    input.addEventListener('input', () => { syncSummary(); store(); if (!applyingPreset) refreshReadinessSoon(); });
+    input.addEventListener('change', () => { syncSummary(); store(); if (!applyingPreset) checkReadiness(); });
   }
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
@@ -1552,6 +1614,135 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('protein_vsite')?.addEventListener('change', () => { store(); syncSummary(); });
+  // Named stage-setting presets ---------------------------------------------------------------------------------
+  //
+  // The store is the workspace's (`/api/setting-presets`, run type `pdc`), the same one the validation panel uses.
+  // A preset here is every named control in the Stage settings fieldset: the five stages, their per-stage timesteps
+  // and the six groups that used to be a separate fold. The bar's ids are the engine's own (the validation page
+  // renders them, which is what keeps the id contract), but this module owns the handlers because the engine's panel
+  // is not created on this workspace.
+  let presets = [], appliedPreset = null, presetsGeneration = 0, applyingPreset = false;
+  // Read live rather than listed by hand: a control added to the fieldset is a preset setting without a second
+  // edit, and a control with no `name` (the derived step count) is never captured -- it is never submitted either.
+  const PDC_PRESET_FIELDS = () => [...(pdcNode('fieldset.new-pdc-stages')?.querySelectorAll('[name]') || [])];
+  function presetSettings() {
+    const settings = {};
+    for (const control of PDC_PRESET_FIELDS()) {
+      if (control.value === '' || control.value == null) continue;
+      settings[control.name] = control.value;
+    }
+    return settings;
+  }
+  const presetById = id => presets.find(item => item.id === id) || null;
+  function renderPresetMarker() {
+    const isDefault = !!presetById(appliedPreset?.id)?.is_default;
+    setText(pdcNode('.preset-marker'), appliedPreset
+      ? `Applied preset: ${appliedPreset.name}${isDefault ? ' · default' : ''}` : 'Profile defaults');
+  }
+  function renderPresetOptions() {
+    const select = pdcNode('.preset-select'), chosen = appliedPreset?.id || '';
+    select.replaceChildren(new Option('Profile defaults (no preset)', ''));
+    for (const preset of presets) {
+      select.append(new Option(`${preset.name}${preset.is_default ? ' · default' : ''}`, preset.id));
+    }
+    select.value = presets.some(preset => preset.id === chosen) ? chosen : '';
+    if (!select.value) appliedPreset = null;
+    renderPresetMarker();
+  }
+  async function loadPresets() {
+    const generation = ++presetsGeneration;
+    try {
+      const answer = await api('/api/setting-presets?' + new URLSearchParams({run_type: 'pdc'}));
+      if (generation !== presetsGeneration) return null;
+      presets = answer.presets || [];
+      renderPresetOptions();
+      return answer;
+    } catch (error) { notice(error.message); return null; }
+  }
+  // A stored preset comes back in the adapter's normalized spelling, which is the builders' short name for the five
+  // settings `DEFAULT_ALIASES` maps (`nvt_ps` for `pdc_nvt_ps`, `assessment_ns` for `pdc_assessment_ns`, and so on).
+  // Translate those back onto the panel's controls, then translate the two global timesteps a preset saved before
+  // per-stage timesteps carries: equil -> NVT + NPT, production -> assessment + extension, so an old preset restores
+  // the same physics.
+  function presetSettingsToPanel(stored) {
+    const settings = {};
+    for (const [key, value] of Object.entries(stored || {})) settings[DEFAULT_ALIASES[key] || key] = value;
+    const legacy = [['pdc_equil_dt_fs', ['pdc_nvt_dt_fs', 'pdc_npt_dt_fs']],
+                    ['pdc_production_dt_fs', ['pdc_assessment_dt_fs', 'pdc_extension_dt_fs']]];
+    for (const [old, legs] of legacy) {
+      if (settings[old] === undefined) continue;
+      for (const leg of legs) if (settings[leg] === undefined) settings[leg] = settings[old];
+    }
+    return settings;
+  }
+  function applyPreset(preset) {
+    const settings = presetSettingsToPanel(preset.settings);
+    // A preset moves many controls at once; firing each one's readiness check would queue one fetch per control.
+    // The events still fire (the facts, the step boxes and the stored form follow them), and readiness is asked once
+    // when the whole preset has landed.
+    applyingPreset = true;
+    try {
+      for (const control of PDC_PRESET_FIELDS()) {
+        if (!(control.name in settings)) continue;
+        const value = String(settings[control.name]);
+        // A stored value the form cannot offer -- a device this host lost -- is skipped rather than blanking it.
+        if (control.tagName === 'SELECT' && ![...control.options].some(option => option.value === value)) continue;
+        control.value = value;
+        control.dispatchEvent(new Event('input', {bubbles: true}));
+        control.dispatchEvent(new Event('change', {bubbles: true}));
+      }
+    } finally {
+      applyingPreset = false;
+    }
+    appliedPreset = {id: preset.id, name: preset.name};
+    const select = pdcNode('.preset-select');
+    if ([...select.options].some(option => option.value === preset.id)) select.value = preset.id;
+    renderPresetMarker();
+    gpuDevice.refresh();
+    syncTimeRows();
+    syncSummary();
+    store();
+    refreshReadinessSoon();
+  }
+  pdcNode('.preset-load')?.addEventListener('click', () => {
+    const preset = presetById(pdcNode('.preset-select')?.value);
+    if (preset) applyPreset(preset);
+  });
+  pdcNode('.preset-save')?.addEventListener('click', async () => {
+    const name = window.prompt('Name this preset', presetById(pdcNode('.preset-select')?.value)?.name || '');
+    if (name === null) return;
+    if (!name.trim()) { notice('A preset needs a name.'); return; }
+    try {
+      const answer = await post('/api/setting-presets',
+                                {name: name.trim(), run_type: 'pdc', settings: presetSettings()});
+      appliedPreset = {id: answer.preset.id, name: answer.preset.name};
+      await loadPresets();
+      notice(`Preset ${answer.preset.name} saved.`);
+    } catch (error) { notice(error.message); }
+  });
+  pdcNode('.preset-default')?.addEventListener('click', async () => {
+    const preset = presetById(pdcNode('.preset-select')?.value);
+    if (!preset) { notice('Select a preset to make it the default.'); return; }
+    try {
+      await api(`/api/setting-presets/${encodeURIComponent(preset.id)}`,
+                {method: 'PATCH', headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({is_default: true})});
+      await loadPresets();
+      notice(`${preset.name} is the pdc default.`);
+    } catch (error) { notice(error.message); }
+  });
+  pdcNode('.preset-delete')?.addEventListener('click', async () => {
+    const preset = presetById(pdcNode('.preset-select')?.value);
+    if (!preset) { notice('Select a preset to delete.'); return; }
+    if (!window.confirm(`Delete the preset “${preset.name}”?`)) return;
+    try {
+      await api(`/api/setting-presets/${encodeURIComponent(preset.id)}`, {method: 'DELETE'});
+      if (appliedPreset?.id === preset.id) appliedPreset = null;
+      await loadPresets();
+      notice(`Preset ${preset.name} deleted.`);
+    } catch (error) { notice(error.message); }
+  });
+
   // Each leg's restraint choice moves its editor's facts line and nothing else, but it is a run setting like any
   // other: stored, summarised and re-checked.
   for (const leg of RESTRAINT_LEGS) {
@@ -1564,13 +1755,35 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   for (const button of form.querySelectorAll('.pdc-default')) {
     button.addEventListener('click', () => {
       const name = button.dataset.field;
-      const value = (catalogue?.defaults || {})[CATALOGUE_KEY[name] || name];
       const input = field(name);
-      if (!input || value === undefined) return;
-      input.value = String(value);
+      if (!input) return;
+      // A per-stage timestep has no catalogue default: blank is the reviewed profile's own dt, so Default clears it.
+      if (DT_FIELDS.has(name)) input.value = '';
+      else {
+        const value = (catalogue?.defaults || {})[CATALOGUE_KEY[name] || name];
+        if (value === undefined) return;
+        input.value = String(value);
+      }
       input.dispatchEvent(new Event('input', {bubbles: true}));
       input.dispatchEvent(new Event('change', {bubbles: true}));
     });
+  }
+  // The derived step box: editing it back-solves the duration at that stage's own timestep, so a reader may state
+  // either end of the same arithmetic. No `name` means it is never submitted and never stored as a setting.
+  for (const box of form.querySelectorAll('.pdc-steps')) {
+    box.addEventListener('input', () => {
+      const stage = box.dataset.stage, row = TIME_ROWS[stage];
+      const dt = row ? stageNumber(row.dt) : null;
+      const steps = Number(box.value);
+      if (!row || dt === null || box.value === '' || !Number.isFinite(steps) || steps < 0) return;
+      const duration = row.unit === 'ps' ? steps * dt / 1000 : steps * dt / 1000000;
+      const input = field(row.duration);
+      if (!input) return;
+      input.value = String(Math.round(duration * 1000) / 1000);
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+    box.addEventListener('change', () => syncTimeRow(box.dataset.stage));
   }
   // The estimate's info button: hover and keyboard focus show the tip through CSS, and a tap has no hover, so a click
   // toggles it. Escape or a click elsewhere closes it -- the same contract as the engine's per-setting buttons.
@@ -1716,14 +1929,23 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         }
       }
       fillDefaults();
+      // The preset bar's list, and -- on a form no reader has used yet -- the run type's default preset. Nothing
+      // outranks it here (this panel has no clone and no run-type select), but a stored form does: it holds the last
+      // values this reader typed, so the default is applied only when there are none. It goes after `fillDefaults`
+      // because a preset states what the form should open with, and it outranks the catalogue's own numbers.
+      const presetAnswer = await loadPresets();
+      if (!Object.keys(remembered).length) {
+        const preset = presetById(presetAnswer?.default);
+        if (preset) applyPreset(preset);
+      }
       if (remembered.mdrun_nb && field('mdrun_nb')) field('mdrun_nb').value = remembered.mdrun_nb;
       // The select's stored value is restored explicitly for the same reason `mdrun_nb`'s is: the loop above keeps
       // only non-selects, and a remembered back-map choice must not be replaced by the default on the next load.
       if (remembered.protein_vsite && field('protein_vsite')) {
         field('protein_vsite').value = remembered.protein_vsite;
       }
-      // The seed defaults to today's date: the adapter requires one, the control sits in a collapsed block, and a
-      // build with no seed cannot be compared with another. Cleared by hand it stays empty and the gate names it.
+      // The seed defaults to today's date: the adapter requires one and a build with no seed cannot be compared with
+      // another. Cleared by hand it stays empty and the gate names it.
       const seedInput = field('pdc_seed');
       if (seedInput && seedInput.value === '') seedInput.value = String(todaySeed());
       syncChains();

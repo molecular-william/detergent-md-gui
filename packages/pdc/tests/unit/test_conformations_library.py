@@ -31,6 +31,8 @@ from detergent_pdc.conformations import (
     store_root,
     verify,
 )
+from detergent_pdc.conformations.cleanup import forget_mapping
+from detergent_pdc.conformations.library import delete as delete_library
 
 from tests.harness.conformation_fixtures import copy_libraries, run_tree
 
@@ -181,6 +183,7 @@ def test_available_lists_only_verified_libraries(tmp_path):
     assert [entry['key'] for entry in listed] == [library.key]
     assert listed[0]['residue'] == 'DDM' and listed[0]['size'] == 3
     assert listed[0]['sources'] == [RUN]
+    assert listed[0]['mapping_sha256'] == library.mapping_sha256
     assert available(workspace, residue='LIP') == []
 
     second = tmp_path / 'second'
@@ -219,3 +222,54 @@ def test_two_callers_end_with_one_library(tmp_path):
     assert sorted(path.name for path in directory.iterdir()) == ['library.json', 'library.sha256']
     assert json.loads((directory / 'library.json').read_text())['entries']
     assert store_root(workspace) == tmp_path / 'workspace' / 'conformations'
+
+
+def test_delete_removes_one_library_and_nothing_beside_it(tmp_path):
+    workspace, library = built(tmp_path)
+    sibling, _record = build(workspace, {'runs': [RUN], 'size': 1, 'seed': 0})
+
+    removed = delete_library(workspace, library.key)
+
+    assert removed == {'key': library.key, 'residue': 'DDM', 'path': str(library.path)}
+    assert not library.path.parent.exists()
+    assert sibling.path.is_file(), 'another stored library is another key and stays'
+    with pytest.raises(KeyError):
+        delete_library(workspace, library.key)
+    for bad in ('not-a-key', '0' * 15, '0' * 17, 'g' * 16, '../' + '0' * 13):
+        with pytest.raises(ValueError):
+            delete_library(workspace, bad)
+
+
+def test_forget_mapping_deletes_only_the_libraries_built_from_that_mapping(tmp_path):
+    workspace = tmp_path / 'workspace'
+    run_tree(workspace, RUN, molecules=4, frames=2)
+    first, _record = build(workspace, {'runs': [RUN], 'size': 3, 'seed': 0})
+    second, _record = build(workspace, {'runs': [RUN], 'size': 1, 'seed': 0})
+    run_tree(workspace, 'other', molecules=2, frames=2, mapping_sha256='a' * 64)
+    other, _record = build(workspace, {'runs': ['other'], 'size': 1, 'seed': 0})
+    assert other.mapping_sha256 != first.mapping_sha256
+
+    removed = forget_mapping(workspace, first.mapping_sha256)
+
+    assert sorted(removed) == sorted([first.key, second.key])
+    assert not first.path.parent.exists() and not second.path.parent.exists()
+    assert other.path.is_file(), 'a library from another mapping is not this mapping\u2019s to delete'
+    assert forget_mapping(workspace, first.mapping_sha256) == [], 'a second call finds nothing to remove'
+
+
+def test_forget_mapping_with_no_digest_deletes_nothing(tmp_path):
+    workspace, library = built(tmp_path)
+
+    for digest in (None, '', '   '):
+        assert forget_mapping(workspace, digest) == []
+    assert library.path.is_file()
+
+
+def test_forget_mapping_leaves_an_unreadable_library_alone(tmp_path):
+    workspace, library = built(tmp_path)
+    broken = store_dir(workspace, 'DDM', 'f' * 16)
+    broken.mkdir(parents=True)
+    (broken / 'library.json').write_text('{"format": "detergent-conformations-v1"}\n')
+
+    assert forget_mapping(workspace, library.mapping_sha256) == [library.key]
+    assert broken.is_dir(), 'a directory that cannot be read is not provably that mapping\u2019s'

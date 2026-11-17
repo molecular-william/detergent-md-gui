@@ -12,10 +12,12 @@ payload keys it names, and each route is a thin shell over one model call.
 import re
 from pathlib import Path
 
+from dashboard import features, paths
 from dashboard.models import mappings
 from dashboard.models.bonded import fitting as bonded_fitting
 from dashboard.models.bonded import parameterization
 from dashboard.models.mappings import context as mapping_context
+from dashboard.models.mappings import store as mapping_store
 from dashboard.web.routes.common import coordinator, json_object
 from detergent_validation.analysis.runs import mapped_surface
 from flask import Blueprint, abort, jsonify, request
@@ -211,6 +213,10 @@ def parameterization_delete(identifier):
     `confirm: true` is required because revisions are history: the terms are recoverable only by fitting again. A
     caller that names `revision` says which one it believed was current, and a record that has moved on since answers
     409 rather than deleting a newer model's work -- the same optimistic check `save` keeps.
+
+    The mapping itself stays, but the libraries a feature built from it are that mapping's artifacts: the digest of
+    each saved mapping this record belongs to is read before the record goes, and the registry removes what was built
+    from it. `conformations` is that report, empty when no saved mapping answers this record's name.
     """
     payload = json_object(optional=True)
     if payload.get('confirm') is not True:
@@ -225,7 +231,14 @@ def parameterization_delete(identifier):
             abort(400, 'A revision number is required when one is named')
         if (record.get('current') or {}).get('revision') != expected:
             abort(409, 'This parameterization changed; reload it before deleting')
-    return jsonify(parameterization.delete(identifier))
+    purged = {}
+    if parameterization.exists(identifier):
+        for digest in mapping_store.sha256_for_parameterization(identifier):
+            for name, keys in features.forget_mapping(paths.current().workspace, digest).items():
+                purged.setdefault(name, []).extend(keys)
+    report = parameterization.delete(identifier)
+    report['conformations'] = purged
+    return jsonify(report)
 
 
 @blueprint.patch('/api/bonded-parameterizations/<identifier>')

@@ -334,6 +334,7 @@ def test_the_libraries_route_lists_only_directories_it_can_verify(dashboard):
 
     body = dashboard.client.get('/api/pdc/conformations/libraries').get_json()
     assert body['libraries'] == [{'key': library.key, 'residue': 'DDM', 'size': 2, 'sha256': library.sha256,
+                                  'mapping_sha256': library.mapping_sha256,
                                   'sources': [SOURCE_RUN], 'path': str(library.path)}]
 
     narrowed = dashboard.client.get('/api/pdc/conformations/libraries?residue=OCT').get_json()
