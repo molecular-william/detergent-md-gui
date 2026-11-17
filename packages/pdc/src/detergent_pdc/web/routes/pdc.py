@@ -1,5 +1,6 @@
 """Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
@@ -9,7 +10,7 @@ from dashboard.analysis.runs import layout, structures
 from dashboard.web.routes.analyses import newest_published
 from dashboard.web.routes.common import coordinator, json_object
 from detergent_pdc.execution import rebuild_whole
-from detergent_pdc.execution.adapters import pdc, pdc_import
+from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_import
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 blueprint = Blueprint('pdc', __name__)
@@ -478,6 +479,92 @@ def pdc_encapsulation(entry):
                     'fraction': numbers['fraction'],
                     'method': encapsulation.ESTIMATE_METHOD, 'method_summary': encapsulation.ESTIMATE_SUMMARY,
                     'caveat': encapsulation.ESTIMATE_CAVEAT})
+
+
+def extent_and_box(protein, positions_nm, *, margin_nm, initial_z_nm):
+    """One protein's dimensions and the initial box its build starts from.
+
+    The box is the build's own rule, `pdc_box`'s -- called here rather than restated, so the number the panel shows
+    is the box the build then makes and not a second estimate kept in step by hand. A protein that states a membrane
+    gets the membrane rule (centred on its slab, belt reach zero: this is the box before the belt and solvent), and
+    one that states none gets the plain protein-extent box. `positions_nm` are the heavy atoms actually read, so a
+    chain selection narrows both the dimensions and the box to the object that will be simulated.
+    """
+    axes = list(zip(*positions_nm))
+    dimensions = {name: round(max(values) - min(values), 3) for name, values in zip('xyz', axes)}
+    half_thickness = protein.get('half_thickness_nm')
+    if half_thickness is None:
+        return dimensions, pdc_box.initial_box(positions_nm, margin_nm=margin_nm, initial_z_nm=initial_z_nm), 'initial'
+    return (dimensions,
+            pdc_box.membrane_box(positions_nm, half_thickness_nm=half_thickness, margin_nm=margin_nm,
+                                 initial_z_nm=initial_z_nm),
+            'membrane')
+
+
+def requested_extent_number(source, name, default):
+    """An extent query's number, or a refusal that names the parameter.
+
+    The two numbers drive a box, so a value that is not finite and positive cannot be rounded into one: a negative
+    margin would shrink the box below the protein and a zero z would put a face through it. The refusal names the
+    parameter and the text that arrived, so a panel or a caller can tell which one to fix.
+    """
+    raw = (source.args.get(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f'{name} must be a number, not {raw!r}') from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f'{name} must be a positive number, not {raw!r}')
+    return value
+
+
+@blueprint.get('/api/pdc/proteins/<path:entry>/extent')
+def pdc_extent(entry):
+    """The protein's own x/y/z dimensions and the initial box the build starts from, in nanometres.
+
+    A coordinate read and nothing more: the structure is read through the same `encapsulation.read_structure` the
+    belt sizing uses, with the same `chains` selection, so the dimensions describe the object that will be simulated
+    and not the whole deposited file. The box comes from `pdc_box`'s own rules (`extent_and_box`), never from a
+    coarse-grained rebuild -- martinize2 is not run and nothing is written, which is what lets the panel ask again on
+    every change to the protein, the chains, the margin or the initial-z.
+
+    A malformed request -- a non-numeric or non-positive margin or z, a chain the file does not name -- is a 400 with
+    the reason; an entry the catalogue does not hold is a 404. A structure the reader refuses (including one that
+    holds no atoms) is a 400 carrying that refusal's own sentence.
+    """
+    from detergent_pdc.analysis.runs import encapsulation
+
+    root = coordinator().ROOT
+    protein = catalogue_protein(root, entry)
+    try:
+        margin_nm = requested_extent_number(request, 'margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
+        initial_z_nm = requested_extent_number(request, 'initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    chains = requested_chains(request)
+    location = Path(protein['path'])
+    structure = location if location.is_absolute() else Path(root) / location
+    try:
+        atoms = encapsulation.read_structure(structure, chains=chains)
+    except (OSError, ValueError, IndexError) as error:
+        # An atomless PDB is an IndexError out of MDAnalysis' own parser, not a `ValueError` with a sentence; both are
+        # the reader refusing the file, and both are the caller's malformed request rather than a server fault.
+        return jsonify({'error': f'{protein["name"]} could not be read: {error}'}), 400
+    if chains is not None:
+        missing = encapsulation.unknown_chains(atoms['chains_available'], chains)
+        if missing:
+            available = ', '.join(atoms['chains_available']) or 'none'
+            return jsonify({'error': f'{protein["name"]} names no chain(s) {", ".join(missing)}; it names '
+                                     f'{available}'}), 400
+    try:
+        dimensions, box, rule = extent_and_box(protein, atoms['positions_nm'], margin_nm=margin_nm,
+                                               initial_z_nm=initial_z_nm)
+    except ValueError as error:
+        return jsonify({'error': f'{protein["name"]}: {error}'}), 400
+    return jsonify({'protein': protein['name'], 'dimensions_nm': dimensions, 'initial_box_nm': box,
+                    'rule': rule, 'half_thickness_nm': protein.get('half_thickness_nm'), 'chains': chains})
 
 
 def requested_chains(source):

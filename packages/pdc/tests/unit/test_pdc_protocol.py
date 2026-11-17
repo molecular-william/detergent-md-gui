@@ -15,7 +15,7 @@ import pytest
 from dashboard.execution import protocol
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.pdc_fixtures import TEMPLATE, molecule_tree, prepared_run
+from tests.harness.pdc_fixtures import TEMPLATE, molecule_tree, prepared_run, settings_of
 
 pytestmark = pytest.mark.usefixtures('gpu_host')
 
@@ -110,7 +110,84 @@ def test_each_leg_advertises_its_own_timestep_with_the_cg_bounds_and_no_default(
     assert specs['pdc_production_dt_fs'] == ('Production timestep (fs)', 0.5, 50)
 
 
-def test_the_retired_timesteps_translate_to_the_four_per_leg_numbers():
+def test_the_per_leg_physics_settings_are_advertised_with_reviewed_defaults():
+    """The form's new physics controls must survive the queue and start at each profile's own number."""
+    adapter = protocol.adapter_for('pdc')
+    specs = adapter.settings_specs()
+    defaults = adapter.stage_defaults()
+
+    expected = {
+        'pdc_nvt_nstlist': ('CG NVT neighbour-list rebuild', 1, 10000, 40),
+        'pdc_nvt_ref_t': ('CG NVT temperature (K)', 200, 500, 300),
+        'pdc_nvt_tau_t': ('CG NVT thermostat coupling (ps)', 0.01, 100, 1.0),
+        'pdc_npt_nstlist': ('CG NPT neighbour-list rebuild', 1, 10000, 40),
+        'pdc_npt_ref_t': ('CG NPT temperature (K)', 200, 500, 300),
+        'pdc_npt_tau_t': ('CG NPT thermostat coupling (ps)', 0.01, 100, 1.0),
+        'pdc_production_nstlist': ('CG production neighbour-list rebuild', 1, 10000, 40),
+        'pdc_production_ref_t': ('CG production temperature (K)', 200, 500, 300),
+        'pdc_production_tau_t': ('CG production thermostat coupling (ps)', 0.01, 100, 1.0),
+        'pdc_production_ref_p': ('CG production pressure (bar)', 0.1, 100, 1.0),
+        'pdc_production_tau_p': ('CG production barostat coupling (ps)', 0.1, 100, 12.0),
+        'pdc_production_compressibility': ('CG production compressibility (bar^-1)', 0, 1, 4.5e-5),
+    }
+    for setting, (label, low, high, default) in expected.items():
+        assert specs[setting] == (label, low, high), setting
+        assert defaults[setting] == default, setting
+    # The run-wide physics names stay advertised for an old payload, and are no longer written into a new record.
+    for setting in ('nstlist', 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility'):
+        assert setting in specs, setting
+        assert setting not in defaults, setting
+
+
+def test_the_retired_run_wide_physics_translates_onto_the_production_names():
+    """Old payloads and presets still name the run-wide physics; it now means the shared production set."""
+    adapter = protocol.adapter_for('pdc')
+    retired = {'nstlist': 80, 'ref_t': 320, 'tau_t': 2.0, 'ref_p': 2.0, 'tau_p': 20.0,
+               'compressibility': 1e-4}
+
+    numbers = adapter.normalize_settings(dict(retired))
+
+    assert {setting: numbers[f'pdc_production_{setting}'] for setting in retired} == retired
+    assert not retired.keys() & numbers.keys(), 'a recorded run cannot carry two answers to one question'
+    # A supplied production number wins over the retired spelling, and the retired key is still dropped.
+    mixed = adapter.normalize_settings({'ref_t': 320, 'pdc_production_ref_t': 310})
+    assert mixed['pdc_production_ref_t'] == 310 and 'ref_t' not in mixed
+
+
+def test_an_old_payload_still_prepares_and_records_only_the_per_leg_names(tmp_path):
+    run = prepared_run(tmp_path, settings={'ref_t': 310, 'nstlist': 80})
+    record = json.loads((run / 'manifest.json').read_text())['settings']
+
+    assert record['pdc_production_ref_t'] == 310 and record['pdc_production_nstlist'] == 80
+    assert 'ref_t' not in record and 'nstlist' not in record
+    assert settings_of(run)['pdc_production_ref_t'] == 310
+
+
+def test_mdrun_update_is_advertised_kept_and_reaches_the_flag_builder():
+    """The pdc manifest's settings are what `workflow` hands `aa.mdrun_command_flags`, so one builder decides."""
+    from dashboard.execution.adapters import aa
+
+    label, options = pdc.CHOICE_SPECS['mdrun_update']
+    assert (label, options) == ('Update and constraints', ('auto', 'cpu', 'gpu'))
+    assert pdc.DEFAULTS['mdrun_update'] == 'auto'
+    assert 'mdrun_update' in dict(pdc.PROTOCOL.choice_specs())
+
+    numbers = pdc.PROTOCOL.normalize_settings({'mdrun_update': 'cpu'})
+    assert numbers['mdrun_update'] == 'cpu'
+    _, flags = aa.mdrun_command_flags(numbers, 'equilibration', 'mpi', pme=False)
+    assert '-update cpu' in flags, 'the run setting must reach mdrun, not just the record'
+
+
+def test_the_equilibration_profiles_mark_their_physics_as_the_runs_own():
+    from dashboard.execution.mdp import PROFILES
+
+    for version in ('pdc-nvt-v1', 'pdc-npt-v1'):
+        variable = PROFILES[version].variable
+        for key in ('nstlist', 'ref-t', 'tau-t'):
+            assert key in variable, (version, key)
+
+
+
     """One old equilibration dt means both equilibration legs; one old production dt means both production legs."""
     adapter = protocol.adapter_for('pdc')
     legs = ('pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs')

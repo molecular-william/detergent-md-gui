@@ -38,21 +38,20 @@
 .new-pdc-estimate-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .new-pdc-estimate-head .new-pdc-verdict{flex:1 1 auto}
 .setting-tip .new-pdc-method,.setting-tip .new-pdc-caveat{display:inline;margin:0;font-size:inherit}
-/* The stage settings: the validation panel's editors, in the pdc column's width. Two fields across, because this half
-   is six of the layout's twelve columns and four across would leave a caption like "Force tolerance kJ mol-1 nm-1"
-   about 140 px. */
+/* The stage settings: the validation panel's editors, in the pdc column's width. Every stage's grid is three controls
+   across at desktop width -- the time rows and the physics rows alike -- two across below the shared 1100 px
+   breakpoint, and one on a phone. Three across is what a stage's boxes are: a dynamics leg is Duration · Timestep ·
+   Steps, and the physics beside it is stated in threes. */
 .new-pdc-stages{margin-top:14px}
-/* Two across only where there is room for two captions: below that the shared grid's own breakpoints take over
-   (two columns under 1100 px, one under 520), so a phone never scrolls sideways for a label. */
-@media (min-width:560px){#run-form .new-pdc-stages .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-/* A dynamics stage opens with Duration · Timestep · Steps on one line, because the three are one arithmetic: the
-   count is what the first two imply. Three across at the fieldset's width, and a stack when the captions would
-   squeeze -- never a sideways scroll. */
+#run-form .new-pdc-stages .settings-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:1100px){#run-form .new-pdc-stages .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){#run-form .new-pdc-stages .settings-grid{grid-template-columns:1fr}}
+/* `.pdc-time-row` names the arithmetic row (duration, timestep, implied steps); it takes the same rule as every other
+   grid, so it is stated here too and can never drift from it. */
 #run-form .new-pdc-stages .settings-grid.pdc-time-row{grid-template-columns:repeat(3,minmax(0,1fr))}
-@media (max-width:700px){
-  #run-form .new-pdc-stages .settings-grid.pdc-time-row{grid-template-columns:1fr}
-  #run-form .new-pdc-stages .stage-facts{white-space:normal;text-align:right}
-}
+@media(max-width:1100px){#run-form .new-pdc-stages .settings-grid.pdc-time-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){#run-form .new-pdc-stages .settings-grid.pdc-time-row{grid-template-columns:1fr}}
+@media(max-width:700px){#run-form .new-pdc-stages .stage-facts{white-space:normal;text-align:right}}
 #run-form .new-pdc-stages .stage-editor .hint{display:block;font-weight:400}
 #run-form .pdc-default{padding:4px 7px;font-size:11px}
 .new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}

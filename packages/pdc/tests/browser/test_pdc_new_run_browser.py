@@ -33,14 +33,18 @@ CATALOG = {
                  'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
-                 'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
-                 'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
+                 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
+                 'pdc_nvt_nstlist': 40, 'pdc_nvt_ref_t': 300, 'pdc_nvt_tau_t': 1.0,
+                 'pdc_npt_nstlist': 40, 'pdc_npt_ref_t': 300, 'pdc_npt_tau_t': 1.0,
+                 'pdc_production_nstlist': 40, 'pdc_production_ref_t': 300, 'pdc_production_tau_t': 1.0,
+                 'pdc_production_ref_p': 1.0, 'pdc_production_tau_p': 12.0,
+                 'pdc_production_compressibility': 4.5e-5,
                  'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
                  'pdc_posres_min': 'yes', 'pdc_posres_nvt': 'no', 'pdc_posres_npt': 'yes',
                  'pdc_minimisation_emtol': 100, 'pdc_minimisation_emstep': 0.001,
                  'pdc_npt_pcoupl': 'c-rescale', 'pdc_npt_pcoupltype': 'isotropic', 'pdc_npt_ref_p': 1.0,
                  'pdc_npt_tau_p': 4.0, 'pdc_npt_compressibility': 4.5e-5,
-                 'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto'},
+                 'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto', 'mdrun_update': 'auto'},
 }
 
 
@@ -94,21 +98,25 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(page.locator('#new-import')).to_be_visible()
     expect(page.locator('#new-count')).to_be_visible()
     # The stage settings are editors now: minimisation, NVT and NPT open on the values a reader most often changes,
-    # and the two production legs open on request -- so their durations are reached, not merely present.
+    # and the one CG production editor (assessment and extension together) opens on request -- so its durations are
+    # reached, not merely present.
     expect(page.locator('#run-form .new-pdc-stages')).to_be_visible()
     for stage in ('minimisation', 'nvt', 'npt'):
         assert page.locator(f'#run-form details[data-stage={stage}]').evaluate('el => el.open'), stage
-    for stage in ('assessment', 'extension'):
-        page.locator(f'#run-form details[data-stage={stage}] summary').click()
+    page.locator('#run-form details[data-stage=production] summary').click()
     expect(page.locator('#new-assessment-ns')).to_be_visible()
     expect(page.locator('#new-extension-ns')).to_be_visible()
     # There is no separate fold any more: every one of these controls is inside the Stage settings fieldset.
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
-    assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 6
+    assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 5
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
-                 'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
-                 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks',
+                 'nstcomm', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
+                 'pdc_nvt_nstlist', 'pdc_nvt_ref_t', 'pdc_nvt_tau_t',
+                 'pdc_npt_nstlist', 'pdc_npt_ref_t', 'pdc_npt_tau_t',
+                 'pdc_production_nstlist', 'pdc_production_ref_t', 'pdc_production_tau_t',
+                 'pdc_production_tau_p', 'pdc_production_ref_p', 'pdc_production_compressibility',
+                 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_update',
                  'protein_vsite', 'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs',
                  'pdc_extension_dt_fs',
                  'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -116,6 +124,10 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
                  'pdc_npt_pcoupl', 'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p',
                  'pdc_npt_compressibility'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
+    # The run-wide physics controls are gone with their group: each leg states its own.
+    for name in ('nstlist', 'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility'):
+        assert page.locator(f'[name={name}]').count() == 0, f'the retired run-wide {name} is still offered'
+    assert 'Thermostat and barostat' not in panel_text, 'the shared thermostat group is still offered'
     assert page.locator('[name=snapshot_interval_ns], [name=snapshot_cap]').count() == 0, 'snapshot inputs are retired'
 
     # The system preview is the top of the right column and the workflow strip is the card under it: the picture the
@@ -246,12 +258,13 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     assert errors == [], errors
 
 
-def test_the_six_groups_are_sections_inside_the_stage_settings(dashboard, live_page):
-    """The old Other run options fold is gone; its six groups are sections of the fieldset, in the validation shape.
+def test_the_five_groups_are_sections_inside_the_stage_settings(dashboard, live_page):
+    """The old Other run options fold is gone; its five remaining groups are sections of the fieldset.
 
     A group that merely exists proves little -- the fold rendered them too. They are asserted to be inside the
-    fieldset, after the five stage editors, each with an h4.new-option-title over a settings grid, and the page must
-    still fit a phone: at 390 px the groups wrap rather than widen the document.
+    fieldset, after the four stage editors, each with an h4.new-option-title over a settings grid, and the page must
+    still fit a phone: at 390 px the groups wrap rather than widen the document. The shared thermostat and barostat
+    group is gone: those numbers are stated by the leg they act on.
     """
     page, errors = live_page
     page.route('**/api/run/devices', lambda route: route.fulfill(
@@ -262,14 +275,14 @@ def test_the_six_groups_are_sections_inside_the_stage_settings(dashboard, live_p
     fieldset = page.locator('#run-form fieldset.new-pdc-stages')
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
     groups = fieldset.locator(':scope > section.new-option-group')
-    assert groups.count() == 6, 'the six former option groups are not sections of the fieldset'
-    assert page.locator('#run-form .new-option-group [name]').count() == 27, 'a control was lost with the fold'
-    for index in range(6):
+    assert groups.count() == 5, 'the five remaining option groups are not sections of the fieldset'
+    assert page.locator('#run-form .new-option-group [name]').count() == 22, 'a control was lost with the fold'
+    for index in range(5):
         group = groups.nth(index)
         expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
         expect(group.locator(':scope > div.settings-grid')).to_be_visible()
-    # The stages come first: every group sits after the fifth stage editor in document order.
-    last_stage = page.locator('#run-form details.stage-editor').nth(4)
+    # The stages come first: every group sits after the last (production) stage editor in document order.
+    last_stage = page.locator('#run-form details.stage-editor').last
     assert last_stage.evaluate("el => el.compareDocumentPosition(el.closest('fieldset').querySelector('.new-option-group'))"
                               " === Node.DOCUMENT_POSITION_FOLLOWING")
 
@@ -300,6 +313,16 @@ def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_
     assert (values['pdc_npt_pcoupl'], values['pdc_npt_pcoupltype']) == ('c-rescale', 'isotropic')
     assert tuple(float(values[name]) for name in
                  ('pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility')) == (1.0, 4.0, 4.5e-5)
+    # Each leg states its own neighbour list, temperature and couplings; the run-wide group that used to carry them
+    # is gone, so these are the only controls that hold those numbers.
+    assert tuple(values[name] for name in ('pdc_nvt_nstlist', 'pdc_nvt_ref_t', 'pdc_nvt_tau_t')) == ('40', '300', '1')
+    assert tuple(values[name] for name in ('pdc_npt_nstlist', 'pdc_npt_ref_t', 'pdc_npt_tau_t')) == ('40', '300', '1')
+    assert tuple(values[name] for name in
+                 ('pdc_production_nstlist', 'pdc_production_ref_t', 'pdc_production_tau_t')) == ('40', '300', '1')
+    assert tuple(float(values[name]) for name in
+                 ('pdc_production_ref_p', 'pdc_production_tau_p', 'pdc_production_compressibility')) == \
+        (1.0, 12.0, 4.5e-5)
+    assert values['mdrun_update'] == 'auto'
     assert {name for name, value in values.items() if value in ('', None)} == {
         'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs'}, values
     assert errors == [], errors
@@ -318,8 +341,9 @@ def test_each_stage_editor_states_what_it_holds_even_while_closed(dashboard, liv
     assert facts['minimisation'] == '200 000 steps · 100 kJ/mol/nm · 0.001 nm · restrained', facts
     assert facts['nvt'] == '500 ps · free', facts
     assert facts['npt'] == '4 500 ps · restrained', facts
-    assert facts['assessment'] == '100 ns', facts
-    assert facts['extension'] == '900 ns', facts
+    # One editor holds both CG production durations; the timestep is stated per leg, so the line names it per leg
+    # once the two differ.
+    assert facts['production'] == '100 ns assessment · 900 ns extension', facts
 
     # The three boxes of a dynamics stage: the duration and its own timestep imply the step count, at the same
     # arithmetic the adapter prepares with (steps = duration / dt).
@@ -344,6 +368,18 @@ def test_each_stage_editor_states_what_it_holds_even_while_closed(dashboard, liv
     expect(steps).to_have_value('')
     assert steps.evaluate('el => el.readOnly')
     assert 'timestep' in steps.get_attribute('title')
+
+    # The production line states one shared timestep once when both legs use it, and the total step count they
+    # imply: 100 ns at 20 fs is 5 000 000 steps and 900 ns at 20 fs is 45 000 000.
+    page.locator('#run-form details[data-stage=production] summary').click()
+    page.locator('[name=pdc_assessment_dt_fs]').fill('20')
+    page.locator('[name=pdc_extension_dt_fs]').fill('20')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=production]')).to_have_text(
+        '100 ns assessment · 900 ns extension · 20 fs · 50 000 000 steps')
+    # A different timestep for the restarted extension names its own leg rather than claiming both.
+    page.locator('[name=pdc_extension_dt_fs]').fill('40')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=production]')).to_have_text(
+        '100 ns assessment · 900 ns extension · 20 fs assessment · 40 fs extension · 27 500 000 steps')
     assert errors == [], errors
 
 
@@ -461,10 +497,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').fill('220')
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
-    # Each dynamics stage carries its own timestep beside its duration; stated, all eight post under the adapter's
-    # advertised names. The two production editors are closed until a reader opens them.
-    for stage in ('assessment', 'extension'):
-        page.locator(f'#run-form details[data-stage={stage}] summary').click()
+    # Each dynamics stage carries its own timestep beside its duration; stated, all four post under the adapter's
+    # advertised names. The one CG production editor is closed until a reader opens it.
+    page.locator('#run-form details[data-stage=production] summary').click()
     page.locator('[name=pdc_nvt_dt_fs]').fill('10')
     page.locator('[name=pdc_npt_dt_fs]').fill('10')
     page.locator('[name=pdc_assessment_dt_fs]').fill('20')
@@ -511,15 +546,114 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
         'pdc_minimisation_steps': 400000, 'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002,
         'pdc_npt_ref_p': 2.5, 'pdc_npt_tau_p': 8, 'pdc_npt_compressibility': 0.0001,
-        'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
-        'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
+        'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
+        # The physics each leg states for itself: the retired run-wide names are not on the payload at all.
+        'pdc_nvt_nstlist': 40, 'pdc_nvt_ref_t': 300, 'pdc_nvt_tau_t': 1,
+        'pdc_npt_nstlist': 40, 'pdc_npt_ref_t': 300, 'pdc_npt_tau_t': 1,
+        'pdc_production_nstlist': 40, 'pdc_production_ref_t': 300, 'pdc_production_tau_t': 1,
+        'pdc_production_tau_p': 12, 'pdc_production_ref_p': 1, 'pdc_production_compressibility': 4.5e-5,
         'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',
+        # The update scheme is stated always, so a run that asked for one is not readable as one that took the
+        # profile's own.
+        'mdrun_update': 'auto',
         # The checkpoint cadence is a run setting with a stated default, so the panel sends the number it shows:
         # ten minutes is this project's cadence and the run's command records it rather than relying on a default.
         'mdrun_cpt': 10,
         # The device the run will use, as an ordinary setting: `mdrun_gpu` is the CUDA ordinal the panel selected.
         'mdrun_gpu': 0,
     }, posted
+    assert errors == [], errors
+
+
+EXTENT = {'protein': {'name': '1qj8'}, 'dimensions_nm': {'x': 5.2, 'y': 4.8, 'z': 6.0},
+          'initial_box_nm': [9.2, 8.8, 6.0], 'rule': 'initial'}
+
+
+def test_the_seed_generate_button_draws_a_valid_integer_and_the_form_follows(dashboard, live_page):
+    """Generate draws a seed from 1 through today's date and fires the events the gate, store and review listen for."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    today = page.evaluate("() => { const d = new Date(); const pad = n => String(n).padStart(2, '0');"
+                          "return Number(`${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`); }")
+    seed = page.locator('[name=pdc_seed]')
+    # A value the button can never draw, so "it changed" is not a coincidence of the random draw.
+    seed.fill('2000000000')
+    page.locator('.pdc-generate-seed').click()
+
+    drawn = int(seed.input_value())
+    assert 1 <= drawn <= today, (drawn, today)
+    expect(page.locator('[data-new-summary=seed]')).to_have_text(str(drawn))
+    stored = page.evaluate("() => JSON.parse(localStorage.getItem('ddm.pdc-form') || '{}')")
+    assert stored.get('pdc_seed') == str(drawn), stored
+    assert errors == [], errors
+
+
+def test_the_stage_grids_hold_three_boxes_a_row_and_never_scroll_sideways(dashboard, live_page):
+    """Measured: three across at the wide viewport, two below the shared 1100 px breakpoint, one on a phone."""
+    page, errors = live_page
+    open_panel(page, live_page.base_url)
+    page.evaluate("() => document.querySelectorAll('#run-form details.stage-editor').forEach(el => { el.open = true; })")
+
+    def grids():
+        return page.evaluate("""() => Array.from(document.querySelectorAll('#run-form .new-pdc-stages .settings-grid'))
+            .map(grid => Array.from(grid.children).filter(el => !el.hidden).map(el => {
+              const r = el.getBoundingClientRect();
+              return {x: r.x, y: r.y, width: r.width};
+            }))""")
+
+    def rows(cells):
+        """The number of cells on the first row: those sharing its top."""
+        return sum(1 for cell in cells if abs(cell['y'] - cells[0]['y']) <= 2)
+
+    wide = [cells for cells in grids() if len(cells) >= 3]
+    assert wide, 'the stage settings render no grid of three controls'
+    for cells in wide:
+        assert rows(cells) == 3, f'a stage grid is not three across: {cells}'
+        xs = [cell['x'] for cell in cells[:3]]
+        assert xs[0] < xs[1] < xs[2], f'the first three boxes do not march left to right: {xs}'
+
+    page.set_viewport_size({'width': 1000, 'height': 900})
+    for cells in [cells for cells in grids() if len(cells) >= 3]:
+        assert rows(cells) == 2, f'a stage grid is not two across below 1100 px: {cells}'
+
+    page.set_viewport_size({'width': 390, 'height': 900})
+    for cells in grids():
+        if len(cells) < 2:
+            continue
+        assert rows(cells) == 1, f'a stage grid is not stacked on a phone: {cells}'
+    browser.assert_no_horizontal_scroll(page)
+    assert errors == [], errors
+
+
+def test_the_protein_card_states_its_size_and_the_initial_box_and_the_refusal(dashboard, live_page):
+    """The two lines are the extent route's answer: the protein's dimensions and the box the build starts from."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    state = {'status': 200, 'body': EXTENT}
+    page.route(re.compile(r'/extent'), lambda route: route.fulfill(status=state['status'], json=state['body']))
+    open_panel(page, live_page.base_url)
+
+    # No protein: there is nothing to measure, so neither line is shown.
+    expect(page.locator('.new-pdc-protein-size')).to_be_hidden()
+    expect(page.locator('.new-pdc-box-estimate')).to_be_hidden()
+
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+    expect(page.locator('.new-pdc-protein-size')).to_have_text('5.2 × 4.8 × 6.0 nm')
+    expect(page.locator('.new-pdc-box-estimate')).to_have_text('initial box 9.2 × 8.8 × 6.0 nm')
+
+    # A membrane-stating structure names the membrane rule; a refusal is the route's own sentence as text.
+    state['body'] = {**EXTENT, 'rule': 'membrane', 'initial_box_nm': [8.4, 8.0, 6.0]}
+    page.locator('[name=box_margin_nm]').fill('3')
+    expect(page.locator('.new-pdc-box-estimate')).to_have_text('membrane box 8.4 × 8.0 × 6.0 nm')
+
+    state.update(status=400, body={'error': '1qj8 states no coordinates this can measure'})
+    page.locator('[name=initial_z_nm]').fill('7')
+    expect(page.locator('.new-pdc-protein-size')).to_have_text('1qj8 states no coordinates this can measure')
+    expect(page.locator('.new-pdc-box-estimate')).to_have_text('')
     assert errors == [], errors
 
 

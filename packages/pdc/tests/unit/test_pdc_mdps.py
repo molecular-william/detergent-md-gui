@@ -78,7 +78,9 @@ def values(profile: str, settings: dict) -> dict:
         return numbers
     if profile == 'pdc-nvt-v1':
         step = leg_dt(profile, settings, pdc_adapter.NVT_TIMESTEP)
-        numbers = {'nsteps': round(int(float(settings['nvt_ps'])) / step), 'gen-seed': int(settings['seed'])}
+        numbers = {'nsteps': round(int(float(settings['nvt_ps'])) / step), 'gen-seed': int(settings['seed']),
+                   'nstlist': settings['pdc_nvt_nstlist'], 'ref-t': settings['pdc_nvt_ref_t'],
+                   'tau-t': settings['pdc_nvt_tau_t']}
         if pdc_adapter.NVT_TIMESTEP in settings:
             numbers['dt'] = step
         if restrained(settings, 'nvt'):
@@ -87,6 +89,8 @@ def values(profile: str, settings: dict) -> dict:
     if profile == 'pdc-npt-v1':
         step = leg_dt(profile, settings, pdc_adapter.NPT_TIMESTEP)
         numbers = {'nsteps': round(int(float(settings['npt_ps'])) / step),
+                   'nstlist': settings['pdc_npt_nstlist'], 'ref-t': settings['pdc_npt_ref_t'],
+                   'tau-t': settings['pdc_npt_tau_t'],
                    'pcoupl': settings['pdc_npt_pcoupl'], 'pcoupltype': settings['pdc_npt_pcoupltype'],
                    'ref-p': settings['pdc_npt_ref_p'], 'tau-p': settings['pdc_npt_tau_p'],
                    'compressibility': settings['pdc_npt_compressibility']}
@@ -144,13 +148,65 @@ def test_a_file_prepare_did_not_write_is_not_recorded(tmp_path):
 
 def test_the_other_run_options_reach_both_production_mdps(tmp_path):
     run = prepared_run(tmp_path, settings={'nstlog': 250, 'nstenergy': 50, 'nstxtcout': 500,
-                                           'ref_t': 310, 'tau_p': 20.0, 'rvdw': 1.2})
+                                           'pdc_production_ref_t': 310, 'pdc_production_tau_p': 20.0,
+                                           'rvdw': 1.2})
 
     for name in ('assessment.mdp', 'extension.mdp'):
         written = parsed((inputs_dir(run) / name).read_text())
         assert written['nstlog'] == '250' and written['nstenergy'] == '50'
         assert written['nstxtcout'] == '500' and written['xtc-precision'] == '1000'
         assert written['ref-t'] == '310' and written['tau-p'] == '20' and written['rvdw'] == '1.2'
+
+
+def test_an_untouched_run_renders_the_reviewed_equilibration_files_byte_for_byte(tmp_path):
+    """The per-leg physics writes the reviewed number back: the file an untouched run renders does not move.
+
+    `render` at the run's arithmetic only is the reviewed file, so any difference from the prepared text would be a
+    physics change this slice did not ask for.
+    """
+    run = prepared_run(tmp_path, settings={'nvt_ps': 500, 'npt_ps': 4500})
+    settings = settings_of(run)
+
+    expected = {
+        'nvt.mdp': render('pdc-nvt-v1', {'nsteps': round(500 / dt('pdc-nvt-v1')), 'gen-seed': settings['seed']}),
+        'npt.mdp': render('pdc-npt-v1', {'nsteps': round(4500 / dt('pdc-npt-v1')),
+                                         'define': pdc_adapter.POSRES_DEFINE, 'refcoord-scaling': 'com'}),
+    }
+    for name, text in expected.items():
+        assert (inputs_dir(run) / name).read_text() == text, name
+
+
+def test_each_equilibration_leg_carries_its_own_neighbour_list_temperature_and_thermostat(tmp_path):
+    """NVT and NPT are separate settings, and neither reaches the other leg nor the production files."""
+    run = prepared_run(tmp_path, settings={'pdc_nvt_nstlist': 80, 'pdc_nvt_ref_t': 310, 'pdc_nvt_tau_t': 2.0,
+                                           'pdc_npt_nstlist': 20, 'pdc_npt_ref_t': 320, 'pdc_npt_tau_t': 0.5,
+                                           'nvt_ps': 500, 'npt_ps': 4500})
+    nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
+    npt = parsed((inputs_dir(run) / 'npt.mdp').read_text())
+
+    assert (nvt['nstlist'], nvt['ref-t'], nvt['tau-t']) == ('80', '310', '2')
+    assert (npt['nstlist'], npt['ref-t'], npt['tau-t']) == ('20', '320', '0.5')
+    for name in ('assessment.mdp', 'extension.mdp'):
+        production = parsed((inputs_dir(run) / name).read_text())
+        assert (production['nstlist'], production['ref-t'], production['tau-t']) == ('40', '300', '1'), name
+    # The minimisation is not integrated, so the per-leg physics cannot reach its pinned neighbour list.
+    assert parsed((inputs_dir(run) / 'minimisation.mdp').read_text())['nstlist'] == '20'
+
+
+def test_the_production_physics_set_reaches_both_production_files(tmp_path):
+    run = prepared_run(tmp_path, settings={'pdc_production_nstlist': 80, 'pdc_production_ref_t': 320,
+                                           'pdc_production_tau_t': 2.0, 'pdc_production_ref_p': 2.0,
+                                           'pdc_production_tau_p': 20.0,
+                                           'pdc_production_compressibility': 1e-4})
+    for name in ('assessment.mdp', 'extension.mdp'):
+        written = parsed((inputs_dir(run) / name).read_text())
+        assert (written['nstlist'], written['ref-t'], written['tau-t']) == ('80', '320', '2'), name
+        assert (float(written['ref-p']), float(written['tau-p']),
+                float(written['compressibility'])) == (2.0, 20.0, 1e-4), name
+    # The equilibration legs keep the reviewed numbers: the production set is not run-wide.
+    for name in ('nvt.mdp', 'npt.mdp'):
+        written = parsed((inputs_dir(run) / name).read_text())
+        assert (written['nstlist'], written['ref-t'], written['tau-t']) == ('40', '300', '1'), name
 
 
 def test_an_unset_timestep_keeps_the_reviewed_profiles_own_number(tmp_path):

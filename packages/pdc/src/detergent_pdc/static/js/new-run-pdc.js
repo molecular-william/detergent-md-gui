@@ -30,9 +30,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
-                   'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
-                   'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
+                   'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
+                   // The physics each leg states for itself: the run-wide names these replaced (`nstlist`, `ref_t`,
+                   // `tau_t`, `ref_p`, `tau_p`, `compressibility`) are retired from the form; the adapter still reads
+                   // them for old payloads and presets.
+                   'pdc_nvt_nstlist', 'pdc_nvt_ref_t', 'pdc_nvt_tau_t',
+                   'pdc_npt_nstlist', 'pdc_npt_ref_t', 'pdc_npt_tau_t',
                    'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility',
+                   'pdc_production_nstlist', 'pdc_production_ref_t', 'pdc_production_tau_t',
+                   'pdc_production_tau_p', 'pdc_production_ref_p', 'pdc_production_compressibility',
                    'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];
   // The four per-stage timesteps have no catalogue default: a blank box is the reviewed profile's own dt. Their
   // Default button therefore clears, rather than writing a number the catalogue does not publish.
@@ -578,8 +584,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
      emstep: 'pdc_minimisation_emstep', restraint: 'pdc_posres_min'},
     {stage: 'nvt', ps: 'pdc_nvt_ps', dt: 'pdc_nvt_dt_fs', restraint: 'pdc_posres_nvt'},
     {stage: 'npt', ps: 'pdc_npt_ps', dt: 'pdc_npt_dt_fs', restraint: 'pdc_posres_npt'},
-    {stage: 'assessment', ns: 'pdc_assessment_ns', dt: 'pdc_assessment_dt_fs'},
-    {stage: 'extension', ns: 'pdc_extension_ns', dt: 'pdc_extension_dt_fs'},
+    // Assessment and extension are one editor with two durations and one shared physics set, so their line states
+    // both durations and the timestep(s) that turn them into steps.
+    {stage: 'production', assessment_ns: 'pdc_assessment_ns', assessment_dt: 'pdc_assessment_dt_fs',
+     extension_ns: 'pdc_extension_ns', extension_dt: 'pdc_extension_dt_fs'},
   ];
   // The three boxes one dynamics stage reads: duration, its own timestep, and the step count the two imply. The
   // count is derived and carries no `name`, so it never reaches the payload; editing it back-solves the duration at
@@ -610,10 +618,32 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const value = Number(text);
     return Number.isFinite(value) ? value : null;
   }
+  // The merged production line: both durations, the timestep(s) stated for them, and the total step count those
+  // imply. One shared dt is printed once; two different ones name their own leg, because a single number would be a
+  // claim about both legs that the form did not make.
+  function productionFacts(spec) {
+    const assessmentNs = stageNumber(spec.assessment_ns), extensionNs = stageNumber(spec.extension_ns);
+    const assessmentDt = stageNumber(spec.assessment_dt), extensionDt = stageNumber(spec.extension_dt);
+    const parts = [];
+    if (assessmentNs !== null) parts.push(`${groupedNumber(assessmentNs)} ns assessment`);
+    if (extensionNs !== null) parts.push(`${groupedNumber(extensionNs)} ns extension`);
+    if (assessmentDt !== null && extensionDt !== null) {
+      parts.push(assessmentDt === extensionDt ? `${assessmentDt} fs`
+                                              : `${assessmentDt} fs assessment · ${extensionDt} fs extension`);
+    } else if (assessmentDt !== null) parts.push(`${assessmentDt} fs assessment`);
+    else if (extensionDt !== null) parts.push(`${extensionDt} fs extension`);
+    if (assessmentNs !== null && extensionNs !== null && assessmentDt && extensionDt) {
+      const steps = Math.round(assessmentNs * 1000000 / assessmentDt)
+                  + Math.round(extensionNs * 1000000 / extensionDt);
+      parts.push(`${groupedNumber(steps)} steps`);
+    }
+    return parts;
+  }
   function syncStageFacts() {
     for (const spec of STAGE_FACTS) {
       const host = form.querySelector(`.new-pdc-stage-facts[data-stage="${spec.stage}"]`);
       if (!host) continue;
+      if (spec.stage === 'production') { host.textContent = productionFacts(spec).join(' · '); continue; }
       const parts = [];
       const steps = spec.steps ? stageNumber(spec.steps) : null;
       const ps = spec.ps ? stageNumber(spec.ps) : null;
@@ -812,6 +842,88 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     renderEstimate(); syncSummary();
   }
 
+  // The protein's own size and the box the build starts from ------------------------------------------------------
+  //
+  // Both numbers are measured by the extent route from the chosen structure's coordinates, with the form's own box
+  // margin and initial-z, so a reader moving either sees the box the build would start from rather than a stale
+  // estimate. As with the coverage estimate, the question is numbered: a reader can change the protein or a chain
+  // while an earlier request is in flight, and a slow answer to an older question must not land on a newer one.
+  // The route answers `dimensions_nm` as an `{x, y, z}` object and `initial_box_nm` as an `[x, y, z]` list, so both
+  // spellings are read here rather than making the panel assume one the route did not promise.
+  const formatExtent = values => {
+    const axes = Array.isArray(values) ? values
+      : (values && typeof values === 'object' ? ['x', 'y', 'z'].map(axis => values[axis]) : []);
+    if (axes.length !== 3 || !axes.every(value => value != null && Number.isFinite(Number(value)))) return '';
+    return axes.map(value => Number(value).toFixed(1)).join(' × ');
+  };
+  let extentState = {kind: 'idle'}, extentRequest = 0, extentTimer;
+
+  function renderExtent() {
+    const size = pdcNode('.new-pdc-protein-size'), box = pdcNode('.new-pdc-box-estimate');
+    if (!size || !box) return;
+    const hasProtein = !!field('protein').value;
+    size.hidden = box.hidden = !hasProtein;
+    if (!hasProtein) { setText(size, ''); setText(box, ''); return; }
+    const state = extentState;
+    if (state.kind === 'answer') {
+      setText(size, `${state.dimensions} nm`);
+      setText(box, `${state.rule === 'membrane' ? 'membrane box' : 'initial box'} ${state.box} nm`);
+      return;
+    }
+    // A refusal is the route's own sentence; a request still in flight says so instead of leaving the lines blank.
+    setText(size, state.kind === 'refused' ? state.reason
+      : (state.kind === 'loading' ? 'Measuring the protein and the box it implies…'
+        : ''));
+    setText(box, '');
+  }
+
+  async function loadExtent() {
+    const entry = field('protein').value;
+    const mine = ++extentRequest;
+    if (!entry) {
+      extentState = {kind: 'idle'};
+      renderExtent();
+      return;
+    }
+    const query = new URLSearchParams({margin_nm: field('box_margin_nm')?.value || '',
+                                       initial_z_nm: field('initial_z_nm')?.value || ''});
+    // Only a selection that exists is sent; an entry with no ticks is the whole structure, as the estimate reads it.
+    const chains = selectedChains();
+    if (chains.length) query.set('chains', chains.join(','));
+    extentState = {kind: 'loading'};
+    renderExtent();
+    const entry_id = String(entry).replace(/^\/+/, '');
+    let response;
+    try {
+      response = await fetch(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/extent?${query}`);
+    } catch (error) {
+      if (mine !== extentRequest) return;
+      extentState = {kind: 'refused', reason: 'The protein’s size could not be read: the coordinator did not answer.'};
+      renderExtent();
+      return;
+    }
+    // The route's refusal sentence is JSON (`{error}`); an answer that is not JSON is no measurement at all, so it
+    // is reported as a refusal rather than rendered as one.
+    let body = {};
+    try { body = JSON.parse(await response.text()); } catch (error) { body = {}; }
+    if (mine !== extentRequest) return;
+    const dimensions = formatExtent(body.dimensions_nm), box = formatExtent(body.initial_box_nm);
+    if (!response.ok || !dimensions || !box) {
+      extentState = {kind: 'refused',
+                     reason: body.error || `the protein’s size was refused (status ${response.status})`};
+      renderExtent();
+      return;
+    }
+    extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial'};
+    renderExtent();
+  }
+
+  // One typed margin is one question: wait until the reader stops moving the box before asking the route.
+  function scheduleExtent() {
+    clearTimeout(extentTimer);
+    extentTimer = setTimeout(loadExtent, 250);
+  }
+
   // What the panel can see and the server cannot: a build places detergents at random, so a run with no seed is not
   // comparable with another and the pipeline requires one. Saying so here is the difference between a disabled button
   // and a button that lies.
@@ -909,7 +1021,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : `Imported ${body.pdbid}` + (body.half_thickness_nm != null
           ? ` — its file states a ${body.half_thickness_nm} nm half-thickness.`
           : ' — its file states no membrane, so the build would use the protein-extent box.'));
-    syncChains(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState();
+    syncChains(); syncSummary(); loadEstimate(); scheduleExtent(); checkReadiness(); renderPreviewState();
   }
 
   // The system preview -----------------------------------------------------------------------------------------
@@ -1567,12 +1679,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('template').addEventListener('change', () => {
     describeTemplate(); store(); syncSummary(); checkReadiness(); previewMoved(); loadShapeLibraries();
   });
-  field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
+  field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); scheduleExtent(); checkReadiness(); renderPreviewState(); });
   // The subunit ticks are rebuilt whenever the chosen entry changes, so the listener sits on the group that holds
   // them: a per-box handler would be lost with the box it was bound to. Every tick is a change to the question the
   // estimate answers, so the route is asked again and the numbers move with the choice.
   pdcNode('.new-pdc-chain-list')?.addEventListener('change', () => {
-    describeChains(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState();
+    describeChains(); store(); syncSummary(); loadEstimate(); scheduleExtent(); checkReadiness(); renderPreviewState();
   });
   field('mapping_candidate').addEventListener('change', () => { rememberMapping(); store(); syncSummary(); loadEstimate(); checkReadiness(); renderPreviewState(); });
   // Every number the adapter reads. `input` keeps the summary and the gate current while a value is typed -- a
@@ -1748,6 +1860,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   for (const leg of RESTRAINT_LEGS) {
     field('pdc_posres_' + leg)?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   }
+  // A seed is drawn, not defaulted: an integer from 1 through today's date, the one value no catalogue default can
+  // supply. It dispatches `input` and `change`, so the gate, the stored form, the review and readiness all follow.
+  pdcNode('.pdc-generate-seed')?.addEventListener('click', () => {
+    const input = field('pdc_seed');
+    if (!input) return;
+    input.value = String(1 + Math.floor(Math.random() * todaySeed()));
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+
   // The Default buttons. The engine's `.use-default` loop reads `/api/defaults`, which answers 400 for a pdc
   // payload because it describes the one-molecule run; this panel reads the catalogue it already fetched, under its
   // own class, so the two handlers can never both fire on one button.
@@ -1815,6 +1937,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
+  // The box's own two inputs also move the estimate of the initial box, which is measured from them.
+  for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
   pdcNode('.new-pdc-preview-derive')?.addEventListener('click', derivePreview);
   // The Bonds control is a view of the frame on screen and nothing else: it redraws the protein's own
   // representations in `licorice` so the model's CONECT records read as sticks, leaves the detergent's as they were,
@@ -1894,6 +2018,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         if (value !== '' && value != null) payload[key] = Number(value);
       }
       if (field('mdrun_nb')?.value) payload.mdrun_nb = field('mdrun_nb').value;
+      // Stated always, like the back-map choice: the update scheme a run asked for must not be readable as one that
+      // took the profile's own, and `auto` is a choice rather than an absence.
+      payload.mdrun_update = field('mdrun_update')?.value || 'auto';
       await post('/', payload);
       notice('Run queued.');
       // A build from runs writes its library into the store, so the stored list is read again and the new library
@@ -1949,6 +2076,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       const seedInput = field('pdc_seed');
       if (seedInput && seedInput.value === '') seedInput.value = String(todaySeed());
       syncChains();
+      scheduleExtent();
       await loadMappings();
       // The shape card's two lists: the runs it can build from and the libraries already stored for this residue.
       // They are read after the catalogue, because the stored list is filtered by the template's own residue.

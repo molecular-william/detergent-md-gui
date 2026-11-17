@@ -55,9 +55,18 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
             # their own reviewed values, so an untouched run is the physics the templates stated.
             'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
-            'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
-            'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
-            'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto',
+            'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
+            # The production legs' physics, shared by assessment and extension. The reviewed production profile
+            # leaves exactly these to the run (40 steps, 300 K, 1.0 ps, 1 bar, 12 ps, 4.5e-5), so naming the
+            # defaults renders the reviewed file byte for byte.
+            'pdc_production_nstlist': 40, 'pdc_production_ref_t': 300, 'pdc_production_tau_t': 1.0,
+            'pdc_production_ref_p': 1.0, 'pdc_production_tau_p': 12.0, 'pdc_production_compressibility': 4.5e-5,
+            # The two equilibration legs' own physics: each reviewed profile states these same values, so an
+            # untouched run still renders its reviewed file. The minimisation has no entry because it is not
+            # integrated and keeps the reviewed neighbour-list floor of its own file.
+            'pdc_nvt_nstlist': 40, 'pdc_nvt_ref_t': 300, 'pdc_nvt_tau_t': 1.0,
+            'pdc_npt_nstlist': 40, 'pdc_npt_ref_t': 300, 'pdc_npt_tau_t': 1.0,
+            'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto', 'mdrun_update': 'auto',
             # Which generator places the detergents. A string, not a number, so it has no SETTING_SPECS bound and is
             # validated in `validate_payload` instead; its presence here is what lets a caller's choice survive the
             # settings filter and reach the build. `lattice` is the default so no existing run's placement moves.
@@ -108,8 +117,8 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             'pdc_minimisation_emtol': 100.0, 'pdc_minimisation_emstep': 0.001,
             # The NPT leg's barostat. The reviewed profile states exactly these values (c-rescale, isotropic,
             # 1 bar, 4 ps, 4.5e-5), so naming the defaults renders the reviewed file byte for byte; each is an
-            # override of its own leg only. The production leg's own barostat is the separate tau_p/ref_p/
-            # compressibility trio above and is untouched by any of these.
+            # override of its own leg only. The production leg's own barostat is the separate `pdc_production_*`
+            # trio above and is untouched by any of these.
             'pdc_npt_pcoupl': 'c-rescale', 'pdc_npt_pcoupltype': 'isotropic',
             'pdc_npt_ref_p': 1.0, 'pdc_npt_tau_p': 4.0, 'pdc_npt_compressibility': 4.5e-5}
 _PROTEIN_LIMIT = 50
@@ -120,6 +129,7 @@ _PROTEIN_LIMIT = 50
 # record the normalizer had just written -- no pdc build with an aggregation number could get past `prepare`.
 _INTEGRAL = ('seed', 'minimisation_steps', 'mdrun_gpu', 'mdrun_cpt', 'aggregation_number', 'attempts_max',
              'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm', 'nstlist',
+             'pdc_nvt_nstlist', 'pdc_npt_nstlist', 'pdc_production_nstlist',
              'mdrun_ntomp', 'mdrun_ranks')
 # The refusal each count carries, so a fractional value is named rather than floored. `seed` has a spec and no
 # default: a run that names none lets the builder choose, so an absent key stays absent.
@@ -137,23 +147,42 @@ SETTING_SPECS = {
     'initial_z_nm': ('Initial z box (nm)', 1.0, 50.0),
     'contact_nm': ('Micelle contact distance (nm)', 0.1, 2.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
-    # The CG production legs' output cadence, neighbour search and ensemble targets. The reviewed profiles leave
-    # these to the run; the equilibration and restart profiles keep their own values.
+    # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
+    # equilibration and restart profiles keep their own values. The production neighbour list, temperature and
+    # ensemble targets are the per-leg `pdc_production_*` names below.
     'nstlog': ('Log interval (steps)', 1, 1000000),
     'nstenergy': ('Energy interval (steps)', 1, 1000000),
     'nstxtcout': ('Trajectory interval (steps)', 1, 1000000),
     'xtc_precision': ('Trajectory precision', 1, 1000000),
     'nstcomm': ('Centre-of-mass removal (steps)', 1, 1000000),
-    'nstlist': ('Neighbour list rebuild (steps)', 1, 10000),
     'verlet_buffer_tolerance': ('Verlet buffer tolerance', 0.0, 0.1),
     'rlist': ('Neighbour cut-off (nm)', 0.1, 5.0),
     'rcoulomb': ('Coulomb cut-off (nm)', 0.1, 5.0),
     'rvdw': ('van der Waals cut-off (nm)', 0.1, 5.0),
+    # The run-wide names the per-leg split retired. Still advertised so an old payload, preset or clone validates;
+    # `_numbers` translates each onto its production name, and a run never records them.
+    'nstlist': ('Neighbour list rebuild (steps)', 1, 10000),
     'ref_t': ('Temperature (K)', 200.0, 500.0),
     'tau_t': ('Thermostat coupling (ps)', 0.01, 100.0),
     'ref_p': ('Pressure (bar)', 0.1, 100.0),
     'tau_p': ('Barostat coupling (ps)', 0.1, 100.0),
     'compressibility': ('Compressibility (bar^-1)', 0.0, 1.0),
+    # Each leg's own neighbour-list rebuild, temperature and thermostat coupling. Every reviewed profile states these
+    # same numbers (40, 300 K, 1.0 ps), so an untouched run renders its reviewed file byte for byte; the bounds are
+    # the CG precedent's.
+    'pdc_nvt_nstlist': ('CG NVT neighbour-list rebuild', 1, 10000),
+    'pdc_nvt_ref_t': ('CG NVT temperature (K)', 200, 500),
+    'pdc_nvt_tau_t': ('CG NVT thermostat coupling (ps)', 0.01, 100),
+    'pdc_npt_nstlist': ('CG NPT neighbour-list rebuild', 1, 10000),
+    'pdc_npt_ref_t': ('CG NPT temperature (K)', 200, 500),
+    'pdc_npt_tau_t': ('CG NPT thermostat coupling (ps)', 0.01, 100),
+    # The production legs share one physics set between the assessment and the extension files.
+    'pdc_production_nstlist': ('CG production neighbour-list rebuild', 1, 10000),
+    'pdc_production_ref_t': ('CG production temperature (K)', 200, 500),
+    'pdc_production_tau_t': ('CG production thermostat coupling (ps)', 0.01, 100),
+    'pdc_production_ref_p': ('CG production pressure (bar)', 0.1, 100),
+    'pdc_production_tau_p': ('CG production barostat coupling (ps)', 0.1, 100),
+    'pdc_production_compressibility': ('CG production compressibility (bar^-1)', 0, 1),
     # One timestep per dynamics leg, in fs, and deliberately no `DEFAULTS` entry: unset is the reviewed profile's
     # own number (5 fs equilibration, 20 fs production), so an untouched run renders the reviewed file. A run that
     # names one keeps its duration in ps and changes only the step count that duration becomes. The bounds are the
@@ -200,6 +229,15 @@ EXTENSION_TIMESTEP = 'pdc_extension_dt_fs'
 #: The two settings the per-leg split retired. Read in `_numbers` and translated to the four above, never rendered.
 RETIRED_EQUIL_TIMESTEP = 'pdc_equil_dt_fs'
 RETIRED_PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
+#: The run-wide physics the same split retired, each translated onto the production name it now belongs to. The
+#: equilibration legs do not read them: their own defaults are the reviewed profiles' values.
+RETIRED_PHYSICS = {'nstlist': 'pdc_production_nstlist', 'ref_t': 'pdc_production_ref_t',
+                   'tau_t': 'pdc_production_tau_t', 'ref_p': 'pdc_production_ref_p',
+                   'tau_p': 'pdc_production_tau_p', 'compressibility': 'pdc_production_compressibility'}
+#: Each integrated equilibration leg's own physics, mapped to the MDP option it writes. The minimisation is absent:
+#: it is not integrated, so it keeps the reviewed neighbour-list floor of its own file.
+LEG_PHYSICS = {'nvt': {'nstlist': 'pdc_nvt_nstlist', 'ref-t': 'pdc_nvt_ref_t', 'tau-t': 'pdc_nvt_tau_t'},
+               'npt': {'nstlist': 'pdc_npt_nstlist', 'ref-t': 'pdc_npt_ref_t', 'tau-t': 'pdc_npt_tau_t'}}
 
 # What each equilibration leg's shared script has to know: the mdp it runs, the phase it copies its system from, the
 # reviewed profile that mdp is written from, and the setting that turns into steps. Keyed by the stage's own name, so
@@ -689,14 +727,35 @@ def _with_leg_timesteps(supplied: dict) -> dict:
     return {key: value for key, value in supplied.items() if key not in retired} | translated
 
 
+def _with_leg_physics(supplied: dict) -> dict:
+    """One run's physics, in the per-leg spelling the writer reads.
+
+    The physics used to be run-wide, so an old payload, preset or clone still names `nstlist`, `ref_t`, `tau_t`,
+    `ref_p`, `tau_p` and `compressibility`; each now fills the production name it belongs to. A supplied production
+    number wins over the old spelling, and every old key is dropped, so the record cannot carry two answers to one
+    question. The equilibration legs are not reached from here: their own defaults are the reviewed profile values.
+    """
+    if not isinstance(supplied, dict):
+        return supplied
+    retired = {key for key in RETIRED_PHYSICS if key in supplied}
+    if not retired:
+        return supplied
+    translated = {key: value for key, value in supplied.items() if key not in retired}
+    for old, specific in RETIRED_PHYSICS.items():
+        if old in supplied and specific not in translated:
+            translated[specific] = supplied[old]
+    return translated
+
+
 #: The reviewed MDP names the run supplies, mapped to the settings key the panel sends. The production profiles
 #: leave exactly these `None`; every other profile keeps its own values, so this table is the one place a run number
 #: becomes an MDP option.
 _MDP_RUN_SETTINGS = {
     'nstlog': 'nstlog', 'nstenergy': 'nstenergy', 'nstxtcout': 'nstxtcout', 'xtc-precision': 'xtc_precision',
-    'nstcomm': 'nstcomm', 'nstlist': 'nstlist', 'verlet-buffer-tolerance': 'verlet_buffer_tolerance',
-    'rlist': 'rlist', 'rcoulomb': 'rcoulomb', 'rvdw': 'rvdw',
-    'ref-t': 'ref_t', 'tau-t': 'tau_t', 'ref-p': 'ref_p', 'tau-p': 'tau_p', 'compressibility': 'compressibility',
+    'nstcomm': 'nstcomm', 'nstlist': 'pdc_production_nstlist',
+    'verlet-buffer-tolerance': 'verlet_buffer_tolerance', 'rlist': 'rlist', 'rcoulomb': 'rcoulomb', 'rvdw': 'rvdw',
+    'ref-t': 'pdc_production_ref_t', 'tau-t': 'pdc_production_tau_t', 'ref-p': 'pdc_production_ref_p',
+    'tau-p': 'pdc_production_tau_p', 'compressibility': 'pdc_production_compressibility',
 }
 
 
@@ -790,9 +849,10 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
     no mdp, no record and no directory; its step count is recorded as zero.
 
     Each leg is also the run's own where the profile marks an option `variable`: the minimisation's convergence
-    knobs, the NPT leg's barostat, and each leg's own POSRES window. The window is the one conditional value here --
-    `define = -DPOSRES` and, on the pressure leg, `refcoord-scaling = com` are written only where the run asks for
-    it, so a leg that says no renders a file with no define at all.
+    knobs, each integrated leg's neighbour list, temperature and thermostat coupling, the NPT leg's barostat, and
+    each leg's own POSRES window. The window is the one conditional value here -- `define = -DPOSRES` and, on the
+    pressure leg, `refcoord-scaling = com` are written only where the run asks for it, so a leg that says no renders
+    a file with no define at all.
 
     Returns each leg's step count, so the run's record carries what the chain costs before it costs it.
     """
@@ -819,9 +879,13 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
             dt = _dt_ps(leg['profile'], settings, dt_setting)
             count = round(wanted / dt)
             values = {'nsteps': count}
+            # This leg's own neighbour list, temperature and thermostat coupling. The reviewed profile states the same
+            # numbers, so a run that names none renders the reviewed file; the minimisation keeps its own file.
+            for mdp_key, setting in LEG_PHYSICS.get(leg['key'], {}).items():
+                values[mdp_key] = settings[setting]
             if leg['key'] == 'npt':
                 # The equilibration barostat is this leg's alone; the production files keep their own reviewed
-                # `parrinello-rahman` and the `tau_p`/`ref_p`/`compressibility` trio.
+                # `parrinello-rahman` and the run's shared `pdc_production_*` tau-p/ref-p/compressibility trio.
                 # GROMACS wants one value per coupled direction: two for semiisotropic/surface-tension and six
                 # for anisotropic. The run states one number, so a larger kind repeats it -- the same rule the AA
                 # legs follow -- and the file stays executable instead of grompp refusing a short list.
@@ -872,8 +936,8 @@ def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
     other four adapters raise for both; this is the same rule, in one place, for the two entry points here.
     """
     numbers = normalize(
-        _with_leg_timesteps(supplied), DEFAULTS, specs=_SPEC_BY_NUMBER, choices=CHOICE_SPECS, aliases=_ALIASES,
-        ignore_unknown=ignore_unknown, object_message='PDC settings must be an object',
+        _with_leg_physics(_with_leg_timesteps(supplied)), DEFAULTS, specs=_SPEC_BY_NUMBER, choices=CHOICE_SPECS,
+        aliases=_ALIASES, ignore_unknown=ignore_unknown, object_message='PDC settings must be an object',
         unknown_prefix='Unknown PDC setting: ', bool_message='PDC settings must be numeric',
         integrals=_INTEGRAL_MESSAGES, integral_in_loop=True)
     _refuse_a_zero_step_leg(numbers)
@@ -1463,6 +1527,10 @@ CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assem
                 'pdc_npt_pcoupltype': ('NPT pressure coupling type',
                                        ('isotropic', 'semiisotropic', 'anisotropic', 'surface-tension', 'volumetric')),
                 'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu', 'gpu')),
+                # The update/constraints scheme, advertised so the queue keeps it: `workflow` builds every stage's
+                # flags from the run's settings through `aa.mdrun_command_flags`, which reads this key. `auto` emits
+                # no flag, so a run prepared before the setting existed keeps its exact command.
+                'mdrun_update': ('Update and constraints', ('auto', 'cpu', 'gpu')),
                 'protein_chains': ('Protein chains', ()),
                 'backmap': ('Back-mapping (CG2AT2)', (True, False)),
                 'prepare_protein': ('Protein preparation (PDB2PQR)', (True, False)),

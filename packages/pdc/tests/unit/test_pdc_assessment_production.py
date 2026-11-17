@@ -124,6 +124,25 @@ def test_removal_off_folds_both_requested_durations_into_one_cg_leg(tmp_path):
     assert (inputs_dir(run) / pdc.SETTINGS_NAME).is_file(), 'the settings still record the removal choice'
 
 
+def test_the_assessment_and_the_extension_share_the_shared_production_physics(tmp_path):
+    """The two production files are written from the same profile, so one physics set reaches both.
+
+    Their own durations stay their own: the extension still asks for `round(extension_ps / dt)` steps.
+    """
+    run = prepared(tmp_path, assessment_ns=100, extension_ns=900,
+                   pdc_production_nstlist=80, pdc_production_ref_t=320, pdc_production_tau_t=2.0,
+                   pdc_production_ref_p=2.0, pdc_production_tau_p=20.0,
+                   pdc_production_compressibility=1e-4, pdc_extension_dt_fs=25)
+    assessment = mdp_numbers(inputs_dir(run) / 'assessment.mdp')
+    extension = mdp_numbers(inputs_dir(run) / 'extension.mdp')
+
+    for key, value in (('nstlist', '80'), ('ref-t', '320'), ('tau-t', '2'), ('ref-p', '2'), ('tau-p', '20')):
+        assert assessment[key] == extension[key] == value, key
+    assert float(assessment['compressibility']) == float(extension['compressibility']) == 1e-4
+    assert int(extension['nsteps']) == round(900_000 / 0.025), 'the extension keeps its own duration at its dt'
+    assert int(assessment['nsteps']) == round(100_000 / 0.02)
+
+
 def mdp_numbers(path: Path) -> dict:
     numbers = {}
     for raw in path.read_text().splitlines():

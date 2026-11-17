@@ -596,20 +596,38 @@ derived value. The **encapsulation estimate** (`GET /api/pdc/proteins/<entry>/en
 detergents the apolar surface implies. Structural import lands the file in the workspace's `proteins/` with a
 sidecar.
 
-Its **Stage settings** are one `fieldset.run-settings` with five editors — minimisation, NVT, NPT, assessment,
-extension — and, below them, the six groups that used to be a folded *Other run options* block: output cadence,
-neighbour search and cutoffs, thermostat and barostat, salt/seed/box, back-map and execution. Every dynamics
-editor opens with three boxes: **Duration**, the leg's own **timestep**, and the **step count** those imply. The
-count carries no `name` (it is derived, never posted) and editing it back-solves the duration; a blank timestep
-is the reviewed profile's own dt (5 fs equilibration, 20 fs production), so an untouched run writes the reviewed
-MDP byte for byte. The four settings are `pdc_nvt_dt_fs`, `pdc_npt_dt_fs`, `pdc_assessment_dt_fs` and
-`pdc_extension_dt_fs`; the retired pair `pdc_equil_dt_fs`/`pdc_production_dt_fs` is still accepted and translated
-in `_numbers` (the pair to NVT+NPT, the pair to assessment+extension). The extension's own timestep reaches only
-the restarted system (detergents were removed and it re-runs minimisation → equilibration → ramp → production);
-the `convert-tpr -extend` continue path keeps the assessment tpr's dt, and the editor says so. A preset bar at the
-top of the fieldset saves and loads every named control in it for the `pdc` run type
-(`/api/setting-presets?run_type=pdc`), with one default the form applies on mount; the store answers the
-adapter's canonical names, so the panel translates them back to its own on load.
+Its **Stage settings** are one `fieldset.run-settings` with four editors — minimisation, NVT, NPT and one
+**CG production** editor for the assessment and extension legs — and, below them, five sections that used to be a
+folded *Other run options* block: output cadence, neighbour search and cutoffs, salt/seed/box, back-map and
+execution. Every grid is three controls across at desktop width, two below 1100 px and one on a phone. A dynamics
+editor opens with **Duration · Timestep · Steps**: the count carries no `name` (it is derived, never posted) and
+editing it back-solves the duration; a blank timestep is the reviewed profile's own dt (5 fs equilibration, 20 fs
+production), so an untouched run writes the reviewed MDP byte for byte. The four timestep settings are
+`pdc_nvt_dt_fs`, `pdc_npt_dt_fs`, `pdc_assessment_dt_fs` and `pdc_extension_dt_fs`; the retired pair
+`pdc_equil_dt_fs`/`pdc_production_dt_fs` is still accepted and translated in `_numbers`. The extension's own
+timestep reaches only the restarted system (detergents were removed and it re-runs minimisation → equilibration →
+ramp → production); the `convert-tpr -extend` continue path keeps the assessment tpr's dt, and the editor says so.
+
+Each stage states its own physics. NVT has `pdc_nvt_nstlist`, `pdc_nvt_ref_t` and `pdc_nvt_tau_t`; NPT adds those
+three to its barostat (`pdc_npt_pcoupl`, `pdc_npt_pcoupltype`, `pdc_npt_ref_p`, `pdc_npt_tau_p`,
+`pdc_npt_compressibility`); the shared production editor holds `pdc_production_nstlist`, `pdc_production_ref_t`,
+`pdc_production_tau_t`, `pdc_production_tau_p`, `pdc_production_ref_p` and `pdc_production_compressibility` for
+both legs. `_equilibration_mdps` writes each leg's own values and `_MDP_RUN_SETTINGS` points the production
+profile's `None` entries at the `pdc_production_*` names. The run-wide `nstlist`/`ref_t`/`tau_t`/`ref_p`/`tau_p`/
+`compressibility` are retired from the form and from `DEFAULTS` but still advertised and translated by
+`_with_leg_physics` in `_numbers`, so old payloads and presets fill the production names. The Execution section
+carries **Update and constraints** (`mdrun_update`: auto/cpu/gpu), which reaches every stage through
+`aa.mdrun_command_flags`; the seed has a **Generate** button drawing `1..YYYYMMDD`. A preset bar at the top of the
+fieldset saves and loads every named control in it for the `pdc` run type (`/api/setting-presets?run_type=pdc`),
+with one default the form applies on mount; the store answers the adapter's canonical names, so the panel
+translates them back to its own on load.
+
+The **Membrane protein** card also shows the chosen protein's own x × y × z dimensions and the initial box the build
+would start from, read by `GET /api/pdc/proteins/<entry>/extent?margin_nm=&initial_z_nm=&chains=`. The route reads
+the heavy atoms with the same reader and chain selection the belt estimate uses, and calls `pdc_box`'s own
+`initial_box`/`membrane_box` rule (belt reach zero: this is the box before placement and solvent), so the number on
+the card is the number the build makes rather than a second estimate. Both lines are hidden for an empty micelle,
+and the panel re-asks when the protein, its chain ticks, the box margin or the initial z change.
 
 The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
 conformation (the default, and every run before 2026-11-02), a library built from micelle-only runs, or a stored

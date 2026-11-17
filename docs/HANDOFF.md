@@ -11,8 +11,8 @@ state, what is next, what is open, and the measurements and incidents a reader h
 ## Current state (2026-11-16)
 
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
-  It was restarted 2026-11-17 12:05 HKT on the stage-settings and deletable-library tree (no run was in flight), and
-  before that 2026-11-16 18:23 on `696fae7`. Restart after a
+  It was restarted 2026-11-17 12:40 HKT on the per-stage-physics tree (no run was in flight), and
+  before that 12:05 on the stage-settings/deletable-library tree and 2026-11-16 18:23 on `696fae7`. Restart after a
   Python or template change: the unit keeps its
   imported modules for its whole life while `static/` is read per request. A restart is only safe with no run in
   flight. `77504a003e5e` (Glucose-CG-200ns, revision kind) failed on 2026-11-16 at CG assessment: `ff_assess` wrote
@@ -68,6 +68,26 @@ state, what is next, what is open, and the measurements and incidents a reader h
   (`test_pdc_preview_browser.py::test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its_families`
   and `test_pdc_new_run_browser.py::test_the_stage_settings_start_on_the_catalogues_own_numbers`); both pass alone and
   the whole tier is green at `-n 8`, which is contention rather than a code failure.
+- **pdc New run: per-stage physics, three-across rows, merged production, size/box estimate (2026-11-17 follow-up).**
+  Plan: `docs/plans/2026-11-17-pdc-per-stage-physics-and-box-estimate.md` (local). This supersedes the previous
+  bullet's five editors and six groups: Stage settings now has **four** editors (minimisation, NVT, NPT, one merged
+  **CG production**) and **five** sections (output cadence, neighbour search and cutoffs, salt/seed/box, back-map,
+  execution), and every grid is three controls across at desktop width, two below 1100 px, one on a phone. Each leg
+  states its own `nstlist`/`ref-t`/`tau-t` (`pdc_nvt_*`, `pdc_npt_*`) and the merged production editor one shared
+  `pdc_production_nstlist`/`_ref_t`/`_tau_t`/`_tau_p`/`_ref_p`/`_compressibility` set for both durations; its two
+  Duration · Timestep · Steps rows keep the assessment/extension timesteps. The reviewed defaults are the profile
+  values (40, 300 K, 1.0 ps; production barostat 1 bar/12 ps/4.5e-5), so untouched runs render byte-identical files.
+  The run-wide `nstlist`/`ref_t`/`tau_t`/`ref_p`/`tau_p`/`compressibility` are out of `DEFAULTS` and the form but
+  still advertised; `_with_leg_physics` in `_numbers` translates them onto the production names. The Execution
+  section gains **Update and constraints** (`mdrun_update`), which reaches mdrun through `aa.mdrun_command_flags`,
+  and the seed gains a **Generate** button. The Membrane protein card shows the protein's x × y × z and the initial
+  box from `GET /api/pdc/proteins/<entry>/extent`, which calls `pdc_box`'s own rules on the structure's coordinates
+  (membrane rule when the entry states one, belt reach 0), hidden for an empty micelle.
+  Checks: fast tier **3034 passed / 1 xfailed**; pdc non-browser **794 passed / 1 xfailed**; pdc browser **104
+  passed** with the known preview flake once (`test_the_empty_micelle_preview_...`, green alone); full browser tier
+  **401 passed** at `-n 8` (one AA layout test flaked under load and is green alone), ruff clean. Live at the 12:40
+  restart: four editors and the five sections render, the extent route answers for 1at9 and 4iar (membrane boxes
+  10.4 × 10.4 × 11.168 and 9.6117 × 9.6 × 17.673801 nm), and a bad `margin_nm` is a 400.
 - **Known gaps.** `dbc366ae772b` (the DDM AA reference) lacks `07_reference/run.sh`, so the DDM mapping `10c318949`
   refuses at `files.verify`; a CG-only reference run cannot be compared with a separate AA run; `docs/design/drafts`
   is 31 MB of local screenshots (gitignored, 152 files).

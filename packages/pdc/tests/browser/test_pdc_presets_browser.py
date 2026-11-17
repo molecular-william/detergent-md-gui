@@ -39,7 +39,15 @@ PRESET = {
     'settings': {'seed': 20261017, 'nvt_ps': 250, 'pdc_nvt_dt_fs': 5,
                  'npt_ps': 900, 'pdc_npt_dt_fs': 5,
                  'assessment_ns': 150, 'pdc_assessment_dt_fs': 20,
-                 'extension_ns': 800, 'pdc_extension_dt_fs': 20},
+                 'extension_ns': 800, 'pdc_extension_dt_fs': 20,
+                 # The per-stage physics the shared thermostat/barostat group used to carry: each leg's own names,
+                 # which the adapter's normalizer answers unchanged (it only translates the retired run-wide ones).
+                 'pdc_nvt_nstlist': 40, 'pdc_nvt_ref_t': 310, 'pdc_nvt_tau_t': 0.5,
+                 'pdc_npt_nstlist': 30, 'pdc_npt_ref_t': 320, 'pdc_npt_tau_t': 0.7,
+                 'pdc_production_nstlist': 50, 'pdc_production_ref_t': 300, 'pdc_production_tau_t': 1.0,
+                 'pdc_production_ref_p': 1.0, 'pdc_production_tau_p': 12.0,
+                 'pdc_production_compressibility': 4.5e-5,
+                 'mdrun_update': 'cpu'},
 }
 
 #: A preset saved before the split: the panel rendered two global timesteps, and the store kept them under the names
@@ -85,7 +93,14 @@ def test_the_bar_renders_and_load_restores_the_stage_settings(dashboard, live_pa
     for name, value in (('pdc_nvt_ps', '250'), ('pdc_nvt_dt_fs', '5'),
                         ('pdc_npt_ps', '900'), ('pdc_npt_dt_fs', '5'),
                         ('pdc_assessment_ns', '150'), ('pdc_assessment_dt_fs', '20'),
-                        ('pdc_extension_ns', '800'), ('pdc_extension_dt_fs', '20')):
+                        ('pdc_extension_ns', '800'), ('pdc_extension_dt_fs', '20'),
+                        # The per-stage physics a canonical preset now carries, each on the leg's own control.
+                        ('pdc_nvt_nstlist', '40'), ('pdc_nvt_ref_t', '310'), ('pdc_nvt_tau_t', '0.5'),
+                        ('pdc_npt_nstlist', '30'), ('pdc_npt_ref_t', '320'), ('pdc_npt_tau_t', '0.7'),
+                        ('pdc_production_nstlist', '50'), ('pdc_production_ref_t', '300'),
+                        ('pdc_production_tau_t', '1'), ('pdc_production_ref_p', '1'),
+                        ('pdc_production_tau_p', '12'), ('pdc_production_compressibility', '0.000045'),
+                        ('mdrun_update', 'cpu')):
         expect(page.locator(f'[name={name}]')).to_have_value(value)
     expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text('250 ps · 5 fs · 50 000 steps · free')
     expect(page.locator('.pdc-steps[data-stage=assessment]')).to_have_value('7500000')
@@ -126,6 +141,9 @@ def test_save_posts_the_run_type_and_the_controls_as_they_stand(dashboard, live_
 
     page.locator('[name=pdc_nvt_ps]').fill('140')
     page.locator('[name=pdc_nvt_dt_fs]').fill('7')
+    page.locator('#run-form details[data-stage=production] summary').click()
+    page.locator('[name=pdc_production_ref_t]').fill('310')
+    page.locator('[name=pdc_npt_tau_t]').fill('0.6')
     page.locator('#preset-save').click()
 
     expect(page.locator('#notice')).to_contain_text('Preset Workspace standard saved.')
@@ -133,6 +151,11 @@ def test_save_posts_the_run_type_and_the_controls_as_they_stand(dashboard, live_
     assert posted['name'] == 'Workspace standard', posted
     assert posted['settings']['pdc_nvt_ps'] == '140'
     assert posted['settings']['pdc_nvt_dt_fs'] == '7'
+    # The per-stage physics and the update scheme are named controls in the fieldset, so Save captures them without
+    # a second list.
+    assert posted['settings']['pdc_production_ref_t'] == '310', posted
+    assert posted['settings']['pdc_npt_tau_t'] == '0.6', posted
+    assert posted['settings']['mdrun_update'] == 'auto', posted
     assert all(value != '' for value in posted['settings'].values()), posted
     assert 'pdc_assessment_dt_fs' not in posted['settings'], 'a blank timestep is not a stored override'
     assert errors == [], errors

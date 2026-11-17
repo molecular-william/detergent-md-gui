@@ -250,6 +250,21 @@ def test_the_restart_reads_the_extension_timestep_from_the_prepared_file(tmp_pat
     assert 'nsteps = 36000000' in written, '900 ns at 0.025 ps is the duration the restart asks for'
 
 
+def test_the_restart_mdp_keeps_the_production_physics_it_was_written_with(tmp_path):
+    """The restart reads `extension.mdp`, so the shared production physics survives into the rebuilt system."""
+    from detergent_pdc.execution.scripts import pdc_extension
+
+    from tests.harness.pdc_fixtures import inputs_dir, prepared_run
+
+    inputs = inputs_dir(prepared_run(tmp_path, settings={'extension_ns': 900, 'pdc_extension_dt_fs': 25,
+                                                         'pdc_production_ref_t': 320,
+                                                         'pdc_production_tau_p': 20.0}))
+    written = pdc_extension.restart_mdp((inputs / 'extension.mdp').read_text(), 20260931, length_ps=900_000)
+
+    assert 'ref-t = 320' in written and 'tau-p = 20' in written
+    assert 'dt = 0.025' in written and 'nsteps = 36000000' in written
+
+
 def test_the_helper_does_not_decide_a_settings_driven_skip():
     """A run with removal off has no extension stage at all, so the helper has no skip branch to keep."""
     source = Path(pdc_extension.__file__).read_text()

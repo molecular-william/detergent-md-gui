@@ -386,10 +386,10 @@ PDC_LEG_PROFILES = (
                       'pcoupl': 'this leg is NVT', 'continuation': 'this leg starts from the minimised system'},
             source=f'{_PDC_TEMPLATE}/nvt.mdp, with the run\'s seed for gen-seed', version='pdc-nvt-v1',
             # The run may replace the reviewed 5 fs step: the form's equilibration timestep setting writes this file
-            # and the step count derived from the same number. The other variable is that leg's own POSRES window
-            # (`pdc_posres_nvt`, off by default): the define is appended only when the run asks for it, so an
-            # untouched run still renders the reviewed file byte for byte.
-            variable=('dt', 'define')),
+            # and the step count derived from the same number. The leg's own neighbour list, temperature and thermostat
+            # coupling are the stage's now, and the POSRES window (`pdc_posres_nvt`, off by default) adds the define
+            # only when the run asks for it, so an untouched run still renders the reviewed file byte for byte.
+            variable=('dt', 'nstlist', 'ref-t', 'tau-t', 'define')),
     Profile(settings={'integrator': 'md', 'dt': 0.005, 'nsteps': None, 'nstcomm': 100, 'comm-grps': 'System',
                       'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0, 'nstlog': 1000,
                       'nstenergy': 100, 'nstxtcout': 100, 'xtc-precision': 100, 'cutoff-scheme': 'Verlet',
@@ -406,10 +406,11 @@ PDC_LEG_PROFILES = (
                       'pcoupl': "c-rescale: the NPT leg's barostat",
                       'continuation': 'continues the NVT state'},
             source=f'{_PDC_TEMPLATE}/npt.mdp', version='pdc-npt-v1',
-            # This leg's barostat is the run's, and the POSRES window adds the define and `refcoord-scaling = com`
-            # only when it is asked for. Neither has a reviewed value: absent is the unrestrained file.
-            variable=('dt', 'pcoupl', 'pcoupltype', 'ref-p', 'tau-p', 'compressibility', 'define',
-                      'refcoord-scaling')),
+            # This leg's own neighbour list, temperature and thermostat coupling join the barostat as the run's, and
+            # the POSRES window adds the define and `refcoord-scaling = com` only when it is asked for. Nothing has a
+            # missing reviewed value: absent is the unrestrained file, and the rest default to what it states.
+            variable=('dt', 'nstlist', 'ref-t', 'tau-t', 'pcoupl', 'pcoupltype', 'ref-p', 'tau-p',
+                      'compressibility', 'define', 'refcoord-scaling')),
 )
 
 # The genion fix-up tpr, written from this profile rather than copied from a template.
