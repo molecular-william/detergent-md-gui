@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import martini3
+from dashboard.analysis.runs.radii import AA_RADII
 from dashboard.execution import run_inputs, run_scripts
 from dashboard.execution.adapters import cg
 from dashboard.execution.protocol import adapter_for
@@ -134,6 +135,18 @@ def test_the_manifest_is_the_reference_record_and_the_run_has_no_copies(fitted_r
         copied = sorted(path.relative_to(run).as_posix() for path in tree.rglob('*')
                         if path.suffix in ('.py', '.sh'))
         assert copied == [], f'{tree.name}/ holds code that belongs to the repository: {copied}'
+
+
+def test_the_stage_radii_are_the_same_table_the_analyses_use():
+    """`sasa.sh` copies `SASA_RADII_AA` into the AA stage directory at run time; the validation `surfaces` analysis
+    builds the same radii from `AA_RADII`. A drift between the two would give one molecule two AA surfaces."""
+    published = {}
+    for line in cg.SASA_RADII_AA.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith((';', '#')):
+            _, atom, radius = line.split()
+            published[atom] = float(radius)
+    assert published == pytest.approx(AA_RADII)
 
 
 def test_the_generated_topologies_name_the_installed_files_relative_to_themselves(fitted_run):

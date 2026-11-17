@@ -10,10 +10,14 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
-- **SASA stage runs at 48 dots/atom (2026-11-17).** `sasa.sh` passes `-ndots 48` to both passes (was 4800) and
-  `CODE_VERSIONS['sasa']` is version 2, so a run prepared under version 1 refuses stage 5 rather than publish a series
-  its record does not claim. The user's decision, measured before the edit (below). The validation `surfaces` analysis
-  keeps its own `NDOTS = 240`; only the CG run's stage changed.
+- **SASA stage: 48 dots/atom and the published AA radii (2026-11-17).** `sasa.sh` passes `-ndots 48` to both passes
+  (was 4800) and copies the published Rowland-Taylor `vdwradii_AA.dat` into its AA directory before the AA call. The
+  copy was missing entirely: `prepare` writes only the CG radii, and GROMACS fell back to guessing radii from atom
+  names, so the AA surface was low by ~2% and disagreed with the validation `surfaces` analysis on the same run by the
+  same amount (the warning it prints is the same with or without the file). `CODE_VERSIONS['sasa']` is version 3, so a
+  run prepared under version 2 or earlier refuses stage 5 rather than publish a series its record does not claim. The
+  prepared run still keeps no copy (`sasa_radii_aa` is a layout-4 input read in place); the validation `surfaces`
+  analysis keeps its own `NDOTS = 240`, so only the CG run's stage changed.
 - **Service.** `detergent-dashboard` is a transient user unit on port 5000, working directory = the checkout root.
   It was restarted 2026-11-17 12:40 HKT on the per-stage-physics tree (no run was in flight), and
   before that 12:05 on the stage-settings/deletable-library tree and 2026-11-16 18:23 on `696fae7`. Restart after a
@@ -505,6 +509,11 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
   34x on glucose CG; at the chosen 48 dots, ~1.0-1.2% per frame and glucose CG's std still 18x high. Time is
   sublinear, ~`ndots^0.75`: a real stage run went 48.5 -> 4.0 s (glucose) and 217 -> 11.2 s (DDM), means moving
   <=0.02%. 960 is the knee if frame-level variability is ever a decision input (0.2% per frame, std within 3%).
+- SASA AA radii (2026-11-17): the stage's AA pass ran with GROMACS-guessed radii because `6_SASA/AA/` never received
+  the published `vdwradii_AA.dat`. The file moves the AA mean by -1.8% (glucose 4.1612 -> 4.0861) and -2.1% (DDM
+  9.7326 -> 9.5240), so the AA-vs-CG gap moves 2.99 -> 1.20% on glucose. The validation `surfaces` analysis, which
+  builds the same table, reports 4.0865 for that AA surface; the stage now agrees with it. The DDM run (prepared
+  2026-10-22) still had the file and its stored AA value matches the corrected convention.
 - `b920391735dd`: protein-free pdc run (DDM, no removal, no back-map), 5,000,000 steps at 20 fs = 100 ns in one
   assessment leg, the ruled-out stages absent. Its series: 120 models over 0–99.246 ns, 8,604 atoms, 15.7 MB, and
   180,000 CONECT records measured on the assembled acceptance series. It is the surviving live pdc example.
