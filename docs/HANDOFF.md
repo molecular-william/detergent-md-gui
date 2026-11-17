@@ -82,7 +82,13 @@ Approved draft: `docs/design/drafts/2026-11-17-pdc-new-run-clarity.html`; plan:
   columns" rule and pdc.css puts its editor grid two across inside the 6-column half, so the halves stay 6 + 6 and the
   390 px page still does not scroll sideways.
 Checks: fast tier 2995 passed / 1 xfailed; `ruff` clean; pdc browser area 89 passed; `test_runs_table_browser.py`
-13 passed (including the new diagnostics test); full browser tier green before commit.
+13 passed (including the new diagnostics test); full browser tier 385 passed.
+Live, on this workspace: the pdc panel renders all five editors with their facts lines (`200 000 steps · … ·
+restrained`, `500 ps · free`, `4 500 ps · restrained`, `100 ns`, `900 ns`), and the traces for
+`Glucose-AA-202ns-20261113` took **7.6 s** over three legs (≤501 points each, one `gmx energy` per leg); that run's
+minimisation EDR carries no Temperature, and its panel says so rather than drawing an empty frame. Two attempts were
+published on that run while verifying (`analyses/equilibration-traces/0001` and `0002`, the first with the banner
+line as its version); the newer one is what a reader sees.
 Still open: the failed `DDM_4iar_1conf_1us-5` needs a **fresh** run at 5 fs equilibration and 20 fs production (its own
 record says 20 fs for both); its traces will then be readable in the new disclosure.
 
