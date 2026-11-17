@@ -430,11 +430,11 @@ def figures_api(jid):
     sets stay on disk and are reachable through the artifact route the Runs gallery reads.
     """
     c = coordinator()
-    entries = c.artifact_index(c.lookup(jid), refresh=request.args.get('refresh') == '1')
+    job = c.lookup(jid)
+    entries = c.artifact_index(job, refresh=request.args.get('refresh') == '1')
     figures, superseded = current_figures(
         [e for e in entries if e['path'].endswith(FIGURE_SUFFIXES)])
-    return jsonify(artifacts=figures, superseded=superseded,
-                   revision=c.lookup(jid).get('artifact_revision'))
+    return jsonify(artifacts=figures, superseded=superseded)
 
 
 def structure_target(run_dir, relative: str) -> Path:

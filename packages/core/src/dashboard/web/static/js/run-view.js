@@ -89,28 +89,28 @@ export function createRunView() {
   }
 
   async function loadRuns() {
-    // Completed runs only, and one request per run type in scope -- the route's own `run_type` filter, so this page
-    // holds its workspace's runs and `total` describes them rather than a hidden superset of every run on disk.
+    // Completed runs only, in one request whose `run_type` is appended once per type in scope -- the route reads
+    // repeated values as an *or*, so this page still holds its workspace's runs and no other's, with `total`
+    // describing them rather than a hidden superset of every run on disk.
     runs.length = 0;
     if (!scope.types.length) {
       note.textContent = 'No run type is registered for this workspace, so there is nothing here to choose.';
       return;
     }
-    const answers = await Promise.all(scope.types.map(async type => {
-      const query = new URLSearchParams({view: 'summary', limit: String(PAGE_LIMIT), run_type: type,
-                                        status: 'completed'});
-      try {
-        return {jobs: (await api(`/api/jobs?${query}`)).jobs || []};
-      } catch (error) {
-        return {jobs: [], error: error.message};
-      }
-    }));
-    runs.push(...answers.flatMap(answer => answer.jobs)
+    const query = new URLSearchParams({view: 'summary', limit: String(PAGE_LIMIT), status: 'completed'});
+    for (const type of scope.types) query.append('run_type', type);
+    let answer = {jobs: []};
+    let failure = '';
+    try {
+      answer = await api(`/api/jobs?${query}`);
+    } catch (error) {
+      failure = error.message;
+    }
+    runs.push(...(answer.jobs || [])
       .sort((first, second) => String(second.created || '').localeCompare(String(first.created || ''))
                               || String(second.id || '').localeCompare(String(first.id || ''))));
-    const failed = answers.filter(answer => answer.error).map(answer => answer.error);
-    note.textContent = failed.length
-      ? `${runs.length} completed run${runs.length === 1 ? '' : 's'} available; some could not be read: ${failed[0]}`
+    note.textContent = failure
+      ? `${runs.length} completed run${runs.length === 1 ? '' : 's'} available; some could not be read: ${failure}`
       : `${runs.length} completed run${runs.length === 1 ? '' : 's'} available.`;
     for (const monitor of monitors) monitor.chooser.set(monitor.run());
   }

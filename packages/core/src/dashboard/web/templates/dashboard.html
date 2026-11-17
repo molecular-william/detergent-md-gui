@@ -18,7 +18,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='workspaces.css') }}">
   <meta name="plotly-src" content="{{ url_for('catalog.plotly_asset') }}">
-  <script src="{{ url_for('static', filename='vendor/ngl.js') }}"></script>
+  {# The 1.28 MB NGL bundle is fetched by `ngl-loader.js` when a panel first draws a 3D stage, not here: the
+     default Runs tab draws none, and a parser-blocking script in <head> charged every load for it. #}
+  <meta name="ngl-src" content="{{ url_for('static', filename='vendor/ngl.js') }}">
   {# The boot module publishes its console hooks before its first await (a module script's top-level await does not
      defer `load`), so this await only orders boot's own completion and turns a failed feature import into a notice
      instead of an unhandled module error: a feature with a broken module says so in the page rather than leaving a

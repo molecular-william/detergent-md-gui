@@ -52,7 +52,10 @@ def test_figures_use_index_and_explicit_refresh(dashboard):
     run = dashboard.coordinator.run_path(job); run.mkdir(parents=True)
     (run/'figure.svg').write_text('<svg/>'); (run/'data.txt').write_text('data')
     client = dashboard.client
-    first = client.get('/api/jobs/'+job['id']+'/figures').json
+    with patch.object(dashboard.coordinator, 'lookup', wraps=dashboard.coordinator.lookup) as lookup:
+        first = client.get('/api/jobs/'+job['id']+'/figures').json
+    assert lookup.call_count == 1, 'the index and the answer share one lookup'
+    assert 'revision' not in first, 'the figure list carries no field the client reads'
     assert [x['path'] for x in first['artifacts']] == ['figure.svg']
     from dashboard.analysis.runs import observability
     with patch.object(observability, 'artifacts', side_effect=AssertionError('rescanned')):

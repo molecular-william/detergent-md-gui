@@ -712,7 +712,7 @@ def test_the_stored_series_plays_whatever_arguments_the_form_holds(dashboard, li
     expect(page.locator('#run-view-play-A')).to_be_enabled()
 
     page.locator('#run-view-play-A').click()
-    page.wait_for_function("() => document.querySelector('#run-view-viewer-A').runViewStage.compList.length === 2")
+    page.wait_for_function("() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.length === 2")
     assert any('/artifacts/analyses/frame-series/run-frames.pdb?inline=1' in url for url in state['requests']), \
         'Play did not fetch the stored series'
     assert errors == [], errors
@@ -755,7 +755,7 @@ def test_a_rebuild_replaces_the_one_file_and_the_block_reads_it(dashboard, live_
     assert len(state['tasks']) == 1, state['tasks']
     assert [task['status'] for task in state['tasks']] == ['completed'], state['tasks']
     page.locator('#run-view-play-A').click()
-    page.wait_for_function("() => document.querySelector('#run-view-viewer-A').runViewStage.compList.length === 2")
+    page.wait_for_function("() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.length === 2")
     assert errors == [], errors
 
 

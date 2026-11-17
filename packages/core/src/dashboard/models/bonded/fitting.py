@@ -133,18 +133,29 @@ def jobs(mapping=None, *, content_hash=None, mapping_hash=None, name=None, job_i
 
     `name` is the store's own address for a model: a job is stamped with the record name it was queued
     for, so the store's deletion finds a job even when the mapping's content has since changed.
+
+    A `job_id` request is answered from that one record's file: the panel polls it every few seconds while
+    a fit runs, and the unkeyed listing is the only caller that needs every job. An id no job carries (or an
+    id that is not a job id at all) is the empty list, never the whole directory.
     """
-    root = jobs_root()
-    records = []
-    if root.is_dir():
-        for path in sorted(root.glob('*.json')):
-            try:
-                record = json.loads(path.read_text())
-            except (OSError, ValueError):
-                continue
-            if not isinstance(record, dict) or not isinstance(record.get('id'), str):
-                continue
-            records.append(record)
+    if job_id:
+        try:
+            record = job(job_id)
+        except (KeyError, OSError, ValueError):
+            record = None
+        records = [record] if isinstance(record, dict) else []
+    else:
+        records = []
+        root = jobs_root()
+        if root.is_dir():
+            for path in sorted(root.glob('*.json')):
+                try:
+                    record = json.loads(path.read_text())
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(record, dict) or not isinstance(record.get('id'), str):
+                    continue
+                records.append(record)
     if mapping is not None:
         # A mapping speaks for compatibility alone: `changed` bead assignments are their own model,
         # while a rename is the same one (D5's own reading, and the reason a revision is keyed by it).

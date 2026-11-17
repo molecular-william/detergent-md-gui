@@ -10,6 +10,21 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Performance hot paths: live-log scan, per-poll work, cold load (2026-11-17).** A running stage's log is no longer
+  rescanned on every poll: `web/progress.py` keeps an append-aware scan state per file (52 MB: 0.92 s per poll before,
+  0.1 ms after; the cold first scan still costs one full pass) and `views.eta`/`views.detail_revision` cache their
+  parse/digest on `(path, mtime, size)`. `Store.read()` takes no write lock, runs no DDL and creates the schema once per
+  file; the worker's runs-root quota walk is cached 10 s (the run itself is still measured every tick); the two
+  analysis waits back off instead of reading SQLite 20×/s; `/figures` and the fit-job poll read one record; the
+  catalogue is cached 10 s and invalidated by an import; the artifact index parses one `analysis-metadata.json` per
+  directory. Browser: NGL (1.28 MB) is fetched when a panel first draws a stage instead of parser-blocking `<head>`,
+  feature panel modules load on their tab, `/figures` is read only when the analysis set settles, the run chooser asks
+  `/api/jobs` once for repeated run types, the pdc whole-trajectory poll stops with the panel, the runs poll stops
+  while the tab is hidden, superseded pdc preview/extent requests are aborted, and static/feature assets carry
+  `max-age=300` (an edited module needs a hard refresh within five minutes; Python/template changes still need the
+  usual restart). Plan: `docs/plans/2026-11-17-performance-hot-paths.md`. Deliberately not built: a pre-build ETag for
+  `/api/jobs` (the scan cache made the payload cheap, and a marker would have to carry every running log's size/mtime
+  or freeze the progress line) and the `/api/readiness` parse memo (6 ms, twice per keystroke debounce).
 - **Stage-wise progress bar for every run type (2026-11-17).** The Runs card's bar is one segment per *work* stage in
   the run's own plan, in plan order: AA's four dynamics stages keep their step-weighted widths; CG (mapping,
   parameterization, simulation, assessment, SASA), pdc (minimisation through back-mapping, without the two preparation

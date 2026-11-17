@@ -276,7 +276,13 @@ export function createMappings() {
         : (catalogue.candidates?.[0] ? await loadMapping(catalogue.candidates[0].file) : null);
       if (generation !== editorGeneration) return;
       moleculeEditor = createEditor(source.context, candidate);
-      moleculeOverlay = mountOverlay3d($('#mapping-editor-overlay3d'), source.context);
+      moleculeOverlay = await mountOverlay3d($('#mapping-editor-overlay3d'), source.context);
+      // The bundle load is the only await between the generation check above and this overlay, so a molecule
+      // switch that lands during it must not leave this one's stage behind the newer editor's.
+      if (generation !== editorGeneration) {
+        moleculeOverlay.destroy(); moleculeOverlay = null;
+        return;
+      }
       // The reader's choice of numbers is restored onto the fresh overlay before the first draw, so a reloaded page
       // comes up the way it was left without a second request to undo a default.
       restoreAtomLabels();

@@ -231,3 +231,23 @@ def test_worker_checks_total_quota_even_below_individual_limit(dashboard, operat
     with patch.object(resources,'usage',side_effect=lambda path: rule['max_total_bytes']+1 if path == dashboard.coordinator.RUNS else 1):
         with pytest.raises(ValueError, match='total storage quota'):
             resources.check_worker(operations.run,dashboard.coordinator.RUNS,rule)
+
+
+def test_worker_quota_walks_the_runs_root_once_per_ttl_and_measures_the_run_each_tick(dashboard, operations, monkeypatch):
+    """The 5 s worker check cannot walk a multi-gigabyte runs root every tick.
+
+    The run is still measured every tick for its own limit; the root, which contains it, is walked once and reused
+    for the TTL. A breach seen through either number still stops the worker -- only the observation is up to 10 s old.
+    """
+    monkeypatch.setattr(resources,'_usage_cache',{})
+    walked=[]
+    real=resources.usage
+    monkeypatch.setattr(resources,'usage',lambda path: (walked.append(path),real(path))[1])
+    rule=dict(resources.DEFAULTS, min_free_bytes=1)
+    (operations.run/'bytes.bin').write_bytes(b'x'*8)
+
+    resources.check_worker(operations.run,dashboard.coordinator.RUNS,rule)
+    resources.check_worker(operations.run,dashboard.coordinator.RUNS,rule)
+
+    assert walked.count(dashboard.coordinator.RUNS)==1,'the whole runs root is walked once per TTL'
+    assert walked.count(operations.run)==2,'the run itself is measured every tick'

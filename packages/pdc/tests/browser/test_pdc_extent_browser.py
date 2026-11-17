@@ -7,6 +7,7 @@ is not the fixture's, and what these tests pin is the panel's contract with the 
 structure to measure, so it asks nothing and shows neither line.
 """
 import re
+import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from playwright.sync_api import expect
@@ -98,11 +99,16 @@ def test_the_routes_refusal_is_shown_as_text(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_an_older_answer_never_overwrites_a_newer_one(dashboard, live_page):
-    """The reader can move the margin while a measurement is in flight; the last question asked is what is shown."""
+def test_an_older_measurement_is_cancelled_and_never_overwrites_a_newer_one(dashboard, live_page):
+    """The reader can move the margin while a measurement is in flight; the last question asked is what is shown.
+
+    The superseded question is aborted rather than left to finish and dropped, so its answer cannot land on the newer
+    one at all -- and the abort is not reported as the coordinator failing to answer.
+    """
     page, errors = live_page
-    held = []
+    held, failed = [], []
     serve(page, lambda route: held.append(route))
+    page.on('requestfailed', lambda request: failed.append(request))
     open_panel(page, live_page.base_url)
 
     def wait_for_held(count):
@@ -118,10 +124,14 @@ def test_an_older_answer_never_overwrites_a_newer_one(dashboard, live_page):
     assert asked_queries(held[0].request.url)['margin_nm'] == ['2'], held[0].request.url
     assert asked_queries(held[1].request.url)['margin_nm'] == ['3'], held[1].request.url
 
-    # The newer answer lands first, then the older one: without the request numbering the stale answer would win.
+    # The first question was cancelled the moment the second was asked: nothing is left to answer it late.
+    deadline = time.monotonic() + 5
+    while not failed and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert any('/extent' in request.url for request in failed), \
+        f'the superseded measurement was left in flight: {[request.url for request in failed]}'
+
     held[1].fulfill(json={**ANSWER, 'initial_box_nm': [7.0, 6.0, 6.0], 'rule': 'initial'})
     expect(page.locator('.new-pdc-box-estimate')).to_have_text('initial box 7.0 × 6.0 × 6.0 nm')
-    held[0].fulfill(json={**ANSWER, 'initial_box_nm': [1.0, 1.0, 1.0], 'rule': 'initial'})
-    page.wait_for_timeout(300)
-    expect(page.locator('.new-pdc-box-estimate')).to_have_text('initial box 7.0 × 6.0 × 6.0 nm')
+    expect(page.locator('.new-pdc-protein-size')).to_have_text('5.2 × 4.8 × 6.0 nm')
     assert errors == [], errors

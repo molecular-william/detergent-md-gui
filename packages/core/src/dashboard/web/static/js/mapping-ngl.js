@@ -9,6 +9,7 @@
 //   spheres    a representation's opacity is one of its parameters, which is why beads arrive as a file of one
 //              atom each instead of as shapes -- the shape primitive in this build builds nothing renderable.
 import { applyBeadRadii } from './ngl-beads.js';
+import { ensureNgl } from './ngl-loader.js';
 
 const BEAD_COLOURS = {R: 0x4a5568, S: 0x2b6cb0, T: 0xb7791f};
 const BEAD_OPACITY = 0.35;                      // translucent enough to read the atoms through a sphere
@@ -21,10 +22,13 @@ const LABEL_PARAMETERS = {sele: 'all', labelType: 'serial', labelSize: 2, labelC
                           labelZOffset: 1.5, fixedSize: true, showBackground: true,
                           backgroundColor: 'white', backgroundOpacity: 0.75};
 
-export function mountOverlay3d(host, context) {
+export async function mountOverlay3d(host, context) {
   // NGL appends its canvas to the host and dispose() does not take it away again, so the container is emptied
   // here and in destroy(). Without that, switching molecules leaves one canvas per mount behind.
+  // NGL is fetched when this panel opens, not with the page: the editor is the only caller, so the bundle waits
+  // for it. The container is emptied first, so a replaced overlay loses its canvas even while the bundle loads.
   host.replaceChildren();
+  await ensureNgl();
   const stage = new NGL.Stage(host, {backgroundColor: 'white'});
   // The stage lives in this closure, so the container carries it for the test seam, as the composition panel's
   // workspace carries its own stages. A browser test can then ask the viewer what it actually holds rather than

@@ -353,6 +353,53 @@ def test_the_card_stops_polling_while_the_run_view_is_hidden_and_reads_on_return
     expect(tasks(page)).to_contain_text('phase two')
     assert errors == [], errors
 
+
+def test_the_analysis_tick_re_reads_the_figures_only_when_a_task_settles(dashboard, live_page):
+    """A tick that only carries a progress line asks nothing of `/figures`; the settling tick asks once and redraws.
+
+    The figure list follows the analysis records, so a 2 s poll of a running attempt re-read it every tick for an
+    answer the viewer is already keyed to discard. Counted from the route: the first render asks once, the running
+    ticks ask nothing, and a settle asks once more -- and the note still says how many figures that answer drew.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    page.add_init_script('window.__runViewPollMs = 200')
+    state = {'tasks': [{'id': 'task-9', 'kind': 'sasa', 'status': 'running',
+                        'directory': 'analyses/sasa/test', 'progress': 'phase one',
+                        'created_at': '2026-11-09T10:00:00+00:00'}],
+             'figures': []}
+    polls, reads = [], []
+
+    def analyses(route):
+        polls.append(route.request.url)
+        route.fulfill(json=state['tasks'])
+
+    def figures(route):
+        reads.append(route.request.url)
+        route.fulfill(json={'artifacts': state['figures'], 'superseded': 0})
+
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/analyses(?:\?.*)?$'), analyses)
+    page.route(re.compile(rf'/api/jobs/{A_RUN}/figures(?:\?.*)?$'), figures)
+    page.goto(f'{live_page.base_url}/{WORKSPACE}/run-view?run={A_RUN}')
+    expect(page.locator('#runview')).to_be_visible()
+    expect(tasks(page)).to_contain_text('phase one')
+
+    deadline = time.monotonic() + 10
+    while len(polls) < 4 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(polls) >= 4, f'the card never polled a running task: {len(polls)}'
+    assert len(reads) == 1, f'the tick re-read the figures {len(reads) - 1} times while nothing settled'
+
+    state['tasks'][0].update(status='completed', progress='')
+    state['figures'] = [{'path': 'analyses/sasa/test/output/sasa.svg', 'bytes': 128,
+                         'modified_at': '2026-11-09T10:01:00+00:00'}]
+    deadline = time.monotonic() + 10
+    while len(reads) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(reads) == 2, f'the settling tick read the figures {len(reads)} times, not once'
+    expect(note(page)).to_contain_text('1 figure')
+    assert errors == [], errors
+
 def seed_aa(dashboard, run_id=A_RUN):
     """One completed atomistic run with the fields the card reads and no figures of its own."""
     owner = dashboard.coordinator

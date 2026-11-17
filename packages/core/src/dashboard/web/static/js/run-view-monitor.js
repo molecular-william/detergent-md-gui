@@ -19,6 +19,7 @@ import { conectCount, dropBonds, inStage, isCoarseGrained, loadParameters, struc
 import { createTrajectory, trajectoryMarkup } from './run-view-trajectory.js';
 import { analysisMarkup, createAnalysis } from './run-view-analysis.js';
 import { runViewExtensionFor } from './run-view-extension.js';
+import { ensureNgl } from './ngl-loader.js';
 
 //: The route pages the artifact index and caps `limit` at 100, so every request here states its own limit.
 const PAGE_LIMIT = 100;
@@ -410,7 +411,9 @@ function chooser(root, side, runs, onPick) {
   }
 
   function stageFor() {
-    if (!viewer) return null;
+    // `draw` awaits `ensureNgl()` before calling this; the guard covers the trajectory block's own calls, which
+    // reach here without one and must report a missing renderer rather than throw on an undefined global.
+    if (!viewer || !window.NGL) return null;
     // Created on first use: NGL sizes itself to its host element, and the host is sized for it in run-view.css.
     if (!viewer.runViewStage) viewer.runViewStage = new NGL.Stage(viewer, {backgroundColor: 'white'});
     return viewer.runViewStage;
@@ -439,6 +442,11 @@ function chooser(root, side, runs, onPick) {
   }
 
   async function draw(job, path) {
+    // The stage is about to be emptied, and the series component on it belongs to this module's own trajectory block:
+    // it is told first, so its player is stopped and its state dropped rather than left pointing at a disposed
+    // component. That happens before the first await: NGL is fetched on demand now, so a Play pressed while this
+    // structure is still loading would otherwise be invalidated by a detach that the file fetch only delays.
+    trajectory.detach();
     what.textContent = `Loading ${path}…`;
     const coarse = isCoarseGrained(path, job.run_type);
     // The legend is the key to a bead picture, so it appears with one: the family colours are what a coarse-grained
@@ -465,6 +473,9 @@ function chooser(root, side, runs, onPick) {
       text = await artifactText(job.id, path);
       parameters = loadParameters(text, {path, runType: job.run_type});
     }
+    // NGL is fetched on demand: a Run view that is never opened, or opened on a run with no drawable file, must not
+    // pay 1.28 MB for a stage it cannot use. The stage itself stays created on first draw (`stageFor`).
+    await ensureNgl();
     const renderer = stageFor();
     if (!renderer) {
       what.textContent = 'This page could not start a 3D view. The file\'s own numbers, which do not need a '
@@ -473,10 +484,7 @@ function chooser(root, side, runs, onPick) {
                ['bonds from the file', String(conectCount(text))]]);
       return;
     }
-    // The stage is about to be emptied, and the series component on it belongs to this module's own trajectory block:
-    // it is told first, so its player is stopped and its state dropped rather than left pointing at a disposed
-    // component. The trajectory block then keeps the summary -- pressing Play again re-fetches the file.
-    trajectory.detach();
+    // The stage is about to be emptied; `draw` already detached the trajectory synchronously, before its first await.
     renderer.removeAllComponents();
     const component = await renderer.loadFile(new Blob([text], {type: 'text/plain'}), {...parameters});
     // A file that states no bonds of its own must be drawn without any, and `inferBonds: 'none'` is not enough on

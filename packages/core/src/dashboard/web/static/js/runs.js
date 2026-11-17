@@ -414,6 +414,9 @@ export function createRuns({ onClone, onDeleted }) {
   async function poll() {
     if(polling) return;
     clearTimeout(pollTimer);
+    // A hidden document asks nothing and, unlike a hidden panel, re-arms nothing: `whenLive(poll)` runs the same
+    // poll on return, so the table refreshes at once without a timer waking every 30 s to find it still hidden.
+    if (document.hidden) return;
     if ($('#'+panelIds().runs).hidden || !liveVisible()) { pollTimer=setTimeout(poll,HIDDEN_WAKE_MS); return; }
     polling=true;
     try { await refreshJobs(true); pollDelay=pollMilliseconds(); setText($('#connection'),`Updated ${new Date().toLocaleTimeString()}`); }

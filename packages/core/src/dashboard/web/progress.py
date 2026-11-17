@@ -14,6 +14,7 @@ The reader streams the file once rather than reading a tail: the leg markers sta
 production they are megabytes above the end, and a tail would see a step counter belonging to a leg it cannot name.
 """
 import re
+import threading
 from pathlib import Path
 
 #: A leg, as the stage script announces it. `-deffnm` is the leg's own name and the stem of its files.
@@ -36,9 +37,16 @@ def _chunks(line):
     return line.split('\r')
 
 
-def scan(lines):
-    """(legs, grompp lines) from a stage log: `[[name, last step or None], ...]`, in the order the script ran them."""
-    legs, grompp = [], []
+def scan(lines, *, legs=None, grompp=None):
+    """(legs, grompp lines) from a stage log: `[[name, last step or None], ...]`, in the order the script ran them.
+
+    `legs` and `grompp` may be passed an accumulator already holding an earlier part of the same log: the caller
+    then feeds only the new lines and gets exactly the arrays a single pass over the whole file would have produced.
+    """
+    if legs is None:
+        legs = []
+    if grompp is None:
+        grompp = []
     for line in lines:
         for chunk in _chunks(line):
             if chunk.startswith('+ gmx mdrun'):
@@ -133,11 +141,145 @@ def _ns_done(legs, lengths, timesteps):
     return round(total, 6)
 
 
+class _Scan:
+    """What one pass over a log has consumed: its identity, and the accumulator that pass produced.
+
+    `offset` is the start of the first *incomplete* line -- bytes before it have been fed to `scan()`, and `pending`
+    is the bytes from there to the end of the file. A reader that appends re-reads that one partial line with the new
+    bytes, so a line split across two polls is still counted once and exactly as a full pass would count it.
+    """
+    __slots__ = ('inode', 'mtime_ns', 'size', 'offset', 'pending', 'legs', 'grompp')
+
+    def __init__(self, inode, mtime_ns, size, offset, pending, legs, grompp):
+        self.inode = inode
+        self.mtime_ns = mtime_ns
+        self.size = size
+        self.offset = offset
+        self.pending = pending
+        self.legs = legs
+        self.grompp = grompp
+
+
+# A running log is appended while a reader polls it, and a stage log can be tens of megabytes: rescanning the whole
+# file on every poll is what made one poll cost ~1 s. The state below is keyed by (resolved path, inode, mtime_ns,
+# size) and only ever resumed when the same inode grew; anything else replaces the entry with a full rescan. The cap
+# bounds a long-lived dashboard's memory and clearing wholesale is safe because each entry is a pure function of a
+# file prefix. A global lock lets an incremental pass and the reading built from it be seen as one snapshot: no caller
+# can observe the legs list between a new line being counted and the reading that reports it.
+_SCAN_CACHE = {}
+_SCAN_CACHE_MAX = 4096
+_SCAN_LOCK = threading.Lock()
+
+
+def _complete_lines(data, pending):
+    """The lines `data` completes, decoded as text mode would; the trailing partial line is appended to `pending`.
+
+    Text mode's universal newlines make `\\r`, `\\n` and `\\r\\n` all end a line and translate the ending to `\\n`,
+    and its iterator still yields a final line with no newline. The parser's carriage-return handling depends on that
+    translation, so doing it in bytes keeps an incremental pass byte-for-byte the file a full pass would read.
+    Splitting at C speed matters here: a production log is millions of carriage-return progress lines.
+    """
+    parts = data.split(b'\n')
+    if data.endswith(b'\n'):
+        parts.pop()  # the split's trailing empty is the terminator, not a line
+        pending.append(b'')
+    else:
+        tail = parts.pop() if parts else b''
+        fragments = tail.split(b'\r')
+        pending.append(fragments.pop())
+        for fragment in fragments:
+            yield fragment.decode('utf-8', errors='replace') + '\n'
+    for part in parts:
+        # A `\r\n` ending leaves one empty fragment here; an empty line changes nothing the parser counts.
+        for fragment in (part.split(b'\r') if b'\r' in part else (part,)):
+            yield fragment.decode('utf-8', errors='replace') + '\n'
+
+
+def _complete_file_lines(handle, has_partial):
+    """The file's lines with its trailing partial line withheld, so the cold scan feeds the same accumulator."""
+    held = None
+    for line in handle:
+        if held is not None:
+            yield held
+        held = line
+    if held is not None and not has_partial:
+        yield held
+
+
+def _trailing_bytes(path, size, block=65536):
+    """`path`'s bytes after its last universal newline, read from the end rather than parsing the file again."""
+    if size <= 0:
+        return b''
+    suffix = b''
+    position = size
+    with open(path, 'rb') as handle:
+        while position > 0:
+            start = max(0, position - block)
+            handle.seek(start)
+            data = handle.read(position - start) + suffix
+            found = max(data.rfind(b'\n'), data.rfind(b'\r'))
+            if found >= 0:
+                return data[found + 1:]
+            suffix = data
+            position = start
+    return suffix
+
+
 def progress_from_file(stage_name, stage_dir, path):
-    """Progress for a stage whose log is on disk. `{}` when the file cannot be read at all."""
+    """Progress for a stage whose log is on disk. `{}` when the file cannot be read at all.
+
+    Only bytes appended since the previous poll are parsed; a file that shrank, changed inode or vanished is scanned
+    from zero again. `reading()` is still recomputed every call, so a changed mdp is seen even when the log is not.
+    """
+    path = Path(path)
+    resolved = str(path.resolve())
     try:
-        with open(path, errors='replace') as handle:
-            legs, grompp = scan(handle)
+        stat = path.stat()
     except OSError:
+        with _SCAN_LOCK:
+            _SCAN_CACHE.pop(resolved, None)
         return {}
-    return reading(stage_name, stage_dir, legs, grompp)
+    with _SCAN_LOCK:
+        entry = _SCAN_CACHE.get(resolved)
+        if (entry is not None and entry.inode == stat.st_ino
+                and entry.size == stat.st_size and entry.mtime_ns == stat.st_mtime_ns):
+            legs, grompp, pending = entry.legs, entry.grompp, entry.pending
+        else:
+            try:
+                if (entry is not None and entry.inode == stat.st_ino
+                        and stat.st_size >= entry.size and stat.st_mtime_ns >= entry.mtime_ns):
+                    # The file only grew: parse its new tail into the accumulator we already have.
+                    with open(resolved, 'rb') as handle:
+                        handle.seek(entry.offset)
+                        data = handle.read()
+                    legs, grompp = entry.legs, entry.grompp
+                    consumed = entry.offset
+                    found = []
+                    scan(_complete_lines(data, found), legs=legs, grompp=grompp)
+                    pending = found[0]
+                    consumed += len(data) - len(pending)
+                    size = entry.offset + len(data)
+                else:
+                    # A cold scan streams the file in text mode, the way this reader always read it; only the trailing
+                    # partial line's bytes are needed to resume later, and those are found from the end.
+                    legs, grompp = [], []
+                    pending = _trailing_bytes(resolved, stat.st_size)
+                    with open(resolved, encoding='utf-8', errors='replace') as handle:
+                        scan(_complete_file_lines(handle, bool(pending)), legs=legs, grompp=grompp)
+                    consumed = stat.st_size - len(pending)
+                    size = stat.st_size
+                    if len(_SCAN_CACHE) >= _SCAN_CACHE_MAX:
+                        _SCAN_CACHE.clear()
+                _SCAN_CACHE[resolved] = _Scan(stat.st_ino, stat.st_mtime_ns, size,
+                                              consumed, pending, legs, grompp)
+            except OSError:
+                _SCAN_CACHE.pop(resolved, None)
+                return {}
+        # The trailing partial line has not been fed to the accumulator (it may be completed by a later append), but a
+        # full pass over the file as it stands now would yield it: apply it to a copy so the two readings agree.
+        view_legs = [list(leg) for leg in legs]
+        view_grompp = list(grompp)
+        if pending:
+            scan((pending.decode('utf-8', errors='replace'),), legs=view_legs, grompp=view_grompp)
+        return reading(stage_name, stage_dir, view_legs, view_grompp)
+

@@ -486,6 +486,23 @@ def test_a_job_is_found_by_its_own_id_whatever_its_mapping_hash_says(candidate):
     assert fitting.jobs(job_id='0' * 16) == []
 
 
+def test_a_keyed_poll_reads_one_record_not_the_whole_job_directory(candidate, monkeypatch):
+    """The panel's 3 s poll names its job, so it must not glob and parse every other job's file."""
+    recorder = Recorder()
+    first = run_job(candidate, recorder)
+    run_job(candidate, recorder)
+    seen = []
+    original = json.loads
+
+    def counting(text, *args, **kwargs):
+        seen.append(text)
+        return original(text, *args, **kwargs)
+
+    monkeypatch.setattr(fitting.json, 'loads', counting)
+    assert [record['id'] for record in fitting.jobs(job_id=first['id'])] == [first['id']]
+    assert len(seen) == 1, 'the keyed answer reads the one record it names'
+
+
 def _await_terminal(job_id, timeout=10.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

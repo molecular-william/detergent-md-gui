@@ -2,6 +2,8 @@
 import json
 import os
 import shutil
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +49,37 @@ def usage(root):
     return total
 
 
+#: Every live worker checks the quota on its 5 s tick, and walking the whole runs root is the expensive part of that
+#: check (tens of milliseconds on a multi-gigabyte tree). The worker's own run is still measured every tick; only the
+#: root total is reused, so a breach stops the worker at most one TTL late while a normal tick walks one tree.
+USAGE_TTL_SECONDS = 10.0
+
+#: One coordinator has one runs root. A small ceiling keeps a caller that asks about many directories from growing
+#: the cache without bound.
+_USAGE_CACHE_SIZE = 8
+_usage_cache = {}
+_usage_lock = threading.Lock()
+
+
+def cached_usage(root, ttl=USAGE_TTL_SECONDS):
+    """`usage(root)` served from a bounded TTL cache, walking at most once per window.
+
+    The lock is held across the walk so two workers checking at the same moment do one stat pass rather than racing
+    to repeat it. `usage()` stays the pure measurement; this is the worker's observation, and a stale answer cannot
+    admit a run -- `check_worker` still stops a worker whose last observation breached a limit.
+    """
+    key = str(Path(root).resolve())
+    with _usage_lock:
+        cached = _usage_cache.get(key)
+        if cached is not None and cached[0] > time.monotonic():
+            return cached[1]
+        value = usage(root)
+        if key not in _usage_cache and len(_usage_cache) >= _USAGE_CACHE_SIZE:
+            del _usage_cache[next(iter(_usage_cache))]
+        _usage_cache[key] = (time.monotonic() + ttl, value)
+        return value
+
+
 def report(root, jobs, limits):
     root = Path(root); root.mkdir(parents=True, exist_ok=True)
     disk = shutil.disk_usage(root)
@@ -72,7 +105,10 @@ def admit(report, reservations=0, required=None):
 def check_worker(run_dir, runs_root, limits):
     if shutil.disk_usage(run_dir).free < limits['min_free_bytes']:
         raise ValueError('Worker stopped: disk headroom limit reached')
-    if usage(run_dir) > limits['max_run_bytes']:
+    run_bytes = usage(run_dir)
+    if run_bytes > limits['max_run_bytes']:
         raise ValueError('Worker stopped: per-run storage limit reached')
-    if usage(runs_root) > limits['max_total_bytes']:
+    # `runs_root` contains `run_dir`, so this walk covers the run's own bytes too; the run is measured once above for
+    # its per-run limit and the root once per TTL for the total, rather than walking the run twice every tick.
+    if cached_usage(runs_root) > limits['max_total_bytes']:
         raise ValueError('Worker stopped: total storage quota reached')

@@ -10,6 +10,17 @@ from pathlib import Path
 _WAL = set()
 _WAL_LOCK = threading.Lock()
 
+#: Database files whose schema this process has already seen created, and the lock that serializes creation. Same
+#: reason as `_WAL`: a Store is built per `coordinator.database()` call, so this cannot be instance state.
+_SCHEMA = set()
+_SCHEMA_LOCK = threading.Lock()
+
+JOB_TABLE = 'CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)'
+ARTIFACT_TABLE = 'CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, data TEXT, updated REAL)'
+#: A deleted run's name is retired, never offered again: copied manifests, consumer records and parameterization
+#: revisions still name the run, so a new run taking the name would silently inherit those links (run_names.unique).
+RETIRED_TABLE = 'CREATE TABLE IF NOT EXISTS retired_runs (name TEXT PRIMARY KEY, retired_at TEXT NOT NULL)'
+
 
 def _enable_wal(db, path):
     """Switch a database file to WAL once, not once per connection.
@@ -29,6 +40,33 @@ def _enable_wal(db, path):
         _WAL.add(key)
 
 
+def _create_schema(db, path):
+    """Create the tables once per database file, committed before the caller's write transaction.
+
+    A read-only connection no longer runs DDL (see `Store.read`); the write path is therefore the only creator of
+    the schema. Committing the DDL before `BEGIN IMMEDIATE` publishes the tables to readers immediately -- including a
+    concurrent read that reaches the cache between these two statements -- and leaves no user data committed. It is
+    idempotent, so a file whose schema already exists costs one cached lookup.
+    """
+    key = str(Path(path).resolve())
+    if key in _SCHEMA:
+        return
+    with _SCHEMA_LOCK:
+        if key in _SCHEMA:
+            return
+        db.execute(JOB_TABLE)
+        db.execute(ARTIFACT_TABLE)
+        db.execute(RETIRED_TABLE)
+        db.commit()
+        _SCHEMA.add(key)
+
+
+def _schema_present(db):
+    """Whether this connection can see the whole schema; a partial one still falls back to the write path."""
+    return db.execute("SELECT count(*) FROM sqlite_master WHERE type='table' "
+                      "AND name IN ('jobs','artifacts','retired_runs')").fetchone()[0] == 3
+
+
 class Store:
     def __init__(self, database):
         self.path = Path(database)
@@ -39,11 +77,7 @@ class Store:
         db = sqlite3.connect(self.path, timeout=30)
         try:
             _enable_wal(db, self.path)
-            db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1)')
-            db.execute('CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, data TEXT, updated REAL)')
-            #: A deleted run's name is retired, never offered again: copied manifests, consumer records and parameterization
-            #: revisions still name the run, so a new run taking the name would silently inherit those links (run_names.unique).
-            db.execute('CREATE TABLE IF NOT EXISTS retired_runs (name TEXT PRIMARY KEY, retired_at TEXT NOT NULL)')
+            _create_schema(db, self.path)
             db.execute('BEGIN IMMEDIATE')
             yield db
             db.commit()
@@ -53,12 +87,55 @@ class Store:
         finally:
             db.close()
 
+    @contextmanager
+    def read(self):
+        """A deferred read of an existing database: no mkdir, no DDL and no write lock.
+
+        The write path creates the file and the schema. A read of a database this process has not seen is allowed to
+        fall back to that write path once (it creates the directory tree and tables, then serves the read); after
+        that the schema is cached per resolved path, so every later read is a plain deferred connection. Reads never
+        create or migrate anything themselves, so a missing or unreadable database still surfaces the write path's own
+        error rather than a `no such table` from a half-open file.
+        """
+        db = self._open_read()
+        if db is None:
+            with self.connection() as writable:
+                yield writable
+            return
+        try:
+            db.execute('BEGIN')
+            yield db
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def _open_read(self):
+        """A deferred connection to an existing schema, or None when the write path must open the database."""
+        try:
+            db = sqlite3.connect(self.path, timeout=30)
+        except sqlite3.OperationalError:
+            return None
+        try:
+            _enable_wal(db, self.path)
+            key = str(self.path.resolve())
+            if key in _SCHEMA or _schema_present(db):
+                with _SCHEMA_LOCK:
+                    _SCHEMA.add(key)
+                return db
+        except sqlite3.OperationalError:
+            pass
+        db.close()
+        return None
+
     def all(self):
-        with self.connection() as db:
+        with self.read() as db:
             return [json.loads(row[0]) for row in db.execute("SELECT data FROM jobs ORDER BY json_extract(data,'$.created') DESC, rowid DESC")]
 
     def get(self, jid):
-        with self.connection() as db:
+        with self.read() as db:
             row = db.execute('SELECT data FROM jobs WHERE id=?', (jid,)).fetchone()
             return json.loads(row[0]) if row else None
 
@@ -126,12 +203,12 @@ class Store:
 
     def names(self):
         """Every live run name, as stored (the casefolded comparison is the caller's)."""
-        with self.connection() as db:
+        with self.read() as db:
             return [row[0] for row in db.execute('SELECT id FROM jobs')]
 
     def retired_names(self):
         """Names a deleted run used, which a new run may not take."""
-        with self.connection() as db:
+        with self.read() as db:
             return [row[0] for row in db.execute('SELECT name FROM retired_runs')]
 
     def name_taken(self, name):
@@ -179,7 +256,7 @@ class Store:
                 tests.append(f'{column} IN ({",".join("?" * len(values))})')
                 args.extend(values)
         clause = 'WHERE ' + ' AND '.join(tests)
-        with self.connection() as db:
+        with self.read() as db:
             count = db.execute('SELECT count(*) FROM jobs ' + clause, args).fetchone()[0]
             rows = db.execute("SELECT data,revision FROM jobs " + clause
                               + " ORDER BY json_extract(data,'$.created') DESC, rowid DESC LIMIT ? OFFSET ?",
@@ -188,8 +265,11 @@ class Store:
 
     def artifacts(self, jid, entries=None):
         import time
-        with self.connection() as db:
-            if entries is not None:
+        if entries is not None:
+            with self.connection() as db:
                 db.execute('INSERT OR REPLACE INTO artifacts VALUES (?,?,?)', (jid, json.dumps(entries), time.time()))
+                row = db.execute('SELECT data,updated FROM artifacts WHERE id=?', (jid,)).fetchone()
+                return (json.loads(row[0]), row[1]) if row else (None, 0)
+        with self.read() as db:
             row = db.execute('SELECT data,updated FROM artifacts WHERE id=?', (jid,)).fetchone()
             return (json.loads(row[0]), row[1]) if row else (None, 0)

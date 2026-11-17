@@ -34,24 +34,39 @@ function prefetchCatalogues() {
 export async function boot(specs = {}, extensions = []) {
   initModules();
   const panels = panelIds();
-  const pending = {};
-  for (const [panel, spec] of Object.entries(specs)) pending[panel] = import(spec.url);
-  // A feature's extension modules register their hooks on a shared engine panel (New run, Run view) when they load;
-  // importing them here, before the first await below, means they are registered before any panel can mount.
-  for (const url of extensions) pending[url] = import(url);
+  //: Feature *panel* modules are imported when their tab first opens, not at boot: a Runs reader does not wait for
+  //: a panel it never draws. The map is the one place a feature panel is created, so the promise-backed hooks below
+  //: and the tab that opens the panel share one import and one instance.
+  const featurePanels = new Map();
+  function featurePanel(id) {
+    if (!specs[id]) return Promise.resolve(null);
+    let entry = featurePanels.get(id);
+    if (!entry) {
+      entry = {};
+      entry.promise = import(specs[id].url).then(module => {
+        entry.instance = module[specs[id].factory]();
+        // The promise-backed hook becomes the instance's own method once the panel exists -- the same instance,
+        // because this cache is the one that created it.
+        if (id === panels.complexes) window.pdcSetRun = entry.instance.setRun;
+        return entry.instance;
+      });
+      // A failed import is not cached: the page reports it, and a later open asks again.
+      entry.promise.catch(() => featurePanels.delete(id));
+      featurePanels.set(id, entry);
+    }
+    return entry.promise;
+  }
+
+  // The extension modules register their hooks on a shared engine panel (New run, Run view) when they load; they are
+  // imported here, before the first await below, and awaited before any panel can mount. A feature's *panel* module
+  // is not one of these: it is fetched by `featurePanel` when its tab opens.
+  const extensionImports = extensions.map(url => import(url));
 
   // The engine's panels are built from static imports, so everything below this line runs synchronously before the
   // first await. That matters for the window hooks: a module script's top-level `await` does NOT defer the page's
   // `load` event, so a hook published after an await is missing when a browser test (or a person at a console) calls
-  // it from `load`. The feature panels are created after the imports resolve; `pdcSetRun` is promise-backed until then
-  // and is replaced by the instance's own method once that instance exists, so both callers see one panel.
-  const pdcReady = pending[panels.complexes]
-    ? pending[panels.complexes].then(module => module.createPdc())
-    : null;
-  let osmotic = null;
-  //: The pdc panel's instance, created after the feature imports resolve; the tab listener below reads it, so it
-  //: lives at boot's scope rather than inside the try that awaits it.
-  let pdc = null;
+  // it from `load`. A feature panel is created after its own import resolves; `pdcSetRun` is promise-backed until
+  // then and is replaced by the instance's own method once that instance exists, so both callers see one panel.
   const runs = createRuns({
     onClone: source => newRun.cloneRun(source),
     onDeleted: id => newRun.clearDeletedClone(id),
@@ -72,22 +87,20 @@ export async function boot(specs = {}, extensions = []) {
     refreshJobs: runs.refreshJobs,          // re-poll the run list without waiting for the timer
     setCloneSource: newRun.setCloneSource,  // open the clone form on a chosen run
     selectTab,                              // move to a panel by its DOM id
-    pdcSetRun: pdcReady ? ((...args) => pdcReady.then(panel => panel.setRun(...args))) : undefined,
+    pdcSetRun: specs[panels.complexes]
+      ? ((...args) => featurePanel(panels.complexes).then(panel => panel.setRun(...args)))
+      : undefined,
   };
   Object.assign(window, hooks);
 
-  // The one panel the server marked open cannot mount until the feature imports below resolve, so it says so in the
-  // meantime. Read back the aria-selected tab rather than decide again, the same way `initializeTabs` does.
+  // The one panel the server marked open cannot mount until the extension imports below resolve, so it says so in
+  // the meantime. Read back the aria-selected tab rather than decide again, the same way `initializeTabs` does.
   const openTab = document.querySelector('nav.subtabs [role=tab][aria-selected="true"][data-tab]')
     || document.querySelector('nav.subtabs [role=tab][data-tab]');
   const openSection = openTab ? document.getElementById(openTab.dataset.tab) : null;
   setPanelBusy(openSection, 'Loading the dashboard modules…');
   try {
-    const modules = {};
-    for (const [panel, promise] of Object.entries(pending)) modules[panel] = await promise;
-    pdc = pdcReady ? await pdcReady : null;
-    osmotic = modules[panels['osmotic-pressure']] ? modules[panels['osmotic-pressure']].createOsmoticSeries() : null;
-    if (pdc) window.pdcSetRun = pdc.setRun;
+    await Promise.all(extensionImports);
   } finally {
     setPanelBusy(openSection, '');
   }
@@ -101,8 +114,7 @@ export async function boot(specs = {}, extensions = []) {
       : id===current['run-view']?runView.mount()
       : id===current['new-run']?newRun.mount()
       : id===current.combinations?compositions.mount()
-      : id===current.complexes&&pdc?pdc.mount()
-      : id===current['osmotic-pressure']&&osmotic?osmotic.mount()
+      : specs[id]?featurePanel(id).then(panel => panel.mount())
       : mappings.mount(id);
     Promise.resolve(loading).catch(error=>{
       const target=document.querySelector(id===current['new-run']?'#launch-blocker':'#notice');

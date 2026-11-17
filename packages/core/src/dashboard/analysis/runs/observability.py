@@ -7,6 +7,10 @@ from ... import files
 
 def artifacts(run_dir):
     """Return immutable run files, excluding transient lock/cache files."""
+    # One parse per directory for the whole walk: every file under a directory reads the same
+    # `analysis-metadata.json`, and re-parsing it once per file is what made the refresh linear in files.
+    parsed = {}
+
     def metadata_for(path):
         for parent in (path.parent, *path.parents):
             if parent == run_dir.parent:
@@ -14,10 +18,12 @@ def artifacts(run_dir):
             candidate = parent / 'analysis-metadata.json'
             if not candidate.is_file() or candidate == path:
                 continue
-            try:
-                payload = json.loads(candidate.read_text())
-            except (OSError, ValueError):
-                continue
+            if parent not in parsed:
+                try:
+                    parsed[parent] = json.loads(candidate.read_text())
+                except (OSError, ValueError):
+                    parsed[parent] = None
+            payload = parsed[parent]
             if isinstance(payload, dict):
                 return payload
         return None

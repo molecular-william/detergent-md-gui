@@ -20,7 +20,11 @@ from .web.routes import analyses, catalog, common, maintenance, mappings, module
 def create_app(paths=None, config=None):
     selected = paths or path_config.default_paths()
     app = Flask(__name__, template_folder=str(selected.templates), static_folder=str(selected.static), static_url_path='/static')
-    app.config.update(MAX_CONTENT_LENGTH=1024 * 1024, TEMPLATES_AUTO_RELOAD=True, PATHS=selected)
+    # Static and feature assets are revalidated only when they may have changed: every navigation used to ask again
+    # for all 49 subresources. Five minutes rather than an hour, because this checkout's JavaScript is edited and
+    # reloaded by hand -- an hour would keep serving the previous module until the browser cache expired.
+    app.config.update(MAX_CONTENT_LENGTH=1024 * 1024, TEMPLATES_AUTO_RELOAD=True, PATHS=selected,
+                      SEND_FILE_MAX_AGE_DEFAULT=300)
     if config: app.config.update(config)
     coordinator = Coordinator(app, app.config['PATHS'])
     app.extensions['dashboard_coordinator'] = coordinator

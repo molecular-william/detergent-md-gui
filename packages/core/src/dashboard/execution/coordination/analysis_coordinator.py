@@ -20,6 +20,16 @@ from dashboard.analysis.runs import figures, layout
 #: What a checkout answers when neither the deployment nor `git describe` can name its code.
 UNKNOWN_CODE_VERSION = 'unknown'
 
+#: The two waits below re-read a SQLite row or retry the run's lock. A fixed 50 ms tick was twenty reads a second
+#: for a wait that a normal completion answers with one write; they back off to a ceiling that still notices the
+#: release within half a second.
+POLL_SECONDS = 0.05
+POLL_CEILING_SECONDS = 0.5
+
+
+def _next_poll(seconds):
+    return min(seconds * 1.5, POLL_CEILING_SECONDS)
+
 
 def _describe_code():
     """What this checkout's code is, in the deployment's own words or in git's."""
@@ -122,6 +132,7 @@ class AnalysisCoordinator:
     def queue_run_analyses_when_free(self, jid, timeout=30.0):
         """Queue a finished run's own analyses, once the run's worker has let go of it."""
         deadline = time.monotonic() + timeout
+        delay = POLL_SECONDS
         while True:
             job = self.owner.database().get(jid)
             if job is None:
@@ -132,7 +143,8 @@ class AnalysisCoordinator:
                 return self.queue_defaults(jid)
             if time.monotonic() >= deadline:
                 return []
-            time.sleep(.05)
+            time.sleep(delay)
+            delay = _next_poll(delay)
 
     def queue_defaults(self, jid):
         """Queue every kind a run runs for itself.
@@ -331,13 +343,15 @@ class AnalysisCoordinator:
     def _claim(self, owner, path):
         """The run's lock, waiting out a transient holder rather than dying on it."""
         deadline = time.monotonic() + self.CLAIM_SECONDS
+        delay = POLL_SECONDS
         while True:
             try:
                 return owner.lease(path)
             except ValueError:
                 if time.monotonic() >= deadline:
                     raise
-                time.sleep(.05)
+                time.sleep(delay)
+                delay = _next_poll(delay)
 
     def run(self, jid, aid, worker):
         owner = self.owner

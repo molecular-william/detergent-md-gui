@@ -5,6 +5,7 @@ clock time" describes one leg, so for two thirds of a three-leg stage the run ca
 the counting that fills that gap, against logs shaped like the ones the stages actually write (the step block uses
 carriage returns, and `grompp` lines carry the mdp each leg was built from).
 """
+import os
 from pathlib import Path
 
 from dashboard.web.progress import progress_from_file
@@ -87,3 +88,62 @@ def test_a_resumed_leg_is_read_from_the_log_it_was_given(tmp_path):
     reading = log_reading('CG simulation', stage_dir(tmp_path), log)
     assert reading['percent'] == 92, reading
     assert Path(reading['leg']).name == 'md'
+
+
+def test_an_appended_log_reads_only_the_new_lines_and_agrees_with_a_full_scan(tmp_path):
+    """A poll after an append counts the new leg and steps exactly as a fresh pass over the whole file would."""
+    directory = stage_dir(tmp_path)
+    path = directory / 'log.txt'
+    # The first write ends mid-line: the trailing partial line must already be counted, and the append must complete
+    # it rather than count it twice.
+    path.write_text('+ gmx grompp -f inputs/eq.mdp -p system.top -c solvated.gro -o eq.tpr\n'
+                    '+ gmx mdrun -deffnm eq -ntomp 8\n'
+                    'step 0\n'
+                    'step 100')
+    first = progress_from_file('CG simulation', directory, path)
+    assert (first['leg'], first['step'], first['legs']) == ('eq', 100, 1), first
+
+    path.write_text(path.read_text()
+                    + '\nstep 200, remaining wall clock time: 4 s\n'
+                    + '+ gmx grompp -f inputs/md.mdp -p system.top -c eq.gro -o md.tpr\n'
+                    + '+ gmx mdrun -deffnm md -ntomp 8\n'
+                    + "starting mdrun 'x'\n"
+                    + 'step 0\nstep 40, remaining wall clock time: 2 s\n')
+    incremental = progress_from_file('CG simulation', directory, path)
+
+    fresh_path = directory / 'fresh.log'
+    fresh_path.write_text(path.read_text())
+    fresh = progress_from_file('CG simulation', directory, fresh_path)
+    assert incremental == fresh
+    assert (incremental['leg'], incremental['step'], incremental['legs']) == ('md', 40, 2), incremental
+
+
+def test_a_truncated_or_replaced_log_is_rescanned_not_continued(tmp_path):
+    """A rewrite is a new file, not an append: its readings start again even when the path is the same."""
+    directory = stage_dir(tmp_path)
+    path = directory / 'log.txt'
+    path.write_text(THREE_LEGS)
+    assert progress_from_file('CG simulation', directory, path)['legs'] == 3
+
+    shorter = ('+ gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr\n'
+               '+ gmx mdrun -deffnm min\nstep 0\nstep 10\n')
+    path.write_text(shorter)
+    truncated = progress_from_file('CG simulation', directory, path)
+    assert (truncated['legs'], truncated['leg']) == (1, 'min'), truncated
+
+    replacement = directory / 'replacement.log'
+    replacement.write_text(THREE_LEGS)
+    os.replace(replacement, path)
+    replaced = progress_from_file('CG simulation', directory, path)
+    assert (replaced['legs'], replaced['leg']) == (3, 'md'), replaced
+
+
+def test_two_polls_with_no_write_are_identical(tmp_path):
+    """An unchanged file costs no read and its reading must not drift, including the trailing partial line."""
+    directory = stage_dir(tmp_path)
+    path = directory / 'log.txt'
+    path.write_text(THREE_LEGS + 'step 300')
+    first = progress_from_file('CG simulation', directory, path)
+    second = progress_from_file('CG simulation', directory, path)
+    assert first == second
+    assert first['step'] == 300, first

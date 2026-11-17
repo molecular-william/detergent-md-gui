@@ -23,6 +23,7 @@
 // runs, `formToken` separates arguments, `loading` separates series files.
 import { whenLive, liveApi, liveShown, pollMilliseconds, api } from './shared.js';
 import { isCoarseGrained } from './run-view-structure.js';
+import { ensureNgl } from './ngl-loader.js';
 
 //: The eleven keys a frame-series attempt records its arguments under -- the form, the lookup for an existing attempt
 //: and the POST body are all this one list, so a key cannot be added to one of them and forgotten in another.
@@ -968,6 +969,15 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       return false;
     }
     if (token !== loading) return false;
+    // Play can be pressed before the structure's own draw has finished fetching NGL, so the bundle is awaited here
+    // too: without this the stage is still absent and Play would report a renderer that is one request away.
+    try {
+      await ensureNgl();
+    } catch (error) {
+      if (token !== loading) return false;
+      setNote(`The 3D view could not be loaded: ${error.message}`);
+      return false;
+    }
     const renderer = stageOf();
     if (!renderer) {
       setNote('This page could not start a 3D view, so the frames cannot be drawn here.');

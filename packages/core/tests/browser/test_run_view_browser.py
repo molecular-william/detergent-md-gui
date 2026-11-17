@@ -18,6 +18,7 @@ Two of the four traps the plan measured are proved here, on real NGL objects:
    scale -- both numbers asserted, so neither the table nor the read can drift.
 """
 import re
+from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import expect
 
@@ -350,7 +351,7 @@ def test_the_panel_renders_in_both_workspaces_and_no_other_label_moved(dashboard
 
 
 def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_others(dashboard, live_page):
-    """D2/T5: one request per run type in scope, and a `pdc` run is not this workspace's to show."""
+    """One request naming every run type in scope, and a `pdc` run is not this workspace's to show."""
     seed(dashboard)
     page, errors = live_page
     asked = []
@@ -361,10 +362,13 @@ def test_the_chooser_asks_for_this_workspaces_run_types_and_lists_none_of_the_ot
     page.locator('#run-view-choose-A').click()
     expect(page.locator('#run-view-list-A button')).to_have_count(3)
 
-    jobs = [url.split('run_type=')[1].split('&')[0] for url in asked if '/api/jobs?' in url and 'run_type=' in url]
-    assert sorted(set(jobs)) == ['aa_only', 'cg', 'osmotic'], jobs
-    assert not any('/api/jobs?' in url and 'run_type=' not in url for url in asked), \
+    queries = [parse_qs(urlparse(url).query) for url in asked if '/api/jobs?' in url]
+    assert queries, 'the panel never asked the route for its runs'
+    assert not any('run_type' not in query for query in queries), \
         'the panel must ask the route for a run type, not page every run and narrow it here'
+    # Repeated `run_type` values are an *or* on the route, so one request carries the whole scope. Asking once per
+    # type was three round trips for one list; the set below is what proves the values were appended, not replaced.
+    assert sorted(set(queries[-1]['run_type'])) == ['aa_only', 'cg', 'osmotic'], queries[-1]
 
     offered = ' '.join(page.locator('#run-view-list-A button').all_inner_texts())
     assert PDC_RUN not in offered, f'a complex run is offered by the wrong workspace: {offered}'
@@ -1110,3 +1114,38 @@ def test_the_second_monitor_minimizes_to_its_header_and_the_first_takes_the_widt
     assert errors == []
 
 
+
+
+def test_ngl_is_fetched_only_when_the_run_view_draws_a_stage(dashboard, live_page):
+    """The 1.28 MB NGL bundle is the Run view's, not the page's.
+
+    The Runs tab draws no 3D stage, so a load of it must issue no NGL request and define no `window.NGL`; opening the
+    Run view must fetch the bundle exactly once and then draw into the stage. The URL is read off the template's own
+    `meta[name="ngl-src"]`, the same way the Plotly lazy test reads its meta, so the route stays the one definition.
+    """
+    seed(dashboard)
+    page, errors = live_page
+    requests = []
+    page.on('request', lambda request: requests.append(request.url))
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+    expect(page.locator('#jobs')).to_be_visible(timeout=30000)
+    src = page.evaluate("() => document.querySelector('meta[name=\"ngl-src\"]')?.content")
+    assert src, 'the template states no NGL bundle URL, so no panel could ask for one'
+    assert not [url for url in requests if src in url], requests
+    assert page.evaluate('typeof window.NGL') == 'undefined', 'NGL was already on the page at load'
+    assert page.evaluate("() => document.querySelectorAll('script[data-ngl]').length") == 0
+
+    page.locator('#tab-runview').click()
+    page.wait_for_function(
+        "() => document.querySelector('#run-view-viewer-A')?.runViewStage?.compList?.[0]?.structure",
+        timeout=30000)
+    assert page.evaluate('!!window.NGL') is True, 'the stage drew without an NGL global'
+    assert len([url for url in requests if src in url]) == 1, requests
+
+    # Every monitor asks through the one loader, and a second ask is not a second 1.28 MB download.
+    page.evaluate("""async () => {
+        const loader = await import('/static/js/ngl-loader.js');
+        await Promise.all([loader.ensureNgl(), loader.ensureNgl()]);
+    }""")
+    assert len([url for url in requests if src in url]) == 1, requests
+    assert errors == []

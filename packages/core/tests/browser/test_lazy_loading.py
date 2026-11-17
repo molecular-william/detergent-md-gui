@@ -1,4 +1,5 @@
 """Tab activation fetches only visible run data, and catalogues are warmed once and reused."""
+import re
 from urllib.parse import urlsplit
 
 from dashboard.execution.adapters import cg
@@ -179,3 +180,50 @@ def test_readiness_debounces_changes_and_ignores_cancelled_response(dashboard, l
     page.evaluate('readinessRequests[2].reply(true)')
     expect(page.locator('#start-run')).to_be_disabled()
     assert errors == []
+
+
+def test_a_feature_panel_module_is_fetched_when_its_tab_first_opens(dashboard, live_page):
+    """The extension modules are eager; the panel modules are not.
+
+    A feature ships both: extensions that register hooks on a shared engine panel (they must run before the first
+    mount), and panel modules the shell only needs when their tab opens. The pdc distribution's `new-run-pdc.js` is
+    132 KB of extension and its `pdc.js` is a panel; a Runs reader must download the first and not the second.
+    """
+    page, errors = live_page
+    asked = []
+    page.on('request', lambda request: asked.append(urlsplit(request.url).path))
+    page.goto(f'{live_page.base_url}/protein-detergent/runs')
+    expect(page.locator('#jobs')).to_be_visible(timeout=30000)
+
+    # The extension registered itself on New run -- which is why it is fetched before any panel mounts.
+    assert any(path.endswith('/feature-assets/pdc/js/new-run-pdc.js') for path in asked), asked
+    # The Complexes panel was never opened, so its module was never fetched.
+    assert not [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc.js')], asked
+
+    page.locator('#tab-pdc').click()
+    expect(page.locator('#pdc')).to_be_visible()
+    page.wait_for_function(
+        "() => document.querySelectorAll('#pdc-template option').length > 0", timeout=30000)
+    panel_requests = [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc.js')]
+    assert len(panel_requests) == 1, panel_requests
+    assert errors == []
+
+
+def test_a_feature_panel_that_fails_to_import_becomes_the_pages_notice(dashboard, live_page):
+    """The lazy panel import is a promise the shell catches, not a module error the page leaves unhandled.
+
+    Boot used to await every feature panel's import, so a broken one was the template's own notice. Now the import
+    happens on the first tab open, and the same failure must still land in `#notice` rather than as an unhandled
+    rejection in the console.
+    """
+    page, errors = live_page
+    page.route(re.compile(r'/feature-assets/pdc/js/pdc\.js'),
+               lambda route: route.fulfill(status=500, content_type='text/plain', body='broken module'))
+    page.goto(f'{live_page.base_url}/protein-detergent/runs')
+    expect(page.locator('#jobs')).to_be_visible(timeout=30000)
+
+    page.locator('#tab-pdc').click()
+    notice = page.locator('#notice')
+    expect(notice).to_be_visible()
+    expect(notice).to_contain_text('pdc.js')
+    assert errors == [], errors

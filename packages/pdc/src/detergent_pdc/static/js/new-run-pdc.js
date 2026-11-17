@@ -1,5 +1,6 @@
 import { $, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds } from '/static/js/shared.js';
 import { createGpuDevice } from '/static/js/gpu-device.js';
+import { ensureNgl } from '/static/js/ngl-loader.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, SECONDARY_CLASS_COLOURS, SECONDARY_CLASS_ORDER,
          PROTEIN_BACKBONE, applyBeadRadii, renderBeadLegend, renderSecondaryLegend } from '/static/js/ngl-beads.js';
 import { registerNewRunExtension, writeReadiness } from '/static/js/new-run.js';
@@ -856,7 +857,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (axes.length !== 3 || !axes.every(value => value != null && Number.isFinite(Number(value)))) return '';
     return axes.map(value => Number(value).toFixed(1)).join(' × ');
   };
-  let extentState = {kind: 'idle'}, extentRequest = 0, extentTimer;
+  let extentState = {kind: 'idle'}, extentRequest = 0, extentTimer, extentController;
 
   function renderExtent() {
     const size = pdcNode('.new-pdc-protein-size'), box = pdcNode('.new-pdc-box-estimate');
@@ -880,6 +881,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   async function loadExtent() {
     const entry = field('protein').value;
     const mine = ++extentRequest;
+    // A superseded measurement is cancelled, not left to finish and be dropped: the token guard already keeps its
+    // answer off screen, and the abort keeps the server's queue from holding a question nobody will read.
+    extentController?.abort();
+    extentController = new AbortController();
     if (!entry) {
       extentState = {kind: 'idle'};
       renderExtent();
@@ -895,9 +900,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const entry_id = String(entry).replace(/^\/+/, '');
     let response;
     try {
-      response = await fetch(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/extent?${query}`);
+      response = await fetch(`/api/pdc/proteins/${encodeURIComponent(entry_id)}/extent?${query}`,
+                             {signal: extentController.signal});
     } catch (error) {
-      if (mine !== extentRequest) return;
+      if (error.name === 'AbortError' || mine !== extentRequest) return;   // superseded: the newer question owns the line
       extentState = {kind: 'refused', reason: 'The protein’s size could not be read: the coordinator did not answer.'};
       renderExtent();
       return;
@@ -1054,7 +1060,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     setText(note, text || '');
     note.hidden = !text;
   }
-  let previewFrame = null, previewRequest = 0, previewTimer, previewDraw = 0;
+  let previewFrame = null, previewRequest = 0, previewTimer, previewDraw = 0, previewController;
   // The stage lives on the host element, the way `pdc.js` keeps its own (`viewer.pdcStage`): one owner, and a test
   // or a console can reach the thing that is drawn without a hook this module would have to publish.
   const previewStage = () => previewNode('.new-pdc-preview-viewer')?.previewStage || null;
@@ -1388,9 +1394,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
   }
 
-  function showPreviewFrame(pdb, assignment, structure) {
+  async function showPreviewFrame(pdb, assignment, structure) {
     const host = previewNode('.new-pdc-preview-viewer');
-    if (!host || typeof NGL === 'undefined') return;
+    if (!host) return;
+    // The shell no longer carries NGL: it is 1.28 MB and only a 3D stage needs it, so the bundle arrives with the
+    // first thing there is to draw (`ngl-loader.js`). A bundle that cannot load leaves the preview empty; the panel's
+    // own numbers, legends and controls are drawn from the server's answer and do not depend on it.
+    try { await ensureNgl(); } catch (error) { return; }
     // The stage is built the moment there is something to draw, and asked to resize on a tab show and a window
     // change: NGL sizes its drawing buffer when the stage is built and only recomputes it when asked, so a stage
     // built at one width keeps that buffer inside a host that later grows.
@@ -1615,13 +1625,18 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   async function derivePreview() {
     const inputs = previewInputs();
     const mine = ++previewRequest;
+    // The debounce asked again, so the answer nobody will read is cancelled rather than waited for. The token guard
+    // below still drops a reply that was already in flight; the abort keeps the build queue from working on it.
+    previewController?.abort();
+    previewController = new AbortController();
     const state = previewNode('.new-pdc-preview-state');
     if (state) { state.classList.remove('stale'); setText(state, 'Deriving the placement…'); }
     let response, body = {};
     try {
-      response = await fetch('/api/pdc/preview/placement?' + previewQuery(inputs));
+      response = await fetch('/api/pdc/preview/placement?' + previewQuery(inputs),
+                             {signal: previewController.signal});
     } catch (error) {
-      if (mine !== previewRequest) return;
+      if (error.name === 'AbortError' || mine !== previewRequest) return;   // superseded: the newer question owns the card
       previewFrame = {inputs, refused: true, unreadable: true};
       renderPreviewRefusal('the coordinator did not answer, so there is nothing to draw.', null,
                            'No picture: the preview request failed.');

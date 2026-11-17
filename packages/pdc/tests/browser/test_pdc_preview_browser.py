@@ -31,6 +31,7 @@ The route is served as a fixture, so nothing here reads the developer's workspac
 """
 import json
 import re
+import time
 
 from dashboard.analysis.runs import structures as pdc_view
 from playwright.sync_api import expect
@@ -382,6 +383,56 @@ def test_the_expensive_inputs_mark_the_frame_stale_and_the_cheap_ones_re_derive(
                            f" === {DERIVED!r}", timeout=30000)
     assert len(requests) == 2, requests
     assert 'aggregation_number=220' in requests[1], requests[1]
+    assert errors == [], errors
+
+
+def test_a_superseded_preview_request_is_cancelled_not_answered_or_reported(dashboard, live_page):
+    """The debounced re-derive aborts the question it replaces; a cancelled answer is not a failed one.
+
+    The second request is left in flight, so the only way its question leaves the wire is the panel aborting it. The
+    card then shows the newest answer and no refusal: an abort is the panel's own doing, never a sentence about the
+    builder, which is what a bare "the coordinator did not answer" would say.
+    """
+    page, errors = live_page
+    seen, failed = [], []
+    browser.serve_pdc_new_run(page, catalogue=CATALOG, models=MODELS)
+
+    def route_preview(route):
+        seen.append(route.request.url)
+        if len(seen) == 2:
+            return                       # held until the panel supersedes it
+        route.fulfill(json=answer(placement_pdb()))
+
+    page.route(re.compile(r'/api/pdc/preview/placement'), route_preview)
+    page.on('requestfailed', lambda request: failed.append(request))
+    open_panel(page, live_page.base_url)
+    derive(page)
+    page.wait_for_function("() => document.querySelector('.new-pdc-preview-state').textContent"
+                           f" === {DERIVED!r}", timeout=30000)
+
+    # The count is a cheap input: it re-derives after 250 ms, and the second ask is the one left in flight.
+    page.locator('#new-count').fill('220')
+    deadline = time.monotonic() + 10
+    while len(seen) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(seen) == 2, f'the count did not re-derive: {seen}'
+
+    # A third ask cancels the second before it answers; only the third's answer is drawn.
+    page.locator('#new-count').fill('221')
+    deadline = time.monotonic() + 10
+    while len(seen) < 3 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(seen) == 3, f'the second count change did not re-derive: {seen}'
+    assert 'aggregation_number=221' in seen[2], seen[2]
+
+    deadline = time.monotonic() + 5
+    while not failed and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert any('/preview/placement' in request.url for request in failed), \
+        f'the superseded request was left in flight: {[request.url for request in failed]}'
+
+    expect(page.locator('.new-pdc-preview-state')).to_have_text(DERIVED)
+    expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
     assert errors == [], errors
 
 

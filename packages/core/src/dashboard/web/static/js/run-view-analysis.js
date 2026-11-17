@@ -122,6 +122,7 @@ export function createAnalysis({root, side}) {
   let mapPending = null;                // the in-flight mount, so two activations mount once
   let mapMode = '';                     // the last section the map was asked to show
   let settingsFor = null;               // the run whose settings this card has already read
+  let figuresFor = null;                // the analysis set the drawn figures answer, so a tick that changed nothing asks nothing
 
   const setNote = text => { note.textContent = text || ''; };
 
@@ -264,15 +265,17 @@ export function createAnalysis({root, side}) {
     return item;
   }
 
+  //: Reads the run's current figure set and draws it. `true` means the answer was drawn, so the caller may remember
+  //: what it answered for; a failed read returns `false` and is asked for again on the next tick rather than latched.
   async function loadFigures(mine, fresh) {
     let media;
     try {
       media = await api(`/api/jobs/${encodeURIComponent(job.id)}/figures${fresh ? '?refresh=1' : ''}`);
     } catch (error) {
       if (mine === token) setNote(`This run's figures could not be read: ${error.message}`);
-      return;
+      return false;
     }
-    if (mine !== token) return;
+    if (mine !== token) return false;
     const figures = media.artifacts || [];
     if (!viewer || viewer.runId !== job.id) {
       viewer?.destroy();
@@ -288,6 +291,7 @@ export function createAnalysis({root, side}) {
     const button = views ? views.querySelector('button[data-section="figures"]') : null;
     if (button) button.textContent = `Figures${figures.length ? ` (${figures.length})` : ''}`;
     renderDistanceDiagnostics(card, job).catch(() => {});
+    return true;
   }
 
   // ------------------------------------------------------------------------------------------------ the sections
@@ -513,9 +517,23 @@ export function createAnalysis({root, side}) {
       && !UNSETTLED.includes(task.status));
     statuses = new Map(tasks.map(task => [task.id, task.status]));
     await renderTasks(tasks, mine);
-    await loadFigures(mine, fresh || settled);
+    // The figure list is re-read only when it can have changed: the first render (nothing remembered yet), a queue
+    // the reader just caused, an attempt that just settled, or an attempt set that differs from the one the drawn
+    // figures answer. A 2 s tick that carries only a progress line leaves the viewer, the count and the Figures tab
+    // exactly as they were -- the viewer is signature-keyed and would redraw nothing from the same answer anyway.
+    const signature = figureSignature(tasks);
+    if (fresh || settled || signature !== figuresFor) {
+      const read = await loadFigures(mine, fresh || settled);
+      if (read && mine === token) figuresFor = signature;
+    }
     if (settled) { refreshSections(); refreshMap(); }
     schedule(tasks, mine);
+  }
+
+  //: What the figures answer for, not the live progress line: a running attempt rewrites `progress` every tick and
+  //: publishes figures only when it settles, so the id/kind/status/directory set is the part a figure list follows.
+  function figureSignature(tasks) {
+    return JSON.stringify((tasks || []).map(task => [task.id, task.kind, task.status, task.directory || '']));
   }
 
   function schedule(tasks, mine) {
@@ -574,6 +592,7 @@ export function createAnalysis({root, side}) {
     if (timer) { clearTimeout(timer); timer = null; }
     job = null;
     drawn = '';
+    figuresFor = null;
     statuses = new Map();
     tails.clear();
     taskList.replaceChildren();

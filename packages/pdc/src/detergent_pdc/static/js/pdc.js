@@ -1,5 +1,6 @@
 import { $, cachedApi, invalidateResource, panelIds } from '/static/js/shared.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, applyBeadRadii, renderBeadLegend } from '/static/js/ngl-beads.js';
+import { ensureNgl } from '/static/js/ngl-loader.js';
 
 export function createPdc() {
   const template = $('#pdc-template'), protein = $('#pdc-protein');
@@ -217,15 +218,17 @@ export function createPdc() {
     if (event.key === 'Enter') { event.preventDefault(); importStructure(); }
   });
 
-  function stage() {
-    // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css.
+  async function stage() {
+    // Created on first use: NGL sizes itself to its host element, and the host is sized for it in pdc.css. The
+    // bundle is fetched on demand too, so a reader who never opens this panel (or a run with no system) pays nothing.
     if (!viewer) return null;
+    await ensureNgl();
     if (!viewer.pdcStage) viewer.pdcStage = new NGL.Stage(viewer, {backgroundColor: 'white'});
     return viewer.pdcStage;
   }
 
   async function showPdb(text, describe) {
-    const stageRef = stage();
+    const stageRef = await stage();
     if (!stageRef) return;
     stageRef.removeAllComponents();
     // NGL invents bonds from interatomic distances unless the file tells it otherwise: `inferBonds` defaults to

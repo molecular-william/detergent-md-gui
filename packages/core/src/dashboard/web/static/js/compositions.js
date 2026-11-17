@@ -1,5 +1,6 @@
 import { $, api, cachedApi, post, setText, invalidateResource, panelIds } from './shared.js';
 import { BEAD_RADIUS_PARAMETERS, applyBeadRadii } from './ngl-beads.js';
+import { ensureNgl } from './ngl-loader.js';
 
 //: The AA molecule each published Martini 3 sugar entry is published for (`models/sugars/reference.py:PUBLISHED_FOR`).
 //: It is a *default provenance link*, never a claim: the panel offers the folder only when the catalogue has it, the
@@ -114,7 +115,10 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     return component;
   }
 
-  function paint(result) {
+  async function paint(result) {
+    // The three stages below are the first thing this panel draws, and NGL is fetched on demand: wait for it here,
+    // before `stageFor` constructs a stage, rather than at page load for a tab that may never open.
+    await ensureNgl();
     const basis = $('#composition-geometry-basis');
     const geometry = result?.geometry;
     for (const key of ['head', 'tail', 'joined']) stageFor(key);
@@ -493,7 +497,7 @@ export function createCompositions({ openBondedModel, openCompositionRun }) {
     try {
       const result = await post('/api/compositions/preview', payload());
       if (token !== generation) return result;
-      lastPreview = result; syncEndpoints(); paint(result); renderDiagnostics(result); updateActions();
+      lastPreview = result; syncEndpoints(); await paint(result); renderDiagnostics(result); updateActions();
       setText($('#composition-panel-status'), 'Preview ready. Review provenance before saving.'); return result;
     } catch (error) { setText($('#composition-panel-status'), error.message); renderDiagnostics(null); throw error; }
   }

@@ -12,7 +12,7 @@
 //   * the stage-chain table under a monitor: `/api/jobs/<id>/trajectory` says which legs are one system and where
 //     the system is rebuilt, and the table prints that answer. The panel fetches the answer; this module renders it.
 import { registerRunViewExtension } from '/static/js/run-view.js';
-import { api, post, notice, liveVisible, whenLive } from '/static/js/shared.js';
+import { api, post, notice, liveShown, whenLive } from '/static/js/shared.js';
 
 //: The run type this extension serves.
 const RUN_TYPE = 'pdc';
@@ -195,15 +195,23 @@ function mountWholeTrajectory(node, job, isCurrent) {
 
   function arm() {
     if (timer) return;
-    if (!liveVisible()) return;              // resumed by `resumeStop`'s listener when the page is live again
+    // The Run view's own panel is part of "on screen": a card behind another tab asks nothing, and `resume` below
+    // arms the next poll when the panel comes back. The 2 s cadence and the stop-on-terminal-state rule are unchanged.
+    if (!liveShown()) return;
     timer = setTimeout(async () => {
       timer = null;
-      if (!isCurrent() || !liveVisible()) return;
+      if (!isCurrent() || !liveShown()) return;
       const answer = await load();
       if (answer && (answer.state || {}).status === 'running') arm();
     }, WHOLE_POLL_MS);
   }
-  node.wholeResumeStop = whenLive(() => { if (isCurrent() && !timer) arm(); });
+  const resume = () => { if (isCurrent() && !timer) arm(); };
+  // One listener re-arms on either return: the page becoming live (`whenLive`) or the Run view panel being shown
+  // again (`dashboard:tab`, the seam the analysis card and the trajectory block already use).
+  const stopLive = whenLive(resume);
+  const onTab = () => resume();
+  document.addEventListener('dashboard:tab', onTab);
+  node.wholeResumeStop = () => { stopLive(); document.removeEventListener('dashboard:tab', onTab); };
   dt.addEventListener('input', () => {
     estimate.textContent = wholeEstimate(dtValue(), Number(dt.value), Number(decimals.value));
   });

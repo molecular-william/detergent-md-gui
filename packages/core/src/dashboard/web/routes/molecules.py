@@ -4,9 +4,10 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request
 
 from ... import files
 from ...analysis.runs import references as aa_references
@@ -163,6 +164,9 @@ def import_molecule_api():
         abort(400, f'molecules/{molecule_id} was not imported: {exc}')
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
+    # A new version is a catalogue change: the next read must see it, not wait out the 10 s cache. The TTL remains
+    # the backstop for changes made outside this route (a copied molecule folder, a version folder removed by hand).
+    current_app.extensions.pop('molecules_catalogue', None)
     return jsonify(molecule=record), 201
 
 
@@ -200,8 +204,19 @@ def references_api():
 
 @blueprint.get('/api/molecules')
 def molecules_api():
+    """The catalogue, cached per process for 10 s the way `/api/storage` is.
+
+    A panel mount would otherwise rescan the whole `molecules/` tree; a directory is short-lived stale data, and
+    keying on the root means a workspace pointed elsewhere is never served the old tree's answer.
+    """
     c = coordinator()
-    return jsonify(molecules=aa_molecules.catalogue(c.ROOT/'molecules'))
+    root = c.ROOT/'molecules'
+    key = str(root)
+    cached = current_app.extensions.get('molecules_catalogue')
+    if not cached or cached[0] != key or time.monotonic()-cached[1] > 10:
+        cached = (key, time.monotonic(), aa_molecules.catalogue(root))
+        current_app.extensions['molecules_catalogue'] = cached
+    return jsonify(molecules=cached[2])
 
 
 @blueprint.post('/api/molecules/<molecule_id>/virtual-sites')

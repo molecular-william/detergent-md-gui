@@ -46,6 +46,11 @@ PERFORMANCE = re.compile(r'Performance:\s+([0-9]+(?:\.[0-9]+)?)')
 # is safe because every entry is a pure function of the file it names.
 PERFORMANCE_CACHE = {}
 PERFORMANCE_CACHE_MAX = 4096
+# `eta` re-parses a running log's last 64 KiB on every poll for GROMACS' own estimate, and `detail_revision` serialises
+# and hashes a manifest for every summary row. Both are pure functions of a file at a (path, mtime, size), so each keeps
+# its own bounded dict beside the throughput cache: the same poll over an unchanged run costs no parse and no digest.
+ETA_CACHE = {}
+DETAIL_CACHE = {}
 
 
 def usable_run_id(job) -> bool:
@@ -281,12 +286,26 @@ def eta(job, stages, *, run_dir, console_log=None) -> dict:
     if current is None:
         return {}
     for path in stage_log_candidates(job, current, stage_dir, run_dir=run_dir, console_log=console_log):
-        if not path.is_file():
-            continue
-        found = parse_gromacs_eta(tail(path))
+        found = _tail_eta(path)
         if found:
             return found
     return {}
+
+
+def _tail_eta(path) -> dict:
+    """`parse_gromacs_eta(tail(path))`, parsed once per (path, mtime, size) for a poll's unchanged log."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    if key in ETA_CACHE:
+        return ETA_CACHE[key]
+    found = parse_gromacs_eta(tail(path))
+    if len(ETA_CACHE) >= PERFORMANCE_CACHE_MAX:
+        ETA_CACHE.clear()
+    ETA_CACHE[key] = found
+    return found
 
 
 def stage_directory(run_dir, stage_dir):
@@ -374,6 +393,33 @@ def gpu_name(manifest, job=None):
     return None
 
 
+def detail_revision(manifest, run_dir) -> str:
+    """The summary row's digest of the merged manifest: the client's key for whether its detail is stale.
+
+    Every summary poll re-serialised and hashed every manifest. The digest is a pure function of the manifest and the
+    run type merged into it, so it is computed once per unchanged `manifest.json` and run type. A run whose manifest
+    is not on disk (a record with no run directory, or a caller handing a view a manifest directly) is hashed as before
+    and not cached: there is no file version to key the answer on.
+    """
+    path = Path(run_dir) / 'manifest.json'
+    try:
+        stat = path.stat()
+    except OSError:
+        return _manifest_digest(manifest)
+    key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size, manifest.get('run_type'))
+    if key in DETAIL_CACHE:
+        return DETAIL_CACHE[key]
+    digest = _manifest_digest(manifest)
+    if len(DETAIL_CACHE) >= PERFORMANCE_CACHE_MAX:
+        DETAIL_CACHE.clear()
+    DETAIL_CACHE[key] = digest
+    return digest
+
+
+def _manifest_digest(manifest) -> str:
+    return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+
+
 def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, console_log=None, summary=False) -> dict:
     """One run as the browser sees it.
 
@@ -448,5 +494,5 @@ def run_view(job, *, run_dir=None, manifest=None, ownership=None, busy=False, co
         result['stages'] = [{k: v for k, v in stage.items() if k in STAGE_SUMMARY_FIELDS}
                             | ({'error': stage['error']} if stage.get('status') == 'skipped' and stage.get('error') else {})
                             for stage in stages]
-        result['detail_revision'] = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+        result['detail_revision'] = detail_revision(manifest, run_dir)
     return result

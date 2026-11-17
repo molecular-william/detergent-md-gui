@@ -32,6 +32,30 @@ def catalogue(client):
     return result.get_json()['molecules']
 
 
+def _expire_catalogue(dashboard):
+    """Forget the 10 s catalogue cache after a test changes the molecule tree on disk."""
+    dashboard.app.extensions.pop('molecules_catalogue', None)
+
+
+def test_the_catalogue_is_cached_per_workspace_and_expires(dashboard, molecules, monkeypatch):
+    root, _folder = molecules
+    from dashboard.models.molecules import aa as aa_molecules
+    from dashboard.web.routes import molecules as route
+    clock = [1000.0]
+    monkeypatch.setattr(route.time, 'monotonic', lambda: clock[0])
+    with patch.object(aa_molecules, 'catalogue', wraps=aa_molecules.catalogue) as scan:
+        first = dashboard.client.get('/api/molecules')
+        second = dashboard.client.get('/api/molecules')
+        assert first.get_json() == second.get_json()
+        assert scan.call_count == 1, 'a second request inside the TTL is the cached answer'
+        clock[0] += 10.1
+        dashboard.client.get('/api/molecules')
+        assert scan.call_count == 2, 'a change on disk is seen once the TTL passes'
+        monkeypatch.setattr(dashboard.coordinator, 'ROOT', root.parent/'elsewhere')
+        assert dashboard.client.get('/api/molecules').get_json()['molecules'] == []
+        assert scan.call_count == 3, 'a different molecule root is never served the old tree'
+
+
 def test_valid_directory_is_executable_for_any_molecule(dashboard, molecules):
     molecules
     entry=catalogue(dashboard.client)[0]
@@ -57,6 +81,7 @@ def test_missing_and_mismatched_atoms_are_reported(dashboard, molecules):
     entry=catalogue(dashboard.client)[0]; assert not entry['valid']
     assert 'molecule.gro' in ' '.join(entry['issues'])
     (folder/'molecule.gro').write_text('Bad\n1\n    1EX      C9    1   0.000   0.000   0.000\n1 1 1\n')
+    _expire_catalogue(dashboard)
     entry=catalogue(dashboard.client)[0]; assert not entry['valid']
     assert 'atom' in ' '.join(entry['issues']).lower()
 
@@ -110,6 +135,7 @@ def test_symlinks_and_traversal_cannot_supply_molecules(dashboard, molecules):
     (root/'molecules/alias').symlink_to(folder,target_is_directory=True)
     assert [e['id'] for e in catalogue(dashboard.client)]==['example']
     original=folder/'molecule.itp'; original.rename(root/'outside.itp'); original.symlink_to(root/'outside.itp')
+    _expire_catalogue(dashboard)
     assert not catalogue(dashboard.client)[0]['valid']
     for value in ('../example','/tmp/example','',{},['example']):
         response=dashboard.client.post('/',json={'detergent':'DDM','method':'fast_forward','molecule_id':value})
