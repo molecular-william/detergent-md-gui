@@ -10,6 +10,18 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Trajectory overview: aggregate search, frame access, XVG parse (2026-11-17).** The overview's `_aggregates` tested
+  every detergent atom against every other (2,112² distances per sampled frame); it now tests molecule bounding
+  spheres first and measures atom distances only for the pairs whose spheres reach (2,450-5,700 of 18,336 on the pdc
+  micelle), 417 → 86 ms per frame with the same grouping. The sampled-frame loop uses MDAnalysis' frame-offset cache
+  (MDAnalysis writes `_offsets.npz` beside the trajectory it opened — an attempt's staged copy, never the run tree)
+  instead of decoding every frame: 20k AA frames 0.84 → 0.01 s, 4001 micelle frames 3.26 → 0.17 s. `readers.xvg_columns`
+  parses the data block with numpy (59 MB / 46-term XVG: 1.19 → 0.46 s) and falls back to the per-line reader for a
+  ragged file. End to end: pdc micelle overview **85.6 → 19.9 s**, AA overview 13.8 → 12.6 s (its remaining time is
+  `gmx energy`: two subprocess calls per `.edr` and a 3.2 s all-term XVG write), with `trajectory-overview.json`
+  byte-identical on both runs. Plan: `docs/plans/2026-11-17-analysis-hot-paths.md`. Next lever if wanted: a direct
+  `.edr` reader (removes ~4.5 s per AA overview, needs a parser or a dependency) and a cell-list aggregate search
+  (the pdc overview is still 16 s of aggregates).
 - **Performance hot paths: live-log scan, per-poll work, cold load (2026-11-17).** A running stage's log is no longer
   rescanned on every poll: `web/progress.py` keeps an append-aware scan state per file (52 MB: 0.92 s per poll before,
   0.1 ms after; the cold first scan still costs one full pass) and `views.eta`/`views.detail_revision` cache their

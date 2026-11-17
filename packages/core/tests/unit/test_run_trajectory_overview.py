@@ -13,7 +13,7 @@ import matplotlib.figure
 import MDAnalysis as mda
 import numpy as np
 import pytest
-from dashboard.analysis.runs import trajectory_overview
+from dashboard.analysis.runs import readers, trajectory_overview
 
 #: The keys `series_summary` promises, which every rich series in the record must carry.
 SUMMARY_KEYS = {'n', 'mean', 'std', 'sem', 'block_sem', 'blocks', 'median', 'p05', 'p95', 'min', 'max',
@@ -658,3 +658,106 @@ def test_the_stage_traces_have_their_own_figure_row(tmp_path, monkeypatch):
     assert [title.split(' ·')[0] for title in titles[6:]] == [
         'Minimisation potential', 'Equilibration temperature', 'Equilibration pressure']
     assert (tmp_path / 'trajectory-overview.png').is_file()
+
+
+def reference_aggregates(molecule_sizes, positions, threshold, box):
+    """The pairwise algorithm the sphere prefilter replaced, kept as the authority the new one must equal.
+
+    Every atom against every atom, one periodic image, same-molecule pairs excluded, then a union-find over the
+    molecule pairs whose closest beads are within the threshold.
+    """
+    offsets = np.cumsum([0, *molecule_sizes])
+    labels = np.repeat(np.arange(len(molecule_sizes)), molecule_sizes)
+    delta = positions[:, None, :] - positions[None, :, :]
+    delta = trajectory_overview._minimum_image(delta, box)
+    distances = np.sqrt((delta ** 2).sum(axis=-1))
+    distances[labels[:, None] == labels[None, :]] = np.inf
+    starts = offsets[:-1]
+    nearest = np.minimum.reduceat(np.minimum.reduceat(distances, starts, axis=0), starts, axis=1)
+    parent = list(range(len(molecule_sizes)))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for first in range(len(molecule_sizes)):
+        for second in range(first + 1, len(molecule_sizes)):
+            if nearest[first, second] <= threshold:
+                root, other = find(first), find(second)
+                if root != other:
+                    parent[other] = root
+    groups = {}
+    for index in range(len(molecule_sizes)):
+        groups.setdefault(find(index), []).append(index)
+    return sorted((sorted(group) for group in groups.values()), key=len, reverse=True)
+
+
+@pytest.mark.parametrize('seed,sizes,box_nm,threshold', [
+    (1, [11] * 24, 9.4, 0.6),          # one compact micelle
+    (2, [11] * 24, 9.4, 0.25),         # a threshold that splits it
+    (3, [4, 4, 4, 4, 1, 1, 1], 6.0, 0.6),   # molecules of different sizes and single-atom ions
+    (4, [2] * 6, 3.0, 0.6),            # a small box: several molecules span a face
+])
+def test_the_sphere_prefilter_groups_exactly_as_the_pairwise_reference(seed, sizes, box_nm, threshold):
+    """The candidate-pair search must not change a single grouping: only which pairs are measured."""
+    random = np.random.default_rng(seed)
+    centres = random.uniform(0.0, 2.5, size=(len(sizes), 3))
+    positions = []
+    for index, size in enumerate(sizes):
+        positions.append(centres[index] + random.normal(scale=0.15, size=(size, 3)))
+    positions = np.concatenate(positions)
+    box = np.array([box_nm, box_nm, box_nm], dtype=float)
+
+    fast = trajectory_overview._aggregates(sizes, positions, threshold, box)
+    reference = reference_aggregates(sizes, positions, threshold, box)
+    assert [sorted(group) for group in fast] == reference
+
+
+def test_the_sphere_prefilter_keeps_a_face_split_micelle_whole():
+    """Two halves of one micelle on opposite faces are one aggregate, exactly as the pairwise reader found."""
+    box = np.array([10.0, 10.0, 10.0])
+    sizes = [2, 2]
+    positions = np.array([[0.2, 5.0, 5.0], [0.4, 5.0, 5.0], [9.8, 5.0, 5.0], [9.6, 5.0, 5.0]])
+    assert trajectory_overview._aggregates(sizes, positions, 0.6, box) == [[0, 1]]
+
+
+def test_the_xvg_reader_parses_the_same_table_as_the_per_line_reader(tmp_path):
+    """The numpy data block and the per-line reader must agree cell for cell, legends and columns included."""
+    path = tmp_path / 'energy.xvg'
+    rows = ''.join(f'{index * 0.5:.1f}\t{-190000.0 + index:.3f}\t{300.0 + index % 3:.4f}\n' for index in range(5000))
+    path.write_text('# gmx energy\n@    title "Energy"\n@    xaxis  label "Time (ps)"\n'
+                    '@ s0 legend "Potential"\n@ s1 legend "Temperature"\n' + rows)
+
+    labels, times, columns = readers.xvg_columns(path)
+    reference_labels, reference_times, reference_columns = readers._xvg_columns_slow(path)
+
+    assert labels == reference_labels == ['Potential', 'Temperature']
+    assert list(times) == list(reference_times)
+    assert [list(column) for column in columns] == [list(column) for column in reference_columns]
+    assert len(times) == 5000 and len(columns) == 2
+
+
+def test_the_xvg_reader_falls_back_to_the_per_line_reader_for_a_ragged_file(tmp_path):
+    """A row that disagrees on its column count must not lose the file: the per-line reader skips it."""
+    path = tmp_path / 'ragged.xvg'
+    path.write_text('# hand-written\n@ s0 legend "Potential"\n@ s1 legend "Temperature"\n'
+                    '0.0 1.0 300.0\n0.5 2.0\n1.0 3.0 302.0\n')
+
+    labels, times, columns = readers.xvg_columns(path)
+
+    assert labels == ['Potential', 'Temperature']
+    assert list(times) == [0.0, 1.0], 'the short row is skipped, not indexed past its end'
+    assert [list(column) for column in columns] == [[1.0, 3.0], [300.0, 302.0]]
+
+
+def test_an_xvg_without_legends_names_its_columns_positionally(tmp_path):
+    """Data with no `@ s` legend keeps its columns, named by position, exactly as before."""
+    path = tmp_path / 'plain.xvg'
+    path.write_text('0 1.5 2.5\n1 2.5 3.5\n')
+
+    labels, times, columns = readers.xvg_columns(path)
+
+    assert labels == ['column2', 'column3']
+    assert [list(column) for column in columns] == [[1.5, 2.5], [2.5, 3.5]]

@@ -43,17 +43,81 @@ def xvg_columns(path):
     trusted the request order would label every curve with the term next to it. A column without a legend is named
     positionally rather than dropped.
 
-    Each data column accumulates into an `array('d')`: an all-term EDR is a few hundred thousand rows by up to 45
-    columns, and a list of Python floats would cost several hundred megabytes for a record that keeps only summaries.
+    The data block is parsed by numpy, not by a Python loop: an all-term EDR XVG is up to ~100,000 rows by 46 columns
+    (measured 59 MB from a 62 MB `.edr`), and the per-line float conversion cost 1.33 s of a 7.5 s energy read. A
+    ragged or malformed file falls back to that per-line reader, which is the authority on what a row means.
+    """
+    table = _xvg_table(path)
+    if table is None:
+        labels, times, columns = _xvg_columns_slow(path)
+    else:
+        labels = _xvg_legends(path)
+        times, columns = _xvg_columns(table)
+    # A hand-written XVG may carry data without legends; name those columns positionally rather than dropping them.
+    while len(labels) < len(columns):
+        labels.append(f'column{len(labels) + 2}')
+    return labels, times, columns
+
+
+def _xvg_legends(path):
+    """Every `@ s ... legend "name"` line above the data block's first row, in file order.
+
+    Legends stand above the data in every XVG GROMACS writes, so this stops at the first row: reading a 59 MB data
+    block twice to collect a few dozen names is the one cost the fast path must not reintroduce. A file that puts a
+    legend below the data is outside that contract; its columns are named positionally rather than guessed at.
+    """
+    labels = []
+    with Path(path).open() as handle:
+        for raw in handle:
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith('@ s') and 'legend' in line:
+                labels.append(line.split('legend', 1)[1].strip().strip('"'))
+                continue
+            if not line.startswith(('#', '@')):
+                break
+    return labels
+
+
+def _xvg_table(path):
+    """The numeric block as one float array, or `None` when numpy refuses it and the per-line reader must answer.
+
+    The rows are filtered by their first character rather than handed `comments=`, because an XVG's comments are
+    `#` and `@` and `np.loadtxt` takes one comment character; `comments=None` then means every row that reaches it is
+    data. A file whose rows disagree on their column count raises `ValueError`, which is the fallback's call.
+    """
+    try:
+        with Path(path).open() as handle:
+            rows = (line for line in handle if line.strip() and line[:1] not in ('#', '@'))
+            table = np.loadtxt(rows, dtype=float, ndmin=2, comments=None)
+    except (ValueError, OSError):
+        return None
+    if table.size == 0 or table.ndim != 2 or table.shape[1] < 2:
+        return None
+    return table
+
+
+def _xvg_columns(table):
+    """`(times, columns)` as `array('d')`s from the parsed table; a column without a legend keeps its position."""
+    times = array('d', table[:, 0])
+    columns = [array('d', table[:, index]) for index in range(1, table.shape[1])]
+    return times, columns
+
+
+def _xvg_columns_slow(path):
+    """The per-line reader: the same table, one Python float per cell, for a file numpy will not take.
+
+    A malformed row is skipped and a row shorter than the first one's column count is skipped rather than indexed
+    past its end, so a hand-written XVG with a short line still reads.
     """
     labels, times, columns = [], array('d'), []
     with Path(path).open() as handle:
         for raw in handle:
             line = raw.strip()
-            if line.startswith('@ s') and 'legend' in line:
-                labels.append(line.split('legend', 1)[1].strip().strip('"'))
-                continue
             if not line or line.startswith(('#', '@')):
+                if line.startswith('@ s') and 'legend' in line:
+                    labels.append(line.split('legend', 1)[1].strip().strip('"'))
                 continue
             try:
                 values = [float(value) for value in line.split()]
@@ -63,13 +127,15 @@ def xvg_columns(path):
                 continue
             if not columns:
                 columns = [array('d') for _ in range(len(values) - 1)]
+            if len(values) < len(columns) + 1:
+                continue
             times.append(values[0])
             for index, column in enumerate(columns):
                 column.append(values[index + 1])
-    # A hand-written XVG may carry data without legends; name those columns positionally rather than dropping them.
     while len(labels) < len(columns):
         labels.append(f'column{len(labels) + 2}')
     return labels, times, columns
+
 
 
 def frame_stride(frames_in_file, max_frames=MAX_FRAMES) -> int:

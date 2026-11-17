@@ -50,6 +50,9 @@ SMOOTHING_FRACTION = 0.05
 #: The largest subject whose O(N²) quantities are measured: the pairwise end-to-end distance per sampled frame and
 #: the per-atom RMSF list. Above it the record keeps the aggregate RMSF and says why end-to-end is absent.
 PAIR_ATOM_CAP = 512
+#: How many candidate bead pairs one aggregate block holds before the next: a micelle's candidate set is evaluated in
+#: bounded blocks, so no (atoms x atoms) matrix is ever materialised for a bead-heavy system.
+AGGREGATE_PAIR_BLOCK = 4_000_000
 #: A potential slope below this (kJ/mol per ns) is read as no drift, so the energy-balance ratio is not a division
 #: by rounding noise.
 SLOPE_EPSILON = 1e-9
@@ -236,17 +239,29 @@ def _aggregates(molecule_sizes, positions, threshold, box):
     across a box face has its two halves on opposite faces of the same cell. A raw distance would call those halves
     separate aggregates -- measured on a 9.4 nm box, that turned one 92-molecule micelle into fragments of 26, 25,
     22 and 19. The box is the reader's responsibility; this function states it in its one argument.
-    """
-    offsets = np.cumsum([0, *molecule_sizes])
-    labels = np.repeat(np.arange(len(molecule_sizes)), molecule_sizes)
-    delta = positions[:, None, :] - positions[None, :, :]
-    delta = _minimum_image(delta, box)
-    distances = np.sqrt((delta ** 2).sum(axis=-1))
-    distances[labels[:, None] == labels[None, :]] = np.inf
-    starts = offsets[:-1]
-    nearest = np.minimum.reduceat(np.minimum.reduceat(distances, starts, axis=0), starts, axis=1)
 
-    parent = list(range(len(molecule_sizes)))
+    A bounding sphere is tested first, and only the molecule pairs whose spheres reach each other pay for atom-level
+    distances. The two tests are exact, not approximate: two molecules cannot touch unless their spheres do, and a
+    pair the spheres rule out is not measured because its answer cannot change the grouping. Measured on a 192-molecule
+    micelle (2,112 detergent atoms), 2,450 of 18,336 molecule pairs survive the sphere test; the pairwise matrix this
+    replaced cost 81 s of a 92 s overview, and a dense-system KD-tree over periodic images was *worse* than it
+    (347k atom pairs against 296k for the candidate set), so the sphere prefilter is the one that pays.
+    """
+    sizes = np.asarray(molecule_sizes, dtype=int)
+    offsets = np.cumsum(np.concatenate(([0], sizes)))
+    count = int(sizes.size)
+    positions = np.asarray(positions, dtype=float)
+    if count == 0:
+        return []
+
+    centres = np.add.reduceat(positions, offsets[:-1], axis=0) / sizes[:, None]
+    radii = np.array([float(np.linalg.norm(positions[offsets[index]:offsets[index + 1]] - centres[index],
+                                           axis=1).max()) for index in range(count)])
+    centre_delta = _minimum_image(centres[:, None, :] - centres[None, :, :], box)
+    reach = threshold + radii[:, None] + radii[None, :]
+    first, second = np.nonzero(np.triu(np.sqrt((centre_delta ** 2).sum(axis=-1)) <= reach, 1))
+
+    parent = list(range(count))
 
     def find(index):
         while parent[index] != index:
@@ -254,16 +269,40 @@ def _aggregates(molecule_sizes, positions, threshold, box):
             index = parent[index]
         return index
 
-    for first in range(len(molecule_sizes)):
-        for second in range(first + 1, len(molecule_sizes)):
-            if nearest[first, second] <= threshold:
-                root, other = find(first), find(second)
-                if root != other:
-                    parent[other] = root
+    if first.size:
+        widths = sizes[first]
+        per_pair = widths * sizes[second]
+        boundaries = np.concatenate(([0], np.cumsum(per_pair)))
+        touching = np.empty(first.size, dtype=float)
+        # A pair's atom pairs are contiguous, so one `repeat` builds every index array and one `reduceat` takes each
+        # pair's minimum: no scatter, no per-element search. A bead-heavy system's candidate set is still evaluated in
+        # blocks (on pair boundaries, so no pair is split) rather than as one unbounded array.
+        begin = 0
+        while begin < first.size:
+            end = max(1 + begin, int(np.searchsorted(boundaries, boundaries[begin] + AGGREGATE_PAIR_BLOCK,
+                                                      side='right')) - 1)
+            end = min(end, first.size)
+            local_per = per_pair[begin:end]
+            index = np.arange(int(boundaries[begin]), int(boundaries[end]))
+            pair = np.repeat(np.arange(begin, end), local_per)
+            within = index - np.repeat(boundaries[begin:end], local_per)
+            width = np.repeat(widths[begin:end], local_per)
+            atoms_first = offsets[first[pair]] + within % width
+            atoms_second = offsets[second[pair]] + within // width
+            delta = _minimum_image(positions[atoms_first] - positions[atoms_second], box)
+            squared = (delta ** 2).sum(axis=-1)
+            touching[begin:end] = np.minimum.reduceat(squared, np.concatenate(([0], np.cumsum(local_per)[:-1])))
+            begin = end
+        for index in np.nonzero(touching <= threshold * threshold)[0]:
+            root, other = find(int(first[index])), find(int(second[index]))
+            if root != other:
+                parent[other] = root
+
     groups = {}
-    for index in range(len(molecule_sizes)):
+    for index in range(count):
         groups.setdefault(find(index), []).append(index)
     return sorted(groups.values(), key=len, reverse=True)
+
 
 
 def _unwrap(positions, groups, box):
@@ -722,14 +761,15 @@ def run(work, payload=None):
     # The per-atom squared residual after the same fit that gives RMSD; its frame mean is the atom's RMSF.
     squared_deviation = np.zeros(len(selection), dtype=float)
     pair_cap = len(selection) <= PAIR_ATOM_CAP
-    # One sequential pass, not random seeks: a compressed XTC seeks from its start for every random frame (measured
-    # on a live 2.5 GB file: 1.7 s a frame), while the same frames read in order cost the whole file once.
-    wanted = iter(indices)
-    next_wanted = next(wanted, None)
-    for index, timestep in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
-        if index != next_wanted:
-            continue
-        next_wanted = next(wanted, None)
+    # Indexed reads through MDAnalysis' frame-offset cache, not one sequential pass. A seek without that cache scans
+    # the file from its start (measured on a live 2.5 GB file: 1.7 s a frame), which is why this loop used to decode
+    # every frame in the segment and throw most of them away. MDAnalysis writes `_offsets.npz` beside the trajectory
+    # it opened -- in an analysis work tree that is the attempt's own staged copy, never the run's tree -- and the
+    # first indexed read pays one header scan to build it. Measured: a 4001-frame 0.23 GB micelle trajectory cost
+    # 3.3 s decoding every frame against 0.17 s for its 201 indexed frames; 20k-frame AA segments 1.5 s against
+    # 0.02 s.
+    for index in indices:
+        universe.trajectory[index]
         times.append(round(float(universe.trajectory.time) / 1000.0, 4))
         positions = universe.atoms.positions
         box = np.asarray(universe.dimensions[:3], dtype=float)
