@@ -4,6 +4,7 @@ The producer is pinned by `unit/test_equilibration_traces.py`; this file pins th
 including the answer a still-running run gets instead of a request the queue route would refuse.
 """
 import json
+import os
 
 JID = '123456abcdef'
 
@@ -29,6 +30,10 @@ RECORD = {
     'targets': {'Temperature': 300.0},
     'gmx_version': 'GROMACS version: 2026.3',
 }
+
+NEWER = {'legs': {'npt': {'x': [0.0], 'x_unit': 'time_ps', 'duration_ps': 0.0,
+                           'source': '05_npt/run.edr',
+                           'terms': {'Pressure': {'values': [1.0], 'mean': 1.0}}}}}
 
 
 def publish(run, record=RECORD, name='0001-20260101'):
@@ -74,12 +79,23 @@ def test_the_published_record_answers(dashboard):
 def test_the_newest_attempt_that_still_stands_is_the_answer(dashboard):
     _, run = seed(dashboard)
     publish(run)
-    newer = {'legs': {'npt': {'x': [0.0], 'x_unit': 'time_ps', 'duration_ps': 0.0,
-                               'source': '05_npt/run.edr',
-                               'terms': {'Pressure': {'values': [1.0], 'mean': 1.0}}}}}
-    publish(run, record=newer, name='0002-20260102')
+    publish(run, record=NEWER, name='0002-20260102')
 
     body = dashboard.client.get(f'/api/jobs/{JID}/equilibration-traces').get_json()
 
     assert body['published'] is True
     assert set(body['legs']) == {'npt'}, 'the newest attempt answered, not the previous one'
+
+
+def test_an_attempt_timestamp_tie_is_broken_by_its_sequence(dashboard):
+    """Two attempts written in one clock tick: the sequence decides, not the directory order the glob returns."""
+    _, run = seed(dashboard)
+    publish(run)
+    publish(run, record=NEWER, name='0002-20260102')
+    stamp = (run / 'analyses/equilibration-traces/0001-20260101/result.json').stat().st_mtime
+    for name in ('0001-20260101', '0002-20260102'):
+        os.utime(run / 'analyses/equilibration-traces' / name / 'result.json', (stamp, stamp))
+
+    body = dashboard.client.get(f'/api/jobs/{JID}/equilibration-traces').get_json()
+
+    assert set(body['legs']) == {'npt'}, 'the later sequence answered despite the equal timestamps'

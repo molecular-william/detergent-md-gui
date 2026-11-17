@@ -33,9 +33,11 @@ def newest_published(c, job, kind, artifact, *, figure_key=None, require_figure=
     # `figures.attempts` is what decides which directory an attempt is, so this reader cannot fall behind a layout
     # the writer changes.
     found = figures.attempts(path.relative_to(root).as_posix() for path in kind_dir.glob('*/result.json'))
+    # The attempt's own sequence name breaks a timestamp tie: two attempts published in one clock tick (or restored
+    # together) otherwise leave the reader on whichever directory the glob happened to return first.
     records = sorted((root / attempt / 'result.json' for attempt in found
                       if (root / attempt / 'result.json').is_file()),
-                     key=lambda path: path.stat().st_mtime, reverse=True)
+                     key=lambda path: (path.stat().st_mtime, path.parent.name), reverse=True)
     if not records:
         return None
     without_figure = None
