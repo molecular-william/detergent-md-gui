@@ -441,7 +441,10 @@
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
     <p id="launch-blocker" class="hint" role="status"></p>
     <details id="run-provenance"><summary>View detailed provenance and stages</summary><p id="new-storage" class="hint"></p><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
-    <button type="submit" id="start-run" disabled>Start CG run</button>
+    <div class="run-actions">
+      <button type="submit" id="start-run" disabled>Queue run on GPU</button>
+      <button type="submit" id="start-run-share" disabled>Share run on GPU</button>
+    </div>
     </section></aside>
   </form>
 {% endif %}

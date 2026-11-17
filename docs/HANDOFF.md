@@ -10,6 +10,24 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **New run: queue on the GPU or share it (2026-11-17).** The form's one Start button is two: **Queue run on GPU**
+  (`#start-run`, the old id) and **Share run on GPU** (`#start-run-share`, enabled only when the selected device
+  already holds a run, read from `/api/run/devices`' new `active: {device: [run ids]}` -- NVML's `in_use` is empty
+  between create and mdrun). Both post a recorded run choice `gpu_sharing` (`queue`|`share`), advertised by the AA and
+  CG adapters; absent keeps the historical refusal. `share` may take one slot past `max_concurrent_runs` for its
+  device; `queue` is never refused for capacity -- a queue run whose device is full is stored `queued` with
+  `gpu_queue:{device,requested_at}` and no worker, and `Coordinator.start_queued()` starts held rows oldest-first
+  wherever a worker is released and after `reconcile`, so the queue survives a restart. A held row is cancellable
+  (`cancel_job` ends it, `ownership_flags` offers `can_cancel`) and is never revived by the queue. `cg_run` lifts
+  `gpu_sharing` around each kind's dialect, so composition and published-reference CG runs accept it too. Plan:
+  `docs/plans/2026-11-17-new-run-gpu-queue-and-share.md`.
+- **Equilibration statistics report the final half (2026-11-17).** The Run row's equilibration panel and the trajectory
+  overview's stage-trace titles state the mean of the leg's **final 50 %** (`second_half_mean`) instead of the
+  whole-leg mean, which mixes the transient with the plateau. The record keeps both numbers
+  (`equilibration-traces.json` terms carry `mean` and `second_half_mean`; the overview's stage entries already
+  spread the full summary), and a record published before the field still shows its `mean`, labelled as one. Plan:
+  `docs/plans/2026-11-17-equilibration-final-half-mean.md`.
+
 - **Trajectory overview: aggregate search, frame access, XVG parse (2026-11-17).** The overview's `_aggregates` tested
   every detergent atom against every other (2,112² distances per sampled frame); it now tests molecule bounding
   spheres first and measures atom distances only for the pairs whose spheres reach (2,450-5,700 of 18,336 on the pdc

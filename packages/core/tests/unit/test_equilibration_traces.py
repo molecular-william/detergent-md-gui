@@ -137,6 +137,8 @@ def test_each_leg_keeps_its_own_traces_and_the_three_terms(tmp_path, monkeypatch
     assert nvt['duration_ps'] == 3000.0
     assert nvt['source'] == 'stages/04_nvt/run.edr'
     assert nvt['terms']['Temperature']['mean'] == pytest.approx(301.5)
+    assert nvt['terms']['Temperature']['second_half_mean'] == pytest.approx(302.5), 'the final half of [300..303]'
+    assert nvt['terms']['Temperature']['second_half_mean'] != pytest.approx(301.5), 'a ramp is not its own mean'
     assert nvt['terms']['Temperature']['values'] == [300.0, 301.0, 302.0, 303.0]
     assert nvt['terms']['Potential']['values'] == [-189000.0, -188999.0, -188998.0, -188997.0]
 

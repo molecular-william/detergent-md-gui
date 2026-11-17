@@ -705,8 +705,13 @@ def _draw(path, series, labels, energy, reason, *, aggregate=True, stages=None):
         entry = (stages or {}).get(leg)
         if entry:
             xlabel = 'Step' if entry['x_unit'] == 'step' else 'Time (ps)'
+            # The value the leg settled at: the final half's mean, with the whole-leg mean only as the fallback an
+            # older record has.
+            settled = entry.get('second_half_mean')
+            if settled is None:
+                settled = entry['mean']
             line(axis, entry['x'], entry['values'], '#5a5a5a',
-                 f"{title} · mean {entry['mean']:g}", ylabel, xlabel=xlabel)
+                 f"{title} · final-half mean {settled:g}", ylabel, xlabel=xlabel)
         else:
             axis.text(.5, .5, 'not available', ha='center', va='center', wrap=True, fontsize=9)
             axis.grid(alpha=.18)

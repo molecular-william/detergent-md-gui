@@ -657,6 +657,12 @@ def test_the_stage_traces_have_their_own_figure_row(tmp_path, monkeypatch):
     assert [title.split(' ·')[0] for title in titles[3:6]] == ['Temperature', 'Pressure', 'Potential']
     assert [title.split(' ·')[0] for title in titles[6:]] == [
         'Minimisation potential', 'Equilibration temperature', 'Equilibration pressure']
+    # The stage titles state the final half's mean, not the whole leg's: the NVT ramp [300..303] settles at 302.5.
+    assert titles[6] == 'Minimisation potential · final-half mean -189998'
+    assert titles[7] == 'Equilibration temperature · final-half mean 302.5'
+    assert titles[8] == 'Equilibration pressure · final-half mean 3.5'
+    record = json.loads((tmp_path / 'trajectory-overview.json').read_text())
+    assert record['stages']['nvt']['second_half_mean'] == pytest.approx(302.5)
     assert (tmp_path / 'trajectory-overview.png').is_file()
 
 

@@ -148,10 +148,14 @@ def parse_gromacs_eta(text) -> dict:
     return data
 
 
-def ownership_flags(job, *, active=False, analysis_active=False) -> dict:
-    """can_cancel / can_retry / can_delete for a run, given who holds it locally."""
+def ownership_flags(job, *, active=False, analysis_active=False, held=False) -> dict:
+    """can_cancel / can_retry / can_delete for a run, given who holds it locally.
+
+    `held` is a run queued for a GPU that has no free slot: no worker owns it, but the reader may still cancel it --
+    it has not started, and the queue is the only thing keeping it alive.
+    """
     return {
-        'can_cancel': active and job['status'] in ('queued','running'),
+        'can_cancel': (active or held) and job['status'] in ('queued','running'),
         'can_retry': job['status'] == 'failed',
         'can_delete': job['status'] in ('completed','failed','cancelled','blocked') and not active and not analysis_active,
     }

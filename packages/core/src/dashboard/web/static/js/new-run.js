@@ -841,7 +841,6 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
         : reference
           ? 'CG-only run from the published Martini 3 sugar reference. The AA coordinates place the beads; there is no AA stage, mapping comparison or fit.'
           : 'A CG run consumes an existing parameterization of this molecule. It does not run an AA simulation; the parameterization names the AA reference it was fitted against.');
-    setText($('#start-run'), aaOnly ? 'Start AA run' : 'Start CG run');
   }
 
   // The door into CG Bond Interactions ---------------------------------------------------------------------------
@@ -944,7 +943,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // The molecule picker -----------------------------------------------------------------------------------------
   async function loadMolecules() {
     const select = form.elements.molecule_id;
-    ++readinessGeneration; if (lastReadiness !== true) $('#start-run').disabled = true;
+    ++readinessGeneration; syncStartButtons();
     const chosen = select.value || savedForm?.molecule_id || savedForm?.detergent || 'DDM';
     const result = await guarded('molecules', () => cachedApi('/api/molecules', {maxAge: CATALOGUE_MAX_AGE}));
     if (result === DROP) return;
@@ -1036,6 +1035,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     note: $('#run-gpu-note'),
     ranks: () => form.elements.mdrun_ranks?.value,
     saved: () => storage.get('form', {}).mdrun_gpu,
+    onChange: () => syncStartButtons(),
   });
   form.elements.mdrun_ranks?.addEventListener('input', () => gpuDevice.refresh());
 
@@ -1276,6 +1276,16 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   //: The last answer, so a re-check does not disable a Start that was already usable. A settings or molecule change
   //: can be re-checked while the reader clicks; the queue route re-validates every input and names the blocker.
   let lastReadiness = null;
+  //: True from the click to the answer: both launch buttons are held while the POST is out.
+  let submitting = false;
+  /** Hold each launch button by its own gate: readiness and an in-flight submit for Queue, plus an active run on
+   * the chosen device for Share. The dashboard's `active` answer, not NVML, is what says a run is already there. */
+  function syncStartButtons() {
+    const ready = lastReadiness === true;
+    $('#start-run').disabled = !ready || submitting;
+    const share = $('#start-run-share');
+    if (share) share.disabled = !ready || submitting || !gpuDevice.hasActiveRun();
+  }
   function refreshReadiness() {
     ++readinessGeneration;
     clearTimeout(readinessTimer); readinessController?.abort();
@@ -1283,20 +1293,20 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     // to be asked again. Until the first answer there is no answer, so Start is held; after a ready answer, keep it
     // usable while the re-check runs rather than swallow a click during the round trip.
     syncRunSummary();
-    if (lastReadiness !== true) $('#start-run').disabled = true;
+    syncStartButtons();
     if ($('#' + panelIds()['new-run']).hidden || !mounted || mounting) return;
     readinessTimer = setTimeout(() => checkReadiness(readinessGeneration), 150);
   }
   async function checkReadiness(generation) {
     readinessController = new AbortController();
-    if (lastReadiness !== true) $('#start-run').disabled = true;
+    syncStartButtons();
     const runType = form.elements.run_type.value;
     // A composition names its own molecule, which is not a directory: the row the catalogue listed is the check.
     const selectedMolecule = moleculeRecords.find(record => record.id === form.elements.molecule_id.value)
       || compositionFor(form.elements.molecule_id.value);
     syncRunSummary();
     if (!selectedMolecule) {
-      lastReadiness = false; $('#start-run').disabled = true;
+      lastReadiness = false; syncStartButtons();
       const message = 'Select an available molecule directory before starting.';
       setText($('#readiness'), message); setText($('#launch-blocker'), message);
       setText($('#review-status'), 'Action required'); $('#review-status').dataset.ready = 'false';
@@ -1316,10 +1326,10 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       $('#review-status').dataset.ready = String(!!ready.ready);
       setText($('#launch-blocker'), ready.ready ? '' : ready.blockers?.[0] || 'Inputs are not ready.');
       lastReadiness = !!ready.ready;
-      $('#start-run').disabled = !ready.ready;
+      syncStartButtons();
     } catch (error) {
       if (generation !== readinessGeneration || error.name === 'AbortError') return;
-      lastReadiness = false; $('#start-run').disabled = true;
+      lastReadiness = false; syncStartButtons();
       setText($('#readiness'), error.message); setText($('#launch-blocker'), error.message);
       setText($('#review-status'), 'Readiness unavailable'); $('#review-status').dataset.ready = 'false';
     }
@@ -1336,7 +1346,9 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     return REVISION_FIELDS;
   }
   form.addEventListener('submit', async event => {
-    event.preventDefault(); $('#start-run').disabled = true;
+    event.preventDefault();
+    const sharing = event.submitter?.id === 'start-run-share' ? 'share' : 'queue';
+    submitting = true; syncStartButtons();
     try {
       if (!await validateCloneSource()) return;
       const runType = form.elements.run_type.value, kind = currentKind();
@@ -1344,6 +1356,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       const fields = fieldsFor(runType, kind);
       const settings = Object.fromEntries(fields.filter(key => values[key] !== '' && values[key] != null)
         .map(key => [key, values[key]]));
+      settings.gpu_sharing = sharing;
       // A reference run's entry is a choice of the sugar adapter, carried in settings where its readiness reads it
       // and inside `parameterization` where the run records it. A revision payload never carries `sugar_entry`.
       if (runType === 'cg' && kind === 'reference' && selectedModel()?.entry) settings.sugar_entry = selectedModel().entry;
@@ -1372,8 +1385,10 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       }
       invalidateResource('/api/references'); invalidateResource('/api/storage');
       setCloneSource(''); notice('Run queued.'); selectTab('runs'); await refreshJobs();
+      // The just-created run may now be active on its device; re-read the active map without holding up the switch.
+      gpuDevice.load();
     } catch (error) { notice(error.message); }
-    finally { refreshReadiness(); }
+    finally { submitting = false; refreshReadiness(); }
   });
 
   // Mount -------------------------------------------------------------------------------------------------------
@@ -1381,14 +1396,14 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   async function mount() {
     if (mounting) return mounting;
     $('#' + panelIds()['new-run']).setAttribute('aria-busy', 'true');
-    if (lastReadiness !== true) $('#start-run').disabled = true;
+    syncStartButtons();
     // A clone's record names the model it consumed, and the form must show it before the reader changes it.
     if (!pendingModel && !modelTouched) await validateCloneSource();
     mounting = (async () => {
       await loadMolecules();
       await loadParameterizations();
       await loadStageDefaults(currentKind() === 'reference' && !form.elements.clone_of.value);
-      gpuDevice.load();
+      await gpuDevice.load();
       // The device list and the readiness note arrive after the form's own answers: a probe of the host is not
       // something the panel's molecule picker waits on, and the note is a status line, not a gate.
       await applyDefaultPreset();

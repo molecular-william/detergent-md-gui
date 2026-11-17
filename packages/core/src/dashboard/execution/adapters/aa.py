@@ -318,7 +318,10 @@ CHOICE_SPECS={'mdrun_nb':('Nonbonded scheme',('auto','cpu','gpu')),
               # none for a diagnostic. This selects bond conversion only: a topology's own `[ constraints ]`
               # block is enforced by LINCS whatever this says.
               'constraints':('Constraints',('none','h-bonds','all-bonds')),
-              'vsite':('Virtual sites',('none','hydrogens','aromatics'))}
+              'vsite':('Virtual sites',('none','hydrogens','aromatics')),
+              # How a run behaves when its device already holds a run. Absent keeps the historical refusal
+              # (`admit_device`); the queue and share choices are the coordinator's admission policy, not MD.
+              'gpu_sharing':('GPU sharing',('queue','share'))}
 # One shape across every run type: (label, lo, hi). The label is what a caller renders.
 SETTING_SPECS={'aa_nvt_ps':('AA NVT duration',1,1000000),'aa_npt_ps':('AA NPT duration',1,1000000),
                'aa_production_ps':('AA production duration',1,1000000),

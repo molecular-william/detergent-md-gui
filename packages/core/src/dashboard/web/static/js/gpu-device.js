@@ -18,11 +18,17 @@
 // address and the nvidia-smi row so the two enumerations can be checked against each other.
 import { api, setText } from './shared.js';
 
-export function createGpuDevice({ select, note, ranks = () => 1, saved = () => undefined }) {
-  let state = {devices: [], in_use: {}, failed: false};
+export function createGpuDevice({ select, note, ranks = () => 1, saved = () => undefined, onChange = () => {} }) {
+  // `active` is the backend's `{device index: [run ids]}`: the dashboard's own answer to "is a run on this device".
+  // An older payload has no `active`, and a device whose entry is missing is a device with no active run -- unknown
+  // is not "busy", so Share stays disabled rather than claiming a partner it cannot see.
+  let state = {devices: [], in_use: {}, active: {}, failed: false};
+  //: A device change can outrun the previous answer; only the latest read may write the state.
+  let loadGeneration = 0;
 
   const rankCount = () => Math.max(1, Number(ranks()) || 1);
   const chosen = () => Number(select.value);
+  const hasActiveRun = () => (state.active[String(select.value)] || []).length > 0;
 
   function hide(gone) {
     const label = select.closest('label');
@@ -90,18 +96,24 @@ export function createGpuDevice({ select, note, ranks = () => 1, saved = () => u
     const keep = String(wanted ?? '');
     select.value = indices.includes(keep) ? keep : (indices[0] || '0');
     paint();
+    onChange(state);
   }
 
-  async function load() {
-    let wanted = saved();
-    if (wanted === undefined || wanted === null || wanted === '') wanted = select.value;
+  async function load(wanted = undefined) {
+    if (wanted === undefined) {
+      wanted = saved();
+      if (wanted === undefined || wanted === null || wanted === '') wanted = select.value;
+    }
+    const generation = ++loadGeneration;
     try {
       const answer = await api('/api/run/devices');
-      state = {devices: answer.devices || [], in_use: answer.in_use || {}, failed: false};
+      if (generation !== loadGeneration) return state;
+      state = {devices: answer.devices || [], in_use: answer.in_use || {}, active: answer.active || {}, failed: false};
     } catch (error) {
+      if (generation !== loadGeneration) return state;
       // The host could not be asked. The form keeps a device control with device 0 in it, the run keeps the
       // default device the command has always carried, and the note says which of those happened.
-      state = {devices: [], in_use: {}, failed: true};
+      state = {devices: [], in_use: {}, active: {}, failed: true};
       fill(wanted);
       setText(note, 'The GPU devices could not be read; the command keeps device 0.');
       return state;
@@ -110,10 +122,12 @@ export function createGpuDevice({ select, note, ranks = () => 1, saved = () => u
     return state;
   }
 
-  select.addEventListener('change', () => {
+  select.addEventListener('change', async () => {
     paint();
     select.dispatchEvent(new Event('input', {bubbles: true}));
+    // The active-run answer is per device, so it is read again when the choice moves -- not on a timer.
+    await load(select.value);
   });
 
-  return {load, refresh: paint, state: () => state};
+  return {load, refresh: paint, hasActiveRun, state: () => state};
 }

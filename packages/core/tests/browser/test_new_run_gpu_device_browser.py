@@ -13,7 +13,9 @@ The device travels as the ordinary setting `mdrun_gpu`, so the third test reads 
 above the form.
 """
 import json
+import re
 
+import pytest
 from playwright.sync_api import expect
 
 DEVICES = [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'},
@@ -181,3 +183,98 @@ def test_a_cg_run_is_offered_no_pme_scheme(dashboard, live_page):
     for control in ('mdrun_pme', 'mdrun_pmefft', 'mdrun_tunepme'):
         expect(page.locator(f'[name={control}]')).to_be_visible()
     assert errors == [], errors
+
+
+# --- Queue or share the device ------------------------------------------------------------------------------------
+#
+# The two launch buttons are the same words for AA and CG runs. Queue needs only readiness; Share also needs a run
+# already on the chosen device, which is what `GET /api/run/devices` `active` reports. The payload's own
+# `gpu_sharing` is asserted from the POST body -- the form's contribution to the coordinator's choice.
+
+def stub_launch_answers(page, ready=True):
+    page.route('**/api/defaults?*', lambda route: route.fulfill(
+        json={'values': {'mdrun_ntomp': 8, 'mdrun_ranks': 1}, 'sources': {'AA': 'test'}, 'profile': 'standard'}))
+    page.route('**/api/readiness?*', lambda route: route.fulfill(json={
+        'ready': ready, 'checks': [], 'blockers': [] if ready else ['Select an available molecule directory.']}))
+    page.add_init_script(
+        "localStorage.setItem('ddm.form', JSON.stringify({run_type:'aa_only',molecule_id:'DDM'}))")
+
+
+def open_launch_form(page, base_url):
+    page.goto(f'{base_url}/detergent-validation/new-run')
+    page.wait_for_function(
+        "() => document.querySelectorAll('#run-gpu-device option').length === 2", timeout=30000)
+    page.locator('#new-advanced > summary').click()
+    return page
+
+
+def test_share_is_disabled_until_the_chosen_device_reports_an_active_run(dashboard, live_page):
+    page, errors = live_page
+    dashboard.coordinator.database().replace([])
+    stub_launch_answers(page)
+    answer = {'active': {}}
+    page.route('**/api/run/devices', lambda route: route.fulfill(
+        json={'devices': DEVICES, 'in_use': {}, **answer}))
+    open_launch_form(page, live_page.base_url)
+
+    # A free device: Queue can create the run now, Share has nothing to share with.
+    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#start-run-share')).to_be_disabled()
+
+    # The selection's own device reports a run: Share may start alongside it. Device 0 has none.
+    answer['active'] = {'1': ['run-already-on-one']}
+    page.locator('#run-gpu-device').select_option('1')
+    expect(page.locator('#start-run-share')).to_be_enabled()
+    page.locator('#run-gpu-device').select_option('0')
+    expect(page.locator('#start-run-share')).to_be_disabled()
+    assert errors == []
+
+
+@pytest.mark.parametrize('button, sharing', [('start-run', 'queue'), ('start-run-share', 'share')])
+def test_each_launch_button_posts_its_own_gpu_sharing(dashboard, live_page, button, sharing):
+    page, errors = live_page
+    dashboard.coordinator.database().replace([])
+    stub_launch_answers(page)
+    page.route('**/api/run/devices', lambda route: route.fulfill(
+        json={'devices': DEVICES, 'in_use': {}, 'active': {'0': ['run-already-on-zero']}}))
+    submissions = []
+
+    def submit(route):
+        submissions.append(route.request.post_data_json)
+        route.fulfill(status=201, json={'id': '444444444444'})
+
+    page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), submit)
+    open_launch_form(page, live_page.base_url)
+
+    expect(page.locator(f'#{button}')).to_be_enabled()
+    page.locator(f'#{button}').click()
+    expect(page.locator('#notice')).to_have_text('Run queued.')
+    assert submissions and submissions[0]['gpu_sharing'] == sharing, submissions
+    assert errors == []
+
+
+def test_readiness_not_ready_disables_both_launch_buttons(dashboard, live_page):
+    page, errors = live_page
+    stub_launch_answers(page, ready=False)
+    page.route('**/api/run/devices', lambda route: route.fulfill(
+        json={'devices': DEVICES, 'in_use': {}, 'active': {'0': ['run-already-on-zero']}}))
+    open_launch_form(page, live_page.base_url)
+
+    expect(page.locator('#review-status')).to_have_text('Action required')
+    expect(page.locator('#start-run')).to_be_disabled()
+    expect(page.locator('#start-run-share')).to_be_disabled()
+    assert errors == []
+
+
+def test_an_older_device_payload_without_active_leaves_share_disabled(dashboard, live_page):
+    """A server from before `active` existed must not enable Share on a guess: unknown is not "a run is there"."""
+    page, errors = live_page
+    dashboard.coordinator.database().replace([])
+    stub_launch_answers(page)
+    page.route('**/api/run/devices',
+               lambda route: route.fulfill(json={'devices': DEVICES, 'in_use': {'0': 1}}))
+    open_launch_form(page, live_page.base_url)
+
+    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#start-run-share')).to_be_disabled()
+    assert errors == []

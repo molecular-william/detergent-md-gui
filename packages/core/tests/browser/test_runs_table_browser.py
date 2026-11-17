@@ -583,9 +583,11 @@ def test_the_diagnostics_disclosure_makes_the_traces_and_draws_them(dashboard, l
     record = {'legs': {'npt': {'x': [0.0, 100.0, 200.0], 'x_unit': 'time_ps', 'duration_ps': 200.0,
                                 'source': '4_CG_sim/eq.edr',
                                 'terms': {'Potential': {'values': [-410000.0, -411000.0, -411500.0],
-                                                        'mean': -410833.3},
-                                          'Temperature': {'values': [301.0, 299.0, 300.0], 'mean': 300.0},
-                                          'Pressure': {'values': [2.0, -1.0, 1.0], 'mean': 0.67}}}},
+                                                        'mean': -410833.3, 'second_half_mean': -411250.0},
+                                          'Temperature': {'values': [301.0, 299.0, 300.0], 'mean': 300.0,
+                                                          'second_half_mean': 299.5},
+                                          'Pressure': {'values': [2.0, -1.0, 1.0], 'mean': 0.67,
+                                                       'second_half_mean': 0.0}}}},
               'terms': ['Potential', 'Temperature', 'Pressure'],
               'targets': {'Temperature': 300.0, 'Pressure': 1.0},
               'gmx_version': 'GROMACS version: 2026.3'}
@@ -628,4 +630,17 @@ def test_the_diagnostics_disclosure_makes_the_traces_and_draws_them(dashboard, l
     # Each chart is announced with the quantity and the leg it came from, not just drawn.
     expect(card.locator('.run-equilibration-panel[data-term=Temperature] .run-equilibration-chart')).to_have_attribute(
         'aria-label', 'Temperature during the NPT leg')
+    # The caption states what the leg settled at -- the final half's mean, clearly labelled -- not the whole-leg mean.
+    expect(card.locator('.run-equilibration-panel[data-term=Temperature] .run-equilibration-mean')).to_have_text(
+        'final-half mean 299.5 K')
+    expect(card.locator('.run-equilibration-panel[data-term=Potential] .run-equilibration-mean')).to_have_text(
+        'final-half mean -411250 kJ/mol')
+
+    # A record published before `second_half_mean` existed still shows a number, labelled as the mean it is.
+    del record['legs']['npt']['terms']['Temperature']['second_half_mean']
+    page.reload()
+    card = page.locator(f'.job[data-id="{job_id}"]')
+    card.locator('.job-diagnostics > summary').click()
+    expect(card.locator('.run-equilibration-panel[data-term=Temperature] .run-equilibration-mean')).to_have_text(
+        'mean 300.0 K', timeout=30000)
     assert errors == [], errors

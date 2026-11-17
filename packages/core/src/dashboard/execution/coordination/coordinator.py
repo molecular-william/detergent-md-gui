@@ -166,7 +166,8 @@ class Coordinator:
             if any(other.get('reference_run_id') == jid
                    for other in self.database().all() if other.get('id') != jid):
                 raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
-            self.admit_device(job)
+            # A recorded `queue` choice does not lift the ceiling for a resume/continue: only creation can hold.
+            self.admit_device(job, honor_queue=False)
             try:
                 resources.check_worker(self.run_path(job), self.RUNS, self.limits())
             except (OSError, ValueError) as exc:
@@ -195,14 +196,13 @@ class Coordinator:
                     raise
                 workflow.recover_resume_journal(path, updated)
                 worker = self.Worker()
-                self.WORKERS[jid] = worker
             finally:
                 lease.close()
             try:
-                threading.Thread(target=self.run_job, args=(jid, worker), daemon=True).start()
+                self._start_run(jid, worker)
             except Exception as exc:
-                self.WORKERS.pop(jid, None)
                 self.database().update(jid, status='failed', stage='queued', error=str(exc), ended_at=self.now())
+                self.start_queued()
                 raise
             return updated
 
@@ -233,6 +233,18 @@ class Coordinator:
         except (TypeError, ValueError):
             return 0
 
+    @staticmethod
+    def sharing_of(job):
+        """The run's `gpu_sharing` choice, or `None` for the historical refusal when its device is busy."""
+        settings = job.get('settings') if isinstance(job, dict) else None
+        value = (settings if isinstance(settings, dict) else {}).get('gpu_sharing')
+        return value if value in ('queue', 'share') else None
+
+    def _device_has_room(self, job):
+        """Whether the run's own device still has a slot under the per-device ceiling."""
+        busy = self.busy_devices().get(self.device_of(job), [])
+        return len(busy) < self.limits()['max_concurrent_runs']
+
     def busy_devices(self):
         """Which device each active run holds: this coordinator's workers, and another process's live leases.
 
@@ -247,20 +259,101 @@ class Coordinator:
                 busy.setdefault(self.device_of(job), []).append(job['id'])
         return busy
 
-    def admit_device(self, job):
+    def admit_device(self, job, *, honor_queue=True):
         """Refuse a run only while its own GPU is at `max_concurrent_runs`; a different GPU starts alongside.
 
         The device is the one the run's own settings name (`mdrun_gpu`), which is the device its mdrun will use.
         A host that reports no devices answers the same way -- every run names index 0 -- so its runs keep the old
-        one-at-a-time behaviour. Callers hold `JOBS_LOCK`, so the look and the registration cannot interleave.
+        one-at-a-time behaviour. `share` may take one slot beyond that ceiling; `queue` is never refused for capacity
+        and is held by `_hold_for_gpu` instead. Callers hold `JOBS_LOCK`, so the look and the registration cannot
+        interleave.
+
+        `honor_queue=False` is the in-place resume path: a run resumed with `queue` among its recorded settings is
+        still a run that must respect the device ceiling, and holding it has no meaning once it has a directory.
         """
+        sharing = self.sharing_of(job)
+        if sharing == 'queue':
+            if honor_queue:
+                return
+            sharing = None
         busy = self.busy_devices().get(self.device_of(job), [])
-        if len(busy) >= self.limits()['max_concurrent_runs']:
+        ceiling = self.limits()['max_concurrent_runs'] + (1 if sharing == 'share' else 0)
+        if len(busy) >= ceiling:
             # A host with no GPU still answers as one device, but the refusal must not claim a GPU exists there.
             message = ('This GPU is busy. Either wait for the run to stop or choose a free GPU.'
                        if devices.present() else
                        'A simulation is already running on this host. Wait for it to stop before starting another.')
             raise CapacityFull(message)
+
+    def _hold_for_gpu(self, job):
+        """Mark a `queue` run held when its device is full; return whether it was held.
+
+        A held row is created queued with `gpu_queue` and no worker, so it waits for a slot instead of being refused.
+        A `share` run is never held (its ceiling is one higher) and a run that names no `gpu_sharing` keeps today's
+        refusal, which `admit_device` has already made.
+        """
+        if self.sharing_of(job) != 'queue' or self._device_has_room(job):
+            return False
+        job['status'] = 'queued'
+        job['stage'] = 'queued'
+        job['gpu_queue'] = {'device': self.device_of(job), 'requested_at': self.now()}
+        return True
+
+    def _start_run(self, jid, worker=None):
+        """Register a run's worker and start its thread: the one way a run is started.
+
+        The caller holds `JOBS_LOCK`; the new thread blocks on it until the caller releases, so the row is
+        registered before the worker can observe it.
+        """
+        worker = worker or self.Worker()
+        self.WORKERS[jid] = worker
+        try:
+            threading.Thread(target=self.run_job, args=(jid, worker), daemon=True).start()
+        except Exception:
+            self.WORKERS.pop(jid, None)
+            raise
+        return worker
+
+    @staticmethod
+    def held_for_gpu(job):
+        """Whether this record is a run waiting for the GPU it names, rather than one this process is running."""
+        return (job.get('status') == 'queued' and isinstance(job.get('gpu_queue'), dict)
+                and job.get('gpu_queue', {}).get('device') is not None)
+
+    def start_queued(self):
+        """Start held `queue` runs whose device now has room, oldest first.
+
+        A held row carries `gpu_queue` and no run directory. Called wherever a run's worker is released and from
+        `ensure_service` after `reconcile`, so the queue resumes by itself after a restart. Starting a held run is
+        the same registration, thread and row path as a run created with room; the marker is cleared once it is no
+        longer waiting, because its status becomes the worker's.
+        """
+        with self.JOBS_LOCK:
+            held = [job for job in self.database().all()
+                    if job.get('status') == 'queued' and self.sharing_of(job) == 'queue'
+                    and isinstance(job.get('gpu_queue'), dict)]
+            for job in sorted(held, key=lambda row: row.get('created') or ''):
+                if not self._device_has_room(job):
+                    continue
+                self._start_run(job['id'])
+                try:
+                    self.database().update(job['id'], gpu_queue=None)
+                except KeyError:
+                    pass
+
+    def _held_queue_row(self, job):
+        """A `queue` run waiting for its device: queued, carrying the marker, with no run directory yet.
+
+        The marker is what tells it apart from a row whose worker died mid-run, which `reconcile` still fails. It
+        has never started, so there is nothing to fail: it resumes waiting and `start_queued` starts it when a slot
+        opens.
+        """
+        if job.get('status') != 'queued' or not isinstance(job.get('gpu_queue'), dict):
+            return False
+        try:
+            return not self.run_path(job).is_dir()
+        except (InvalidRunId, RunConflict):
+            return False
 
     def reconcile(self):
         for job in self.database().all():
@@ -269,7 +362,8 @@ class Coordinator:
                 workflow.recover_resume_journal(self.run_path(job), job)
             except (OSError, ValueError, KeyError):
                 updates.update(status='failed', ended_at=self.now(), error='Resume preparation journal could not be recovered; inspect the run history before retrying.')
-            if job.get('status') in ('running','queued','cancelling') and job['id'] not in self.WORKERS:
+            if (job.get('status') in ('running','queued','cancelling') and job['id'] not in self.WORKERS
+                    and not self._held_queue_row(job)):
                 updates.update(status='failed', ended_at=self.now(), error='Dashboard restarted before worker completion; inspect logs and resume this run.')
                 path = self.run_path(job)/'manifest.json'
                 try:
@@ -300,6 +394,8 @@ class Coordinator:
                 try: self.SERVICES[key] = self.lease(self.DATA.with_suffix('.service.lock'))
                 except ValueError: raise RunBusy('Another dashboard process owns this database; use one coordinator process')
                 self.reconcile()
+                # A held `queue` row survives the restart above; this starts the ones whose device now has room.
+                self.start_queued()
                 temporary.cleanup(self.database().all(), self.RUNS, self.database())
 
 
@@ -348,7 +444,8 @@ class Coordinator:
         its workers is holding a run.
         """
         return views.ownership_flags(job, active=job['id'] in self.WORKERS,
-                                     analysis_active=any(key[0] == job['id'] for key in list(self.ANALYSIS_WORKERS)))
+                                     analysis_active=any(key[0] == job['id'] for key in list(self.ANALYSIS_WORKERS)),
+                                     held=self.held_for_gpu(job))
 
 
     @application_context
@@ -397,7 +494,10 @@ class Coordinator:
                 self.artifact_index(self.lookup(jid), refresh=True)
             finally:
                 if worker.lease_file: worker.lease_file.close()
-                with self.JOBS_LOCK: self.WORKERS.pop(jid, None)
+                with self.JOBS_LOCK:
+                    self.WORKERS.pop(jid, None)
+                    # The slot this run held is free: a held `queue` row on the same device may start now.
+                    self.start_queued()
             rec['status'], rec['error'] = status, error
 
         try:
@@ -703,9 +803,10 @@ class Coordinator:
             if required > self.limits()['max_run_bytes']: raise CapacityFull('Source copies exceed the per-run storage limit')
             resources.admit(self.storage_report(), len(self.WORKERS)+len(self.ANALYSIS_WORKERS), required)
             job['id'] = self._claim_name(job.get('label'))
+            held = self._hold_for_gpu(job)
             self.database().insert(job)
-            self.WORKERS[job['id']] = worker
-            threading.Thread(target=self.run_job, args=(job['id'], worker), daemon=True).start()
+            if not held:
+                self._start_run(job['id'], worker)
         return job
 
 
@@ -740,9 +841,10 @@ class Coordinator:
                 record['id'] = self._claim_name(record.get('label'))
             self.admit_device(first)
             resources.admit(self.storage_report(),len(self.WORKERS)+len(self.ANALYSIS_WORKERS)+len(records)-1,0)
+            held = self._hold_for_gpu(first)
             self.database().insert_many(records)
-            worker=self.Worker();self.WORKERS[first['id']]=worker
-            threading.Thread(target=self.run_job,args=(first['id'],worker),daemon=True).start()
+            if not held:
+                self._start_run(first['id'])
         return result or first
 
 
@@ -800,6 +902,11 @@ class Coordinator:
             if job['status'] in ('cancelled', 'cancelling'):
                 return job, 200
             worker = self.WORKERS.get(jid)
+            if worker is None and self.held_for_gpu(job):
+                # A run waiting for a device has no worker to signal, so cancellation is the record's own move: it ends
+                # here, and `start_queued` cannot pick it up afterwards because the row is no longer queued.
+                return self.database().update(jid, status='cancelled', stage='queued', ended_at=self.now(),
+                                              error='Cancelled while waiting for a free GPU', gpu_queue=None), 200
             if worker is None or job['status'] not in ('queued', 'running'):
                 raise RunBusy('This server does not own an active worker for this run')
             # Persist the request before acknowledgement by the worker.

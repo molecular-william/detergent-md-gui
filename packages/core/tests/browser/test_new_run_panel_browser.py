@@ -39,7 +39,8 @@ def test_the_panel_offers_two_run_types_and_no_retired_control(dashboard, live_p
     # The parameterization is the one CG model selector, and it carries no name: the payload is built from it.
     expect(page.locator('#run-parameterization')).to_be_visible()
     assert page.evaluate("document.querySelector('#run-parameterization').name") == ''
-    expect(page.locator('#start-run')).to_have_text('Start CG run')
+    expect(page.locator('#start-run')).to_have_text('Queue run on GPU')
+    expect(page.locator('#start-run-share')).to_have_text('Share run on GPU')
     assert errors == [], errors
 
 
@@ -109,6 +110,7 @@ def test_no_run_type_offers_a_profile_or_method_control(dashboard, live_page):
         page.locator('#run-type').select_option(run_type)
         assert page.locator('[name=profile]').count() == 0, f'{run_type} still offers a profile control'
         assert page.locator('[name=method]').count() == 0, f'{run_type} still offers a method control'
-        expect(page.locator('#start-run')).to_have_text(
-            'Start AA run' if run_type == 'aa_only' else 'Start CG run')
+        # The two launch choices are the same words for both run types; the type stays visible in the form.
+        expect(page.locator('#start-run')).to_have_text('Queue run on GPU')
+        expect(page.locator('#start-run-share')).to_have_text('Share run on GPU')
     assert errors == [], errors

@@ -182,8 +182,15 @@ async function showLeg(section, record, legKey) {
     const term = TERMS.find(entry => entry.key === panel.dataset.term);
     if (!term) continue;
     const mean = $('.run-equilibration-mean', panel);
-    if (mean) mean.textContent = leg.terms?.[term.key]?.mean !== undefined
-      ? 'mean ' + format(leg.terms[term.key].mean, term.unit) : '';
+    if (mean) {
+      // What the leg settled at: the final half's mean. A record published before that field existed still shows its
+      // whole-leg mean, labelled as the mean it is rather than as a final-half value it never carried.
+      const entry = leg.terms?.[term.key];
+      const settled = entry?.second_half_mean != null && Number.isFinite(Number(entry.second_half_mean));
+      const value = settled ? entry.second_half_mean : entry?.mean;
+      mean.textContent = value != null && Number.isFinite(Number(value))
+        ? (settled ? 'final-half mean ' : 'mean ') + format(value, term.unit) : '';
+    }
   }
   let plotly = null;
   let failure = '';

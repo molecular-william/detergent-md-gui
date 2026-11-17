@@ -188,8 +188,14 @@ def run_devices_api():
     gate -- an empty `devices` means this host reports none, and an index that is not there is refused at
     prepare, where the run is built, rather than here. `in_use` empty means "nothing reported", not "idle": a
     device with no processes at this instant is not a device that will be free when mdrun starts.
+
+    `active` is the dashboard's own view of which device each run holds (`{index: [run ids]}`), which is
+    what the New run form asks before offering to share a device: NVML's `in_use` is empty between create
+    and mdrun, so it cannot answer that question.
     """
-    return jsonify({'devices': devices.detect(), 'in_use': devices.in_use()})
+    c = coordinator()
+    return jsonify({'devices': devices.detect(), 'in_use': devices.in_use(),
+                    'active': {str(index): run_ids for index, run_ids in c.busy_devices().items()}})
 
 
 @blueprint.get('/api/jobs')

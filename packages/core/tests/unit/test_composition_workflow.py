@@ -290,3 +290,19 @@ def test_a_composition_cg_run_of_an_edited_revision_completes(dashboard):
     assert manifest['parameterization']['composition_revision'] == 1
     staged = (dashboard.coordinator.run_path(job) / 'stages/3_initial_CG/GLC.itp').read_text()
     assert ' 3000' in staged, 'the run staged the edited terms, not revision 0'
+
+
+def test_every_cg_kind_carries_the_gpu_sharing_choice():
+    """Queue/share is the coordinator's admission policy, so each kind's dialect keeps it without owning it.
+
+    The union the form advertises (`cg_run.choice_specs`) includes `gpu_sharing` from the revision kind's table; a
+    composition and a published reference must accept the same posting rather than refuse it as an unknown setting.
+    """
+    values = cg_run.normalize_settings({'cg_production_ps': 100, 'gpu_sharing': 'queue'},
+                                       'draft-smoke-reference',
+                                       parameterization={'kind': 'composition'})
+    assert values['gpu_sharing'] == 'queue' and values['cg_production_ps'] == 100.0
+    assert cg_run.normalize_settings({'gpu_sharing': 'share'},
+                                     parameterization={'kind': 'revision'})['gpu_sharing'] == 'share'
+    with pytest.raises(ValueError, match='gpu_sharing must be one of queue, share'):
+        cg_run.normalize_settings({'gpu_sharing': 'later'}, parameterization={'kind': 'composition'})

@@ -27,6 +27,8 @@ DEFAULT_KIND = 'revision'
 #: The per-run starting-coordinate choice of the revision kind. A `reference` or `composition` run carries its own
 #: coordinates, so the choice is offered for the `revision` kind only.
 STARTING_COORDINATES: tuple[str, ...] = cg.STARTING_COORDINATES
+#: The one vocabulary the GPU-sharing choice has, read from the table that advertises it.
+GPU_SHARING = tuple(cg.CHOICE_SPECS['gpu_sharing'][1])
 DEFAULT_STARTING_COORDINATES = cg.DEFAULT_STARTING_COORDINATES
 NO_FEATURE = ('The reference CG parameterization needs the detergent-validation feature installed; '
               'install that distribution to run a published sugar entry')
@@ -220,10 +222,20 @@ def normalize_settings(settings=None, profile='standard', parameterization=None)
     kind = kind or DEFAULT_KIND
     supplied = dict(settings or {})
     adapter = _require(kind)
+    # The GPU-sharing choice is the coordinator's admission policy, not a kind's MD vocabulary, and it applies to
+    # every kind -- a composition and a published reference can be queued or shared as well as a revision. It is taken
+    # out of the dialect the kind validates and put back afterwards, so no kind has to carry a scheduling key in its
+    # own table. A bad value is still a 400 at the door, like every other choice.
+    sharing = supplied.pop('gpu_sharing', None)
+    if sharing is not None and sharing not in GPU_SHARING:
+        raise ValueError(f'gpu_sharing must be one of {", ".join(GPU_SHARING)}')
     # Each kind owns its own vocabulary, and its normalizer is what refuses a key it does not know. Filtering here
     # would silently drop a setting a retired form still posts (a recorded `mdrun_gpu` on a host that now reports no
     # device), which is the failure the advertised-specs rule exists to prevent.
-    return adapter.normalize_settings(supplied, profile)
+    values = adapter.normalize_settings(supplied, profile)
+    if sharing is not None:
+        values['gpu_sharing'] = sharing
+    return values
 
 
 def readiness(metadata):

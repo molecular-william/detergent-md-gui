@@ -341,6 +341,9 @@ CHOICE_SPECS = {
     'cg_equil_pcoupl': ('CG equilibration barostat', ('no', 'berendsen', 'parrinello-rahman', 'c-rescale')),
     'cg_equil_pcoupltype': ('CG equilibration pressure coupling type',
                             ('isotropic', 'semiisotropic', 'anisotropic', 'surface-tension', 'volumetric')),
+    # How a run behaves when its device already holds a run. Absent keeps the historical refusal
+    # (`admit_device`); the queue and share choices are the coordinator's admission policy, not MD.
+    'gpu_sharing': ('GPU sharing', ('queue', 'share')),
 }
 
 #: The MDP option each CG production override writes, keyed by the setting the form posts. The reviewed profile keeps

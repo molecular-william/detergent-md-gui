@@ -119,7 +119,8 @@ def _trace(work, leg, edr, spec):
             continue
         values = columns[position]
         terms[term] = {'values': [round(values[offset], 6) for offset in range(0, len(values), step)],
-                       'mean': summary.get('mean')}
+                       'mean': summary.get('mean'),
+                       'second_half_mean': summary.get('second_half_mean')}
     if not terms:
         return None
     if spec['x_unit'] == 'step':

@@ -40,7 +40,7 @@ def test_the_reference_is_a_read_only_model_and_posts_its_own_vocabulary(dashboa
     expect(page.locator('#run-aa-summary')).to_have_text('no AA stage')
     expect(page.locator('#run-coordinates-summary')).to_have_text('Mapped AA geometry')
     expect(page.locator('#starting-coordinates-field')).to_be_hidden()
-    expect(page.locator('#start-run')).to_have_text('Start CG run')
+    expect(page.locator('#start-run')).to_have_text('Queue run on GPU')
     # The sugar profile's own durations, including when a saved form carried the revision kind's short ones.
     expect(page.locator('[name=cg_equil_ps]')).to_have_value('5000', timeout=SERVER_WAIT)
     expect(page.locator('[name=temperature_k]')).to_have_value('310')

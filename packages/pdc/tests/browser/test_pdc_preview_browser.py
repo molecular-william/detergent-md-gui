@@ -699,8 +699,9 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     open_panel(page, live_page.base_url, protein=None)
 
     # What the form hands the derive: the mapping the store lists for this detergent, not the "no mapping" option a
-    # centres-only frame is chosen with.
-    assert page.locator('#new-mapping').input_value() == MAPPING_FILE
+    # centres-only frame is chosen with. The panel fills that list from the store after the page loads, so the state
+    # is waited for: reading it on whichever frame the page happens to be on was the race that made this test flaky.
+    expect(page.locator('#new-mapping')).to_have_value(MAPPING_FILE)
     derive(page)
 
     assert len(requests) == 1, requests

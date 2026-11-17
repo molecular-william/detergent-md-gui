@@ -224,6 +224,23 @@ def test_a_cg_verlet_buffer_tolerance_of_zero_is_refused_through_the_route(dashb
     assert b'must be between 0.001 and 0.1' in response.data
 
 
+def test_the_queue_keeps_the_gpu_sharing_choice_for_both_run_types(dashboard, created):
+    """`gpu_sharing` is advertised by both adapters, so the route keeps each run type's own value.
+
+    An unadvertised key is dropped silently, which would turn Share or Queue into today's refusal at admission.
+    """
+    postings = (
+        {'molecule_id': 'DDM', 'method': 'gromacs', 'run_type': 'aa_only', 'gpu_sharing': 'share'},
+        {'molecule_id': 'DDM', 'method': 'fast_forward', 'run_type': 'cg', 'gpu_sharing': 'queue',
+         'parameterization': {'kind': 'revision', 'mapping_candidate': 'ddm.map'}},
+    )
+    for posting in postings:
+        response = dashboard.client.post('/', json=posting)
+        assert response.status_code == 201, response.data
+
+    assert [call['settings']['gpu_sharing'] for call in created] == ['share', 'queue']
+
+
 def test_the_queue_keeps_the_aa_constraint_set_the_form_offers(dashboard, created):
     """`constraints` is a choice spec, and the route keeps only advertised keys.
 

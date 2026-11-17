@@ -48,7 +48,10 @@
 #run-form .preset-actions{margin:0;gap:6px}
 #run-form .preset-actions button{padding:6px 10px;font-size:12px}
 #preset-marker{flex-basis:100%}
-#run-form #start-run{width:100%}
+/* The launch row: Queue and Share stay side by side where the review has room and stack on a narrow panel. */
+#run-form .run-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+#run-form .run-actions button{width:100%}
+@media(max-width:520px){#run-form .run-actions{grid-template-columns:1fr}}
 #run-input-summary{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px 12px}
 #run-input-summary dd{margin:0;font-size:13px}
 @media(max-width:900px){#run-form.new-run-layout{grid-template-columns:1fr}}
