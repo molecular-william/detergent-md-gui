@@ -116,7 +116,7 @@
 .run-equilibration-panel { margin:0; }
 .run-equilibration-panel figcaption { display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:650; color:var(--ink); }
 .run-equilibration-panel .run-equilibration-mean { font-weight:400; }
-.run-equilibration-chart { min-height:170px; font-size:12px; color:var(--muted); }
+.run-equilibration-chart { min-height:150px; font-size:12px; color:var(--muted); }
 .run-equilibration-source { margin:0; }
 .run-equilibration-empty { display:grid; justify-items:start; gap:8px; }
 .run-equilibration-empty p { margin:0; }

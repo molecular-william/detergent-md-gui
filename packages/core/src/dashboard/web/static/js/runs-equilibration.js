@@ -111,7 +111,8 @@ function targetFor(record, legKey, term) {
 }
 
 //: A chart container that carried a Plotly plot keeps its class and its inline size after the plot is discarded, so a
-//: panel that switches to a message would leave a 170 px hole. Clearing both is what makes the message the panel.
+//: panel that switches to a message would leave a hole as tall as the chart. Clearing both is what makes the message
+//: the panel. The height here and the chart's `min-height` in runs.css move together.
 function resetChart(chart) {
   chart.replaceChildren();
   chart.classList.remove('js-plotly-plot');
@@ -150,7 +151,7 @@ function chartFor(panel, term, leg, legKey, record, plotly, failure) {
     });
   }
   window.Plotly.react(chart, traces, {
-    margin: {l: 58, r: 12, t: 6, b: 34}, height: 170,
+    margin: {l: 58, r: 12, t: 6, b: 34}, height: 150,
     xaxis: {title: {text: xTitle, font: {size: 11}}},
     yaxis: {title: {text: term.title + ' (' + term.unit + ')', font: {size: 11}}},
     legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 11}},
