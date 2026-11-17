@@ -10,6 +10,15 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Stage-wise progress bar for every run type (2026-11-17).** The Runs card's bar is one segment per *work* stage in
+  the run's own plan, in plan order: AA's four dynamics stages keep their step-weighted widths; CG (mapping,
+  parameterization, simulation, assessment, SASA), pdc (minimisation through back-mapping, without the two preparation
+  stages) and osmotic (its one stage) are equal-width, because their stages have no comparable step count. The current
+  stage fills its segment from its own percent; a stage with no percent sweeps; a planned skip is hatched and never
+  reads as current. Colour is semantic (`STAGE_COLORS`: min/NVT/NPT/equilibration/production/assessment/fit/analysis/
+  back-map). A run type with no segment table keeps the single fill. Plan:
+  `docs/plans/2026-11-17-stage-progress-all-run-types.md`, which reverses decision 2 of the 2026-11-16 plan for
+  cg/pdc/osmotic.
 - **SASA stage: 48 dots/atom and the published AA radii (2026-11-17).** `sasa.sh` passes `-ndots 48` to both passes
   (was 4800) and copies the published Rowland-Taylor `vdwradii_AA.dat` into its AA directory before the AA call. The
   copy was missing entirely: `prepare` writes only the CG radii, and GROMACS fell back to guessing radii from atom

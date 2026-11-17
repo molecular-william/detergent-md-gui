@@ -61,13 +61,16 @@
 .job-progress[data-indeterminate="true"] .job-progress-fill { width:100%; background:linear-gradient(90deg,#cfe3d8 0%,#36a269 50%,#cfe3d8 100%); background-size:200% 100%; animation:job-progress-sweep 1.4s linear infinite; }
 @keyframes job-progress-sweep { from { background-position:0 0; } to { background-position:-200% 0; } }
 .job-progress-text { font-size:10px; display:block; }
-/* The AA bar: four contiguous stage segments, each already sized by the server's step arithmetic. A stage's own
-   fraction fills only its segment; earlier stages are full and later ones muted. Every other type keeps the single
-   fill above. */
+/* The stage bar: one contiguous segment per work stage, already sized by the server (step-weighted for an AA run,
+   equal for the types with no comparable step count). A stage's own fraction fills only its segment; earlier stages
+   are full and later ones muted. A current stage with no percent sweeps, and a stage the run will not run is
+   hatched. */
 .job-progress.segmented { display:flex; height:8px; border-radius:4px; overflow:hidden; }
 .job-progress-seg { display:block; height:100%; background:linear-gradient(to right, var(--segment-color) var(--fill), #e2e8f0 var(--fill)); }
 .job-progress-seg.done { background:var(--segment-color); }
 .job-progress-seg.future { background:#e2e8f0; }
+.job-progress-seg.unknown { background:linear-gradient(90deg,#cfe3d8 0%, var(--segment-color) 50%, #cfe3d8 100%); background-size:200% 100%; animation:job-progress-sweep 1.4s linear infinite; }
+.job-progress-seg.skipped { background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 3px,#d4dae2 3px,#d4dae2 6px); }
 /* Stage settings: the read-only values a run recorded, grouped by the stage that recorded them. */
 /* Stage settings are groups of small tables, so the disclosure is a four-column grid at desk width: the run
    row is already the full table width, and one column per stage wastes it. Narrower windows fall to two, then one. */

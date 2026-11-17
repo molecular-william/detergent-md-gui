@@ -5,18 +5,22 @@ the grouping of recorded values, the labels they are shown under, and the step a
 Every answer is read-only. A key the run did not record is not shown, and no value is invented for it --
 an older run simply has fewer values in its groups.
 
-The shapes are the plan's (docs/plans/2026-11-16-stage-settings-and-progress.md):
+The shapes are the plan's (docs/plans/2026-11-16-stage-settings-and-progress.md, extended by
+docs/plans/2026-11-17-stage-progress-all-run-types.md):
 
     groups   -> [{stage, label, fields: [{key, label, value, unit}]}]
-    segments -> [{stage, label, kind, steps, fraction}] or None
+    segments -> [{stage, label, kind, steps, fraction, skipped?}] or None
     payload  -> {groups, segments, total_steps}
 
-Only an AA-only run has segments: its four dynamics stages are contiguous in one plan, so the bar can be
-divided by their step counts. CG, pdc and osmotic runs progress by legs inside a single stage, so their bar
-stays the single fill the view already reports.
+Every run type with a segment table is divided into its *work* stages, in plan order: AA by step counts (its four
+dynamics stages), CG, pdc and osmotic into equal-width stages because their stages have no comparable step count.
+Setup, input and publication stages are not segments -- the run's timeline already shows them -- and a stage the
+run type says will not run is flagged `skipped` so the bar can hatch it. A run type with no table keeps the single
+fill.
 """
 from __future__ import annotations
 
+from .. import features
 from ..execution import protocol
 from ..execution.adapters import aa, cg
 
@@ -33,6 +37,31 @@ AA_SEGMENTS = (
     ('AA NPT equilibration', 'NPT equilibration', 'npt', 'aa_npt_'),
     ('AA NPT production', 'NPT production', 'production', 'aa_production_'),
 )
+
+#: The work stages a run type without step arithmetic is divided into, in plan order: (plan stage name, short label,
+#: segment kind). The kinds are the colour keys `stage-settings.js` draws. Setup, input and publication stages are
+#: deliberately absent: a CG run's `AA reference` is its pinned input, and pdc's preparation stages build one.
+CG_SEGMENTS = (
+    ('trajectory mapping', 'Mapping', 'mapping'),
+    ('CG parameterization', 'Parameterization', 'fit'),
+    ('CG simulation', 'Simulation', 'production'),
+    ('CG assessment (ff_assess)', 'Assessment', 'assessment'),
+    ('SASA analysis', 'SASA', 'analysis'),
+)
+PDC_SEGMENTS = (
+    ('Energy minimisation', 'Minimisation', 'min'),
+    ('NVT equilibration', 'NVT equilibration', 'nvt'),
+    ('NPT equilibration', 'NPT equilibration', 'npt'),
+    ('CG assessment MD', 'CG assessment MD', 'equilibration'),
+    ('Micelle assessment', 'Micelle assessment', 'assessment'),
+    ('CG extension MD', 'CG extension MD', 'production'),
+    ('Final assessment', 'Final assessment', 'assessment'),
+    ('Back-mapping (CG2AT2)', 'Back-mapping', 'backmap'),
+)
+OSMOTIC_SEGMENTS = (('Osmotic series', 'Osmotic series', 'production'),)
+
+#: One table per run type that draws a segmented bar. A type absent here keeps the single fill.
+WORK_SEGMENTS = {'cg': CG_SEGMENTS, 'pdc': PDC_SEGMENTS, 'osmotic': OSMOTIC_SEGMENTS}
 
 
 def groups(job, manifest):
@@ -66,29 +95,46 @@ def groups(job, manifest):
 
 
 def segments(job, manifest):
-    """(segments, total_steps) for an AA-only run, or (None, None) when the numbers cannot be computed.
+    """(segments, total_steps) for the run's bar, or (None, None) when it cannot be drawn.
 
-    A segment's step count is the minimization's own cap, or a dynamics leg's duration over its timestep. Only the
-    stages the run's own workflow plan contains are listed, so a plan without a stage does not claim part of the
-    bar; the fractions are over the stages that are listed, and sum to one.
+    Only the stages the run's own workflow plan contains are listed, so a plan without a stage does not claim part of
+    the bar; the fractions are over the stages that are listed, and sum to one. An AA-only run's segment is
+    weighted by its step count (the minimization's own cap, or a dynamics leg's duration over its timestep); a run
+    type with no comparable step count gets equal-width segments and a null `steps`. A stage the run type says will
+    not run carries `skipped`, and `total_steps` is null when the widths are not steps.
     """
-    if _run_type(job, manifest) != 'aa_only':
-        return None, None
-    settings = _settings(job, manifest)
+    run_type = _run_type(job, manifest)
     plan = set(_plan_names(job, manifest))
     rows = []
-    for stage, label, kind, prefix in AA_SEGMENTS:
-        if stage not in plan:
-            continue
-        steps = _steps(settings, prefix)
-        if steps is None:
+    total = None
+    if run_type == 'aa_only':
+        settings = _settings(job, manifest)
+        for stage, label, kind, prefix in AA_SEGMENTS:
+            if stage not in plan:
+                continue
+            steps = _steps(settings, prefix)
+            if steps is None:
+                return None, None
+            rows.append({'stage': stage, 'label': label, 'kind': kind, 'steps': steps})
+        total = sum(row['steps'] for row in rows)
+        if not rows or total <= 0:
             return None, None
-        rows.append({'stage': stage, 'label': label, 'kind': kind, 'steps': steps})
-    total = sum(row['steps'] for row in rows)
-    if not rows or total <= 0:
-        return None, None
+        for row in rows:
+            row['fraction'] = row['steps'] / total
+    else:
+        table = WORK_SEGMENTS.get(run_type)
+        if table is None:
+            return None, None
+        rows = [{'stage': stage, 'label': label, 'kind': kind, 'steps': None}
+                for stage, label, kind in table if stage in plan]
+        if not rows:
+            return None, None
+        for row in rows:
+            row['fraction'] = 1 / len(rows)
+    skipped = _skipped(job, manifest)
     for row in rows:
-        row['fraction'] = row['steps'] / total
+        if row['stage'] in skipped:
+            row['skipped'] = True
     return rows, total
 
 
@@ -125,6 +171,11 @@ def _fields(keys, settings, labels):
     """One group's fields: only the keys this run recorded, labelled from its adapter's table when it has one."""
     return [{'key': key, 'label': labels.get(key) or key.replace('_', ' '), 'value': settings[key], 'unit': None}
             for key in keys if key in settings]
+
+
+def _skipped(job, manifest):
+    """The stages the run type says will not run, by name (the feature's own `planned_skips`)."""
+    return features.planned_skips(job, manifest) or {}
 
 
 def _settings(job, manifest):

@@ -179,21 +179,39 @@ def test_a_running_stage_reports_the_leg_it_is_in_and_how_far_through(dashboard,
 
     bar = page.locator(f'.job[data-id="{job_id}"] .job-progress')
     expect(bar).to_be_visible()
-    # Two legs done and half of the third: 83% of the stage, said in the bar and in its text.
-    expect(bar).to_have_attribute('aria-valuenow', '83')
-    expect(bar).to_have_attribute('aria-valuetext', 'CG simulation · md 200/400 · 83%')
+    # The CG run's four work stages; the simulation is the third and is 83% through its own leg chain.
+    expect(bar).to_have_class(re.compile('segmented'))
+    expect(bar.locator('.job-progress-seg')).to_have_count(4)
+    current = bar.locator('.job-progress-seg').nth(2)
+    expect(current).to_have_class(re.compile('current'))
+    assert current.evaluate("el => el.style.getPropertyValue('--fill')") == '83%'
+    # Two completed stages plus 83% of the third, over the four.
+    expect(bar).to_have_attribute('aria-valuenow', '71')
+    expect(bar).to_have_attribute('aria-valuetext', 'Simulation 83%')
     expect(page.locator(f'.job[data-id="{job_id}"] .job-progress-text')).to_contain_text('leg 3 of 3')
-    assert '83%' in bar.locator('.job-progress-fill').get_attribute('style'), \
-        bar.locator('.job-progress-fill').get_attribute('style')
     assert errors == [], errors
 
 
-def test_an_aa_run_draws_four_progress_segments_and_a_pdc_run_keeps_the_single_fill(dashboard, live_page):
-    """AA runs draw the four-stage plan as segments; a pdc run's legs stay inside one stage bar.
+#: One pdc run's work-stage segments: equal width, with the micelle assessment planned away.
+PDC_SEGMENTS = [
+    {'stage': 'Energy minimisation', 'label': 'Minimisation', 'kind': 'min', 'steps': None, 'fraction': 0.125},
+    {'stage': 'NVT equilibration', 'label': 'NVT equilibration', 'kind': 'nvt', 'steps': None, 'fraction': 0.125},
+    {'stage': 'NPT equilibration', 'label': 'NPT equilibration', 'kind': 'npt', 'steps': None, 'fraction': 0.125},
+    {'stage': 'CG assessment MD', 'label': 'CG assessment MD', 'kind': 'equilibration', 'steps': None, 'fraction': 0.125},
+    {'stage': 'Micelle assessment', 'label': 'Micelle assessment', 'kind': 'assessment', 'steps': None,
+     'fraction': 0.125, 'skipped': True},
+    {'stage': 'CG extension MD', 'label': 'CG extension MD', 'kind': 'production', 'steps': None, 'fraction': 0.125},
+    {'stage': 'Final assessment', 'label': 'Final assessment', 'kind': 'assessment', 'steps': None, 'fraction': 0.125},
+    {'stage': 'Back-mapping (CG2AT2)', 'label': 'Back-mapping', 'kind': 'backmap', 'steps': None, 'fraction': 0.125},
+]
 
-    The list payload carries `stage_segments` (the server's own step arithmetic) and the current progress. The
-    widths are the fractions the payload states, not a second calculation in the browser, so a segment cannot disagree
-    with the steps behind it. A pdc run has no segments and keeps today's single fill.
+
+def test_an_aa_run_keeps_its_step_widths_and_a_pdc_run_draws_its_work_stages(dashboard, live_page):
+    """AA segments are the server's step arithmetic; a pdc run's are its work stages, equal width.
+
+    The list payload carries `stage_segments` and the current progress. Widths are the payload's fractions, not a
+    second calculation in the browser, so a segment cannot disagree with the steps behind it. A skipped work stage is
+    hatched and never reads as current.
     """
     aa = {
         'id': '0000000000aa', 'label': 'AA run', 'detergent': 'DDM', 'method': 'gromacs', 'run_type': 'aa_only',
@@ -209,10 +227,10 @@ def test_an_aa_run_draws_four_progress_segments_and_a_pdc_run_keeps_the_single_f
     }
     pdc = {
         'id': '0000000000bb', 'label': 'pdc run', 'detergent': 'DDM', 'method': 'gromacs', 'run_type': 'pdc',
-        'status': 'running', 'stage': 'CG simulation', 'created': '2026-11-16T10:00:00+00:00',
-        'progress': {'stage': 'CG simulation', 'leg': 'md', 'leg_index': 3, 'legs': 3,
-                     'percent': 83, 'steps': 400, 'step': 200},
-        'stage_segments': None,
+        'status': 'running', 'stage': 'NPT equilibration', 'created': '2026-11-16T10:00:00+00:00',
+        'progress': {'stage': 'NPT equilibration', 'leg': 'npt', 'leg_index': 1, 'legs': 1,
+                     'percent': 60, 'steps': 500000, 'step': 300000},
+        'stage_segments': PDC_SEGMENTS,
     }
     page, errors = live_page
     page.route(re.compile(r'/api/jobs\?'),
@@ -232,11 +250,41 @@ def test_an_aa_run_draws_four_progress_segments_and_a_pdc_run_keeps_the_single_f
     expect(segments.nth(2)).to_have_class(re.compile('future'))
     expect(bar).to_have_attribute('aria-valuenow', '35')
 
-    single = page.locator('.job[data-id="0000000000bb"] .job-progress')
-    expect(single.locator('.job-progress-seg')).to_have_count(0)
-    expect(single).not_to_have_class(re.compile('segmented'))
-    assert '83%' in single.locator('.job-progress-fill').get_attribute('style')
-    expect(single).to_have_attribute('aria-valuenow', '83')
+    work = page.locator('.job[data-id="0000000000bb"] .job-progress')
+    expect(work).to_have_class(re.compile('segmented'))
+    steps = work.locator('.job-progress-seg')
+    expect(steps).to_have_count(8)
+    assert steps.evaluate_all('(els) => els.map(el => el.style.width)') == ['12.5%'] * 8, \
+        'equal width: these stages have no comparable step count'
+    assert steps.evaluate_all('(els) => els.map(el => el.dataset.kind)') == [
+        'min', 'nvt', 'npt', 'equilibration', 'assessment', 'production', 'assessment', 'backmap']
+    expect(steps.nth(0)).to_have_class(re.compile('done'))
+    expect(steps.nth(2)).to_have_class(re.compile('current'))
+    expect(steps.nth(3)).to_have_class(re.compile('future'))
+    expect(steps.nth(4)).to_have_class(re.compile('skipped'))
+    expect(work).to_have_attribute('aria-valuenow', '33')
+    expect(work).to_have_attribute('aria-valuetext', 'NPT equilibration 60%')
+    assert errors == [], errors
+
+
+def test_a_work_stage_with_no_percent_sweeps_rather_than_filling(dashboard, live_page):
+    """A stage with no step count has no percent: its segment sweeps and the bar reads nothing completed."""
+    minimisation = {
+        'id': '0000000000cc', 'label': 'pdc run', 'detergent': 'DDM', 'method': 'gromacs', 'run_type': 'pdc',
+        'status': 'running', 'stage': 'Energy minimisation', 'created': '2026-11-16T10:00:00+00:00',
+        'progress': {'stage': 'Energy minimisation', 'leg': 'min', 'leg_index': 1, 'legs': 1, 'percent': None},
+        'stage_segments': PDC_SEGMENTS,
+    }
+    page, errors = live_page
+    page.route(re.compile(r'/api/jobs\?'),
+               lambda route: route.fulfill(json={'jobs': [minimisation], 'total': 1, 'page': 1, 'limit': 20}))
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    bar = page.locator('.job[data-id="0000000000cc"] .job-progress')
+    expect(bar.locator('.job-progress-seg')).to_have_count(8)
+    expect(bar.locator('.job-progress-seg').nth(0)).to_have_class(re.compile('unknown'))
+    expect(bar).to_have_attribute('aria-valuenow', '0')
+    expect(bar).to_have_attribute('aria-valuetext', 'Minimisation running')
     assert errors == [], errors
 
 

@@ -1,8 +1,9 @@
-"""The stage settings a run recorded, grouped by stage, and the AA bar's step segments.
+"""The stage settings a run recorded, grouped by stage, and the bar's stage segments.
 
 Two properties matter and are tested here rather than in the route tests: a group lists exactly the keys the run
-recorded (no invented value, no dropped one), and the four AA segments are arithmetic over the run's own numbers --
-their steps in plan order, their fractions summing to one, and only the stages the run's plan contains.
+recorded (no invented value, no dropped one), and the segments are arithmetic over the run's own plan -- the four AA
+dynamics stages weighted by their step counts, the other run types' work stages in plan order with equal widths --
+only the stages the run's plan contains, and sum to one.
 """
 import pytest
 from dashboard.web import stage_settings
@@ -149,8 +150,55 @@ def test_minimization_falls_back_to_the_reviewed_cap_for_an_older_run():
     assert rows[0]['steps'] == stage_settings.MINIMIZATION_STEPS_FALLBACK == 20000
 
 
-def test_segments_are_none_for_a_non_aa_run():
-    assert stage_settings.segments({'run_type': 'cg', 'settings': {'cg_equil_ps': 10}}, {}) == (None, None)
+CG_PLAN = ['AA reference', 'trajectory mapping', 'CG parameterization', 'CG simulation',
+           'CG assessment (ff_assess)', 'SASA analysis']
+PDC_PLAN = ['Protein preparation', 'System preparation', 'Energy minimisation', 'NVT equilibration',
+            'NPT equilibration', 'CG assessment MD', 'Micelle assessment', 'CG extension MD',
+            'Final assessment', 'Back-mapping (CG2AT2)']
+
+
+def test_cg_segments_are_its_work_stages_with_equal_widths():
+    rows, total = stage_settings.segments({'run_type': 'cg', 'settings': {}}, {'stage_plan': CG_PLAN})
+
+    assert [row['stage'] for row in rows] == ['trajectory mapping', 'CG parameterization', 'CG simulation',
+                                              'CG assessment (ff_assess)', 'SASA analysis']
+    assert [row['kind'] for row in rows] == ['mapping', 'fit', 'production', 'assessment', 'analysis']
+    assert [row['label'] for row in rows][:2] == ['Mapping', 'Parameterization']
+    assert all(row['steps'] is None for row in rows), 'no comparable step count across these stages'
+    assert total is None
+    assert [row['fraction'] for row in rows] == pytest.approx([0.2] * 5)
+
+
+def test_pdc_segments_are_its_work_stages_and_flag_a_planned_skip(monkeypatch):
+    monkeypatch.setattr(stage_settings.features, 'planned_skips',
+                        lambda job, manifest=None: {'Micelle assessment': 'no membrane'})
+    rows, total = stage_settings.segments({'run_type': 'pdc', 'settings': {}}, {'stage_plan': PDC_PLAN})
+
+    assert [row['stage'] for row in rows] == ['Energy minimisation', 'NVT equilibration', 'NPT equilibration',
+                                              'CG assessment MD', 'Micelle assessment', 'CG extension MD',
+                                              'Final assessment', 'Back-mapping (CG2AT2)']
+    assert [row.get('skipped', False) for row in rows] == [False] * 4 + [True] + [False] * 3
+    assert [row['fraction'] for row in rows] == pytest.approx([0.125] * 8)
+    assert total is None
+
+
+def test_osmotic_segments_are_its_one_stage():
+    rows, total = stage_settings.segments({'run_type': 'osmotic', 'settings': {}},
+                                          {'stage_plan': ['Osmotic series']})
+
+    assert [row['stage'] for row in rows] == ['Osmotic series']
+    assert rows[0]['fraction'] == pytest.approx(1)
+    assert total is None
+
+
+def test_a_run_type_with_no_segment_table_keeps_the_single_fill():
+    assert stage_settings.segments({'run_type': 'aa_cg', 'settings': {}},
+                                   {'stage_plan': PDC_PLAN}) == (None, None)
+
+
+def test_a_plan_with_none_of_its_work_stages_keeps_the_single_fill():
+    assert stage_settings.segments({'run_type': 'cg', 'settings': {}},
+                                   {'stage_plan': [['AA minimization', '03_minimization/run.sh']]}) == (None, None)
 
 
 def test_segments_are_none_when_the_numbers_cannot_be_computed():

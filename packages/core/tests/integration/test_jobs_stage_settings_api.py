@@ -1,14 +1,19 @@
 """The stage settings the run records carry over HTTP: groups on the detail, segments on both.
 
-The Runs card segments an AA bar before its row is expanded, so the segments are part of the list payload; the
-groups are the detail's, read when the Stage settings tab is opened. A run of any other type keeps the single
-bar, which is the same null the shared module answers.
+The Runs card draws its stage segments before the row is expanded, so the segments are part of the list payload;
+the groups are the detail's, read when the Stage settings tab is opened. An AA run's segments are step-weighted; a
+CG run's are its work stages, equal width, and a run type with no segment table answers null.
 """
 import json
 
 import pytest
 
 JOBS = '/api/jobs'
+
+CG_PLAN = [['AA reference', '1_AA-reference/aa_reference.sh'], ['trajectory mapping', '2_mapping/map_trajectory.sh'],
+           ['CG parameterization', '3_initial_CG/use_parameterization.sh'],
+           ['CG simulation', '4_CG_sim/cg_simulation.sh'],
+           ['CG assessment (ff_assess)', '5_assessment/assess.sh'], ['SASA analysis', '6_SASA/sasa.sh']]
 
 AA_SETTINGS = {
     'aa_minimization_steps': 20000, 'aa_minimization_emtol': 1000, 'aa_minimization_emstep': 0.01,
@@ -23,12 +28,12 @@ AA_PLAN = [['AA solvation', '01_solvation/run.sh'], ['AA neutralization', '02_io
            ['AA reference publication', '07_reference/run.sh']]
 
 
-def _run(owner, run_id, run_type, settings):
+def _run(owner, run_id, run_type, settings, plan=AA_PLAN):
     """One completed run record with the manifest of the run it names, in the fixture's own runs directory."""
     run_dir = owner.RUNS / run_id
     run_dir.mkdir(parents=True)
     manifest = {'id': run_id, 'run_type': run_type, 'status': 'completed', 'stage': 'complete',
-                'stages': [], 'settings': settings, 'stage_plan': AA_PLAN}
+                'stages': [], 'settings': settings, 'stage_plan': plan}
     (run_dir / 'manifest.json').write_text(json.dumps(manifest))
     job = {'id': run_id, 'label': 'run', 'detergent': 'DDM', 'method': 'gromacs', 'status': 'completed',
            'stage': 'complete', 'created': owner.now(), 'profile': 'standard', 'layout_version': 2,
@@ -70,14 +75,22 @@ def test_the_list_carries_the_segments_and_not_the_groups(dashboard):
     assert job['id'] == summary['id']
 
 
-def test_a_run_of_another_type_keeps_the_single_bar(dashboard):
+def test_a_cg_run_carries_its_work_stages_and_not_its_input_stage(dashboard):
     owner = dashboard.coordinator
-    job = _run(owner, 'bbb000000012', 'cg', {'cg_equil_ps': 10, 'cg_production_ps': 200, 'mdrun_gpu': 0})
+    job = _run(owner, 'bbb000000012', 'cg',
+               {'cg_equil_ps': 10, 'cg_production_ps': 200, 'mdrun_gpu': 0}, plan=CG_PLAN)
 
     with dashboard.client as client:
         body = client.get(f'{JOBS}/{job["id"]}').get_json()
+        summary = client.get(JOBS).get_json()['jobs'][0]
 
-    assert body['stage_segments'] is None
-    assert body['stage_settings']['segments'] is None and body['stage_settings']['total_steps'] is None
+    expected = ['trajectory mapping', 'CG parameterization', 'CG simulation',
+                'CG assessment (ff_assess)', 'SASA analysis']
+    assert [segment['stage'] for segment in body['stage_segments']] == expected, \
+        'the CG run\'s own work stages, in plan order, without its pinned AA reference'
+    assert summary['stage_segments'] == body['stage_segments'], 'the list carries them before the row is expanded'
+    assert body['stage_settings']['segments'] == body['stage_segments']
+    assert body['stage_settings']['total_steps'] is None and all(
+        segment['steps'] is None for segment in body['stage_segments'])
     assert [group['label'] for group in body['stage_settings']['groups']] == \
            ['CG equilibration', 'CG production', 'Run settings']

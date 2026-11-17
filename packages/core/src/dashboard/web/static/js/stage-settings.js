@@ -1,10 +1,11 @@
-// Read-only rendering of the values a run recorded, and the AA progress bar's stage segments.
+// Read-only rendering of the values a run recorded, and the progress bar's stage segments.
 // The server owns the grouping and the step arithmetic (dashboard/web/stage_settings.py); this module
 // only draws the shapes it is handed, so the runs row and the Run view's Analysis tab cannot disagree.
 
 export const STAGE_COLORS = {
   min: '#64748b', nvt: '#0ea5e9', npt: '#f59e0b', production: '#22c55e',
-  equilibration: '#14b8a6', other: '#94a3b8',
+  equilibration: '#14b8a6', assessment: '#e11d48', fit: '#8b5cf6',
+  mapping: '#94a3b8', analysis: '#0f766e', backmap: '#db2777', other: '#94a3b8',
 };
 
 function valueText(value, unit) {
@@ -56,13 +57,14 @@ function segmentIndex(segments, stage) {
   return segments.findIndex(segment => segment.stage === stage);
 }
 
-//: Draw the AA bar as contiguous stage segments and fill them from the run's own progress record.
-//: Returns false for a run whose bar stays the single fill (CG, pdc, osmotic, or an older AA run).
+//: Draw the run's bar as contiguous work-stage segments and fill them from its own progress record.
+//: Returns false for a run whose bar stays the single fill: a run type with no segment table, or a plan that
+//: contains none of its work stages.
 export function renderProgressSegments(host, detail) {
   if (!host) return false;
   const segments = detail && detail.stage_segments;
-  if (!detail || detail.run_type !== 'aa_only' || !Array.isArray(segments) || !segments.length) return false;
-  const signature = segments.map(segment => segment.stage + ':' + segment.fraction).join('|');
+  if (!detail || !Array.isArray(segments) || !segments.length) return false;
+  const signature = segments.map(segment => segment.stage + ':' + segment.fraction + ':' + (segment.skipped ? 'x' : '')).join('|');
   if (host.dataset.segments !== signature) {
     host.dataset.segments = signature;
     host.replaceChildren();
@@ -72,28 +74,37 @@ export function renderProgressSegments(host, detail) {
       span.dataset.stage = segment.stage;
       span.dataset.kind = segment.kind || 'other';
       span.style.width = (segment.fraction * 100).toFixed(3) + '%';
-      span.title = (segment.label || segment.stage) + ' · ' + segment.steps + ' steps';
+      span.title = (segment.label || segment.stage) + (segment.steps ? ' · ' + segment.steps + ' steps' : '');
       host.append(span);
     }
   }
   const progress = (detail && detail.progress) || {};
   const current = segmentIndex(segments, progress.stage);
-  const within = Number.isFinite(Number(progress.percent)) ? Math.max(0, Math.min(100, Number(progress.percent))) : 0;
+  // `Number(null)` is 0, so a stage with no percent has to be recognised before the numeric check: otherwise a
+  // stage with no step count would read as 0% done instead of "running".
+  const hasPercent = progress.percent !== null && progress.percent !== undefined
+    && Number.isFinite(Number(progress.percent));
+  const within = hasPercent ? Math.max(0, Math.min(100, Number(progress.percent))) : 0;
+  const unknown = current >= 0 && !hasPercent;
   segments.forEach((segment, index) => {
     const span = host.querySelector('.job-progress-seg[data-stage="' + segment.stage.replace(/"/g, '\\"') + '"]');
     if (!span) return;
+    const skipped = !!segment.skipped;
     span.style.setProperty('--segment-color', STAGE_COLORS[segment.kind] || STAGE_COLORS.other);
-    span.classList.toggle('done', current > index);
-    span.classList.toggle('current', current === index);
-    span.classList.toggle('future', current >= 0 && index > current);
-    span.style.setProperty('--fill', (current === index ? within : current > index ? 100 : 0) + '%');
+    span.classList.toggle('done', !skipped && current > index);
+    span.classList.toggle('current', !skipped && current === index);
+    span.classList.toggle('future', !skipped && (current < 0 || index > current));
+    span.classList.toggle('skipped', skipped);
+    span.classList.toggle('unknown', !skipped && current === index && unknown);
+    if (!skipped) span.style.setProperty('--fill', (current === index ? within : current > index ? 100 : 0) + '%');
   });
   const percent = current >= 0
     ? Math.round(100 * (segments.slice(0, current).reduce((sum, segment) => sum + segment.fraction, 0)
       + segments[current].fraction * within / 100))
-    : (progress.stage ? 100 : 0);
+    : 0;
   host.setAttribute('aria-valuenow', String(percent));
-  host.setAttribute('aria-valuetext', current >= 0 ? (segments[current].label || segments[current].stage) + ' ' + within + '%' : '');
+  host.setAttribute('aria-valuetext', current >= 0
+    ? (segments[current].label || segments[current].stage) + ' ' + (unknown ? 'running' : within + '%') : '');
   host.classList.add('segmented');
   return true;
 }
