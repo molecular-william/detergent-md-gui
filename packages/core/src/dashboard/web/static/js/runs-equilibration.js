@@ -25,6 +25,14 @@ const TERMS = [
 //: its own key is its label, because the record decides which legs exist.
 const LEG_TITLES = {minimisation: 'Minimisation', nvt: 'NVT', npt: 'NPT'};
 
+//: The order the run itself ran its legs in. The record's keys are sorted when it is written, so drawing them in the
+//: record's own order would put NPT before NVT; the run's chain decides the switch instead.
+const LEG_ORDER = ['minimisation', 'nvt', 'npt'];
+
+//: The leg whose trace the panel opens on: the first constant- or coupled-pressure equilibration the record has, so a
+//: reader lands on the ensemble the quantities are interesting in, and falls back to whatever the record holds.
+const LEG_PREFERRED = ['nvt', 'npt'];
+
 const states = new WeakMap();
 
 function stateOf(card) {
@@ -102,10 +110,18 @@ function targetFor(record, legKey, term) {
   return Number.isFinite(value) ? value : null;
 }
 
+//: A chart container that carried a Plotly plot keeps its class and its inline size after the plot is discarded, so a
+//: panel that switches to a message would leave a 170 px hole. Clearing both is what makes the message the panel.
+function resetChart(chart) {
+  chart.replaceChildren();
+  chart.classList.remove('js-plotly-plot');
+  chart.removeAttribute('style');
+}
+
 function chartFor(panel, term, leg, legKey, record, plotly, failure) {
   const chart = $('.run-equilibration-chart', panel);
   if (!chart) return;
-  chart.replaceChildren();
+  resetChart(chart);
   const legTitle = LEG_TITLES[legKey] || legKey;
   chart.setAttribute('aria-label', term.title + ' during the ' + legTitle + ' leg');
   const entry = leg.terms?.[term.key];
@@ -184,7 +200,12 @@ async function showLeg(section, record, legKey) {
 
 function drawRecord(host, record) {
   const legs = record && record.legs && typeof record.legs === 'object' ? record.legs : {};
-  const keys = Object.keys(legs);
+  const present = Object.keys(legs);
+  const rank = key => {
+    const position = LEG_ORDER.indexOf(key);
+    return position === -1 ? LEG_ORDER.length : position;
+  };
+  const keys = [...present].sort((left, right) => rank(left) - rank(right));
   const section = document.createElement('section');
   section.className = 'run-equilibration';
   section.append(header(record));
@@ -193,7 +214,7 @@ function drawRecord(host, record) {
     host.replaceChildren(section);
     return;
   }
-  const first = keys[0];
+  const first = LEG_PREFERRED.find(key => keys.includes(key)) || keys[0];
   if (keys.length > 1) {
     const switchRow = document.createElement('div');
     switchRow.className = 'run-equilibration-switch';
