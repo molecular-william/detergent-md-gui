@@ -52,12 +52,13 @@ nav[role=tablist] button .tab-glyph { width: 18px; flex: 0 0 18px; text-align: c
 }
 .new-run-inputs { grid-column: span 6 }
 .new-run-settings { grid-column: span 6 }
-/* The AA form is the only New run form with the stage editors, and its stage settings sit four across: it takes the
-   wider settings half. The pdc workspace's form carries no stage editor, so it keeps the even 6 + 6 halves its
+/* A form whose stage settings sit four across takes the wider settings half. The pdc workspace has stage editors too
+   (one per CG leg) but states them two across inside its own half, and its left column -- detergent, protein, belt --
+   needs the width more than the settings do, so its form carries `new-pdc-form` and keeps the even 6 + 6 halves its
    browser test measures. Stated from 1101 px up, so the rule below still puts both halves on the full width. */
 @media (min-width: 1101px) {
-  .new-run-layout:has(.stage-editor) > .new-run-inputs { grid-column: span 4 }
-  .new-run-layout:has(.stage-editor) > .new-run-settings { grid-column: span 8 }
+  .new-run-layout:has(.stage-editor):not(.new-pdc-form) > .new-run-inputs { grid-column: span 4 }
+  .new-run-layout:has(.stage-editor):not(.new-pdc-form) > .new-run-settings { grid-column: span 8 }
 }
 .mapping-editor-diagram-column { grid-column: span 7 }
 .mapping-editor-controls { grid-column: span 5 }

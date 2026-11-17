@@ -9,10 +9,10 @@
 ; that follow it share one cut-off convention rather than two. Reaction field at epsilon_r 15 is the CG half's
 ; electrostatics everywhere else in this pipeline.
 ;
-; `define = -DPOSRES` is stamped here by `prepare` when the run asks for the transient protein position-restraint
-; window (`pdc_restrain_protein`, the release default): it makes grompp read the `#ifdef POSRES` block martinize2
-; wrote into the protein's own itp. The elastic network is a bonded term in every leg and is unaffected; a run that
-; switches the window off renders this file with no define.
+; `define = -DPOSRES` is stamped here by `prepare` when this leg holds the transient protein position-restraint
+; window (`pdc_posres_min`, on by default): it makes grompp read the `#ifdef POSRES` block martinize2 wrote into the
+; protein's own itp. The elastic network is a bonded term in every leg and is unaffected; a run that switches this
+; leg's window off renders this file with no define.
 integrator               = steep
 nsteps                   = 200000
 nstlog                   = 100

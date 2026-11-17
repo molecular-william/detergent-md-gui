@@ -1,6 +1,7 @@
 import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResource, guarded, DROP, panelIds,
          liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
 import { renderStageSettings, renderProgressSegments } from './stage-settings.js';
+import { renderRunDiagnostics } from './runs-equilibration.js';
 
 // Owns run cards, filtering, stage settings and polling. Form changes are callbacks.
 // How much of a run is trajectory: the number that tells a reader what deleting it would free. GiB, as the
@@ -199,6 +200,12 @@ export function createRuns({ onClone, onDeleted }) {
         if (stageSettings) stageSettings.addEventListener('toggle', () => {
           if (stageSettings.open) refreshStageSettings(card, card.job).catch(error => notice(error.message));
         });
+        // Its own disclosure, read only on open: the table of completed runs costs no analysis request until a reader
+        // asks for the traces, and the polled refresh below keeps an open block current while an attempt runs.
+        const diagnostics = $('.job-diagnostics', card);
+        if (diagnostics) diagnostics.addEventListener('toggle', () => {
+          if (diagnostics.open) renderRunDiagnostics(card, card.job).catch(error => notice(error.message));
+        });
         for (const action of ['cancel','retry']) $('.job-'+action,card).onclick = async () => {
           try { await post(action === 'cancel' ? `/control/${job.id}/cancel` : `/retry/${job.id}`, {}); await refreshJobs(); }
           catch(error) { notice(error.message); }
@@ -282,6 +289,8 @@ export function createRuns({ onClone, onDeleted }) {
       if ((job.resume_stages || []).includes(previousStage)) resumeSelect.value = previousStage; else if (job.resume_stages?.length) resumeSelect.value = job.resume_stages.at(-1);
       // A polled update reaches an open Stage settings row too: the keyed fetch below is a no-op unless the run moved.
       if ($('.job-stage-settings', card)?.open) refreshStageSettings(card, job).catch(error => notice(error.message));
+      // The same for Diagnostics: it is keyed on the run and the attempt, so an unchanged row re-renders nothing.
+      if ($('.job-diagnostics', card)?.open) renderRunDiagnostics(card, job).catch(error => notice(error.message));
       // How far the running stage has got. GROMACS' ETA answers "when will this leg end"; a three-leg script stage
       // (min, eq, md) has two thirds of its life before the ETA says anything, and a tool stage never says anything --
       // so the bar counts what the stage's own log states: legs done, and the step within the current one.

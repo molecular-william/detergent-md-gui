@@ -452,7 +452,8 @@ def pdc_encapsulation(entry):
                     'head_radius_nm': numbers['head_radius_nm'], 'head_area_nm2': numbers['head_area_nm2'],
                     'requested': numbers['requested'], 'needed': numbers['needed'],
                     'fraction': numbers['fraction'],
-                    'method': encapsulation.ESTIMATE_METHOD, 'caveat': encapsulation.ESTIMATE_CAVEAT})
+                    'method': encapsulation.ESTIMATE_METHOD, 'method_summary': encapsulation.ESTIMATE_SUMMARY,
+                    'caveat': encapsulation.ESTIMATE_CAVEAT})
 
 
 def requested_chains(source):

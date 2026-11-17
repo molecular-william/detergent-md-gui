@@ -52,6 +52,40 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-17 the pdc New run form is staged, and a run's equilibration traces are drawn in its Runs row.**
+Approved draft: `docs/design/drafts/2026-11-17-pdc-new-run-clarity.html`; plan:
+`docs/plans/2026-11-17-pdc-new-run-clarity.md` (both local -- `.gitignore` keeps drafts and plans out of history).
+- *Stage settings.* The belt card's two duration pairs and four groups of `Other run options` became one
+  `fieldset.run-settings` with five `details.stage-editor` (minimisation, NVT, NPT, assessment, extension), each with
+  a facts line (`500 ps · free`) and its own inputs; the fold went from 10 groups / 37 controls to 6 / 27. The facts
+  writer is `new-run-pdc.js`'s own table (the engine's `syncStageSummaries` is private and keyed to the AA/CG stages),
+  and its Default buttons read `/api/pdc/catalog` under their own `pdc-default` class because `/api/defaults` answers
+  400 for `pdc`.
+- *A real display bug, fixed with it.* `pdc_nvt_ps`/`pdc_npt_ps` rendered blank: `DEFAULT_ALIASES` had no
+  `nvt_ps`/`npt_ps` entry, so the panel never showed the 500 / 4 500 ps the run was using. `minimisation_steps` had
+  the same problem and now has a control too.
+- *Restraints are per leg.* `pdc_posres_min`/`pdc_posres_nvt`/`pdc_posres_npt` (yes/no, defaults yes/no/yes); the
+  retired single `pdc_restrain_protein` is still accepted and `prepare` translates it (yes ⇒ minimisation and NPT),
+  and it is no longer written into a new record. `pdc-nvt-v1` gained `define` as a variable, so the NVT leg can hold
+  the window; assessment and extension are never restrained (they are the state that is judged and back-mapped).
+- *Estimate.* The `<details>` and its static "the number is the server's" sentence are gone. The dashboard's own info
+  button (`field-help`/`info-btn`/`setting-tip`, Escape and outside-click close it) carries `ESTIMATE_SUMMARY` (new,
+  ~40 words) plus the caveat; `ESTIMATE_METHOD` (270 words) stays the route's own field because the tests that pin it,
+  and a reader checking the number, still need it.
+- *Diagnostics.* The run row's detail gained a `Diagnostics` disclosure beside `Stage settings`, fed by a new
+  opt-in analysis kind `equilibration-traces` (`analysis/runs/equilibration_traces.py` reuses
+  `trajectory_overview.STAGE_ENERGY` / `read_energy` / `ENERGY_POINTS`; one `gmx energy` per leg, three terms),
+  `GET /api/jobs/<id>/equilibration-traces` (answers `published: false, run_stopped` until an attempt publishes), and
+  `static/js/runs-equilibration.js` (Plotly, one chart per term, a target line only where the run recorded one). One
+  file answering two legs is recorded once (the pressure-coupled one), so a CG run is one leg, not three.
+- *Split.* The pdc form carries `new-pdc-form`; layout.css excludes it from the "stage editor ⇒ settings take 8
+  columns" rule and pdc.css puts its editor grid two across inside the 6-column half, so the halves stay 6 + 6 and the
+  390 px page still does not scroll sideways.
+Checks: fast tier 2995 passed / 1 xfailed; `ruff` clean; pdc browser area 89 passed; `test_runs_table_browser.py`
+13 passed (including the new diagnostics test); full browser tier green before commit.
+Still open: the failed `DDM_4iar_1conf_1us-5` needs a **fresh** run at 5 fs equilibration and 20 fs production (its own
+record says 20 fs for both); its traces will then be readable in the new disclosure.
+
 **2026-11-17 pdc restraint window needed grompp -r; the DDM micelle run then failed at NVT on its own timestep.**
 The transient POSRES window added `define = -DPOSRES` to the minimisation and NPT legs, but the shared leg script
 called grompp without reference coordinates, so GROMACS refused with "Cannot find position restraint file

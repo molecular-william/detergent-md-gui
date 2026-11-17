@@ -57,6 +57,8 @@ AREAS = {
         'unit/test_transferability_reader.py', 'unit/test_transfer_free_energy.py',
         'unit/test_model_topology.py', 'unit/test_reference_caching.py', 'unit/test_trajectory_header.py',
         'unit/test_energy_conservation.py',
+        # The equilibration diagnostics a completed run's row draws from each leg's own .edr.
+        'unit/test_equilibration_traces.py', 'integration/test_equilibration_traces_api.py',
         # The on-demand frame series Run view's player reads: an analysis kind and its producer.
         'unit/test_frame_series.py', 'integration/test_frame_series_analysis.py',
         # The surfaces producer: reviewed GROMACS knobs, bounded parallel variants and per-variant progress.

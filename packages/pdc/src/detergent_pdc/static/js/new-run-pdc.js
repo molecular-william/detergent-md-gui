@@ -29,14 +29,19 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_equil_dt_fs', 'pdc_production_dt_fs',
-                   'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
+                   'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
                    'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                    'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility',
                    'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility',
                    'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt'];
   // The catalogue publishes the settings under the builders' names; the panel's controls carry the pipeline's.
   const DEFAULT_ALIASES = {assessment_ns: 'pdc_assessment_ns', extension_ns: 'pdc_extension_ns',
-                           placement_mode: 'pdc_placement_mode'};
+                           placement_mode: 'pdc_placement_mode',
+                           // The adapter stores the equilibration durations under the builder's names, and both were
+                           // missing from this map: the two controls rendered blank while the run still used 500 and
+                           // 4 500 ps, which is the one thing a starting value must never do. The step cap is the
+                           // same kind of alias.
+                           nvt_ps: 'pdc_nvt_ps', npt_ps: 'pdc_npt_ps', minimisation_steps: 'pdc_minimisation_steps'};
   // The three values `pdc.CHOICE_SPECS['protein_vsite']` advertises, spelled for the review. The control's own option
   // labels are the same words; this map exists only so the summary can add what the choice does.
   const VSITE_LABELS = {hydrogens: 'Hydrogens', aromatics: 'Aromatics'};
@@ -85,10 +90,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The back-map's `pdb2gmx -vsite` choice. It is not a number and not a boolean: the back-map stage's wrapper reads
   // it as one of three strings and appends the flag to the `pdb2gmx` calls CG2AT2 makes, and to no other command.
   const proteinVsite = () => field('protein_vsite')?.value || 'none';
-  // The transient protein-restraint window and the NPT leg's barostat: choices like `protein_vsite`, sent under the
-  // adapter's advertised names. Their selects lead with the reviewed profile's value, so a run that never touches
-  // them sends the value it renders; the adapter writes them into the minimisation/NPT MDPs only.
-  const restrainProtein = () => field('pdc_restrain_protein')?.value || 'yes';
+  // Each dynamics leg's transient protein-restraint window, and the NPT leg's barostat: choices like
+  // `protein_vsite`, sent under the adapter's advertised names. The restraint selects lead with the reference
+  // protocol's own answer (minimisation and NPT hold the backbone, NVT does not), so a run that never touches them
+  // sends the value it renders; the adapter writes each leg's define into that leg's MDP only.
+  const RESTRAINT_LEGS = ['min', 'nvt', 'npt'];
+  const restrainProtein = leg => field('pdc_posres_' + leg)?.value || (leg === 'nvt' ? 'no' : 'yes');
   const nptPcoupl = () => field('pdc_npt_pcoupl')?.value || 'c-rescale';
   const nptPcoupltype = () => field('pdc_npt_pcoupltype')?.value || 'isotropic';
   // The removal/assessment pipeline is a choice, not an assumption. On is the regular assessment + removal +
@@ -523,6 +530,51 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     say('.new-pdc-flow-skipped', skipped.length ? `Skipped — ${skipped.join(' · ')}.` : '');
   }
 
+  // One facts line per stage editor, from the numbers the run will post: a closed editor still states its duration,
+  // timestep, implied step count and restraint window. The engine's writer (`new-run.js`) is private and keyed to
+  // the AA/CG stage names, and this form's stages are neither, so the table is here. Hundreds are grouped the way the
+  // rest of the dashboard prints them (`5 000 000`).
+  const STAGE_FACTS = [
+    {stage: 'minimisation', steps: 'pdc_minimisation_steps', emtol: 'pdc_minimisation_emtol',
+     emstep: 'pdc_minimisation_emstep', restraint: 'pdc_posres_min'},
+    {stage: 'nvt', ps: 'pdc_nvt_ps', dt: 'pdc_equil_dt_fs', restraint: 'pdc_posres_nvt'},
+    {stage: 'npt', ps: 'pdc_npt_ps', dt: 'pdc_equil_dt_fs', restraint: 'pdc_posres_npt'},
+    {stage: 'assessment', ns: 'pdc_assessment_ns', dt: 'pdc_production_dt_fs'},
+    {stage: 'extension', ns: 'pdc_extension_ns', dt: 'pdc_production_dt_fs'},
+  ];
+  const groupedNumber = value => Number(value).toLocaleString('en-GB').replace(/,/g, ' ');
+  function stageNumber(name) {
+    const text = String(field(name)?.value ?? '').trim();
+    if (text === '') return null;
+    const value = Number(text);
+    return Number.isFinite(value) ? value : null;
+  }
+  function syncStageFacts() {
+    for (const spec of STAGE_FACTS) {
+      const host = form.querySelector(`.new-pdc-stage-facts[data-stage="${spec.stage}"]`);
+      if (!host) continue;
+      const parts = [];
+      const steps = spec.steps ? stageNumber(spec.steps) : null;
+      const ps = spec.ps ? stageNumber(spec.ps) : null;
+      const ns = spec.ns ? stageNumber(spec.ns) : null;
+      const dt = spec.dt ? stageNumber(spec.dt) : null;
+      if (steps !== null) parts.push(`${groupedNumber(steps)} steps`);
+      if (ps !== null) parts.push(ps === 0 ? 'skipped' : `${groupedNumber(ps)} ps`);
+      if (ns !== null) parts.push(`${groupedNumber(ns)} ns`);
+      if (spec.emtol) { const value = stageNumber(spec.emtol); if (value !== null) parts.push(`${value} kJ/mol/nm`); }
+      if (spec.emstep) { const value = stageNumber(spec.emstep); if (value !== null) parts.push(`${value} nm`); }
+      if (dt !== null) parts.push(`${dt} fs`);
+      // The step count the duration implies at that timestep, the same arithmetic `adapters/pdc.py` prepares with.
+      if (ps && dt) parts.push(`${groupedNumber(Math.round(ps * 1000 / dt))} steps`);
+      if (ns && dt) parts.push(`${groupedNumber(Math.round(ns * 1000000 / dt))} steps`);
+      if (spec.restraint) {
+        const value = field(spec.restraint)?.value;
+        if (value) parts.push(value === 'yes' ? 'restrained' : 'free');
+      }
+      host.textContent = parts.join(' · ');
+    }
+  }
+
   // The count is an input in both modes -- it is the belt's size with a protein and the micelle's without -- and
   // what changes with the protein choice is what is worth reading beside it. The estimate is the server's to size
   // and the experimental number is the registry's own; neither is computed here.
@@ -548,6 +600,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? `${field('pdc_assessment_ns').value || '—'} ns assessment · `
         + `${field('pdc_extension_ns').value || '—'} ns extension`
       : `${totalNs == null ? '—' : `${totalNs} ns`} CG MD · one leg, no removal pipeline`);
+    syncStageFacts();
     const belt = pdcNode('.new-pdc-belt-block'), empty = pdcNode('.new-pdc-empty-block');
     if (belt) belt.hidden = !hasProtein;
     if (empty) empty.hidden = hasProtein;
@@ -627,7 +680,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       say('.new-pdc-head', `${Number(body.head_area_nm2).toFixed(3)} nm²`);
       say('.new-pdc-need', `${Math.round(body.needed)} detergents`);
       say('.new-pdc-have', `${(fraction * 100).toFixed(1)}%`);
-      say('.new-pdc-method', body.method || '');
+      // The short form the bubble carries; the route's full `method` is its own statement and is not reprinted here.
+      say('.new-pdc-method', body.method_summary || body.method || '');
       say('.new-pdc-caveat', body.caveat || '');
       if (table) table.hidden = false;
       return;
@@ -1498,6 +1552,48 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('protein_vsite')?.addEventListener('change', () => { store(); syncSummary(); });
+  // Each leg's restraint choice moves its editor's facts line and nothing else, but it is a run setting like any
+  // other: stored, summarised and re-checked.
+  for (const leg of RESTRAINT_LEGS) {
+    field('pdc_posres_' + leg)?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
+  }
+  // The Default buttons. The engine's `.use-default` loop reads `/api/defaults`, which answers 400 for a pdc
+  // payload because it describes the one-molecule run; this panel reads the catalogue it already fetched, under its
+  // own class, so the two handlers can never both fire on one button.
+  const CATALOGUE_KEY = Object.fromEntries(Object.entries(DEFAULT_ALIASES).map(([key, name]) => [name, key]));
+  for (const button of form.querySelectorAll('.pdc-default')) {
+    button.addEventListener('click', () => {
+      const name = button.dataset.field;
+      const value = (catalogue?.defaults || {})[CATALOGUE_KEY[name] || name];
+      const input = field(name);
+      if (!input || value === undefined) return;
+      input.value = String(value);
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+  }
+  // The estimate's info button: hover and keyboard focus show the tip through CSS, and a tap has no hover, so a click
+  // toggles it. Escape or a click elsewhere closes it -- the same contract as the engine's per-setting buttons.
+  const estimateHead = pdcNode('.new-pdc-estimate-head');
+  const estimateInfo = estimateHead?.querySelector('.info-btn');
+  const estimateTip = estimateHead?.querySelector('.setting-tip');
+  const closeEstimateTip = () => {
+    estimateTip?.classList.remove('is-open');
+    estimateInfo?.setAttribute('aria-expanded', 'false');
+    // Focus on the button shows the tip through CSS (:focus-within), so closing it while the button still has the
+    // focus would leave the tip on screen and the state attribute saying otherwise.
+    if (document.activeElement === estimateInfo) estimateInfo.blur();
+  };
+  estimateInfo?.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const open = estimateTip?.classList.toggle('is-open');
+    estimateInfo.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeEstimateTip(); });
+  document.addEventListener('click', event => {
+    if (!event.target.closest?.('.new-pdc-estimate-head')) closeEstimateTip();
+  });
   // The prepare step changes what martinize2 reads, so it is one of the expensive inputs: the frame on screen is no
   // longer this form's once it moves, and the card says so rather than quietly drawing the old one.
   pdcNode('.new-pdc-import-button')?.addEventListener('click', importStructure);
@@ -1563,9 +1659,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // Stated always, like the back-map choice: a run whose pdb2gmx was asked for aromatic virtual sites must not be
       // readable as one that used the default.
       payload.protein_vsite = proteinVsite();
-      // The restraint window and the NPT barostat are stated always, like the back-map choice: a run that asked for
-      // the window (the default) must not be readable as one that did not, and a stated barostat must travel.
-      payload.pdc_restrain_protein = restrainProtein();
+      // Each leg's restraint window and the NPT barostat are stated always, like the back-map choice: a run that
+      // asked for a window (the defaults hold minimisation and NPT) must not be readable as one that did not, and a
+      // stated barostat must travel.
+      for (const leg of RESTRAINT_LEGS) payload['pdc_posres_' + leg] = restrainProtein(leg);
       payload.pdc_npt_pcoupl = nptPcoupl();
       payload.pdc_npt_pcoupltype = nptPcoupltype();
       // The plan's step 1, sent always: the adapter's default is off, and a run whose preparation was asked for must

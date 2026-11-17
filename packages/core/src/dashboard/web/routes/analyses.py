@@ -131,6 +131,25 @@ def queue_analysis(jid, kind):
     return jsonify(task), status
 
 
+@blueprint.get('/api/jobs/<jid>/equilibration-traces')
+def equilibration_traces_api(jid):
+    """A run's equilibration traces, or the two facts a panel needs before it can offer to make them.
+
+    A run still going answers `published: false, run_stopped: false` rather than 404: analyses refuse a running run,
+    so the panel must be able to say the run has to finish instead of offering a button that fails. Only an unknown
+    run is a 404. Once the kind has published, the record answers with `published: true`; a run that never staged an
+    energy file publishes an empty `legs` map, which is a readable answer rather than an absent one.
+    """
+    c = coordinator()
+    job = c.lookup(jid)
+    found = newest_published(c, job, 'equilibration-traces', 'equilibration-traces.json')
+    if found is None:
+        return jsonify({'published': False,
+                        'run_stopped': job.get('status') in ('completed', 'failed', 'cancelled')})
+    _, published, _ = found
+    return jsonify({**published, 'published': True})
+
+
 @blueprint.post('/api/jobs/<jid>/analyses/<aid>/cancel')
 def cancel_analysis(jid, aid):
     return jsonify(coordinator().analysis_coordinator.cancel(jid, aid)), 202

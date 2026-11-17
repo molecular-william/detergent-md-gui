@@ -53,6 +53,10 @@ def test_the_estimate_comes_back_with_its_numbers_its_method_and_its_caveat(dash
     assert body['fraction'] == pytest.approx(150 / body['needed'])
     assert 'Shrake-Rupley' in body['method'] and 'largest head bead' in body['method']
     assert 'flat surface' in body['caveat'] and 'roughly the right order' in body['caveat']
+    # The panel's bubble reads the short form; the long method travels beside it, so the two never have to agree on a
+    # single string and shortening what is displayed does not delete what the route states.
+    assert 'head bead' in body['method_summary'] and 'No simulation' in body['method_summary']
+    assert body['method_summary'] != body['method']
 
 
 def test_the_route_s_method_says_apolar_parented_modified_residues_are_folded_in(dashboard, monkeypatch):

@@ -386,8 +386,10 @@ PDC_LEG_PROFILES = (
                       'pcoupl': 'this leg is NVT', 'continuation': 'this leg starts from the minimised system'},
             source=f'{_PDC_TEMPLATE}/nvt.mdp, with the run\'s seed for gen-seed', version='pdc-nvt-v1',
             # The run may replace the reviewed 5 fs step: the form's equilibration timestep setting writes this file
-            # and the step count derived from the same number. No other physics is open here.
-            variable=('dt',)),
+            # and the step count derived from the same number. The other variable is that leg's own POSRES window
+            # (`pdc_posres_nvt`, off by default): the define is appended only when the run asks for it, so an
+            # untouched run still renders the reviewed file byte for byte.
+            variable=('dt', 'define')),
     Profile(settings={'integrator': 'md', 'dt': 0.005, 'nsteps': None, 'nstcomm': 100, 'comm-grps': 'System',
                       'comm-mode': 'Linear', 'nstxout': 0, 'nstvout': 0, 'nstfout': 0, 'nstlog': 1000,
                       'nstenergy': 100, 'nstxtcout': 100, 'xtc-precision': 100, 'cutoff-scheme': 'Verlet',

@@ -511,3 +511,73 @@ def test_a_failed_stage_shows_the_error_its_own_log_holds(dashboard, live_page):
     expect(block).to_contain_text('Cannot compute PME interactions on a GPU')
     expect(block).to_contain_text('Systems that do not use PME for electrostatics.')
     assert errors == [], errors
+
+def test_the_diagnostics_disclosure_makes_the_traces_and_draws_them(dashboard, live_page):
+    """A completed run's row offers its equilibration traces, beside Stage settings and not instead of it.
+
+    The disclosure reads nothing until it is opened; an unpublished run gets one button that queues the analysis, and
+    what the attempt publishes is drawn: one chart per term for the leg the record names, the leg's own source file,
+    and the target line the run recorded. A CG run writes one equilibration file, so its record is one leg -- the panel
+    draws the legs the record names rather than assuming three.
+    """
+    runs = dashboard.coordinator.RUNS
+    job_id = '0000000000d1'
+    stages = ['AA reference', 'trajectory mapping', 'CG topology (ff_inter)', 'CG simulation']
+    dashboard.coordinator.database().replace([{
+        'id': job_id, 'label': 'Completed CG run with one equilibration leg', 'detergent': 'DDM',
+        'method': 'fast_forward', 'status': 'completed', 'stage': 'complete',
+        'created': '2026-09-16T10:00:00+00:00', 'started_at': '2026-09-16T10:00:00+00:00', 'layout_version': 2}])
+    directory = runs / job_id
+    (directory / 'logs').mkdir(parents=True)
+    files.atomic_json(directory / 'manifest.json',
+                      {'stage_plan': stages,
+                       'stages': [{'name': name, 'status': 'completed'} for name in stages]})
+    record = {'legs': {'npt': {'x': [0.0, 100.0, 200.0], 'x_unit': 'time_ps', 'duration_ps': 200.0,
+                                'source': '4_CG_sim/eq.edr',
+                                'terms': {'Potential': {'values': [-410000.0, -411000.0, -411500.0],
+                                                        'mean': -410833.3},
+                                          'Temperature': {'values': [301.0, 299.0, 300.0], 'mean': 300.0},
+                                          'Pressure': {'values': [2.0, -1.0, 1.0], 'mean': 0.67}}}},
+              'terms': ['Potential', 'Temperature', 'Pressure'],
+              'targets': {'Temperature': 300.0, 'Pressure': 1.0},
+              'gmx_version': 'GROMACS version: 2026.3'}
+    reads = {'get': 0}
+    posted = []
+
+    def traces(route):
+        if route.request.method == 'POST':
+            posted.append(route.request.url)
+            route.fulfill(status=202, json={'id': 'task-d1', 'kind': 'equilibration-traces', 'status': 'running'})
+            return
+        reads['get'] += 1
+        # The first read is the unpublished answer the panel offers its button on; every later one is the attempt
+        # having published, which is what the panel polls for.
+        if reads['get'] == 1:
+            route.fulfill(json={'published': False, 'run_stopped': True})
+        else:
+            route.fulfill(json={**record, 'published': True})
+
+    page, errors = live_page
+    page.route(re.compile(rf'/api/jobs/{job_id}/equilibration-traces$'), traces)
+    page.goto(f'{live_page.base_url}/detergent-validation/runs')
+
+    card = page.locator(f'.job[data-id="{job_id}"]')
+    expect(card.locator('.job-diagnostics')).to_be_visible()
+    expect(card.locator('.job-stage-settings')).to_be_visible()
+    assert reads['get'] == 0, 'the traces were read before the disclosure was opened'
+
+    card.locator('.job-diagnostics > summary').click()
+    button = card.locator('.run-equilibration-empty button')
+    expect(button).to_be_visible()
+    button.click()
+    assert posted and posted[0].endswith(f'/api/jobs/{job_id}/equilibration-traces'), posted
+
+    # Three charts for the one leg the record names, and no leg switch: the record decides how many legs exist.
+    expect(card.locator('.run-equilibration-chart.js-plotly-plot')).to_have_count(3, timeout=30000)
+    expect(card.locator('.run-equilibration-switch')).to_have_count(0)
+    expect(card.locator('.run-equilibration-source')).to_contain_text('4_CG_sim/eq.edr')
+    expect(card.locator('.run-equilibration-source')).to_contain_text('200.0 ps')
+    # Each chart is announced with the quantity and the leg it came from, not just drawn.
+    expect(card.locator('.run-equilibration-panel[data-term=Temperature] .run-equilibration-chart')).to_have_attribute(
+        'aria-label', 'Temperature during the NPT leg')
+    assert errors == [], errors

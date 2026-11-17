@@ -3,7 +3,7 @@
      detergent arrives with its own topology file, so there is no AA reference to point at and no bonded fit to
      choose, and nothing here offers one. The fieldset is rendered only for this workspace, so the other one cannot
      show a control that applies to someone else's pipeline. #}
-  <form id="run-form" class="new-run-layout">
+  <form id="run-form" class="new-run-layout new-pdc-form">
     <div class="new-run-inputs">
     <section class="card" aria-labelledby="new-detergent-title">
       <span class="eyebrow">DETERGENT</span><h3 id="new-detergent-title">Choose a detergent</h3>
@@ -58,7 +58,22 @@
       </div>
       <div class="new-pdc-belt-block" id="new-belt-block">
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
-          <p class="new-pdc-verdict">Choose a protein and a detergent to size the belt.</p>
+          {# The estimate states its number and folds its method into the dashboard's own info button: a real
+             button, so it is focusable and announced, showing its tooltip on hover, keyboard focus or a tap
+             (click toggles it for touch, Escape closes it -- new-run-pdc.js). The long method is still the route's
+             own statement (`method`); the panel shows its short form (`method_summary`), so a reader gets the shape
+             of the calculation without a 270-word paragraph in the way. #}
+          <div class="new-pdc-estimate-head">
+            <p class="new-pdc-verdict">Choose a protein and a detergent to size the belt.</p>
+            <span class="field-help">
+              <button type="button" class="info-btn" id="new-estimate-info" aria-expanded="false"
+                      aria-controls="new-estimate-tip" aria-label="How the belt estimate is worked out">i</button>
+              <span class="setting-tip" id="new-estimate-tip" role="tooltip">
+                <b>How this number is worked out</b><br><span class="new-pdc-method"></span><br><br>
+                <b>What it is not.</b> <span class="new-pdc-caveat"></span>
+              </span>
+            </span>
+          </div>
           <p class="hint new-pdc-shortfall"></p>
           <table class="new-pdc-estimate-table" hidden><tbody>
             <tr><td>Apolar area of the transmembrane slab</td><td><strong class="new-pdc-apolar">—</strong></td></tr>
@@ -66,12 +81,7 @@
             <tr><td>Estimated need</td><td><strong class="new-pdc-need">—</strong></td></tr>
             <tr><td>What you are asking for</td><td><strong class="new-pdc-have">—</strong> of that area</td></tr>
           </tbody></table>
-          <details class="new-pdc-explanation">
-            <summary>How this estimate is worked out</summary>
-            <p class="hint new-pdc-method"></p>
-            <p class="hint new-pdc-caveat"></p>
-            <p class="hint new-pdc-about">The number is the server's, from the protein's transmembrane slab and this detergent's head bead, with the method it states and its own caveat: a flat-area sizing of an input, never a verdict that a micelle forms.</p>
-          </details>
+
         </div>
       </div>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
@@ -80,26 +90,7 @@
           <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
         </tbody></table>
       </div>
-      <div class="new-pdc-pair new-pdc-legs new-pdc-equilibration">
-        <div class="leg">
-          <label>CG NVT equilibration (ps)<input name="pdc_nvt_ps" id="new-nvt-ps" type="number" min="0" max="1000000" step="1"></label>
-          <span class="hint">The constant-volume leg before pressure coupling. <code>0</code> skips it; the reviewed profile timestep applies unless you state one under Other run options.</span>
-        </div>
-        <div class="leg">
-          <label>CG NPT equilibration (ps)<input name="pdc_npt_ps" id="new-npt-ps" type="number" min="0" max="1000000" step="1"></label>
-          <span class="hint">The pressure-equilibration leg that brings the box to the target barostat. <code>0</code> skips it; the same timestep rule applies.</span>
-        </div>
-      </div>
-      <div class="new-pdc-pair new-pdc-legs">
-        <div class="leg">
-          <label>CG assessment leg (ns)<input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1"></label>
-          <span class="hint">The first CG leg, and it is named for what happens to it: its end state is judged. Detergents not in the micelle are removed, and losing more than 10% of the requested count re-runs this leg from scratch with new velocities, up to three attempts.</span>
-        </div>
-        <div class="leg">
-          <label>CG extension leg (ns)<input name="pdc_extension_ns" id="new-extension-ns" type="number" min="1" max="1000000" step="1"></label>
-          <span class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>), so the total CG sampling is the two legs together — 1 µs by default. The assessment re-runs at the end, and this is the state that gets back-mapped.</span>
-        </div>
-      </div>
+
       <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox" checked></label>
       <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
       <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
@@ -115,26 +106,7 @@
               <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
             </div>
           </section>
-          <section class="new-pdc-option-group">
-            <h4 class="new-pdc-option-title">Timesteps</h4>
-            <div class="new-pdc-option-rows">
-              <label>Equilibration timestep (fs)<span class="setting-control"><input name="pdc_equil_dt_fs" type="number" min="0.5" max="20" step="0.5"></span></label>
-              <label>Production timestep (fs)<span class="setting-control"><input name="pdc_production_dt_fs" type="number" min="0.5" max="50" step="0.5"></span></label>
-            </div>
-          </section>
-          <section class="new-pdc-option-group">
-            <h4 class="new-pdc-option-title">Protein restraints</h4>
-            <div class="new-pdc-option-rows">
-              <label>Transient position-restraint window<span class="setting-control"><select name="pdc_restrain_protein"><option value="yes">yes · minimisation and NPT</option><option value="no">no · elastic network only</option></select></span></label>
-            </div>
-          </section>
-          <section class="new-pdc-option-group">
-            <h4 class="new-pdc-option-title">Minimisation</h4>
-            <div class="new-pdc-option-rows">
-              <label>Convergence tolerance (kJ mol⁻¹ nm⁻¹)<span class="setting-control"><input name="pdc_minimisation_emtol" type="number" min="0.1" max="10000" step="0.1"></span></label>
-              <label>Initial step (nm)<span class="setting-control"><input name="pdc_minimisation_emstep" type="number" min="0.0001" max="0.01" step="0.0001"></span></label>
-            </div>
-          </section>
+
           <section class="new-pdc-option-group">
             <h4 class="new-pdc-option-title">Neighbour search and cutoffs</h4>
             <div class="new-pdc-option-rows">
@@ -155,16 +127,7 @@
               <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"></span></label>
             </div>
           </section>
-          <section class="new-pdc-option-group">
-            <h4 class="new-pdc-option-title">NPT equilibration coupling</h4>
-            <div class="new-pdc-option-rows">
-              <label>Barostat<span class="setting-control"><select name="pdc_npt_pcoupl"><option value="c-rescale">c-rescale · stochastic volume</option><option value="no">no · fixed box</option><option value="berendsen">berendsen</option><option value="parrinello-rahman">parrinello-rahman</option></select></span></label>
-              <label>Pressure coupling type<span class="setting-control"><select name="pdc_npt_pcoupltype"><option value="isotropic">isotropic</option><option value="semiisotropic">semiisotropic</option><option value="anisotropic">anisotropic</option><option value="surface-tension">surface-tension</option><option value="volumetric">volumetric</option></select></span></label>
-              <label>Target pressure (bar)<span class="setting-control"><input name="pdc_npt_ref_p" type="number" min="0.1" max="100" step="0.1"></span></label>
-              <label>Barostat coupling (ps)<span class="setting-control"><input name="pdc_npt_tau_p" type="number" min="0.1" max="100" step="0.1"></span></label>
-              <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="pdc_npt_compressibility" type="number" min="0" max="1" step="any"></span></label>
-            </div>
-          </section>
+
           <section class="new-pdc-option-group">
             <h4 class="new-pdc-option-title">Salt, seed and box</h4>
             <div class="new-pdc-option-rows">
@@ -197,11 +160,10 @@
         </div>
         <details class="new-pdc-options-notes">
           <summary>What these numbers mean</summary>
-          <p class="hint">These are the CG production legs' numbers. Every field starts as the reviewed profile's own;
-            changing one overrides it for this run only and the manifest records what was used. The equilibration and
-            restart profiles keep their own values, except the two timesteps: blank is each leg's reviewed profile dt
-            (5 fs equilibration, 20 fs production), and a stated number replaces it for the NVT and NPT legs or for
-            the assessment and extension legs, with every duration converted to steps at that number.</p>
+          <p class="hint">These are the CG production legs' numbers: output cadence, cut-offs, the production
+            thermostat and barostat, salt, seed, box and execution. A stage's own numbers are in its editor above — the
+            two timesteps included, where blank is each leg's reviewed profile dt (5 fs equilibration, 20 fs
+            production) and a stated number converts every duration to steps at that number.</p>
           <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
             option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
             <code>nstfout</code> stay off, as the profiles state.</p>
@@ -214,6 +176,116 @@
       </details>
       <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
     </section>
+    {# The five stages, in the layout the validation panel already uses: a native <details> per stage, a facts line in
+       the summary so a closed editor still says what it holds, and that stage's own numbers in its body. The
+       durations and the minimisation knobs used to live under Other run options and in two pairs beside the belt; a
+       stage's numbers belong where the stage is. Every input keeps the name `adapters/pdc.py` advertises.
+       `new-pdc-stage-facts` is a class rather than an id because the id contract forbids naming a pdc-only id in a
+       selector (test_dom_ids); each carries `data-stage` for the facts writer in new-run-pdc.js. #}
+    <fieldset class="run-settings card new-pdc-stages">
+      <legend>Stage settings</legend>
+      <p class="hint">Minimisation → NVT → NPT → assessment → extension. Every number starts as the reviewed
+        profile's own; one stated here overrides it for this run only, and the manifest records what was used.</p>
+      <h4 class="new-option-title">Timesteps</h4>
+      <div class="settings-grid">
+        <label>Equilibration <span class="hint">fs · NVT and NPT</span><span class="setting-control">
+          <input name="pdc_equil_dt_fs" type="number" min="0.5" max="20" step="0.5">
+          <button type="button" class="secondary pdc-default" data-field="pdc_equil_dt_fs">Default</button></span></label>
+        <label>Production <span class="hint">fs · assessment and extension</span><span class="setting-control">
+          <input name="pdc_production_dt_fs" type="number" min="0.5" max="50" step="0.5">
+          <button type="button" class="secondary pdc-default" data-field="pdc_production_dt_fs">Default</button></span></label>
+      </div>
+      <h4 class="new-option-title">Stages</h4>
+      <details class="stage-editor" data-stage="minimisation" open>
+        <summary><span class="stage-name">Energy minimisation</span><span class="stage-facts new-pdc-stage-facts"
+          data-stage="minimisation"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Maximum steps<span class="setting-control">
+            <input name="pdc_minimisation_steps" type="number" min="0" max="1000000" step="1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_minimisation_steps">Default</button></span></label>
+          <label>Force tolerance <span class="hint">kJ mol⁻¹ nm⁻¹</span><span class="setting-control">
+            <input name="pdc_minimisation_emtol" type="number" min="0.1" max="10000" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_minimisation_emtol">Default</button></span></label>
+          <label>Initial step <span class="hint">nm · steepest descents</span><span class="setting-control">
+            <input name="pdc_minimisation_emstep" type="number" min="0.0001" max="0.01" step="0.0001">
+            <button type="button" class="secondary pdc-default" data-field="pdc_minimisation_emstep">Default</button></span></label>
+          <label>Position restraints <span class="hint">the backbone</span><span class="setting-control">
+            <select name="pdc_posres_min"><option value="yes" selected>yes</option><option value="no">no</option></select>
+            <button type="button" class="secondary pdc-default" data-field="pdc_posres_min">Default</button></span></label>
+        </div></div>
+      </details>
+      <details class="stage-editor" data-stage="nvt" open>
+        <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts new-pdc-stage-facts"
+          data-stage="nvt"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration <span class="hint">ps · 0 skips the leg</span><span class="setting-control">
+            <input name="pdc_nvt_ps" id="new-nvt-ps" type="number" min="0" max="1000000" step="1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_nvt_ps">Default</button></span></label>
+          <label>Position restraints <span class="hint">the backbone</span><span class="setting-control">
+            <select name="pdc_posres_nvt"><option value="yes">yes</option><option value="no" selected>no</option></select>
+            <button type="button" class="secondary pdc-default" data-field="pdc_posres_nvt">Default</button></span></label>
+        </div>
+        <p class="hint">The constant-volume leg before pressure coupling, at the equilibration timestep above. Its
+          thermostat is the reviewed profile's own (v-rescale, 300 K) and is not open here.</p></div>
+      </details>
+      <details class="stage-editor" data-stage="npt" open>
+        <summary><span class="stage-name">NPT equilibration</span><span class="stage-facts new-pdc-stage-facts"
+          data-stage="npt"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration <span class="hint">ps · 0 skips the leg</span><span class="setting-control">
+            <input name="pdc_npt_ps" id="new-npt-ps" type="number" min="0" max="1000000" step="1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_ps">Default</button></span></label>
+          <label>Barostat<span class="setting-control">
+            <select name="pdc_npt_pcoupl"><option value="c-rescale" selected>c-rescale · stochastic volume</option>
+              <option value="no">no · fixed box</option><option value="berendsen">berendsen</option>
+              <option value="parrinello-rahman">parrinello-rahman</option></select>
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_pcoupl">Default</button></span></label>
+          <label>Pressure coupling type<span class="setting-control">
+            <select name="pdc_npt_pcoupltype"><option value="isotropic" selected>isotropic</option>
+              <option value="semiisotropic">semiisotropic · bilayer</option><option value="anisotropic">anisotropic</option>
+              <option value="surface-tension">surface-tension</option></select>
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_pcoupltype">Default</button></span></label>
+          <label>Target pressure <span class="hint">bar</span><span class="setting-control">
+            <input name="pdc_npt_ref_p" type="number" min="0.1" max="100" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_ref_p">Default</button></span></label>
+          <label>Barostat coupling <span class="hint">ps</span><span class="setting-control">
+            <input name="pdc_npt_tau_p" type="number" min="0.1" max="100" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_tau_p">Default</button></span></label>
+          <label>Compressibility <span class="hint">bar⁻¹</span><span class="setting-control">
+            <input name="pdc_npt_compressibility" type="number" min="0" max="1" step="any">
+            <button type="button" class="secondary pdc-default" data-field="pdc_npt_compressibility">Default</button></span></label>
+          <label>Position restraints <span class="hint">the backbone</span><span class="setting-control">
+            <select name="pdc_posres_npt"><option value="yes" selected>yes</option><option value="no">no</option></select>
+            <button type="button" class="secondary pdc-default" data-field="pdc_posres_npt">Default</button></span></label>
+        </div>
+        <p class="hint">The barostat brings the box to the target pressure, at the equilibration timestep above.
+          Restrained here, the reference coordinates follow the box.</p></div>
+      </details>
+      <details class="stage-editor" data-stage="assessment">
+        <summary><span class="stage-name">CG assessment</span><span class="stage-facts new-pdc-stage-facts"
+          data-stage="assessment"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration <span class="hint">ns · the end state is judged</span><span class="setting-control">
+            <input name="pdc_assessment_ns" id="new-assessment-ns" type="number" min="1" max="100000" step="1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_assessment_ns">Default</button></span></label>
+        </div>
+        <p class="hint">The first CG leg, and it is named for what happens to it: its end state is judged and the
+          detergents outside the micelle are removed. Losing more than a tenth of the requested count re-runs the
+          leg with new velocities, up to three attempts. Unrestrained: this is the released state.</p></div>
+      </details>
+      <details class="stage-editor" data-stage="extension">
+        <summary><span class="stage-name">CG extension</span><span class="stage-facts new-pdc-stage-facts"
+          data-stage="extension"></span></summary>
+        <div class="stage-body"><div class="settings-grid">
+          <label>Duration <span class="hint">ns · continues the survivor</span><span class="setting-control">
+            <input name="pdc_extension_ns" id="new-extension-ns" type="number" min="1" max="1000000" step="1">
+            <button type="button" class="secondary pdc-default" data-field="pdc_extension_ns">Default</button></span></label>
+        </div>
+        <p class="hint">Continues the system that survived, from its checkpoint (<code>gmx convert-tpr -extend</code>),
+          so the total CG sampling is both legs together — 1 µs by default. The assessment re-runs at the end, and
+          this is the state that is back-mapped.</p></div>
+      </details>
+    </fieldset>
     {# The detergent shape: how the build gets the conformations it stamps. `single` is today's build (one rigid
        template molecule); `build` selects micelle-only runs the server lists; `stored` selects a library already in
        this workspace. The card owns no science -- both lists, and the spec the adapter validates, are the server's --

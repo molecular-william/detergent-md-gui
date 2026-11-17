@@ -14,7 +14,7 @@ place rather than because someone remembered four.
 from dataclasses import dataclass
 from typing import Callable
 
-from .runs import bartender_fit, bonded_estimate, dihedral_fit, energy_conservation, frame_series, trajectory_overview
+from .runs import bartender_fit, bonded_estimate, dihedral_fit, energy_conservation, equilibration_traces, frame_series, trajectory_overview
 
 
 def sources_only(function: Callable) -> Callable:
@@ -158,6 +158,18 @@ TABLE: dict[str, Kind] = {row.name: row for row in (
         "equilibration stage traces (minimisation potential, NVT temperature, NPT pressure).",
         "nm and ns; the sampled series and their block-averaged means",
         source_hook=trajectory_overview.sources),
+    # On demand: one stack of three traces per equilibration leg, read from that leg's own `.edr` through the same
+    # reader the trajectory overview uses. It is a diagnostic view, not a validation: it draws what each leg recorded,
+    # and a leg the run never wrote is absent rather than borrowed from another file.
+    Kind(
+        'equilibration-traces',
+        equilibration_traces.SOURCES,
+        equilibration_traces.run,
+        "Equilibration traces",
+        "Each equilibration leg's potential, temperature and pressure sit near the targets the run recorded. This is a "
+        "diagnostic view of what each leg's own energy file held, not a validation.",
+        "kJ/mol, K and bar against time (ps), or against step for minimisation",
+        records_gmx_version=True),
 )}
 
 

@@ -1,10 +1,13 @@
 """T10: the fields that read as a pair share a row, and the count slider is gone.
 
-The plan pairs four controls -- Detergent with Detergent template, Protein with Download from OPM, Initialisation
-style with Detergents in the micelle, CG assessment leg with CG extension leg -- and drops the coarse count range
-slider. A pair that merely *exists* proves nothing: two block labels stack and every assertion about presence still
-holds. So this measures, the way the two-column test in `test_pdc_new_run_browser.py` measures: the two controls of
-a pair share a y within a pixel or two, and both sit inside the left column.
+The panel pairs three controls -- Detergent with Detergent template, Protein with Download from OPM, Initialisation
+style with Detergents in the micelle -- and drops the coarse count range slider. A pair that merely *exists* proves
+nothing: two block labels stack and every assertion about presence still holds. So this measures, the way the
+two-column test in `test_pdc_new_run_browser.py` measures: the two controls of a pair share a y within a pixel or two,
+and both sit inside the left column.
+
+The two duration pairs this file used to measure are gone with their row: the CG NVT, NPT, assessment and extension
+durations are the first field of their own stage editor now, and `test_pdc_new_run_browser.py` measures that layout.
 
 The two-column assertions themselves are unchanged and still run there; what this file adds is the row geometry of
 each pair, plus the absence of the slider.
@@ -41,9 +44,7 @@ TRIMER_CATALOG = {**CATALOG, 'proteins': [TRIMER]}
 # above it (a tall select against a short input) without the row itself moving.
 PAIRS = (('new-pdc-detergent-pair', 'Detergent · Detergent template', '#new-detergent', '#new-template'),
          ('new-pdc-protein-pair', 'Protein · Download from OPM', '#new-protein', '#new-protein-id'),
-         ('new-pdc-config-pair', 'Initialisation style · Detergents in the micelle', '#new-placement', '#new-count'),
-         ('new-pdc-equilibration', 'CG NVT equilibration · CG NPT equilibration', '#new-nvt-ps', '#new-npt-ps'),
-         ('new-pdc-legs', 'CG assessment leg · CG extension leg', '#new-assessment-ns', '#new-extension-ns'))
+         ('new-pdc-config-pair', 'Initialisation style · Detergents in the micelle', '#new-placement', '#new-count'))
 # A row is shared when the two cells' tops agree within the rounding of a sub-pixel layout.
 TOLERANCE_PX = 2
 # The download row's three controls are different element kinds -- a text input, a button and checkbox inputs -- so

@@ -116,9 +116,11 @@ def test_the_card_follows_run_configuration_and_shows_only_the_chosen_body(dashb
     serve(page)
     open_panel(page, live_page.base_url)
 
-    # Card 4 in the approved draft: Detergent, Membrane protein, Run configuration, Detergent shape.
+    # The left column's order: Detergent, Membrane protein, Run configuration, Stage settings, Detergent shape.
+    # The stage settings took the fourth slot when the durations moved out of the belt card into their own editors.
     cards = page.locator('.new-run-inputs > .card')
-    expect(cards.nth(3)).to_have_class(re.compile(r'new-pdc-shape'))
+    expect(cards.nth(3)).to_have_class(re.compile(r'new-pdc-stages'))
+    expect(cards.nth(4)).to_have_class(re.compile(r'new-pdc-shape'))
     expect(page.locator('.new-pdc-shape')).to_be_visible()
     # `single` is the default and has no body; the other two are hidden until chosen.
     expect(page.locator('[data-shape-body="single"]')).to_be_hidden()

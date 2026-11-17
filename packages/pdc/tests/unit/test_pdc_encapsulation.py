@@ -211,6 +211,16 @@ def test_modified_residues_inside_the_slab_add_the_area_their_parents_earn(resid
     assert numbers['apolar_area_nm2'] == pytest.approx(spheres * sphere_area(0.264), rel=1e-6)
 
 
+def test_the_short_method_states_the_two_areas_and_that_nothing_was_simulated():
+    """The panel's bubble says what was divided and that it was geometry; the long method stays the route's own."""
+    summary = encapsulation.ESTIMATE_SUMMARY
+
+    assert 'apolar' in summary.lower() and 'head bead' in summary
+    assert 'No simulation' in summary
+    assert len(summary.split()) <= 45, 'the bubble is the short form, not a paragraph in a tooltip'
+    assert len(summary) < len(encapsulation.ESTIMATE_METHOD) / 2
+
+
 def test_the_method_states_that_apolar_parented_modified_residues_are_folded_in():
     """The prose travels with the number, so it must say what the arithmetic did with a modified residue."""
     assert 'modified residue' in encapsulation.ESTIMATE_METHOD

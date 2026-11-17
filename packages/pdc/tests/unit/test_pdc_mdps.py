@@ -55,9 +55,10 @@ def assessment_ns(settings: dict) -> float:
     return duration
 
 
-def restrained(settings: dict) -> bool:
-    """Whether the run asked for the transient POSRES window; the release default is `yes`."""
-    return settings.get('pdc_restrain_protein', 'yes') == 'yes'
+def restrained(settings: dict, leg: str) -> bool:
+    """Whether one leg holds the transient POSRES window; the defaults are minimisation and NPT on, NVT off."""
+    setting = pdc_adapter.POSRES_SETTINGS[leg]
+    return settings.get(setting, pdc_adapter.DEFAULTS[setting]) == 'yes'
 
 
 def values(profile: str, settings: dict) -> dict:
@@ -66,17 +67,20 @@ def values(profile: str, settings: dict) -> dict:
         numbers = {'nsteps': int(float(settings['minimisation_steps'])),
                    'emtol': settings['pdc_minimisation_emtol'],
                    'emstep': settings['pdc_minimisation_emstep']}
-        if restrained(settings):
+        if restrained(settings, 'minimisation'):
             numbers['define'] = pdc_adapter.POSRES_DEFINE
         return numbers
     if profile == 'pdc-nvt-v1':
-        return {'nsteps': round(int(float(settings['nvt_ps'])) / dt(profile)), 'gen-seed': int(settings['seed'])}
+        numbers = {'nsteps': round(int(float(settings['nvt_ps'])) / dt(profile)), 'gen-seed': int(settings['seed'])}
+        if restrained(settings, 'nvt'):
+            numbers['define'] = pdc_adapter.POSRES_DEFINE
+        return numbers
     if profile == 'pdc-npt-v1':
         numbers = {'nsteps': round(int(float(settings['npt_ps'])) / dt(profile)),
                    'pcoupl': settings['pdc_npt_pcoupl'], 'pcoupltype': settings['pdc_npt_pcoupltype'],
                    'ref-p': settings['pdc_npt_ref_p'], 'tau-p': settings['pdc_npt_tau_p'],
                    'compressibility': settings['pdc_npt_compressibility']}
-        if restrained(settings):
+        if restrained(settings, 'npt'):
             numbers['define'] = pdc_adapter.POSRES_DEFINE
             numbers['refcoord-scaling'] = 'com'
         return numbers
@@ -233,17 +237,46 @@ def test_unstated_settings_write_the_restraint_window_only_where_it_acts(tmp_pat
         assert 'refcoord-scaling' not in written, name
 
 
-def test_switching_the_restraint_window_off_leaves_both_legs_unrestrained(tmp_path):
-    """The choice is the window's only switch: no renders the reviewed files with no define at all."""
-    run = prepared_run(tmp_path, settings={'pdc_restrain_protein': 'no'})
+def test_switching_a_legs_restraint_window_off_leaves_only_that_leg_unrestrained(tmp_path):
+    """Each leg's choice is its own switch: two legs off renders their reviewed files with no define at all."""
+    run = prepared_run(tmp_path, settings={'pdc_posres_min': 'no', 'pdc_posres_npt': 'no'})
     settings = settings_of(run)
 
-    assert settings['pdc_restrain_protein'] == 'no'
-    for name in ('minimisation.mdp', 'npt.mdp'):
+    assert (settings['pdc_posres_min'], settings['pdc_posres_nvt'],
+            settings['pdc_posres_npt']) == ('no', 'no', 'no')
+    for name in ('minimisation.mdp', 'nvt.mdp', 'npt.mdp'):
         written = parsed((inputs_dir(run) / name).read_text())
         assert 'define' not in written, name
     assert 'refcoord-scaling' not in parsed((inputs_dir(run) / 'npt.mdp').read_text())
     assert manifest_profile(run, 'minimisation.mdp') == 'pdc-minimisation-v1'
+
+
+def test_one_leg_can_hold_the_window_while_its_neighbours_do_not(tmp_path):
+    """The NVT leg is the one the reference protocol leaves free; asking for it there restrains that leg alone."""
+    run = prepared_run(tmp_path, settings={'pdc_posres_min': 'no', 'pdc_posres_nvt': 'yes',
+                                           'pdc_posres_npt': 'no'})
+    nvt = parsed((inputs_dir(run) / 'nvt.mdp').read_text())
+
+    assert nvt['define'] == '-DPOSRES'
+    # No barostat in this leg, so nothing can move the reference coordinates it restrains against.
+    assert 'refcoord-scaling' not in nvt
+    for name in ('minimisation.mdp', 'npt.mdp'):
+        assert 'define' not in parsed((inputs_dir(run) / name).read_text()), name
+
+
+def test_the_retired_single_choice_still_means_minimisation_and_npt(tmp_path):
+    """A form saved before the split sends one yes/no; it is translated, and the record carries one answer."""
+    run = prepared_run(tmp_path, settings={'pdc_restrain_protein': 'yes'})
+    settings = settings_of(run)
+
+    assert 'pdc_restrain_protein' not in settings
+    assert (settings['pdc_posres_min'], settings['pdc_posres_nvt'],
+            settings['pdc_posres_npt']) == ('yes', 'no', 'yes')
+    assert parsed((inputs_dir(run) / 'nvt.mdp').read_text()).get('define') != '-DPOSRES'
+
+    off = prepared_run(tmp_path / 'off', settings={'pdc_restrain_protein': 'no'})
+    for name in ('minimisation.mdp', 'npt.mdp'):
+        assert 'define' not in parsed((inputs_dir(off) / name).read_text()), name
 
 
 def test_a_minimisation_tunable_reaches_only_the_minimisation_leg(tmp_path):
@@ -295,21 +328,23 @@ def test_unknown_barostat_choices_and_out_of_range_tunables_are_refused_by_name(
                 pdc_adapter.normalize_settings({setting: value})
 
 
-def test_the_restraint_choice_is_advertised_and_defaults_on():
-    """(a) pdc_restrain_protein is a choice the route keeps, defaulting to the window, and validated by name."""
-    assert pdc_adapter.CHOICE_SPECS['pdc_restrain_protein'][1] == ('yes', 'no')
-    assert pdc_adapter.DEFAULTS['pdc_restrain_protein'] == 'yes'
-    assert 'pdc_restrain_protein' in pdc_adapter.PROTOCOL.choice_specs()
-    with pytest.raises(ValueError, match='pdc_restrain_protein must be one of yes, no'):
-        pdc_adapter.normalize_settings({'pdc_restrain_protein': 'maybe'})
+def test_the_restraint_choices_are_advertised_per_leg_and_default_to_the_reference_window():
+    """(a) One choice per leg, kept by the route, defaulting to minimisation + NPT and validated by name."""
+    for leg, setting in pdc_adapter.POSRES_SETTINGS.items():
+        assert pdc_adapter.CHOICE_SPECS[setting][1] == ('yes', 'no'), leg
+        assert setting in pdc_adapter.PROTOCOL.choice_specs(), leg
+        with pytest.raises(ValueError, match=rf'{setting} must be one of yes, no'):
+            pdc_adapter.normalize_settings({setting: 'maybe'})
+    assert (pdc_adapter.DEFAULTS['pdc_posres_min'], pdc_adapter.DEFAULTS['pdc_posres_nvt'],
+            pdc_adapter.DEFAULTS['pdc_posres_npt']) == ('yes', 'no', 'yes')
 
 
 
 def test_an_empty_micelle_writes_no_restraint_window(tmp_path):
-    """There is no protein block to activate, so the window stays off even though the setting's default is yes."""
+    """There is no protein block to activate, so no leg's window acts even though the defaults ask for two."""
     run = prepared_run(tmp_path, protein=None)
     settings = settings_of(run)
 
-    assert settings['pdc_restrain_protein'] == 'yes'
-    assert 'define' not in parsed((inputs_dir(run) / 'minimisation.mdp').read_text())
-    assert 'define' not in parsed((inputs_dir(run) / 'npt.mdp').read_text())
+    assert (settings['pdc_posres_min'], settings['pdc_posres_npt']) == ('yes', 'yes')
+    for name in ('minimisation.mdp', 'nvt.mdp', 'npt.mdp'):
+        assert 'define' not in parsed((inputs_dir(run) / name).read_text()), name

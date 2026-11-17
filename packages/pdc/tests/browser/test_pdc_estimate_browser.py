@@ -38,6 +38,10 @@ MODELS = {'molecule': 'DDM', 'models': [{'file': MAPPING_FILE, 'name': 'DDM draf
 METHOD = ('Flat-area estimate from the deposited structure, no simulation. Per-atom solvent-accessible area by '
           'Shrake-Rupley (biotite.structure.sasa), summed over the transmembrane slab, divided by the area one '
           'detergent head bead covers.')
+#: The short form the panel's bubble shows, beside the long method above: the panel reads the summary, the route keeps
+#: the full statement for anyone checking the number.
+SUMMARY = ('Apolar area of the transmembrane slab divided by the area of one detergent head bead (pi r^2, with r from '
+           'its Martini 3 size class). No simulation.')
 CAVEAT = ('This is a sizing aid and not a verdict: it treats the protein as a flat surface, with no curvature, '
           'packing or shape, so it says the requested count is roughly the right order and never that the micelle '
           'forms.')
@@ -59,7 +63,7 @@ def estimate_body(requested=150, fraction=0.797, needed=188.2):
             'slab': {'axis': 'z', 'centre_nm': 0.0, 'half_thickness_nm': 1.35},
             'atoms': 1200, 'apolar_area_nm2': 41.2, 'head_radius_nm': 0.264, 'head_area_nm2': 0.2187,
             'requested': requested, 'needed': needed, 'fraction': fraction,
-            'method': METHOD, 'caveat': CAVEAT}
+            'method': METHOD, 'method_summary': SUMMARY, 'caveat': CAVEAT}
 
 
 def serve(page, body, catalog=None):
@@ -108,7 +112,8 @@ def test_the_estimate_renders_the_servers_numbers_its_method_and_its_caveat(dash
     expect(page.locator('.new-pdc-head')).to_have_text('0.219 nm²')
     expect(page.locator('.new-pdc-need')).to_have_text('188 detergents')
     expect(page.locator('.new-pdc-have')).to_have_text('79.7%')
-    expect(page.locator('.new-pdc-method')).to_contain_text('Shrake-Rupley')
+    # The bubble carries the short form; the caveat is the route's own sentence, unchanged.
+    expect(page.locator('.new-pdc-method')).to_contain_text('head bead')
     expect(page.locator('.new-pdc-caveat')).to_contain_text('flat surface')
     expect(page.locator('.new-pdc-shortfall')).to_contain_text('expect bare patches')
 
@@ -235,36 +240,45 @@ def test_an_older_answer_never_overwrites_a_newer_one(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_the_explanation_starts_hidden_and_opens_when_the_reader_asks(dashboard, live_page):
-    """The verdict and the table are the answer; the method, its caveat and the note about what the estimate is not
-    wait behind a disclosure until the reader asks for them.
+def test_the_method_lives_in_a_bubble_the_reader_opens_and_closes(dashboard, live_page):
+    """The verdict and the table are the answer; the method and its caveat wait behind the info button.
 
-    Asserted by visibility, not by text: the prose is in the DOM whether the disclosure is open or closed, so a
-    `to_contain_text` would pass on a collapsed panel. The table and the verdict are the half that stays out.
+    The bubble is the dashboard's own control: a real button, so it is focusable and announced, its tooltip shows on
+    keyboard focus as well as on a click (a tap has no hover), Escape closes it, and the retired `<details>` and the
+    static sentence that used to repeat the caveat are gone from the panel. Asserted by visibility, not by text: the
+    prose is in the DOM either way.
     """
     page, errors = live_page
     serve(page, lambda route: route.fulfill(json=estimate_body()))
     open_panel(page, live_page.base_url)
 
-    # What a reader sees without asking: the verdict, the numbers, and the summary to open.
+    tip = page.locator('.new-pdc-estimate-head .setting-tip')
+    button = page.locator('.new-pdc-estimate-head .info-btn')
     expect(page.locator('.new-pdc-verdict')).to_be_visible()
     expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
-    explanation = page.locator('.new-pdc-explanation')
-    expect(explanation).to_be_visible()
-    assert not explanation.evaluate('el => el.open'), 'the explanation is open before anyone asked for it'
+    expect(tip).to_be_hidden()
+    expect(page.locator('.new-pdc-explanation')).to_have_count(0)
+    expect(page.locator('.new-pdc-about')).to_have_count(0)
 
-    # The explanatory prose is in the DOM and not visible.
-    expect(page.locator('.new-pdc-method')).to_be_hidden()
-    expect(page.locator('.new-pdc-caveat')).to_be_hidden()
-    expect(page.locator('.new-pdc-about')).to_be_hidden()
-
-    # Opening it shows every sentence, and leaves the verdict and the numbers where they were.
-    explanation.locator('summary').click()
-    assert explanation.evaluate('el => el.open')
-    expect(page.locator('.new-pdc-method')).to_be_visible()
-    expect(page.locator('.new-pdc-method')).to_contain_text('Shrake-Rupley')
-    expect(page.locator('.new-pdc-caveat')).to_be_visible()
-    expect(page.locator('.new-pdc-about')).to_be_visible()
+    button.click()
+    expect(tip).to_be_visible()
+    expect(button).to_have_attribute('aria-expanded', 'true')
+    expect(page.locator('.new-pdc-method')).to_contain_text('head bead')
+    expect(page.locator('.new-pdc-caveat')).to_contain_text('flat surface')
+    # The number and the verdict stay where they were: the bubble explains them, it is not a second pane.
     expect(page.locator('.new-pdc-verdict')).to_be_visible()
     expect(page.locator('.new-pdc-estimate-table')).to_be_visible()
+
+    # The pointer is parked off the button first: hover shows the tip through CSS, exactly as keyboard focus does, and
+    # Escape closes what the reader opened -- it cannot clear a hover that is still there.
+    page.mouse.move(0, 0)
+    page.keyboard.press('Escape')
+    expect(tip).to_be_hidden()
+    expect(button).to_have_attribute('aria-expanded', 'false')
+
+    # Keyboard focus alone opens it too: the CSS :focus-within half of the contract, which a mouse-only test misses.
+    button.focus()
+    expect(tip).to_be_visible()
+    # Focus shows the tip without the click state claiming to be open.
+    expect(button).to_have_attribute('aria-expanded', 'false')
     assert errors == [], errors

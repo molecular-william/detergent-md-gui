@@ -10,6 +10,11 @@
 ;
 ; `nsteps` and `gen-seed` are stamped from the run at prepare time (`pdc_nvt_ps` and the run's seed), and 0 steps is
 ; a stage with nothing to do.
+;
+; This leg holds the transient protein position-restraint window only when the run asks for it here
+; (`pdc_posres_nvt`, off by default): `prepare` then adds `define = -DPOSRES`, which makes grompp read the
+; `#ifdef POSRES` block martinize2 wrote into the protein's own itp. The elastic network is a bonded term in every
+; leg regardless, and a leg that switches the window off renders this file with no define.
 integrator               = md
 dt                       = 0.005
 nsteps                   = 100000

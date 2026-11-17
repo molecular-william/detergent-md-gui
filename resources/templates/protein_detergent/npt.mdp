@@ -9,10 +9,10 @@
 ;
 ; `nsteps` is stamped from the run at prepare time (`pdc_npt_ps`), and 0 steps is a stage with nothing to do.
 ;
-; When the run asks for the transient protein position-restraint window (`pdc_restrain_protein`), `prepare` adds
-; `define = -DPOSRES` and `refcoord-scaling = com` to this file: the first makes grompp read the `#ifdef POSRES`
-; block martinize2 wrote into the protein's own itp, and the second keeps those reference coordinates following the
-; box this barostat changes. A run that switches the window off writes neither line.
+; When this leg holds the transient protein position-restraint window (`pdc_posres_npt`, on by default),
+; `prepare` adds `define = -DPOSRES` and `refcoord-scaling = com` to this file: the first makes grompp read the
+; `#ifdef POSRES` block martinize2 wrote into the protein's own itp, and the second keeps those reference coordinates
+; following the box this barostat changes. A run that switches this leg's window off writes neither line.
 integrator               = md
 dt                       = 0.005
 nsteps                   = 900000

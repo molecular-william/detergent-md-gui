@@ -33,18 +33,29 @@
 .new-pdc-verdict.short{color:#a8480d}
 .new-pdc-verdict.enough{color:#1c7a3e}
 .new-pdc-verdict.refused{color:var(--danger)}
-.new-pdc-method,.new-pdc-caveat{margin:8px 0 0;font-size:12px}
-/* The explanation behind the verdict and the numbers waits until the reader asks: the same `<details>` disclosure
-   the advanced settings use, so a reader recognises it. The verdict and the table stay out of it. The preview card's
-   own disclosure is the same shape with its own hook -- a class two cards share is a selector neither owns, and an
-   unqualified selector for it then matches two elements. */
-#run-form .new-pdc-explanation,#run-form .new-pdc-preview-explanation{margin-top:10px}
-#run-form .new-pdc-explanation summary,#run-form .new-pdc-preview-explanation summary{font-size:12px;cursor:pointer}
-#run-form .new-pdc-explanation p,#run-form .new-pdc-preview-explanation p{margin:6px 0 0}
+/* The method and its caveat live inside the info button's tooltip now, so they take the tooltip's own type and
+   spacing rather than a paragraph's. The verdict keeps its line and the button sits at its end. */
+.new-pdc-estimate-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.new-pdc-estimate-head .new-pdc-verdict{flex:1 1 auto}
+.setting-tip .new-pdc-method,.setting-tip .new-pdc-caveat{display:inline;margin:0;font-size:inherit}
+/* The preview card's own disclosure: the same <details> shape the advanced settings use, with its own hook -- a
+   class two cards share is a selector neither owns, and an unqualified selector for it then matches two elements. */
+#run-form .new-pdc-preview-explanation{margin-top:10px}
+#run-form .new-pdc-preview-explanation summary{font-size:12px;cursor:pointer}
+#run-form .new-pdc-preview-explanation p{margin:6px 0 0}
+/* The stage settings: the validation panel's editors, in the pdc column's width. Two fields across, because this half
+   is six of the layout's twelve columns and four across would leave a caption like "Force tolerance kJ mol-1 nm-1"
+   about 140 px. */
+.new-pdc-stages{margin-top:14px}
+/* Two across only where there is room for two captions: below that the shared grid's own breakpoints take over
+   (two columns under 1100 px, one under 520), so a phone never scrolls sideways for a label. */
+@media (min-width:560px){#run-form .new-pdc-stages .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){
+  #run-form .new-pdc-stages .stage-facts{white-space:normal;text-align:right}
+}
+#run-form .new-pdc-stages .stage-editor .hint{display:block;font-weight:400}
+#run-form .pdc-default{padding:4px 7px;font-size:11px}
 .new-pdc-belt-block,.new-pdc-empty-block{margin-top:10px}
-#run-form .leg{margin-top:12px}
-#run-form .leg label{display:flex;flex-direction:column;gap:2px;font-weight:650}
-#run-form .leg .hint{display:block;font-weight:400}
 #run-form .new-pdc-limitation{color:#7a4b00}
 /* The fields that read as a pair share one row, so the card uses its width instead of stacking one per line.
    T10's proof is geometric (equal y inside the column), not visual -- see the browser test. */

@@ -749,6 +749,9 @@
         {# The values this run actually recorded, grouped by stage. Read-only: the run is the record, and a queued
            run's row shows what it will consume from the record the queue route normalized. #}
         <details class="job-stage-settings"><summary>Stage settings</summary><div class="resource-content"><div class="stage-settings-host" aria-live="polite"><p class="hint">Open to read the values this run recorded.</p></div></div></details>
+        {# The energy diagnostics a completed run can draw from its equilibration legs' own .edr files. Its renderer
+           loads the published record only when the disclosure opens. #}
+        <details class="job-diagnostics"><summary>Diagnostics</summary><div class="resource-content"><div class="run-equilibration-host" aria-live="polite"><p class="hint">Open to plot this run's equilibration legs.</p></div></div></details>
       </div>
     </td></tr>
   </tbody>

@@ -105,6 +105,15 @@ ESTIMATE_CAVEAT = (
     'own assessment decides that; the estimate does not validate encapsulation.'
 )
 
+#: The short form of the method, for the panel's info bubble. The paragraph above stays the route's own statement --
+#: it names the probe, the residue rule and the head-bead convention a reader checking the number needs -- and this is
+#: what a reader who is only sizing a belt sees: the two quantities that were divided, and that nothing was simulated.
+ESTIMATE_SUMMARY = (
+    'Apolar area of the transmembrane slab -- the solvent-accessible surface of the deposited structure, restricted to '
+    'the apolar atoms inside the slab -- divided by the area of one detergent head bead (pi r^2, with r from its '
+    'Martini 3 size class). No simulation.'
+)
+
 
 def element_of(atom_name):
     """The element a PDB atom name names, through the engine's one reader (`structures.atom_element`).

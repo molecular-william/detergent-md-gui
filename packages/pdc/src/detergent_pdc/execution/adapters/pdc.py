@@ -95,11 +95,14 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # rather than a number, advertised in ``CHOICE_SPECS`` so ``runs.py:queue`` keeps it. ``none`` is the
             # default: a run or clone written before this setting existed back-maps exactly as it did before.
             'protein_vsite': 'none',
-            # Whether the minimisation and NPT legs hold the protein's backbone with the POSRES block martinize2
-            # wrote. On by default: the transient window is the decision this pipeline now releases with, and a run
-            # that wants the elastic network on its own says so. A choice, so it is advertised in ``CHOICE_SPECS``
-            # and validated with the other choices; the value is written into those two mdps only.
-            'pdc_restrain_protein': 'yes',
+            # Whether each dynamics leg holds the protein's backbone with the POSRES block martinize2 wrote. One
+            # choice per leg, because the define is per mdp: the minimisation and the NPT leg hold the backbone by
+            # default (the reference bilayer protocol's window), the NVT leg does not, and the assessment and
+            # extension legs are always released -- they are the sampling that is judged and back-mapped, and a
+            # restraint there would be measured as a property of the model. A run prepared before the split states
+            # the window once (`pdc_restrain_protein`), and `prepare` translates it: yes is the minimisation and
+            # NPT legs, no is neither.
+            'pdc_posres_min': 'yes', 'pdc_posres_nvt': 'no', 'pdc_posres_npt': 'yes',
             # The minimisation's own steepest-descent knobs. The profile states the same reviewed values, so an
             # untouched run renders the reviewed file; a run that states one replaces it.
             'pdc_minimisation_emtol': 100.0, 'pdc_minimisation_emstep': 0.001,
@@ -410,13 +413,19 @@ def validate_payload(payload):
     if vsite not in CHOICE_SPECS['protein_vsite'][1]:
         raise ValueError('the pdc protein virtual-site choice must be one of '
                          + ', '.join(CHOICE_SPECS['protein_vsite'][1]) + f', not {vsite!r}')
-    # The transient position-restraint window is a choice too: `yes` writes the POSRES define into the
-    # minimisation and NPT mdps, `no` leaves them as the reviewed files. Checked here as well as in
-    # `normalize_settings` because `prepare` and the preview read this function's answer.
-    restrain = payload.get('pdc_restrain_protein', DEFAULTS['pdc_restrain_protein'])
-    if restrain not in CHOICE_SPECS['pdc_restrain_protein'][1]:
+    # The transient position-restraint window is a choice per leg: one each, because the mdp define that opens it
+    # is per file. Checked here as well as in `normalize_settings` because `prepare` and the preview read this
+    # function's answer. A payload written before the split carries the single `pdc_restrain_protein`, which still
+    # means what it meant -- the minimisation and NPT legs -- and `prepare` translates it before normalisation.
+    for leg, setting in POSRES_SETTINGS.items():
+        value = payload.get(setting, DEFAULTS[setting])
+        if value not in CHOICE_SPECS[setting][1]:
+            raise ValueError(f'the pdc {leg} position-restraint choice must be one of '
+                             + ', '.join(CHOICE_SPECS[setting][1]) + f', not {value!r}')
+    restrain = payload.get(LEGACY_RESTRAINT_SETTING)
+    if restrain is not None and restrain not in CHOICE_SPECS[LEGACY_RESTRAINT_SETTING][1]:
         raise ValueError('the pdc protein-restraint choice must be one of '
-                         + ', '.join(CHOICE_SPECS['pdc_restrain_protein'][1]) + f', not {restrain!r}')
+                         + ', '.join(CHOICE_SPECS[LEGACY_RESTRAINT_SETTING][1]) + f', not {restrain!r}')
     # The plan's step 1 is a choice too, and it is checked here for the same reason: a string that means "yes" to a
     # caller would silently mean "no" to the builder.
     # The default is the adapter's -- on -- but a step *about a protein* cannot be on for a build that has none: an empty
@@ -436,7 +445,8 @@ def validate_payload(payload):
     return {'seed': seed, 'aggregation_number': aggregation, 'salt_molar': salt,
             'placement_mode': placement_mode, 'protein_chains': chains, 'backmap': backmap,
             'prepare_protein': prepare_protein, 'remove_out_of_micelle': remove_out,
-            'protein_vsite': vsite, 'restrain_protein': restrain,
+            'protein_vsite': vsite,
+            'restrain_protein': restrain if restrain is not None else 'yes',
             'conformation_library': library,
             'template': payload.get('template'), 'protein': payload.get('protein') or None}
 
@@ -602,14 +612,38 @@ PRODUCTION_TIMESTEP = 'pdc_production_dt_fs'
 
 #: The mdp define that opens the transient position-restraint window: with it, `grompp` reads the
 #: `#ifdef POSRES` block martinize2 wrote into the protein's own itp. The martinize2 elastic network is a bonded
-#: term in every leg regardless; this is the extra, optional window, and `pdc_restrain_protein` chooses it.
+#: term in every leg regardless; this is the extra, optional window, and one choice per leg opens it.
 POSRES_DEFINE = '-DPOSRES'
-RESTRAINT_SETTING = 'pdc_restrain_protein'
+#: Each dynamics leg's own restraint choice. The assessment and extension legs are not here: they are the released
+#: sampling the run judges and back-maps, so a restraint there would be part of the measurement.
+POSRES_SETTINGS = {'minimisation': 'pdc_posres_min', 'nvt': 'pdc_posres_nvt', 'npt': 'pdc_posres_npt'}
+#: The single choice a run prepared before the split carries. Read, never written: `prepare` turns it into the three.
+LEGACY_RESTRAINT_SETTING = 'pdc_restrain_protein'
 
 
-def _restrained(settings: dict) -> bool:
-    """Whether this run asks for the minimisation/NPT POSRES window; the default is the adapter's own."""
-    return settings.get(RESTRAINT_SETTING, DEFAULTS[RESTRAINT_SETTING]) == 'yes'
+def _posres(settings: dict, leg: str) -> bool:
+    """Whether one leg holds the protein's backbone; a record written before the split states the window once."""
+    setting = POSRES_SETTINGS[leg]
+    if setting in settings:
+        return settings[setting] == 'yes'
+    return leg != 'nvt' and settings.get(LEGACY_RESTRAINT_SETTING, 'yes') == 'yes'
+
+
+def _with_posres_legs(supplied: dict) -> dict:
+    """One run's restraint window, in the per-leg spelling the writer reads.
+
+    A caller that states any leg states them all; a caller that still sends only the retired single choice is
+    translated to what it meant -- the minimisation and NPT legs -- and the single key is dropped, so the record
+    cannot carry two answers to one question.
+    """
+    if any(setting in supplied for setting in POSRES_SETTINGS.values()):
+        return {key: value for key, value in supplied.items() if key != LEGACY_RESTRAINT_SETTING}
+    legacy = supplied.get(LEGACY_RESTRAINT_SETTING)
+    if legacy is None:
+        return supplied
+    on = 'yes' if legacy == 'yes' else 'no'
+    return {key: value for key, value in supplied.items() if key != LEGACY_RESTRAINT_SETTING} | {
+        'pdc_posres_min': on, 'pdc_posres_nvt': 'no', 'pdc_posres_npt': on}
 
 
 def _dt_ps(profile: str, settings: dict, setting: str) -> float:
@@ -713,21 +747,21 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
     no mdp, no record and no directory; its step count is recorded as zero.
 
     Each leg is also the run's own where the profile marks an option `variable`: the minimisation's convergence
-    knobs, the NPT leg's barostat, and the optional POSRES window. The window is the one conditional value here --
-    `define = -DPOSRES` and, on the pressure leg, `refcoord-scaling = com` are written only when the run asks for
-    it, so a run that says no renders a file with no define at all.
+    knobs, the NPT leg's barostat, and each leg's own POSRES window. The window is the one conditional value here --
+    `define = -DPOSRES` and, on the pressure leg, `refcoord-scaling = com` are written only where the run asks for
+    it, so a leg that says no renders a file with no define at all.
 
     Returns each leg's step count, so the run's record carries what the chain costs before it costs it.
     """
     steps = {}
-    # A protein-free build has no restraint block to activate, so the window is not written even when the setting
-    # says yes: the define would be inert, and the file would claim a restraint the system does not carry.
-    restrained = has_protein and _restrained(settings)
     for name, leg in LEGS.items():
         stage = stage_by_name(name)
         if name in skipped:
             steps[leg['key']] = 0
             continue
+        # A protein-free build has no restraint block to activate, so no leg gets the define even when its setting
+        # says yes: the define would be inert, and the file would claim a restraint the system does not carry.
+        restrained = has_protein and leg['key'] in POSRES_SETTINGS and _posres(settings, leg['key'])
         wanted = float(settings[leg['setting']])
         # The profile decides the unit: a duration becomes steps at the run's own timestep when it names one, else at
         # *its* own, so lowering a timestep cannot silently shorten the leg the run asked for. The minimisation's
@@ -764,7 +798,7 @@ def _equilibration_mdps(inputs: Path, settings: dict, skipped: dict, *, has_prot
                 values['dt'] = dt
         if leg.get('seed_velocities'):
             values['gen-seed'] = int(settings['seed'])
-        if restrained and leg['key'] in ('minimisation', 'npt'):
+        if restrained:
             values['define'] = POSRES_DEFINE
         write_mdp(leg['profile'], inputs / leg['mdp'], values)
         _write_leg_record(inputs, stage, leg)
@@ -1018,8 +1052,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         raise ValueError('a pdc build needs a detergent template')
     # The panel's spelling is translated before validation, because `validate_payload` reads the builders' names
     # and would otherwise see a missing seed where the caller sent one.
-    supplied = {_ALIASES.get(key) or key: value
-                for key, value in {**(settings or {}), **kwargs}.items()}
+    supplied = _with_posres_legs({_ALIASES.get(key) or key: value
+                                  for key, value in {**(settings or {}), **kwargs}.items()})
     choices = validate_payload({'protein': protein, 'template': template, **supplied})
     numbers = settings_from(supplied)
     # The device must be one this host reports, refused here rather than by mdrun three stages in. A host with no
@@ -1029,7 +1063,6 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     numbers.update({'seed': choices['seed'], 'aggregation_number': choices['aggregation_number'],
                     'salt_molar': choices['salt_molar'], 'backmap': choices['backmap'],
                     'protein_vsite': choices['protein_vsite'],
-                    'pdc_restrain_protein': choices['restrain_protein'],
                     'radius_nm': numbers.get('radius_nm') or round(float(DEFAULT_RADIUS_NM), 6)})
 
     run_dir = Path(run_dir)
@@ -1367,9 +1400,13 @@ def _protocol_prepare(run_dir, metadata):
 # protein happens to name, the second is a boolean -- so their options are declared empty or as the two booleans, and
 # their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
 CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
-                # The optional transient POSRES window for the minimisation and NPT legs. `yes` is the release
-                # default; martinize2 always writes the block, and only the mdp's define decides whether it acts.
-                'pdc_restrain_protein': ('Protein restraints', ('yes', 'no')),
+                # The optional transient POSRES window, one choice per leg that can hold it. Martinize2 always
+                # writes the block; only each mdp's define decides whether it acts, which is why the question is
+                # asked per file. The retired single choice stays advertised so an older form still validates.
+                'pdc_posres_min': ('Protein restraints · minimisation', ('yes', 'no')),
+                'pdc_posres_nvt': ('Protein restraints · NVT', ('yes', 'no')),
+                'pdc_posres_npt': ('Protein restraints · NPT', ('yes', 'no')),
+                'pdc_restrain_protein': ('Protein restraints (retired single choice)', ('yes', 'no')),
                 # The NPT leg's barostat, advertised as the GROMACS choices they are; `c-rescale`/`isotropic` are
                 # the reviewed profile's own, so an untouched run renders it.
                 'pdc_npt_pcoupl': ('NPT barostat',

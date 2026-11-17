@@ -102,6 +102,25 @@
 .run-resources > details[open] { flex-basis:100%; order:1; }
 .run-resources > details[open] > summary { background:#edf3ff; }
 .run-resources > details > .resource-content { padding:12px; border:1px solid var(--line); border-top:0; border-radius:0 0 6px 6px; }
+/* Diagnostics: the equilibration traces a completed run publishes from its own energy files. The disclosure is the
+   shared .run-resources one; only the panel's header line, its leg switch and its stacked charts need their own ink.
+   The chart legend is Plotly's, inside each panel, so it cannot drift from the trace it names. */
+.run-equilibration { display:grid; gap:8px; }
+.run-equilibration-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
+.run-equilibration-head h4 { margin:0; font-size:12px; color:var(--ink); }
+.run-equilibration-head p { margin:0; flex:1 1 320px; }
+.run-equilibration-switch { display:flex; flex-wrap:wrap; gap:6px; }
+.run-equilibration-switch button { font-size:11px; padding:4px 9px!important; }
+.run-equilibration-switch button[aria-pressed="true"] { border-color:#9db6e8; background:#e6eefc; color:var(--ink); }
+.run-equilibration-panels { display:grid; gap:2px; }
+.run-equilibration-panel { margin:0; }
+.run-equilibration-panel figcaption { display:flex; justify-content:space-between; align-items:baseline; gap:10px; font-size:11px; font-weight:650; color:var(--ink); }
+.run-equilibration-panel .run-equilibration-mean { font-weight:400; }
+.run-equilibration-chart { min-height:170px; font-size:12px; color:var(--muted); }
+.run-equilibration-source { margin:0; }
+.run-equilibration-empty { display:grid; justify-items:start; gap:8px; }
+.run-equilibration-empty p { margin:0; }
+.run-equilibration-empty button { font-size:12px; }
 
 /* A directory copied into runs/ has no job row, so the table cannot list it. The banner says so once and its
    dialog registers selected directories; it is hidden entirely when there is nothing to register. */

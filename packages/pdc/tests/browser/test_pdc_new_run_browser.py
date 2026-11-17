@@ -35,7 +35,9 @@ CATALOG = {
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
                  'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
-                 'pdc_restrain_protein': 'yes', 'pdc_minimisation_emtol': 100, 'pdc_minimisation_emstep': 0.001,
+                 'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
+                 'pdc_posres_min': 'yes', 'pdc_posres_nvt': 'no', 'pdc_posres_npt': 'yes',
+                 'pdc_minimisation_emtol': 100, 'pdc_minimisation_emstep': 0.001,
                  'pdc_npt_pcoupl': 'c-rescale', 'pdc_npt_pcoupltype': 'isotropic', 'pdc_npt_ref_p': 1.0,
                  'pdc_npt_tau_p': 4.0, 'pdc_npt_compressibility': 4.5e-5,
                  'mdrun_ntomp': 8, 'mdrun_ranks': 1, 'mdrun_nb': 'auto'},
@@ -91,6 +93,13 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(page.locator('#new-protein-id')).to_be_visible()
     expect(page.locator('#new-import')).to_be_visible()
     expect(page.locator('#new-count')).to_be_visible()
+    # The stage settings are editors now: minimisation, NVT and NPT open on the values a reader most often changes,
+    # and the two production legs open on request -- so their durations are reached, not merely present.
+    expect(page.locator('#run-form .new-pdc-stages')).to_be_visible()
+    for stage in ('minimisation', 'nvt', 'npt'):
+        assert page.locator(f'#run-form details[data-stage={stage}]').evaluate('el => el.open'), stage
+    for stage in ('assessment', 'extension'):
+        page.locator(f'#run-form details[data-stage={stage}] summary').click()
     expect(page.locator('#new-assessment-ns')).to_be_visible()
     expect(page.locator('#new-extension-ns')).to_be_visible()
     expect(page.locator('#new-advanced')).to_be_visible()
@@ -98,7 +107,9 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'nstlist', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
                  'ref_t', 'tau_t', 'ref_p', 'tau_p', 'compressibility', 'mdrun_ntomp', 'mdrun_ranks',
-                 'protein_vsite', 'pdc_restrain_protein', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
+                 'protein_vsite', 'pdc_equil_dt_fs', 'pdc_production_dt_fs',
+                 'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
+                 'pdc_posres_min', 'pdc_posres_nvt', 'pdc_posres_npt',
                  'pdc_npt_pcoupl', 'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p',
                  'pdc_npt_compressibility'):
         assert page.locator(f'[name={name}]').count() == 1, f'{name} is not offered, or is offered twice'
@@ -225,7 +236,7 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
 
 
 def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
-    """The expanded block is a form to scan: 29 fields in two columns, not a page of stacked controls.
+    """The expanded block is a form to scan: 27 fields in two columns, not a page of stacked controls.
 
     A host with a device is stated, so the count is the full form and not the machine this runs on: a host with
     no GPU hides the device control and one field goes with it.
@@ -239,12 +250,12 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
 
     block = page.locator('#new-advanced')
     expect(block).to_be_visible()
-    assert page.locator('#new-advanced .new-pdc-option-group').count() == 10
-    assert page.locator('#new-advanced [name]').count() == 37
+    # Six groups: the stage settings took the timesteps, the restraints, the minimisation knobs and the NPT coupling
+    # out of this fold, which is the point of the change -- what is left is the run's output and execution.
+    assert page.locator('#new-advanced .new-pdc-option-group').count() == 6
+    assert page.locator('#new-advanced [name]').count() == 27
     height = block.bounding_box()['height']
-    # The block gained the restraint/minimisation/NPT groups (eight controls) in this change; the ceiling moves with
-    # the content it must show, and a phone still gets one column without horizontal scroll (measured below).
-    assert height < 900, f'the expanded block is {height:.0f} px tall; a scan should fit under 900'
+    assert height < 700, f'the expanded block is {height:.0f} px tall; a scan should fit under 700'
 
     # A row keeps its label and control on one line: the input sits inside the label's own vertical band.
     first = page.locator('#new-advanced .new-pdc-option-rows > label').first
@@ -258,38 +269,61 @@ def test_the_other_run_options_are_compact_when_expanded(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_every_other_run_option_has_a_default(dashboard, live_page):
-    """Nothing in the collapsed block is blank on first load, except the two timesteps.
+def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_page):
+    """Every stage box starts on the number the adapter's defaults state, and only the two timesteps stay blank.
 
     A blank timestep is not a missing value: it is the reviewed profile's own dt, which the run records no override
-    for. Every other control starts on the number the adapter's defaults state.
+    for. The durations the panel never showed a starting value for (the equilibration pair) are filled here, which is
+    the alias this change had to repair: they used to render blank while the run used 500 and 4 500 ps.
     """
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route('**/api/run/devices', lambda route: route.fulfill(json={'devices': [], 'in_use': {}}))
     open_panel(page, live_page.base_url)
-    page.wait_for_function(
-        "() => document.querySelector('.new-pdc-gpu-device')?.closest('label')?.hidden === true", timeout=30000)
-    page.locator('#new-advanced').evaluate('(el) => el.open = true')
 
     values = page.evaluate("""() => Object.fromEntries(
-        [...document.querySelectorAll('#new-advanced [name]')].map(el => [el.name, el.value]))""")
-    assert values, 'the block renders no inputs'
-    assert {name for name, value in values.items() if value in ('', None)} == {
-        'pdc_equil_dt_fs', 'pdc_production_dt_fs'}, values
-    # No GPU means no device choice: the select keeps its element but loses its name, so the payload cannot carry
-    # `mdrun_gpu`, and the offload scheme no longer offers the `gpu` option beside it.
-    assert 'mdrun_gpu' not in values, values
-    assert values['mdrun_nb'] == 'auto'
-    # The restraint window and the minimisation/NPT groups start on the values the catalogue publishes, like every
-    # other field in the fold.
-    assert values['pdc_restrain_protein'] == 'yes'
+        [...document.querySelectorAll('#run-form .new-pdc-stages [name]')].map(el => [el.name, el.value]))""")
+    assert values, 'the stage settings render no inputs'
+    assert (values['pdc_nvt_ps'], values['pdc_npt_ps']) == ('500', '4500')
+    assert values['pdc_minimisation_steps'] == '200000'
     assert (values['pdc_minimisation_emtol'], values['pdc_minimisation_emstep']) == ('100', '0.001')
+    assert (values['pdc_posres_min'], values['pdc_posres_nvt'], values['pdc_posres_npt']) == ('yes', 'no', 'yes')
     assert (values['pdc_npt_pcoupl'], values['pdc_npt_pcoupltype']) == ('c-rescale', 'isotropic')
     assert tuple(float(values[name]) for name in
                  ('pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility')) == (1.0, 4.0, 4.5e-5)
-    assert page.evaluate(
-        "Array.from(document.querySelectorAll('[name=mdrun_nb] option')).every(o => o.value !== 'gpu')")
+    assert {name for name, value in values.items() if value in ('', None)} == {
+        'pdc_equil_dt_fs', 'pdc_production_dt_fs'}, values
+    assert errors == [], errors
+
+
+def test_each_stage_editor_states_what_it_holds_even_while_closed(dashboard, live_page):
+    """The facts line is the label the paragraphs became: the duration, the timestep once stated, and the window."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+
+    page.wait_for_function(
+        "() => document.querySelector('.new-pdc-stage-facts[data-stage=nvt]')?.textContent.length", timeout=30000)
+    facts = page.evaluate("""() => Object.fromEntries(
+        [...document.querySelectorAll('.new-pdc-stage-facts')].map(el => [el.dataset.stage, el.textContent]))""")
+    assert facts['minimisation'] == '200 000 steps · 100 kJ/mol/nm · 0.001 nm · restrained', facts
+    assert facts['nvt'] == '500 ps · free', facts
+    assert facts['npt'] == '4 500 ps · restrained', facts
+    assert facts['assessment'] == '100 ns', facts
+    assert facts['extension'] == '900 ns', facts
+
+    # A stated timestep adds the step count it implies, and the count moves with the duration: the same arithmetic
+    # the adapter prepares with (steps = duration / dt).
+    page.locator('[name=pdc_nvt_ps]').fill('250')
+    page.locator('[name=pdc_equil_dt_fs]').fill('5')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text('250 ps · 5 fs · 50 000 steps · free')
+    # The restored window shows on the same line, so a closed editor still says whether it holds the backbone.
+    page.locator('[name=pdc_posres_nvt]').select_option('yes')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text(
+        '250 ps · 5 fs · 50 000 steps · restrained')
+    # Zero duration is a leg the run skips, and the line says so instead of 0 ps.
+    page.locator('[name=pdc_nvt_ps]').fill('0')
+    expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_contain_text('skipped')
     assert errors == [], errors
 
 
@@ -407,18 +441,19 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').fill('220')
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
-    # The two timesteps live in Other run options; the equilibration durations sit with the production legs.
-    # Stated, all four post under the adapter's advertised names, beside the rest of the run's settings.
-    page.locator('#new-advanced').evaluate('(el) => el.open = true')
+    # The two timesteps sit at the top of the stage settings and the two equilibration durations in their own editors;
+    # stated, all four post under the adapter's advertised names.
     page.locator('[name=pdc_equil_dt_fs]').fill('10')
     page.locator('[name=pdc_production_dt_fs]').fill('20')
     page.locator('[name=pdc_nvt_ps]').fill('100')
     page.locator('[name=pdc_npt_ps]').fill('200')
-    # The restraint window and the minimisation/NPT tunables: the selects post their values and the numbers post
-    # theirs, under the adapter's advertised names.
-    page.locator('[name=pdc_restrain_protein]').select_option('no')
+    # The minimisation's own boxes and one restraint choice per leg: each editor states its own window, and the
+    # selects post their values under the adapter's advertised names.
+    page.locator('[name=pdc_minimisation_steps]').fill('400000')
     page.locator('[name=pdc_minimisation_emtol]').fill('250')
     page.locator('[name=pdc_minimisation_emstep]').fill('0.002')
+    for leg in ('min', 'nvt', 'npt'):
+        page.locator(f'[name=pdc_posres_{leg}]').select_option('no')
     page.locator('[name=pdc_npt_pcoupl]').select_option('berendsen')
     page.locator('[name=pdc_npt_pcoupltype]').select_option('semiisotropic')
     page.locator('[name=pdc_npt_ref_p]').fill('2.5')
@@ -447,8 +482,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
         'pdc_equil_dt_fs': 10, 'pdc_production_dt_fs': 20,
-        'pdc_restrain_protein': 'no', 'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
-        'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002,
+        'pdc_posres_min': 'no', 'pdc_posres_nvt': 'no', 'pdc_posres_npt': 'no',
+        'pdc_npt_pcoupl': 'berendsen', 'pdc_npt_pcoupltype': 'semiisotropic',
+        'pdc_minimisation_steps': 400000, 'pdc_minimisation_emtol': 250, 'pdc_minimisation_emstep': 0.002,
         'pdc_npt_ref_p': 2.5, 'pdc_npt_tau_p': 8, 'pdc_npt_compressibility': 0.0001,
         'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
         'ref_t': 300, 'tau_t': 1.0, 'ref_p': 1.0, 'tau_p': 12.0, 'compressibility': 4.5e-5,
