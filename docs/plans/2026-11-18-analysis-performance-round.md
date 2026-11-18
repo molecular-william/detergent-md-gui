@@ -1,9 +1,9 @@
 # Plan: analysis performance round (shared staging, pdc contact graph, per-frame loops)
 
-Status: **Wave 1 built (2026-11-18); Wave 2 (S7) not started.** Evidence of what landed is in the execution record at
-the end. Evidence for the slices themselves: the four-lane audit of 2026-11-18; every slice here preserves the
-published numbers of every analysis it touches, and each lane asserts that by replaying the producer and comparing its
-artifacts byte for byte.
+Status: **built (2026-11-18): Wave 1 (S1–S6) and Wave 2 (S7).** Evidence of what landed and its before/after table is
+in the execution record at the end. Evidence for the slices themselves: the four-lane audit of 2026-11-18; every slice
+preserves the published numbers of every analysis it touches, and each lane asserts that by replaying the producer and
+comparing its artifacts byte for byte.
 
 Rules this plan is held to: `AGENTS.md` *Engineering rules* (measure before and after; one timed live replay of a
 producer that reads a production trajectory; no re-run of migrations; GROMACS + Martini by default, anything else only
@@ -324,9 +324,35 @@ are the reliable figures, and every byte comparison was done in one invocation p
   detergents, 8 000 protein beads), as the plan said. The workspace also gained and lost runs during the round (the
   live dashboard was in use), so replays name the runs that exist now.
 
-### Wave 2 — not started
+### Wave 2 — S7 built (2026-11-18)
 
-S7 (`surfaces` single extraction pass + bounded envelope, `osmotic` gather, `overlap` vector) is **not built**: it
-depends on S6's `coordinates_many`, which landed with the export in `dashboard.models.sugars.__init__` and a documented
-`(frames, atoms, 3) -> (frames, beads, 3)` signature. `surfaces` is still 18.8 s and `mapping-consistency` still reads
-the CG trajectory twice (the second read is core `bonded_terms.measure`); both are the next measured levers.
+S7 landed in commit `e568a93` (`surfaces` one AA-derived pass for the mapped variants + bounded envelope, `osmotic`
+gather/einsum, `overlap` vector op). Measured on the real `Glucose-CG-200ns-20261116` + pinned AA reference:
+
+| item | before -> after |
+| --- | --- |
+| `surfaces` wall (published 18.8 s) | 17.2 s HEAD -> **15.0 s** idle host, 16.8 s under load |
+| mapped-variant extraction (raw + ring-scaled) | 4.3 + 5.2 s -> **7.9 s for both** (one AA decode) |
+| `envelope`, 2 000 beads / 3.2 M cells | 118.82 s -> **0.36 s** (326x), vertices/faces cell-equal |
+| `osmotic` producer, 2 000 frames / 5 molecules | 0.922 s -> **0.592 s**; the COM arithmetic 111.7 -> 12.7 us/frame |
+| `overlap` publish | 5.00 s -> **2.57 s**; series pass 4.82 -> 2.47 s |
+
+Byte proof: **34/34 produced files**; `metadata.json` and `surface-comparison-aa-cg.json` raw-identical; every
+variant's `surface.xtc`, `surface.gro`, `connolly.pdb` and `vdwradii.dat` sha256-identical; `sasa.xvg` numeric bodies
+identical. The eight `*.log` files differ, and a HEAD-vs-HEAD control differs on the same files (and the XVG comment
+blocks) — GROMACS writes a creation timestamp and a random quote into them; the control is what separates that from
+this change.
+
+**The single AA decode could not use `coordinates_many`.** The mapped variants pass the trajectory's float32
+`frame.positions` to `sugars.coordinates`, whose bead centre of geometry is a **float32** mean; `coordinates_many`
+promotes the block to float64. On the real 20 001-frame reference the two disagree on 18 378 of 20 001 frames after the
+timestep's float32 store (19 799 for the ring-scaled path), and the written `surface.xtc` bytes change. The slice
+therefore keeps the per-frame `coordinates` oracle and buys the one-decode saving only for the two mapped variants;
+`coordinates_many` keeps its proven role where its caller already hands the oracle float64 (`mapping-consistency`).
+The dtype sensitivity is a real property of `coordinates`, not a defect to "fix" silently — a future float64 batch
+for surfaces would be a published-numbers change.
+
+Remaining measured levers, none in this round: `mapping-consistency` still reads the CG trajectory twice (the second
+read is core `bonded_terms.measure`); `surfaces` still decodes the AA file twice (once for its own variant, once for
+the mapped pair) because two MDAnalysis readers of one file must not overlap, and its tail is the mapped variants'
+`gmx sasa` legs after a serial 7.9 s pass.

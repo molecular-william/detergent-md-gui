@@ -156,7 +156,7 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
-**2026-11-18 analysis performance round: Wave 1 built (six slices), Wave 2 (`surfaces`) not started.**
+**2026-11-18 analysis performance round: built (seven slices, two waves).**
 Plan and execution record: `docs/plans/2026-11-18-analysis-performance-round.md`. What the audit found first, because
 it frames everything below: the tab is **hybrid** by design (`pdc-structure` is GROMACS tools plus one NumPy/MDAnalysis
 aggregation pass; the validation kinds are MDAnalysis + NumPy/SciPy/scikit-image/biotite with only `surfaces` shelling
@@ -179,9 +179,19 @@ numerics.
   as `#<name>.1#`; that name is not hidden, so the worker published it as a 0-byte artifact. The end-to-end replay
   through `python -m dashboard.analysis` found it; the placeholder is now unlinked before `gmx energy` writes. Lesson:
   compare the **output set**, not only the record.
-- *Open.* Wave 2 is unbuilt: `surfaces` (18.8 s) is one extraction pass writing all three variants plus a bounded
-  `envelope`, and `mapping-consistency` still reads the CG trajectory twice (the second read is core
-  `bonded_terms.measure`).
+- *Wave 2, `surfaces`/`osmotic`/`overlap` (`e568a93`).* The two mapped variants share one read of the AA trajectory
+  (one decode instead of two), the envelope evaluates each sphere only in its own sub-box, the osmotic centre of mass
+  is one gather/einsum and the overlap series one vector op per frame. `surfaces` 17.2 -> 15.0 s (published 18.8),
+  envelope 118.8 -> 0.36 s at 2 000 beads/3.2M cells, osmotic 461 -> 296 us/frame, overlap publish 5.0 -> 2.6 s; 34/34
+  files byte-identical (the `*.log` files differ only as GROMACS' own timestamps, proven by a HEAD-vs-HEAD control).
+- *`coordinates_many` is not the mapped path, and that is a finding.* `sugars.coordinates` is dtype-sensitive: a float32
+  trajectory makes its bead centre of geometry a float32 mean, while `coordinates_many` promotes to float64. On the
+  real 20 001-frame reference they disagree on 18 378 frames after the timestep store and change the `surface.xtc`
+  bytes, so `surfaces` keeps the per-frame oracle; `coordinates_many` is used where the caller already hands float64
+  (`mapping-consistency`). A float64 batch for surfaces would be a published-numbers change, not a performance tweak.
+- *Open.* `mapping-consistency` still reads the CG trajectory twice (the second read is core `bonded_terms.measure`),
+  and `surfaces` still decodes the AA file twice (its own variant + the mapped pair) because two MDAnalysis readers of
+  one file must not overlap.
 - *numpy floor.* `np.vecdot` in `dihedral_fit`/`bonded_estimate`/`bartender_fit` is load-bearing for the +-180 branch
   cut, so `detergent-core` now declares `numpy>=2` (commit `5f89ab8`); the feature distributions inherit it through
   `detergent-core==0.2.0`. A numpy 1.x host needs a row-per-dot fallback, not a `.sum()`.
