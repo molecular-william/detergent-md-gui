@@ -507,12 +507,15 @@ def _boxcenter_point(dimensions, mode):
 
 
 def _write_slice(path, universe, indices):
-    """The sampled frames alone, every atom and its original time, for a `gmx trjconv` that only wants those."""
-    wanted = set(indices)
+    """The sampled frames alone, every atom and its original time, for a `gmx trjconv` that only wants those.
+
+    Indexed reads through MDAnalysis' frame-offset cache, which is built beside the staged copy this work tree holds
+    when the trajectory is opened: a sequential pass would decode every frame of the window to write at most 240.
+    """
     with mda.Writer(str(path), n_atoms=len(universe.atoms)) as writer:
-        for index, _ in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
-            if index in wanted:
-                writer.write(universe.atoms)
+        for index in indices:
+            universe.trajectory[index]
+            writer.write(universe.atoms)
 
 
 def _write_ndx(path, group_atoms, n_atoms):
@@ -581,16 +584,21 @@ def _clustered(work, universe, settings, group_atoms, indices, temps):
 
 
 def _frame_atoms(universe, positions, written):
-    """One frame as the `read_gro`-shaped dicts `structures.series_pdb` takes, in nanometres.
+    """One frame's `read_gro`-shaped atom dicts, in nanometres, with `positions` one nm row per atom in `written`.
 
-    The three topology columns are read once per frame, not once per atom: `atoms.names[i]` rebuilds the whole
-    column on every access, which made a 120-model, 10,427-atom series spend two seconds a model in this loop.
+    Built for the first sampled frame only: a series is one system sampled repeatedly, so `structures.series_pdb`
+    keeps these atom dicts as its static columns and formats every model's coordinates into them. `positions` is the
+    frame's own nm array for `written`, so the coordinates recorded here are the first model's.
+
+    The topology columns are read out of their own arrays once: `atoms.names[i]` rebuilds the whole column on every
+    access, which made a 120-model, 10,427-atom series spend two seconds a model in this loop.
     """
     atoms = universe.atoms
     names, residues, resids = atoms.names, atoms.resnames, atoms.resids
     return [{'name': str(names[index]), 'residue': str(residues[index]),
              'residue_id': int(resids[index]),
-             'position': tuple(float(value) / 10.0 for value in positions[index])} for index in written]
+             'position': tuple(float(value) for value in position)}
+            for index, position in zip(written, positions)]
 
 
 def _protein_topologies(work):
@@ -646,8 +654,11 @@ def _build(work, payload, temps):
     if n_frames < 1:
         raise ValueError(f'{trajectory.name} holds no frames')
     # The trajectory's own first moment and step, so a window is arithmetic on frame numbers rather than a list of
-    # 50,000 times. One frame is read for this; the sampled frames are then collected in a single sequential pass,
-    # because random access to an `.xtc` seeks the file from its start (measured here: 1.7 s a frame on a 2.5 GB one).
+    # 50,000 times. One frame is read for this. Every treatment but nojump is frame-local, so the sampled frames are
+    # then read by index through MDAnalysis' frame-offset cache -- built beside the staged copy when the trajectory is
+    # opened -- instead of decoding the whole window and discarding most of it (measured on a 20,021-frame file:
+    # 1.22 s to decode the window against 0.011 s for its 120 sampled reads). nojump accumulates a transform across
+    # frames, so it alone still sees every frame of the window, in order.
     dt_ps = float(getattr(universe.trajectory, 'dt', 0.0) or 0.0)
     universe.trajectory[0]
     first_ns = float(universe.trajectory.time) / 1000.0  # ps -> ns
@@ -705,23 +716,12 @@ def _build(work, payload, temps):
         wrap = mda_transforms.wrap(universe.atoms, compound='atoms')
     elif view['pbc'] == 'nojump':
         nojump = mda_transforms.NoJump()
-    frames, times, rmsds, reference = [], [], [], None
-    wanted = iter(indices)
-    wanted_index = next(wanted, None)
-    for index, timestep in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
-        if wanted_index is None:
-            break
-        # A frame-local transform is only needed for the frames this file writes; nojump is history-dependent, so it
-        # is applied to every frame of the selected window in order or its answer differs from `gmx trjconv`.
-        if nojump is not None or index == wanted_index:
-            if unwrap is not None:
-                unwrap(timestep)
-            if wrap is not None:
-                wrap(timestep)
-            if nojump is not None:
-                nojump(timestep)
-        if index != wanted_index:
-            continue
+    frames, model_positions, times, rmsds, reference, fit_transform = [], [], [], [], None, None
+    first_atoms = None
+
+    def collect(timestep):
+        """Apply the view to one sampled frame and record its nm coordinates, its time and its fitted RMSD."""
+        nonlocal reference, fit_transform, first_atoms
         if view['center']:
             dimensions = timestep.dimensions if timestep.dimensions is not None else box
             shift = _boxcenter_point(dimensions, view['boxcenter']) - universe.atoms.positions[selection].mean(axis=0)
@@ -738,12 +738,38 @@ def _build(work, payload, temps):
             fit_transform(timestep)
             judged = universe.atoms.positions[selection] - reference[selection]
             rmsd = float(np.sqrt((judged ** 2).sum(axis=1).mean()))
-        positions = np.asarray(universe.atoms.positions, dtype=float)
-        frames.append(_frame_atoms(universe, positions, written))
+        # The writer formats each model from these nm rows: Angstrom (MDAnalysis) -> nanometre (a PDB of ours).
+        positions = np.asarray(universe.atoms.positions, dtype=float)[written] / 10.0
+        if first_atoms is None:
+            # One static atom list serves every model: only the coordinates change from frame to frame.
+            first_atoms = _frame_atoms(universe, positions, written)
+        model_positions.append(positions)
         times.append(round(float(timestep.time) / 1000.0, 6))
         if rmsd is not None:
             rmsds.append(rmsd)
+
+    if nojump is not None:
+        # History-dependent: every frame of the selected window is read, in order, so the accumulated transform is the
+        # one `gmx trjconv -pbc nojump` would have applied by the sampled frame.
+        wanted = iter(indices)
         wanted_index = next(wanted, None)
+        for index, timestep in enumerate(universe.trajectory[indices[0]:indices[-1] + 1], start=indices[0]):
+            if wanted_index is None:
+                break
+            nojump(timestep)
+            if index == wanted_index:
+                collect(timestep)
+                wanted_index = next(wanted, None)
+    else:
+        # Frame-local: only the frames the file writes are decoded, each one through the offset cache.
+        for index in indices:
+            timestep = universe.trajectory[index]
+            if unwrap is not None:
+                unwrap(timestep)
+            if wrap is not None:
+                wrap(timestep)
+            collect(timestep)
+    frames = [first_atoms] * len(model_positions)
     fit_record = (_fit_record(rmsds, len(selection), target=target, of=atoms, group=view['group'],
                               mode=view['fit'])
                   if rmsds else None)
@@ -751,7 +777,7 @@ def _build(work, payload, temps):
     note = _note(trajectory, stride, cadence_ns, settings['legacy'])
     text = structures.series_pdb(frames, topology=topology, detergent_residue=None, subunits=subunits,
                                  include_water=False, times_ns=times, protein_topologies=protein_topologies or None,
-                                 view=view, fit=fit_record,
+                                 view=view, fit=fit_record, positions=model_positions,
                                  # An aa_only run's frames are atoms: their element column is the chemistry a
                                  # viewer colours from, not a bead size class.
                                  atomistic=manifest.get('run_type') == 'aa_only',

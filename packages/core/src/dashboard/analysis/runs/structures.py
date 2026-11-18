@@ -488,6 +488,39 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
     return '\n'.join(lines) + '\n'
 
 
+class _SeriesLayout:
+    """The record columns a series writes identically in every model, resolved once.
+
+    A frame series samples one system, so every model's records share their serial, name, residue, molecule number,
+    chain, family and element; only the coordinate characters change. `prefixes` hold a record up to its x column,
+    `suffixes` from after its z column, and `sources` name the input atom each line is written from -- so a model is
+    written in one pass over its coordinates instead of formatting every atom twice.
+    """
+    __slots__ = ('prefixes', 'suffixes', 'sources', 'kept', 'conect', 'counts')
+
+    def __init__(self, prefixes, suffixes, sources, kept, conect, counts):
+        self.prefixes = prefixes
+        self.suffixes = suffixes
+        self.sources = sources
+        self.kept = kept
+        self.conect = conect
+        self.counts = counts
+
+    def rows(self, positions):
+        """One model's written position rows, in file order, from its input atoms or its position array."""
+        try:
+            return positions[self.sources]
+        except TypeError:  # a plain list of rows: no fancy indexing
+            return [positions[source] for source in self.sources]
+
+
+def _records_from(layout, rows):
+    """One model's `HETATM` lines, each from its fixed prefix and suffix and its own coordinates in ångström."""
+    return [prefix + f'{round(float(x) * 10.0, 3):8.3f}{round(float(y) * 10.0, 3):8.3f}'
+            f'{round(float(z) * 10.0, 3):8.3f}' + suffix
+            for prefix, suffix, (x, y, z) in zip(layout.prefixes, layout.suffixes, rows)]
+
+
 def structure_records(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None,
                       protein_topologies=None, conect_kind='chemical', conect=True, atomistic=False):
     """One structure's `HETATM` records, its `CONECT` records, and the counts a REMARK needs to report.
@@ -509,43 +542,61 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
     written into the chain column: the chain is unreserved in a file of ours -- the residue number already tells
     two detergent molecules apart -- and a reader who wants to hold one ring still has to be able to name it.
     """
-    kept = [atom for atom in atoms if include_water or atom['residue'].upper() not in WATER_RESIDUES]
+    layout = _series_layout(atoms, detergent_residue=detergent_residue, include_water=include_water,
+                            topology=topology, subunits=subunits, protein_topologies=protein_topologies,
+                            conect_kind=conect_kind, atomistic=atomistic)
+    records = _records_from(layout, layout.rows([atom['position'] for atom in atoms]))
+    if not conect:
+        return records, [], {}
+    return records, layout.conect, layout.counts
+
+
+def _series_layout(atoms, *, detergent_residue, include_water=False, topology=None, subunits=None,
+                   protein_topologies=None, conect_kind='chemical', atomistic=False):
+    """Resolve one series' per-atom record columns and its one `CONECT` block, from the first frame's atoms.
+
+    Everything here is a property of the system rather than of a moment -- which atoms are written, each atom's serial
+    and molecule number, its name/residue/chain/element/family columns, and the moleculetype's bonds -- so a series
+    does it once. `sources` indexes back into the input atoms, which is what lets a model's positions be formatted
+    without rebuilding the atom dicts it shares with every other model.
+    """
     elements = bead_elements(topology)
     families = bead_families(topology)
-
-    molecules, molecule_of = [], {}
-    for atom in kept:
+    prefixes, suffixes, sources, kept = [], [], [], []
+    molecules, molecule_of, serials = [], {}, []
+    for source, atom in enumerate(atoms):
+        if not include_water and atom['residue'].upper() in WATER_RESIDUES:
+            continue
+        name = str(atom['name'])
         key = (str(atom['residue']).upper(), atom['residue_id'])
         if key not in molecule_of:
             molecule_of[key] = len(molecules)
             molecules.append([])
-        molecules[molecule_of[key]].append(atom)
-
-    records, serials = [], [[] for _ in molecules]
-    for serial, atom in enumerate(kept, start=1):
-        index = molecule_of[(str(atom['residue']).upper(), atom['residue_id'])]
+            serials.append([])
+        index = molecule_of[key]
+        molecules[index].append(atom)
+        serial = len(kept) + 1
+        serials[index].append(serial)
+        kept.append(atom)
+        sources.append(source)
         detergent = is_detergent(atom, detergent_residue)
         residue = DETERGENT_RESIDUE if detergent else PROTEIN_RESIDUE
         # An all-atom file states its atoms' own elements and no Martini family: the size-class stand-in and the
         # family code are a coarse-grained file's readings of a bead, and applying them to atoms painted a whole
         # all-atom trajectory as carbon. The caller says which kind of system it is writing.
-        element = (atom_element(atom['name']) if atomistic
-                   else elements.get(str(atom['name']).strip().upper()) if detergent else None)
-        family = None if atomistic else (families.get(str(atom['name']).strip().upper()) if detergent else None)
-        x, y, z = (round(float(value) * 10.0, 3) for value in atom['position'])  # nm -> Angstrom, as PDB is
+        element = (atom_element(name) if atomistic
+                   else elements.get(name.strip().upper()) if detergent else None)
+        family = None if atomistic else (families.get(name.strip().upper()) if detergent else None)
         # One character, because that is the column: the model's own letter where it fits, its first character
         # otherwise, and the file's REMARK says so rather than leaving a truncated label to be discovered.
-        chain = str((subunits or {}).get(str(atom['name']).strip().upper(), CHAIN_UNSTATED))[:1]
-        records.append(f'HETATM{serial:5d} {str(atom["name"])[:4]:<4s} {residue:>3s} {chain}{index + 1:4d}    '
-                       f'{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}'
-                       f'{float(BEAD_FAMILIES.index(family or FAMILY_UNSTATED)):6.2f}'
-                       f'          {element or BEAD_ELEMENT:>2s}')
-        serials[index].append(serial)
+        chain = str((subunits or {}).get(name.strip().upper(), CHAIN_UNSTATED))[:1]
+        prefixes.append(f'HETATM{serial:5d} {name[:4]:<4s} {residue:>3s} {chain}{index + 1:4d}    ')
+        suffixes.append(f'{1.0:6.2f}'
+                        f'{float(BEAD_FAMILIES.index(family or FAMILY_UNSTATED)):6.2f}'
+                        f'          {element or BEAD_ELEMENT:>2s}')
 
     detergents = [index for index, beads in enumerate(molecules)
                   if beads and is_detergent(beads[0], detergent_residue)]
-    if not conect:
-        return records, [], {}
     conect, unbonded = [], []
     for index in detergents:
         bonds = molecule_bonds(topology, molecules[index], serials[index])
@@ -574,9 +625,10 @@ def structure_records(atoms, *, detergent_residue, include_water=False, topology
             offset += size
         protein_molecules = len(protein_topologies)
     drawn = elastic_conect if conect_kind == 'elastic' else conect
-    return records, drawn, {'detergent_molecules': len(detergents), 'unbonded': len(unbonded),
-                            'protein_molecules': protein_molecules, 'unbonded_protein': unbonded_protein,
-                            'protein_elastic': elastic_bonds, 'conect_kind': conect_kind}
+    counts = {'detergent_molecules': len(detergents), 'unbonded': len(unbonded),
+              'protein_molecules': protein_molecules, 'unbonded_protein': unbonded_protein,
+              'protein_elastic': elastic_bonds, 'conect_kind': conect_kind}
+    return _SeriesLayout(prefixes, suffixes, sources, kept, drawn, counts)
 
 
 def structure_remarks(title, topology, counts, *, extra=(), subunits=None, atomistic=False, clause=None):
@@ -671,7 +723,7 @@ def _view_modifications(view):
 
 def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame series', note=None, fit=None,
                subunits=None, include_water=False, times_ns=None, protein_topologies=None, view=None,
-               conect_kind='chemical', atomistic=False):
+               conect_kind='chemical', atomistic=False, positions=None):
     """A run's sampled frames as one multi-model PDB, written with the conventions the run's own structure uses.
 
     `frames` is one atom list per sampled moment, each `read_gro`-shaped: `name`, `residue`, `residue_id` and
@@ -702,17 +754,33 @@ def series_pdb(frames, *, topology=None, detergent_residue=None, title='frame se
     ``{'pbc', 'center', 'fit', 'group'}`` -- and the file states each modification, because moving coordinates for
     display makes this a view of the trajectory rather than the trajectory's own frame. `fit` states how the fitted
     series was held; a file whose view changed nothing is the trajectory's own coordinates and claims no modification.
+
+    `positions` is one nm position array per model, aligned with `frames[0]`'s atoms, for a caller that already holds
+    the coordinates and would otherwise rebuild a full atom dict for every model just to move them. When it is given,
+    the frames are the series' shared static columns: the layout is resolved from `frames[0]` once and each model's
+    lines are its own coordinates formatted into that template, so one pass over each model's atoms writes its
+    records. Without it the rows come from each frame's own `position` values, as before.
     """
     if times_ns is not None and len(times_ns) != len(frames):
         raise ValueError(f'{len(frames)} frames but {len(times_ns)} model times: a series states one time per model')
+    if positions is not None and len(positions) != len(frames):
+        raise ValueError(f'{len(frames)} frames but {len(positions)} model positions: '
+                         'a series states one position set per model')
     if detergent_residue is None and frames:
         detergent_residue = _detergent_residue(frames[0], topology, protein_topologies)
     # The records are per model, because coordinates are; the bonds are the same set for every model, so they are
     # resolved once, with the first frame, and written once, after the last ENDMDL.
-    built = [structure_records(atoms, detergent_residue=detergent_residue, subunits=subunits,
-                              include_water=include_water, protein_topologies=protein_topologies,
-                               topology=topology, conect_kind=conect_kind, conect=index == 0, atomistic=atomistic)
-             for index, atoms in enumerate(frames)]
+    layout = (_series_layout(frames[0], detergent_residue=detergent_residue, subunits=subunits,
+                             include_water=include_water, protein_topologies=protein_topologies,
+                             topology=topology, conect_kind=conect_kind, atomistic=atomistic)
+              if frames else None)
+    if layout is None:
+        built = []
+    elif positions is None:
+        built = [(_records_from(layout, layout.rows([atom['position'] for atom in frame])),
+                  layout.conect, layout.counts) for frame in frames]
+    else:
+        built = [(_records_from(layout, layout.rows(model)), layout.conect, layout.counts) for model in positions]
     extra = [f'REMARK 950 SAMPLED SERIES: {len(frames)} models' + (f', {note}' if note else '')]
     if view:
         modifications = _view_modifications(view)

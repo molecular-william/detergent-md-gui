@@ -1306,3 +1306,66 @@ def test_a_coarse_grained_series_keeps_the_size_class_stand_in():
     assert [line[76:78].strip() for line in records] == ['C', 'C', 'C'], records
     assert 'COARSE-GRAINED SYSTEM AS SET UP' in text
     assert 'ELEMENTS ARE RADIUS STAND-INS' in text
+
+
+def _count_reads(monkeypatch):
+    """The trajectory frame indices the producer actually decodes, through the reader's own read call."""
+    reads = []
+    real_universe = mda.Universe
+
+    def counting(*args, **kwargs):
+        universe = real_universe(*args, **kwargs)
+        original = universe.trajectory._read_frame
+
+        def read(frame, *rest, **more):
+            reads.append(int(frame))
+            return original(frame, *rest, **more)
+
+        universe.trajectory._read_frame = read
+        return universe
+
+    monkeypatch.setattr(frame_series.mda, 'Universe', counting)
+    return reads
+
+
+def test_a_frame_local_view_decodes_only_the_frames_it_writes(tmp_path, monkeypatch):
+    """`nojump` alone needs the whole window; every other view jumps straight to the sampled frames.
+
+    The loop used to decode every frame between the first and last sampled one and throw most away (measured 1.22 s
+    against 0.011 s for the 120 sampled reads of a 20 021-frame file), so what this pins is the visit strategy.
+    """
+    work = tmp_path / 'work'
+    frames = [np.array([[2.0 + 10.0 * step, 2.0, 2.0], [3.0 + 10.0 * step, 2.0, 2.0],
+                        [4.0 + 10.0 * step, 2.0, 2.0], [5.0 + 10.0 * step, 2.0, 2.0]]) for step in range(6)]
+    _trajectory(work, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1], box=(200.0, 30.0, 30.0))
+    reads = _count_reads(monkeypatch)
+
+    frame_series.run(work, _payload(interval_ns=0.02))
+
+    record = json.loads((work / 'frames.json').read_text())
+    assert record['indices'] == [0, 2, 4]
+    assert set(reads) <= {0, 2, 4}, f'a frame-local view decoded frames it did not write: {sorted(set(reads))}'
+
+
+def test_nojump_still_decodes_every_frame_of_the_window(tmp_path, monkeypatch):
+    """History-dependent: the indexed path must not be taken, or the accumulated jump differs from `gmx trjconv`."""
+    work = tmp_path / 'work'
+    frames = [np.array([[2.0 + 10.0 * step, 2.0, 2.0], [3.0 + 10.0 * step, 2.0, 2.0],
+                        [4.0 + 10.0 * step, 2.0, 2.0], [5.0 + 10.0 * step, 2.0, 2.0]]) for step in range(6)]
+    _trajectory(work, frames, names=NAMES, resindex=[0] * 4, resnames=['ALA'], resids=[1], box=(200.0, 30.0, 30.0))
+    reads = _count_reads(monkeypatch)
+
+    frame_series.run(work, _payload(pbc='nojump', interval_ns=0.02))
+
+    assert set(reads) == {0, 1, 2, 3, 4}, f'nojump skipped a frame of the window: {sorted(set(reads))}'
+
+
+def test_a_series_given_its_positions_writes_the_same_bytes_as_its_atom_dicts():
+    """The template path the producer now takes: static columns from the first frame, one coordinate pass per model."""
+    frames = [_atoms(['C1', 'O1', 'H1']), _atoms(['C1', 'O1', 'H1'])]
+    frames[1] = [dict(atom, position=(atom['position'][0] + 1.0, atom['position'][1], atom['position'][2]))
+                 for atom in frames[1]]
+    positions = [[atom['position'] for atom in frame] for frame in frames]
+
+    assert structures.series_pdb(frames, positions=positions) == structures.series_pdb(frames)
+
