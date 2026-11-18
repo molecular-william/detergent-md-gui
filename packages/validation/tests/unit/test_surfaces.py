@@ -46,15 +46,15 @@ def _fake_mda():
     return types.SimpleNamespace(Universe=Universe)
 
 
-def _run(tmp_path, rings=True):
-    """The five sources `generate` reads, in the layout it reads them from; contents are never parsed."""
+def _run(tmp_path):
+    """The sources `generate` reads, in the layout it reads them from; contents are never parsed."""
     root = tmp_path / 'run'
     for relative in ('1_AA-reference/prod/lig.gro', '1_AA-reference/prod/lig.xtc',
                      '4_CG_sim/prod/lig_CG.gro', '4_CG_sim/prod/lig_CG.xtc'):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('placeholder')
-    model = {'rings': rings, 'beads': BEADS}
+    model = {'beads': BEADS}
     (root / '2_mapping').mkdir(parents=True)
     (root / '2_mapping/model.json').write_text(json.dumps(model))
     return root
@@ -64,18 +64,17 @@ def _fake_generate(monkeypatch):
     """Fake the stateful extraction; keep the real orchestration and post-processing."""
     monkeypatch.setitem(sys.modules, 'MDAnalysis', _fake_mda())
     monkeypatch.setattr(surfaces, '_write_variant',
-                        lambda label, universe, reader, radii, model, work: np.zeros((4, 3)) + _variant_offset(label))
-    monkeypatch.setattr(surfaces, '_write_mapped_variants',
-                        lambda labels, variants, aa, model, output: {
-                            label: np.zeros((4, 3)) + _variant_offset(label) for label in labels})
+                        lambda label, universe, reader, radii, work: np.zeros((4, 3)) + _variant_offset(label))
+    # The one mapped frame: a known bead-position set, so the alignment target is checkable.
+    monkeypatch.setattr(surfaces.carbohydrates, 'coordinates',
+                        lambda model, positions, **kwargs: np.ones((4, 3)))
     monkeypatch.setattr(surfaces, 'align', lambda points, target, physical: points)
     monkeypatch.setattr(surfaces, 'envelope',
                         lambda points, radii: (np.zeros((4, 3)), np.array([[0, 1, 2], [0, 1, 3]])))
 
 
 def _variant_offset(label):
-    return {'AA': (0, 0, 0), 'Mapped raw': (1, 0, 0), 'Mapped ring-scaled': (2, 0, 0),
-            'Simulated CG': (3, 0, 0)}[label]
+    return {'AA': (0, 0, 0), 'Simulated CG': (3, 0, 0)}[label]
 
 
 def _whole_grid_envelope(positions, radii, spacing=.04):
@@ -132,22 +131,22 @@ def test_sasa_commands_pin_the_reviewed_knobs():
                         '-ndots', '240', '-surface', 'all', '-output', 'all']
 
 
-@pytest.mark.parametrize('rings, expected', [
-    (True, ['AA', 'Mapped raw', 'Mapped ring-scaled', 'Simulated CG']),
-    (False, ['AA', 'Mapped raw', 'Simulated CG']),
-])
-def test_variant_set_keeps_every_published_surface(tmp_path, monkeypatch, rings, expected):
+def test_variant_set_is_the_two_models_compared(tmp_path, monkeypatch):
+    """The mapped variants are gone from the calculation: AA and this run's simulated CG are the set."""
     _fake_generate(monkeypatch)
+    expected = ['AA', 'Simulated CG']
     monkeypatch.setattr(surfaces, '_gmx_variant', lambda label, work, gmx: (
         [{'cwd': str(work.relative_to(work.parents[2])), 'command': [label], 'exit_code': 0}],
         {'frames': 2, 'start_ps': 0.0, 'end_ps': 10.0, 'mean_nm2': 1.0, 'std_nm2': 0.0, 'xvg': 'sasa.xvg'}))
 
-    metadata = surfaces.generate(_run(tmp_path, rings))
+    metadata = surfaces.generate(_run(tmp_path))
 
     assert list(metadata['statistics']) == expected
     assert [command['command'][0] for command in metadata['commands']] == expected
     found = sorted(path.name for path in (tmp_path / 'run/analysis/surfaces').iterdir() if path.is_dir())
     assert found == sorted(label.lower().replace(' ', '-') for label in expected)
+    # No mapped trajectory or mapped SASA directory is written.
+    assert not any('mapped' in name for name in found)
     # The pair JSON is the Shape pane's data; the interactive figure is no longer produced at all.
     assert (tmp_path / 'run/analysis/surfaces/surface-comparison-aa-cg.json').is_file()
     assert not (tmp_path / 'run/analysis/surfaces/surface-comparison.html').exists()
@@ -175,7 +174,7 @@ def test_only_the_two_drawn_envelopes_are_built(tmp_path, monkeypatch):
 
 def test_metadata_commands_stay_in_variant_order_when_completions_interleave(tmp_path, monkeypatch):
     _fake_generate(monkeypatch)
-    delays = {'AA': 0.08, 'Mapped raw': 0.0, 'Mapped ring-scaled': 0.04, 'Simulated CG': 0.0}
+    delays = {'AA': 0.08, 'Simulated CG': 0.0}
 
     def fake_gmx(label, work, gmx):
         time.sleep(delays[label])
@@ -186,8 +185,7 @@ def test_metadata_commands_stay_in_variant_order_when_completions_interleave(tmp
 
     metadata = surfaces.generate(_run(tmp_path))
 
-    assert [command['command'][0] for command in metadata['commands']] == \
-        ['AA', 'Mapped raw', 'Mapped ring-scaled', 'Simulated CG']
+    assert [command['command'][0] for command in metadata['commands']] == ['AA', 'Simulated CG']
 
 
 def test_one_failed_variant_is_named_and_the_others_are_still_attempted(tmp_path, monkeypatch):
@@ -197,7 +195,7 @@ def test_one_failed_variant_is_named_and_the_others_are_still_attempted(tmp_path
     def fake_run(command, cwd, text, capture_output, timeout):
         label = Path(cwd).name
         attempted.append(label)
-        if label == 'mapped-raw' and 'surface.xtc' in command:
+        if label == 'simulated-cg' and 'surface.xtc' in command:
             return types.SimpleNamespace(returncode=1, stdout='', stderr='connolly exploded: bad solvent')
         if 'surface.xtc' in command:
             (Path(cwd) / 'sasa.xvg').write_text('# comment\n0.0 12.5\n10.0 12.7\n')
@@ -210,9 +208,9 @@ def test_one_failed_variant_is_named_and_the_others_are_still_attempted(tmp_path
 
     message = str(joined.value)
     assert message.startswith('surface variants failed:')
-    assert 'Mapped raw' in message and 'connolly exploded: bad solvent' in message
-    # All four variants were attempted despite the first failure; the join happens after every future settles.
-    assert set(attempted) == {'aa', 'mapped-raw', 'mapped-ring-scaled', 'simulated-cg'}
+    assert 'Simulated CG' in message and 'connolly exploded: bad solvent' in message
+    # Both variants were attempted despite the first failure; the join happens after every future settles.
+    assert set(attempted) == {'aa', 'simulated-cg'}
 
 
 def test_phases_say_which_variant_is_running(tmp_path, monkeypatch):
@@ -225,7 +223,7 @@ def test_phases_say_which_variant_is_running(tmp_path, monkeypatch):
 
     surfaces.generate(_run(tmp_path))
 
-    for label in ('AA', 'Mapped raw', 'Mapped ring-scaled', 'Simulated CG'):
+    for label in ('AA', 'Simulated CG'):
         extracting = phases.index(f'Surfaces: extracting {label}')
         submitted = phases.index(f'Surfaces: {label} · gmx sasa')
         done = phases.index(f'Surfaces: {label} done')
@@ -233,50 +231,24 @@ def test_phases_say_which_variant_is_running(tmp_path, monkeypatch):
     assert phases[-1] == 'Surfaces: envelopes and pair'
 
 
-def test_the_shared_aa_pass_writes_the_same_bytes_as_one_pass_per_mapped_variant(tmp_path):
-    """The mapped pass must produce the files the per-variant writer produced, byte for byte.
+def test_the_simulated_cg_frame_is_registered_on_the_mapped_aa_frame(tmp_path, monkeypatch):
+    """The comparison needs one frame of correspondence: the AA frame in the beads' frame is the fit target.
 
-    That is the whole property it exists for: one decode of the atomistic trajectory for both mapped variants. It is
-    also what makes them call the per-frame `coordinates` oracle rather than the float64 `coordinates_many` -- a
-    float64 bead mean changes the XTC bytes (measured on the real reference: 18 378 of 20 001 frames still differ
-    after the timestep's float32 store).
+    No mapped trajectory or mapped SASA is computed; this single call is the mapping's whole contribution, and the
+    rigid-body fit is what puts the CG envelope in the AA frame.
     """
-    import MDAnalysis as mda
-    from MDAnalysis.coordinates.memory import MemoryReader
+    _fake_generate(monkeypatch)
+    calls = []
+    monkeypatch.setattr(surfaces, 'align', lambda points, target, physical: calls.append((points, target, physical)) or points)
+    monkeypatch.setattr(surfaces, '_gmx_variant', lambda label, work, gmx: (
+        [{'cwd': 'x', 'command': [label], 'exit_code': 0}],
+        {'frames': 2, 'start_ps': 0.0, 'end_ps': 10.0, 'mean_nm2': 1.0, 'std_nm2': 0.0, 'xvg': 'sasa.xvg'}))
 
-    box = np.array([10, 10, 10, 90, 90, 90], dtype=np.float32)
-    aa = mda.Universe.empty(2)
-    aa.add_TopologyAttr('names', ['C1', 'C2'])
-    aa.add_TopologyAttr('resnames', ['LIG'])
-    aa.load_new(np.array([[[0, 0, 0], [1, 2, 0]], [[3, 1, 0], [4, 3, 1]]], dtype=np.float32),
-                format=MemoryReader, order='fac')
-    for timestep in aa.trajectory:
-        timestep.dimensions = box
-    cg = mda.Universe.empty(1)
-    cg.add_TopologyAttr('names', ['B01'])
-    cg.add_TopologyAttr('resnames', ['LIG'])
-    cg.load_new(np.zeros((2, 1, 3), dtype=np.float32), format=MemoryReader, order='fac')
-    for timestep in cg.trajectory:
-        timestep.dimensions = box
+    surfaces.generate(_run(tmp_path))
 
-    model = {'beads': [{'name': 'B01', 'export_name': 'B01', 'atoms': [1, 2], 'size': 'S'}],
-             'rings': [{'beads': ['B01'], 'scale': 1.0}], 'connections': []}
-    variants = {'Mapped raw': (cg, [.2]), 'Mapped ring-scaled': (cg, [.2])}
-
-    merged = tmp_path / 'merged'
-    for label in variants:
-        (merged / label.lower().replace(' ', '-')).mkdir(parents=True)
-    first = surfaces._write_mapped_variants(list(variants), variants, aa, model, merged)
-
-    one = tmp_path / 'one'
-    for label, (universe, radii) in variants.items():
-        work = one / label.lower().replace(' ', '-')
-        work.mkdir(parents=True)
-        surfaces._write_variant(label, universe, aa, radii, model, work)
-
-    for label in variants:
-        directory = label.lower().replace(' ', '-')
-        for artifact in ('surface.xtc', 'surface.gro', 'vdwradii.dat'):
-            assert (merged / directory / artifact).read_bytes() == \
-                (one / directory / artifact).read_bytes(), (label, artifact)
-    assert first['Mapped raw'].shape == (1, 3)
+    assert len(calls) == 1
+    points, target, physical = calls[0]
+    # `coordinates` is faked to one Å for every bead; the target is converted back to nm for the comparison.
+    assert np.allclose(target, np.ones((4, 3)) / 10), target
+    assert physical == [0, 1]
+    assert np.allclose(points, np.zeros((4, 3)) + np.array([3, 0, 0])), points

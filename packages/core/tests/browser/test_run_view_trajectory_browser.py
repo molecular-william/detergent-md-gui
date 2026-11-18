@@ -626,34 +626,25 @@ def test_the_group_control_shows_only_when_the_centre_or_the_fit_needs_it(dashbo
     assert errors == [], errors
 
 
-def test_align_trajectory_holds_every_model_on_the_solute(dashboard, live_page):
-    """The old fit-the-frames control, restored: checked, the body is rot+trans on the solute and the picks stand
-    disabled; unchecked, the explicit Fit and Group are what it carries."""
+def test_the_fit_and_group_picks_are_the_only_fit_controls(dashboard, live_page):
+    """The Align-trajectory tickbox is gone: Fit and Group state the fit directly and are never disabled."""
     page, errors, state = open_run(dashboard, live_page, ENGINE_RUN)
     expect(series(page)).to_contain_text('3 models')
     page.locator('#run-view-build-A').click()
-    align = page.locator('#run-view-form-align-A')
+    assert page.locator('#run-view-form-align-A').count() == 0
     fit = page.locator('#run-view-form-fit-A')
     group = page.locator('#run-view-form-group-A')
-    expect(align).not_to_be_checked()
     expect(fit).to_be_enabled()
+    expect(fit).to_have_value('none')
 
-    align.check()
-
-    expect(fit).to_be_disabled()
-    expect(group).to_be_disabled()
-    expect(fit).to_have_value('rot+trans')
-    expect(group).to_have_value('solute')
+    fit.select_option('rot+trans')
+    group.select_option('solute')
     page.locator('#run-view-submit-A').click()
 
     expect(series(page)).to_contain_text('rotation-and-translation fit on the solute')
     assert state['posted'][-1]['fit'] == 'rot+trans', state['posted']
     assert state['posted'][-1]['group'] == 'solute', state['posted']
 
-    align.uncheck()
-
-    expect(fit).to_be_enabled()
-    expect(group).to_be_enabled()
     fit.select_option('trans')
     group.select_option('protein')
     page.locator('#run-view-submit-A').click()

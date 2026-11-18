@@ -3,9 +3,14 @@
 The smooth mesh is the union of probe-inflated spheres (SAS), not a claim to
 reconstruct the re-entrant solvent-excluded surface. GROMACS dot surfaces are
 retained separately for inspection.
+
+Two models are measured: the atomistic reference and this CG run's own simulated
+trajectory. The old mapped variants (raw and ring-scaled) are gone; the mapping
+still supplies the bead radii and one first-frame correspondence, which is what
+registers the simulated CG frame onto the AA frame for the overlay and is not a
+surface calculation.
 """
 import json
-import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -69,76 +74,23 @@ def _sasa_commands(gmx):
     return full, snapshot
 
 
-def _write_variant(label, universe, reader, radii, model, work):
+def _write_variant(label, universe, reader, radii, work):
     """Write one variant's XTC/GRO/radii and return its frame-0 positions in nm.
 
     Runs on the main thread: the MDAnalysis readers are stateful, and a reader writes its offsets cache beside its
     input, so two readers of the same file must never overlap.
     """
     import MDAnalysis as mda
-    mapped = label.startswith('Mapped')
     first = None
     # Derived portable GRO/XTCs keep source times; source trajectories never change.
     with mda.Writer(str(work/'surface.xtc'), n_atoms=len(universe.atoms)) as writer:
         for idx, frame in enumerate(reader.trajectory):
-            if mapped:
-                positions = carbohydrates.coordinates(model, frame.positions, scaled=label == 'Mapped ring-scaled')
-                universe.atoms.positions = positions; universe.dimensions = frame.dimensions
-                universe.trajectory.ts.time = frame.time
             if not np.isfinite(universe.atoms.positions).all(): raise ValueError('Nonfinite surface coordinates')
             if idx == 0:
                 first = universe.atoms.positions.copy()/10
                 universe.atoms.write(str(work/'surface.gro'))
             writer.write(universe.atoms)
     (work/'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n' for a, r in zip(universe.atoms, radii)))
-    return first
-
-
-def _write_mapped_variants(labels, variants, aa, model, output):
-    """Every mapped variant from ONE read of the AA trajectory.
-
-    `Mapped raw` and `Mapped ring-scaled` read the same atomistic file through the mapping, so before this pass each
-    decoded it (measured 4.05-4.84 s and 4.94-5.77 s; one of the two decodes was pure duplicate work). One pass
-    writes both.
-
-    The mapped variants keep calling `sugars.coordinates` per frame, not `coordinates_many`: `coordinates` is
-    dtype-sensitive -- a float32 trajectory makes its bead centre of geometry a float32 mean -- and the published
-    surfaces were built through that rounding, so a float64 batch changes every mapped byte (measured on the real
-    24-atom reference: 18 378 of 20 001 frames still differ after the timestep's float32 store, and both
-    `surface.xtc`s). One decode is what this pass buys; the arithmetic stays the oracle's.
-
-    Runs on the main thread, like `_write_variant`: the AA reader is stateful and its offsets cache sits beside it.
-    Returns `{label: frame-0 positions in nm}`.
-    """
-    import MDAnalysis as mda
-    writers = {}
-    for label in labels:
-        universe = variants[label][0]
-        work = output / label.lower().replace(' ', '-')
-        writers[label] = (mda.Writer(str(work / 'surface.xtc'), n_atoms=len(universe.atoms)), work)
-    first = {}
-    try:
-        for idx, frame in enumerate(aa.trajectory):
-            for label in labels:
-                universe, radii = variants[label]
-                universe.atoms.positions = carbohydrates.coordinates(
-                    model, frame.positions, scaled=label == 'Mapped ring-scaled')
-                universe.dimensions = frame.dimensions
-                universe.trajectory.ts.time = frame.time
-                if not np.isfinite(universe.atoms.positions).all():
-                    raise ValueError('Nonfinite surface coordinates')
-                if idx == 0:
-                    first[label] = universe.atoms.positions.copy() / 10
-                    universe.atoms.write(str(writers[label][1] / 'surface.gro'))
-                writers[label][0].write(universe.atoms)
-    finally:
-        for writer, _ in writers.values():
-            writer.close()
-    for label in labels:
-        universe, radii = variants[label]
-        work = writers[label][1]
-        (work / 'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n'
-                                                   for a, r in zip(universe.atoms, radii)))
     return first
 
 
@@ -183,22 +135,17 @@ def generate(run_dir):
         aa_r.append(AA_RADII[element])
     cg_r=[carbohydrates.RADII_NM[b['size']] for b in model['beads']]
     physical=[i for i,b in enumerate(model['beads']) if not b.get('virtual_site')]
-    variants={'AA':(aa,aa_r),'Mapped raw':(cg,cg_r)}
-    if model.get('rings'): variants['Mapped ring-scaled']=(cg,cg_r)
-    variants['Simulated CG']=(cg,cg_r)
+    # Two models only: the atomistic reference and this run's own simulation. The mapping is still read -- for the
+    # bead radii and for the one first-frame correspondence below -- but no mapped trajectory or SASA is produced.
+    variants={'AA':(aa,aa_r),'Simulated CG':(cg,cg_r)}
     gmx=tools.tool_path('gmx')
     if not gmx: raise FileNotFoundError('GROMACS not available')
     first={};stats={};commands=[]
     try:
-        # Every variant is extracted on this thread, and each one's `gmx sasa` legs are submitted as soon as its files
-        # close. The order is by what frees the tail earliest: the CG variant is independent, the AA variant's leg is
-        # the longest (a full-trajectory sasa), and the two mapped variants share one read of the AA file (see
-        # `_write_mapped_variants`). Submissions are collected by label and joined in variant order below, so the
-        # record's `commands` order stays the one it always had.
-        with ThreadPoolExecutor(max_workers=min(len(variants),os.cpu_count() or 1)) as pool:
+        # Every variant is extracted on this thread, and its `gmx sasa` legs are submitted as soon as its files
+        # close. The two variants are independent, so the AA leg runs while the CG trajectory is written.
+        with ThreadPoolExecutor(max_workers=len(variants)) as pool:
             submitted={}
-            mapped=[label for label in variants if label.startswith('Mapped')]
-            others=[label for label in variants if label != 'AA' and label not in mapped]
             for label in variants:
                 (output/label.lower().replace(' ','-')).mkdir()
             def submit(label):
@@ -207,19 +154,15 @@ def generate(run_dir):
                 future=pool.submit(_gmx_variant,label,work,gmx)
                 future.add_done_callback(lambda _,label=label: progress.report(f'Surfaces: {label} done'))
                 submitted[label]=future
-            for label in others:
+            for label in variants:
                 universe,radii=variants[label]
                 progress.report(f'Surfaces: extracting {label}')
-                first[label]=_write_variant(label,universe,universe,radii,model,output/label.lower().replace(' ','-'))
+                first[label]=_write_variant(label,universe,universe,radii,output/label.lower().replace(' ','-'))
                 submit(label)
-            progress.report('Surfaces: extracting AA')
-            first['AA']=_write_variant('AA',aa,aa,variants['AA'][1],model,output/'aa')
-            submit('AA')
-            for label in mapped:
-                progress.report(f'Surfaces: extracting {label}')
-            first.update(_write_mapped_variants(mapped, variants, aa, model, output))
-            for label in mapped:
-                submit(label)
+            # One frame of the AA reference in the beads' frame: the target the simulated CG frame is fitted to.
+            # This is the only thing the mapping contributes to the comparison; it is not a mapped trajectory and no
+            # SASA is measured on it.
+            target=carbohydrates.coordinates(model, first['AA']*10)/10
             # Join in variant order so metadata['commands'] is deterministic even when completions interleave.
             failures=[]
             for label in variants:
@@ -231,7 +174,6 @@ def generate(run_dir):
                 commands.extend(variant_commands);stats[label]=variant_stats
             if failures: raise RuntimeError('surface variants failed: '+'; '.join(failures))
             progress.report('Surfaces: envelopes and pair')
-            target=first['Mapped raw']
         first['Simulated CG']=align(first['Simulated CG'],target,physical)
         center=first['AA'].mean(axis=0)
         # Only the two panels the pair JSON carries: the AA-vs-each-variant envelopes fed the removed figure.

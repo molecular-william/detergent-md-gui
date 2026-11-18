@@ -1,0 +1,19 @@
+Surfaces: AA vs Simulated CG only, and no Align-trajectory tickbox
+
+surfaces.generate measures two models: AA (the atomistic reference) and Simulated CG (this
+run's own trajectory). The Mapped raw and Mapped ring-scaled variants are removed -- no mapped
+trajectory is written and no mapped gmx sasa leg runs. One mapped value remains because the
+comparison needs it: the first AA frame in the beads' frame is the rigid-body fit target that
+registers the CG envelope onto AA (one frame of positions, not a surface calculation).
+
+The run view's Shape section names two models and filters its table to AA and Simulated CG, so
+an older attempt whose metadata still lists four variants reads the same way. The analysis-absent
+sentence drops "the mapped".
+
+The trajectory form's Align-trajectory checkbox is removed from markup, state, handler and help
+text; Fit and Group are the only fit controls and are never disabled, and the default build
+(no fit, no group) is unchanged. A recorded series restores the picks exactly as recorded.
+
+Checks: fast tier 3127 passed / 1 xfailed; browser 415 passed at -n 8; ruff clean.
+Plan: docs/plans/2026-11-18-surfaces-two-models-and-align-removal.md
+Draft: docs/design/drafts/2026-11-18-surfaces-two-models-and-align-removal.html

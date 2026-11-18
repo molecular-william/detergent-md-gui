@@ -234,25 +234,17 @@ function dihedralRows(fit) {
   return measureList([...measured, ...unmeasured]);
 }
 
-//: The four names are the producer's own statistics keys, so the block below the heading and the table speak the same
-//: words. Every model is explained even when the published statistics omit it: a mapping that declares no rings
-//: publishes no "Mapped ring-scaled" row, and its line says why rather than leaving a described model unexplained.
-//: The AA run id is the Shape identity line's, not repeated here; the AA line points at it.
+//: The two names are the producer's own statistics keys, so the block below the heading and the table speak the
+//: same words. The mapped variants were removed from the calculation: the comparison is the atomistic reference and
+//: this run's own simulated CG trajectory.
 function surfaceModels() {
-  return `<div class="rvm-models" role="group" aria-label="What the four models are">
+  return `<div class="rvm-models" role="group" aria-label="What the two models are">
     <p class="lead"><b>SASA</b> (solvent-accessible surface area) is how much of a molecule’s surface a solvent-sized
-      probe could touch, in nm². Four models are measured here; only one is this run’s own data.</p>
+      probe could touch, in nm². Two models are measured here; only one is this run’s own data.</p>
     <dl>
       <dt>AA</dt>
       <dd>the <b>atomistic reference</b>: a separate all-atom simulation of the same molecule (the AA source run named
         above), every atom present, none grouped into beads. Not this CG run’s data.</dd>
-      <dt>Mapped raw</dt>
-      <dd>the same AA frames, with each bead placed at the average position of the atoms it owns (a virtual site sits
-        at the average of its parent beads). Still the reference; no coarse-grained force field was used.</dd>
-      <dt>Mapped ring-scaled</dt>
-      <dd>the same mapped frames with <b>ring dilation</b>: each declared ring’s beads are moved out from that ring’s
-        centre by the ring’s own scale, a number the mapping declares between 0.5 and 2.0. A rough illustration, and
-        this row is absent when the mapping declares no rings.</dd>
       <dt>Simulated CG <span class="rvm-own">this run</span></dt>
       <dd>this run’s own coarse-grained trajectory, where each bead stands for a group of atoms. The only row computed
         from this run; it is what the scene and the SASA chart compare with AA.</dd>
@@ -260,13 +252,13 @@ function surfaceModels() {
   </div>`;
 }
 
-//: Three columns and nothing else: the frames and the span are the trajectory's, not a property of the mean, and the
-//: probe is already stated in the note above. Numbers are nowrap so two rows read as one column of numbers; the table
-//: sits beside the plot in a full-width card and stacks under it otherwise (the sheet owns that placement). Only the
-//: Simulated CG row is this run's own data, so it alone carries the text marker; the sentence under the table says
-//: what the other rows are.
+//: Two columns of numbers and nothing else: the frames and the span are the trajectory's, not a property of the mean,
+//: and the probe is already stated in the note above. Only the Simulated CG row is this run's own data, so it alone
+//: carries the text marker; the sentence under the table says what the AA row is. An attempt published before the
+//: mapped variants were removed still carries their statistics on disk; only the pair this card compares is shown.
 function surfaceRows(surfaces) {
-  const statistics = Object.entries(surfaces.statistics || {});
+  const statistics = Object.entries(surfaces.statistics || {})
+    .filter(([model]) => model === 'AA' || model === 'Simulated CG');
   if (!statistics.length) return '<p class="hint">The published analysis states no statistics.</p>';
   const rows = statistics.map(([model, stat]) => `<tr><th scope="row">${cell(model)}${
     model === 'Simulated CG' ? ' <span class="rvm-own">this run</span>' : ''}</th>
@@ -274,8 +266,8 @@ function surfaceRows(surfaces) {
   return `<div class="table-scroll"><table class="rvm-table rvm-table-compact">
     <thead><tr><th scope="col">Model</th><th scope="col">Mean SASA</th><th scope="col">SD</th></tr></thead>
     <tbody>${rows}</tbody></table>
-    <p class="hint rvm-surface-caption">The AA, Mapped raw and Mapped ring-scaled rows are AA-derived context, not
-      independent evidence: they come from the same atomistic frames. None of these numbers is an experiment.</p></div>`;
+    <p class="hint rvm-surface-caption">The AA row is the reference trajectory, not this run’s own data; the
+      Simulated CG row is this run’s coarse-grained simulation. None of these numbers is an experiment.</p></div>`;
 }
 
 function surfacePairMarkup(surfaces) {

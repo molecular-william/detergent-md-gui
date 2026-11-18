@@ -10,6 +10,17 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Surfaces: two models, and the Align-trajectory tickbox gone (2026-11-18).** `analysis/runs/surfaces.py`
+  measures only `AA` (the atomistic reference) and `Simulated CG` (this run's own trajectory). The `Mapped raw` and
+  `Mapped ring-scaled` variants are removed: no mapped trajectory is written and no mapped `gmx sasa` leg runs. The
+  mapping still contributes its bead radii and one first AA frame mapped onto the beads, which is the rigid-body fit
+  target that puts the CG envelope in the AA frame; it is one frame of positions, not a surface calculation. The run
+  view's Shape section names the two models and its table filters to them, so an older attempt whose metadata still
+  lists four variants reads the same way. The trajectory form's **Align trajectory** checkbox is gone; **Fit** and
+  **Group** are the fit controls and are never disabled. Plan:
+  `docs/plans/2026-11-18-surfaces-two-models-and-align-removal.md`; draft:
+  `docs/design/drafts/2026-11-18-surfaces-two-models-and-align-removal.html`. The running dashboard unit predates
+  this change (Python and template), so restart it with no run in flight.
 - **New run: one Nonbonded and constraints section for AA and CG (2026-11-18).** The validation workspace's
   Stage settings gains one section shared by every dynamics leg -- AA NVT/NPT/production and CG equilibration and
   production; minimisation keeps its reviewed values. It exposes `rlist`, `rcoulomb`, `rvdw`, `rvdw_switch`,

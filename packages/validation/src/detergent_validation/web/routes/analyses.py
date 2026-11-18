@@ -69,8 +69,8 @@ def mapping_consistency_api(jid):
     if published_surfaces is None:
         surfaces = {'available': False,
                     'reason': 'No solvent-accessible surfaces analysis has been published for this run. It is '
-                              'queued by hand, and it reads the atomistic, the mapped and the simulated '
-                              'trajectories together.'}
+                              'queued by hand, and it reads the atomistic and the simulated trajectories '
+                              'together.'}
     else:
         surfaces_attempt, published, metadata = published_surfaces
         # The attempt's own output directory: `metadata.json`, the per-model `sasa.xvg` and the AA/CG panel data are

@@ -133,9 +133,6 @@ export function trajectoryMarkup(side) {
               </select>
               <span class="hint">Where Centre puts the group, and where cluster gathers it.</span>
             </label>
-            <label class="run-view-form-check" for="${id('run-view-form-align')}">
-              <input type="checkbox" id="${id('run-view-form-align')}"> Align trajectory
-            </label>
             <label for="${id('run-view-form-fit')}">Fit
               <select id="${id('run-view-form-fit')}">
                 <option value="none">none</option>
@@ -167,9 +164,8 @@ export function trajectoryMarkup(side) {
           server refuses it with a sentence when the run has none -- and nojump removes jumps over the whole window
           (it is history-dependent). Box centre names where the middle of the box is for Centre (and for cluster):
           tric is half the sum of the box vectors, rect half the diagonal, zero the origin. Centre puts the group
-          there, and Fit is a translation or a rotation and translation on that group. Align trajectory is the old
-          fit-the-frames control: checked, every model is held on the solute with a rotation and a translation and the
-          Fit and Group picks are disabled; unchecked, those two name the fit themselves. The server caps one build at
+          there, and Fit is a translation or a rotation and translation on that group; Group names what that
+          transformation acts on. The server caps one build at
           ${MAX_MODELS} models and about 250 MB; the model count above is checked before queueing, from the segment's
           frame count, first time and step, so a window and interval that would be refused are not sent. The byte size
           also depends on which atoms are kept, so a build under the model cap can still be refused for size. Changing
@@ -389,7 +385,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   const pbcPick = $(id('run-view-form-pbc'));
   const boxcenterPick = $(id('run-view-form-boxcenter'));
   const centerBox = $(id('run-view-form-center'));
-  const alignBox = $(id('run-view-form-align'));
   const fitPick = $(id('run-view-form-fit'));
   const groupPick = $(id('run-view-form-group'));
   const groupLabel = $(id('run-view-form-group-label'));
@@ -529,13 +524,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     segmentNote.textContent = parts.join(' · ');
   }
 
-  // Align trajectory is the old fit-the-frames control, and it is a *choice between* the two picks and one answer:
-  // checked, the build is a rotation and translation on the solute and the Fit/Group picks stand disabled, so the
-  // body cannot carry a fit the reader cannot see. Unchecked, they are the fit exactly as before.
-  const aligning = () => alignBox.checked;
-  const alignedFit = 'rot+trans';
-  const alignedGroup = 'solute';
-
   // The arguments the form holds now: what a submit sends, and what a series is looked up by. `group` is null when
   // neither the centre nor the fit uses one, which is the same default the server fills for itself.
   function formArguments(entry) {
@@ -549,8 +537,8 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
       pbc: pbcPick.value,
       boxcenter: boxcenterPick.value,
       center: centerBox.checked,
-      fit: aligning() ? alignedFit : fitPick.value,
-      group: aligning() ? alignedGroup : (groupNeeded() ? (groupPick.value || null) : null),
+      fit: fitPick.value,
+      group: groupNeeded() ? (groupPick.value || null) : null,
     };
   }
 
@@ -612,13 +600,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     updateSubmit();
   }
 
-  // The picks Align stands in for are disabled rather than left to be edited and ignored: a control a submit overrides
-  // is a control that lies about what it sends.
-  function syncAlign() {
-    fitPick.disabled = aligning();
-    groupPick.disabled = aligning();
-  }
-
   function fillForm(args) {
     atomsPick.value = ['all', 'beads', 'ca'].includes(args.atoms) ? args.atoms : 'all';
     intervalInput.value = args.interval_ns == null ? '' : String(args.interval_ns);
@@ -629,18 +610,14 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
     boxcenterPick.value = ['tric', 'rect', 'zero'].includes(args.boxcenter) ? args.boxcenter : 'tric';
     centerBox.checked = !!args.center;
     fitPick.value = ['none', 'trans', 'rot+trans'].includes(args.fit) ? args.fit : 'none';
-    // A recorded fit that is this very answer -- rot+trans on the solute, whether it was asked for by this box or by
-    // the picks -- is shown checked, because that is the view it was built with. Anything else restores the picks.
-    alignBox.checked = args.fit === alignedFit && (args.group == null || args.group === alignedGroup);
     setGroupValue(args.group);
     showGroupRow(groupNeeded());
-    syncAlign();
     showBudget();
   }
 
   // The group is needed exactly when the centre or the fit acts on one; otherwise the control is hidden and the body
   // sends null, so a default build's recorded arguments stay the eleven default ones.
-  const groupNeeded = () => aligning() || fitPick.value !== 'none' || centerBox.checked;
+  const groupNeeded = () => fitPick.value !== 'none' || centerBox.checked;
 
   function showGroupRow(on) {
     groupLabel.hidden = !on;
@@ -1128,16 +1105,6 @@ export function createTrajectory({root, side, stageOf, artifactText, decorate}) 
   }
   fitPick.addEventListener('change', updateGroupRow);
   centerBox.addEventListener('change', updateGroupRow);
-  alignBox.addEventListener('change', () => {
-    // The two picks show the arguments the body carries, so a checked box displays the fit it stands for instead of
-    // the disabled pick it replaced. Unchecking leaves those values editable: they are the view that was built.
-    if (aligning()) {
-      fitPick.value = alignedFit;
-      setGroupValue(alignedGroup);
-    }
-    syncAlign();
-    updateGroupRow();
-  });
 
   form.addEventListener('submit', event => {
     event.preventDefault();

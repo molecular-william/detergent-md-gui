@@ -559,12 +559,11 @@ def test_the_envelope_analysis_is_drawn_with_its_statistics_and_its_own_figure(d
     assert errors == []
 
 
-def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashboard, live_page):
-    """What the four SASA models are, which one is this run's own data, and the AA run they are measured against.
+def test_the_surface_models_block_names_the_two_models_and_marks_this_run(dashboard, live_page):
+    """What the two SASA models are, which one is this run's own data, and the AA run they are measured against.
 
     The block is plain and always visible above the scene, not a disclosure: a reader who never clicks still learns
-    that three of the four rows are AA-derived context. It lists all four models even when a row is not published --
-    a mapping that declares no rings publishes no "Mapped ring-scaled" row, and its line says why.
+    that only one of the two rows is this run's data. The mapped variants were removed from the calculation.
     """
     publish(dashboard, 'bb22cc33dd44')
     publish_surfaces(dashboard, 'bb22cc33dd44')
@@ -582,7 +581,7 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
 
     # The producer's own row names, in its order: the block does not rename a row.
     assert [name.strip() for name in block.locator('dt').all_text_contents()] == [
-        'AA', 'Mapped raw', 'Mapped ring-scaled', 'Simulated CG this run']
+        'AA', 'Simulated CG this run']
     # The lead defines SASA before it is used, and says outright that only one model is this run's data.
     lead = ' '.join(block.locator('.lead').text_content().split())
     assert 'SASA (solvent-accessible surface area)' in lead, lead
@@ -590,16 +589,12 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
 
     # One plain line per model, each carrying the phrase a reword would drop.
     definitions = [' '.join(text.split()) for text in block.locator('dd').all_text_contents()]
-    assert len(definitions) == 4
-    for text, phrase in zip(definitions, [
-            'atomistic reference',
-            'average position of the atoms it owns',
-            'ring dilation',
-            'this run’s own coarse-grained trajectory']):
+    assert len(definitions) == 2
+    for text, phrase in zip(definitions, ['atomistic reference', 'this run’s own coarse-grained trajectory']):
         assert phrase in text, text
-    # A ringless mapping publishes no ring-scaled row and the line says why it is absent.
-    assert 'absent when the mapping declares no rings' in definitions[2], definitions[2]
-    assert envelope.locator('.rvm-table tbody th', has_text='Mapped ring-scaled').count() == 0
+    # The mapped variants are not offered in the explanation either: the comparison is AA vs the simulated CG.
+    assert 'Mapped' not in ' '.join(definitions)
+    assert envelope.locator('.rvm-table tbody th', has_text='Mapped').count() == 0
 
     # Plain block directly under the heading and above the scene's checkboxes, not a disclosure.
     heading_box = envelope.locator('h4').first.bounding_box()
@@ -614,8 +609,9 @@ def test_the_surface_models_block_names_the_four_models_and_marks_this_run(dashb
     assert rows.nth(0).locator('.rvm-own').count() == 0
     assert rows.nth(1).locator('.rvm-own').text_content() == 'this run'
     assert envelope.locator('.rvm-own').count() == 2
-    assert 'AA-derived context' in ' '.join(envelope.locator('.rvm-surface-caption').text_content().split())
-    assert 'None of these numbers is an experiment' in envelope.locator('.rvm-surface-caption').text_content()
+    caption = ' '.join(envelope.locator('.rvm-surface-caption').text_content().split())
+    assert 'The AA row is the reference trajectory' in caption, caption
+    assert 'None of these numbers is an experiment' in caption, caption
 
     # The block is presentation only: the AA-vs-CG pair scene still draws from the published pair JSON.
     expect(envelope.locator('.rvm-surface-plot')).to_have_count(1)

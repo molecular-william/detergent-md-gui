@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Surfaces · two models, and no Align tickbox</title>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/dashboard.css'>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/run-view.css'>
+<link rel='stylesheet' href='../../../packages/validation/src/detergent_validation/static/run-view-mapping.css'>
+<style>
+  body{padding:24px;background:#fff}
+  main{max-width:1100px;margin:0 auto}
+  .draft-banner{background:#fffbe6;border:1px solid #e6d78a;border-radius:10px;padding:14px 18px;margin:0 0 22px}
+  .draft-banner h2{margin:0 0 6px;font-size:17px}
+  .draft-banner p{font-size:13px;line-height:1.55;margin:4px 0}
+  .draft-tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin:0 0 10px}
+  h2.draft-h{font-size:15px;margin:30px 0 4px;padding-top:16px;border-top:1px solid var(--line)}
+  p.draft-lede{font-size:13px;color:var(--muted);margin:0 0 14px;max-width:82ch}
+  .demo-frame{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff;margin:0 0 18px}
+  .demo-frame > figcaption{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+  .draft-form{max-width:640px}
+  .draft-form .run-view-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;margin:0}
+  .draft-form label{display:grid;gap:2px;font-size:12px;font-weight:600}
+  .draft-form .run-view-form-check{display:flex;align-items:center;gap:6px;font-weight:500}
+  .draft-note{font-size:12px;color:var(--muted);margin:10px 0 0}
+</style>
+</head>
+<body>
+<main>
+<div class='draft-banner'>
+  <span class='draft-tag'>Draft · no code yet</span>
+  <h2>Surfaces: AA vs Simulated CG, and the Align tickbox removed</h2>
+  <p>The surfaces calculation now measures two models: the atomistic reference and this run's own simulated CG
+    trajectory. The mapped raw and mapped ring-scaled variants are removed; the mapping still supplies the bead radii
+    and one first-frame correspondence used only to register the CG frame onto AA.</p>
+  <p>The trajectory form loses the <b>Align trajectory</b> checkbox. <b>Fit</b> and <b>Group</b> state the
+    transformation directly and are never disabled.</p>
+</div>
+
+<h2 class='draft-h'>Run view › Shape and volume › Surface area</h2>
+<p class='draft-lede'>The explainer names two models, the table shows the comparison the scene draws, and the caption
+  says which row is this run's own data. An older attempt with mapped statistics on disk reads the same way: only the
+  two compared rows are shown.</p>
+<figure class='demo-frame'>
+  <figcaption>Shape and volume</figcaption>
+  <p class='rvm-identity'>AA vs CG · rigid-body fitted on the beads that own atoms · AA source <b>03875cf39790</b></p>
+  <div class='rvm-sub' data-shape='surfaces'>
+    <h4>Surface area · AA vs Simulated CG</h4>
+    <div class='rvm-models' role='group' aria-label='What the two models are'>
+      <p class='lead'><b>SASA</b> (solvent-accessible surface area) is how much of a molecule’s surface a
+        solvent-sized probe could touch, in nm². Two models are measured here; only one is this run’s own data.</p>
+      <dl>
+        <dt>AA</dt>
+        <dd>the <b>atomistic reference</b>: a separate all-atom simulation of the same molecule (the AA source run
+          named above), every atom present, none grouped into beads. Not this CG run’s data.</dd>
+        <dt>Simulated CG <span class='rvm-own'>this run</span></dt>
+        <dd>this run’s own coarse-grained trajectory, where each bead stands for a group of atoms. The only row
+          computed from this run; it is what the scene and the SASA chart compare with AA.</dd>
+      </dl>
+    </div>
+    <p class='hint'>Attempt <b>0001-20261001</b>, published 2026-11-18 06:00 UTC. SAS mesh, AA vs Simulated CG.
+      Probe 0.191 nm, the same on both panels. The mesh is the union of probe-inflated spheres (SAS), not a
+      re-entrant solvent-excluded surface (SES). Not scientifically validated.</p>
+    <div class='rvm-surface-view'>
+      <div class='rvm-surface-plot-col'>
+        <div class='rvm-checks'>
+          <label><input type='checkbox' checked> AA reference</label>
+          <label><input type='checkbox' checked> Simulated CG</label>
+        </div>
+        <div class='rvm-surface-plot' role='img'
+          aria-label='AA reference and Simulated CG solvent-accessible envelopes in one scene'
+          style='min-height:150px;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;color:var(--muted);font-size:12px'>
+          AA and Simulated CG envelopes in one scene
+        </div>
+      </div>
+      <div class='rvm-surface-table'>
+        <div class='table-scroll'><table class='rvm-table rvm-table-compact'>
+          <thead><tr><th scope='col'>Model</th><th scope='col'>Mean SASA</th><th scope='col'>SD</th></tr></thead>
+          <tbody>
+            <tr><th scope='row'>AA</th><td>5.816</td><td>0.077</td></tr>
+            <tr><th scope='row'>Simulated CG <span class='rvm-own'>this run</span></th><td>5.599</td><td>0.174</td></tr>
+          </tbody></table>
+          <p class='hint rvm-surface-caption'>The AA row is the reference trajectory, not this run’s own data; the
+            Simulated CG row is this run’s coarse-grained simulation. None of these numbers is an experiment.</p>
+        </div>
+      </div>
+    </div>
+    <div class='rvm-sasa'>
+      <h4>SASA over time</h4>
+      <p class='hint'>Total solvent-accessible area from the analysis’s own <code>sasa.xvg</code>, AA and Simulated CG
+        on one axis. SAS is not SES.</p>
+    </div>
+  </div>
+</figure>
+
+<h2 class='draft-h'>Run view › Trajectory</h2>
+<p class='draft-lede'>The <b>Align trajectory</b> checkbox is gone from the form. Fit and Group are the only fit
+  controls; the default build is unchanged (no fit, no group).</p>
+<figure class='demo-frame draft-form'>
+  <figcaption>Build frames</figcaption>
+  <form class='run-view-form' onsubmit='return false'>
+    <label>Atoms<select><option>all</option><option>beads</option><option>ca</option></select></label>
+    <label>PBC<select><option>none</option><option>mol</option><option>whole</option><option>nojump</option></select></label>
+    <label>Box centre<select><option>tric</option><option>rect</option><option>zero</option></select></label>
+    <label class='run-view-form-check'><input type='checkbox'> Centre</label>
+    <label>Fit<select><option>none</option><option>trans</option><option>rot+trans</option></select></label>
+    <label>Group<select><option>solute</option><option>protein</option></select></label>
+    <div style='grid-column:1/-1'><button type='button'>Build frames</button></div>
+  </form>
+  <p class='draft-note'>ns per frame is a request; PBC, Box centre, Centre, Fit and Group change the view of the
+    frames, never the run. Group names what the fit acts on.</p>
+</figure>
+</main>
+</body>
+</html>
