@@ -293,19 +293,44 @@ def curve_rms(ours_terms, fit_terms, angles_deg=None):
     return float(np.sqrt(np.mean(difference ** 2)))
 
 
+def _torsions_deg(points):
+    """Every quadruple's torsion in one float64 vector op, in the arithmetic `torsion_deg` does per quadruple.
+
+    `points` is `(terms, 4, 3)` as the trajectory reports it. The dot products are `np.dot`'s own kernel, spelled
+    `np.vecdot` so a batch of rows rounds exactly as one row does: `(a * b).sum(axis=-1)` sums in another order, and
+    the difference moves an angle sitting on the +-180 branch cut to the other side of it -- which changes the
+    histogram bin it lands in, so it is a different number and not a rounding detail.
+    """
+    points = np.asarray(points, dtype=float)
+    b0 = points[:, 0] - points[:, 1]
+    b1 = points[:, 2] - points[:, 1]
+    b2 = points[:, 3] - points[:, 2]
+    b1 = b1 / np.sqrt(np.vecdot(b1, b1))[:, None]
+    v = b0 - np.vecdot(b0, b1)[:, None] * b1
+    w = b2 - np.vecdot(b2, b1)[:, None] * b1
+    return np.degrees(np.arctan2(np.vecdot(np.cross(b1, v), w), np.vecdot(v, w)))
+
+
 def measure_torsions(universe, declared, names, frames=slice(0, None, 1)):
-    """Every declared dihedral's angle per frame, in degrees, from one read of the trajectory."""
+    """Every declared dihedral's angle per frame, in degrees, from one read of the trajectory.
+
+    Each frame is read once and its four atom rows for every declared dihedral are gathered together, so the frames
+    cost one trajectory read and one vector op each instead of one `torsion_deg` call per dihedral per frame.
+    """
     beads = [tuple(names[index - 1] if 0 < index <= len(names) else f'#{index}' for index in term['atoms'])
              for term in declared]
     position = {name: index for index, name in enumerate(names)}
-    series = {index: [] for index, pair in enumerate(beads) if all(name in position for name in pair)}
+    measured = [index for index, pair in enumerate(beads) if all(name in position for name in pair)]
+    if not measured:
+        return beads, {}
+    quadruples = np.asarray([[position[name] for name in beads[index]] for index in measured])
+    rows = []
     for frame in range(*frames.indices(len(universe.trajectory))):
         universe.trajectory[frame]
         # MDAnalysis reports angstroms; a torsion is an angle, so only the ratios matter, but keep the units honest.
-        positions = universe.atoms.positions / 10.0
-        for index in series:
-            series[index].append(torsion_deg(*(positions[position[name]] for name in beads[index])))
-    return beads, {index: np.asarray(values, dtype=float) for index, values in series.items()}
+        rows.append(_torsions_deg(universe.atoms.positions[quadruples] / 10.0))
+    angles = np.asarray(rows, dtype=float).reshape(len(rows), len(measured))
+    return beads, {index: angles[:, column].copy() for column, index in enumerate(measured)}
 
 
 def publish(work, payload=None):

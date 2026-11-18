@@ -228,6 +228,30 @@ def test_a_define_inside_a_live_branch_switches_the_following_branch():
     assert [tuple(term['atoms']) for term in terms] == [(1, 2), (1, 3), (1, 4)]
 
 
+def test_a_frames_pairs_are_the_per_pair_norm_bit_for_bit(tmp_path):
+    """The measurement is one vector op per frame; the oracle is `np.linalg.norm` on each pair on its own.
+
+    Bit for bit, not to a tolerance: the claim is the same arithmetic -- the trajectory's float32, divided by ten,
+    `sqrt(x.dot(x))` -- and `(a * b).sum(axis=-1)` instead squares and sums in another order, so the last digit of a
+    length moves and `sigma` and the force constant follow it.
+    """
+    work = _mapped_run(tmp_path)
+    universe = mda.Universe(str(work / '2_mapping/mapped.gro'), str(work / '2_mapping/mapped.xtc'))
+    order = {name: index for index, name in enumerate(universe.atoms.names)}
+
+    series = bonded_estimate.pair_series(universe, {('B01', 'B02'), ('B01', 'B03'), ('B02', 'B03'),
+                                                   ('B01', '#99')})
+
+    assert set(series) == {('B01', 'B02'), ('B01', 'B03'), ('B02', 'B03')}, 'a pair with no such bead is left out'
+    for pair, values in series.items():
+        expected = []
+        for frame in range(len(universe.trajectory)):
+            universe.trajectory[frame]
+            positions = universe.atoms.positions / 10.0  # the trajectory reports angstroms; a length here is nm
+            expected.append(float(np.linalg.norm(positions[order[pair[0]]] - positions[order[pair[1]]])))
+        assert np.array_equal(values, np.asarray(expected)), f'{pair}: {np.abs(values - np.asarray(expected)).max()} nm'
+
+
 def test_the_cross_check_compares_our_fit_with_the_estimate_term_by_term(tmp_path):
     """Hand-checkable: B01-B02 measures 0.22 nm with a 0.023094 nm spread, so k = 4725.8, against our fit's 0.200/5000."""
     work = _mapped_run(tmp_path)

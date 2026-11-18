@@ -209,6 +209,55 @@ def test_a_torsion_is_the_rotation_between_the_two_planes():
         assert dihedral_fit.torsion_deg(*_placed(torsion)) == pytest.approx(torsion, abs=1e-9), torsion
 
 
+def _torsion_frames():
+    """Frames whose torsions sit on both sides of the branch cut, which is where a changed summation shows up.
+
+    A batch that sums a dot product in another order than `torsion_deg` does moves a numerator of exactly zero across
+    the sign of zero, so an angle at +-180 flips to the other label: a different histogram bin, so a different fit.
+    The coplanar frames below are exactly that case, and the sampled ones carry the ordinary geometry around them.
+    """
+    planar = (((0.0, 1.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, -1.0, 0.0)),
+              ((0.0, 1.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0)))
+    placed = [np.array(_placed(torsion)) for torsion in (179.0, -179.0, 60.0, 0.0, 90.0)]
+    sampled = np.random.default_rng(4).normal(size=(40, 4, 3))
+    return np.asarray([*[np.array(frame) for frame in planar], *placed, *sampled], dtype=np.float32) * 10.0
+
+
+def _torsion_universe(frames):
+    universe = mda.Universe.empty(4, n_residues=1, atom_resindex=[0] * 4, trajectory=True)
+    universe.add_TopologyAttr('names', ['B01', 'B02', 'B03', 'B04'])
+    universe.add_TopologyAttr('resnames', ['DDM'])
+    universe.add_TopologyAttr('resids', [1])
+    universe.trajectory = mda.coordinates.memory.MemoryReader(frames, order='fac')
+    return universe
+
+
+def test_a_frames_torsions_are_the_per_dihedral_construction_bit_for_bit():
+    """The measurement is one vector op per frame; the oracle is `torsion_deg` on each dihedral on its own.
+
+    Bit for bit, not to a tolerance: the claim is the same float64 operations in the same order, so any difference at
+    all is a changed summation order -- and `1e-12` of a degree is already a different number in a report whose whole
+    output is a comparison. A dihedral naming a bead the trajectory does not have is still left out rather than
+    measured, as it was when each dihedral was measured on its own.
+    """
+    universe = _torsion_universe(_torsion_frames())
+    declared = [{'atoms': (1, 2, 3, 4)}, {'atoms': (1, 3, 2, 4)}, {'atoms': (1, 2, 3, 9)}]
+
+    beads, series = dihedral_fit.measure_torsions(universe, declared, list(universe.atoms.names))
+
+    assert beads[2] == ('B01', 'B02', 'B03', '#9') and 2 not in series
+    for index in series:
+        expected = []
+        for frame in range(len(universe.trajectory)):
+            universe.trajectory[frame]
+            positions = universe.atoms.positions / 10.0  # the trajectory reports angstroms, the angle does not care
+            expected.append(dihedral_fit.torsion_deg(*(positions[atom - 1] for atom in declared[index]['atoms'])))
+        difference = np.abs(series[index] - np.asarray(expected))
+        assert np.array_equal(series[index], np.asarray(expected)), (
+            f'dihedral {index}: {difference.max()} degrees apart from the per-dihedral construction')
+    assert len(next(iter(series.values()))) == len(universe.trajectory)
+
+
 def test_a_declared_dihedral_is_read_with_its_phase_constant_and_multiplicity(tmp_path):
     """`i j k l funct phi_s cp mult` -- eight fields, and the order of the last three is what a reader gets wrong."""
     path = tmp_path / 'DDM_ff_inter.itp'

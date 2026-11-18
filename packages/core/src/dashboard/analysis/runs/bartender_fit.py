@@ -200,30 +200,72 @@ def topology_from_fit(initial_text: str, fitted: dict, beads: list[dict]) -> str
     return '\n'.join(out).rstrip('\n') + '\n'
 
 
-def ensemble_distances(structure: Path, trajectory: Path, beads: list[dict]) -> dict:
-    """The AA ensemble's own mean and spread for every ring pair, which is what a fit is checked against.
+def _bead_groups(heavy_count: int, beads: list[dict]) -> dict:
+    """Each bead's representative heavy atoms, as positions in one frame's heavy-atom block.
 
-    A single frame is not a target: comparing a fit to one is what made the same fit look 5% short of a pair it was
-    1.4% off.
+    The model numbers a bead's atoms among the molecule's heavy atoms, so the map is the heavy-atom count and not a
+    file. A bead naming an atom the block does not hold is a `KeyError` here, as it was when the map was built from
+    the universe itself; `position - 1` alone would wrap a bad index onto another bead and answer with its geometry.
     """
-    universe = mda.Universe(str(structure), str(trajectory))
-    heavy = [atom.index for atom in universe.atoms if not atom.name.startswith('H')]
-    heavy_to_all = {position: index for position, index in enumerate(heavy, 1)}
-    groups = {bead['name']: [heavy_to_all[int(index)] for index in bead.get('atoms') or []]
+    heavy = {position: position - 1 for position in range(1, heavy_count + 1)}
+    groups = {bead['name']: [heavy[int(index)] for index in bead.get('atoms') or []]
               for bead in beads if not bead.get('virtual_site')}
     for bead in beads:
         if bead.get('virtual_site'):
             groups[bead['name']] = [index for parent in bead['virtual_site'].get('parents', [])
                                     for index in groups.get(parent, [])]
+    return groups
+
+
+def _ring_pairs(beads: list[dict]) -> list[tuple]:
+    """Every pair of physical beads, in the model's own order: the pairs the ensemble reports."""
     names = [bead['name'] for bead in beads if not bead.get('virtual_site')]
-    series = [(first, second) for index, first in enumerate(names) for second in names[index + 1:]]
-    collected = {pair: [] for pair in series}
-    for _ in universe.trajectory:
-        centres = {name: universe.atoms[indices].positions.mean(axis=0) / 10.0 for name, indices in groups.items()}
-        for pair in series:
-            collected[pair].append(float(np.linalg.norm(centres[pair[0]] - centres[pair[1]])))
-    return {'-'.join(pair): {'mean_nm': float(np.mean(values)), 'sd_nm': float(np.std(values)), 'frames': len(values)}
-            for pair, values in collected.items()}
+    return [(first, second) for index, first in enumerate(names) for second in names[index + 1:]]
+
+
+def _frame_lengths(block, groups: dict, first, second) -> np.ndarray:
+    """One frame's ring-pair distances in nm: every bead's centre, then every pair as one vector op.
+
+    The centre is the mean of the bead's own heavy atoms divided by ten, and the distance is `np.linalg.norm`'s own
+    kernel in the block's float32, so this rounds exactly as the per-pair loop it replaces.
+    """
+    centres = np.stack([block[indices].mean(axis=0) / 10.0 for indices in groups.values()])
+    delta = centres[first] - centres[second]
+    return np.sqrt(np.vecdot(delta, delta))
+
+
+def _ensemble(blocks, heavy_count: int, beads: list[dict]) -> dict:
+    """The mean and spread of every ring pair over the frames whose heavy-atom blocks are given.
+
+    A single frame is not a target: comparing a fit to one is what made the same fit look 5% short of a pair it was
+    1.4% off.
+    """
+    groups = _bead_groups(heavy_count, beads)
+    pairs = _ring_pairs(beads)
+    if not pairs:
+        return {}
+    position = {name: index for index, name in enumerate(groups)}
+    first = np.asarray([position[one] for one, _ in pairs])
+    second = np.asarray([position[other] for _, other in pairs])
+    collected = {pair: [] for pair in pairs}
+    for block in blocks:
+        lengths = _frame_lengths(block, groups, first, second)
+        for column, pair in enumerate(pairs):
+            collected[pair].append(float(lengths[column]))
+    return {'-'.join(pair): {'mean_nm': float(np.mean(values)), 'sd_nm': float(np.std(values)),
+                             'frames': len(values)} for pair, values in collected.items()}
+
+
+def ensemble_distances(structure: Path, trajectory: Path, beads: list[dict]) -> dict:
+    """The AA ensemble's own mean and spread for every ring pair, which is what a fit is checked against.
+
+    A fit's caller already holds this trajectory open (`run`), and `run` keeps the frames it reads for the second
+    pass instead of opening it again; this is the reader for a path pair on its own.
+    """
+    universe = mda.Universe(str(structure), str(trajectory))
+    heavy = [atom.index for atom in universe.atoms if not atom.name.startswith('H')]
+    blocks = (universe.atoms.positions[heavy] for _ in universe.trajectory)
+    return _ensemble(blocks, len(heavy), beads)
 
 
 def bartender_command(bartender, cpus, *, geometry='solute_heavy.gro', trajectory=TRAJECTORY,
@@ -294,9 +336,14 @@ def run(work, payload=None, runner=None) -> dict:
     universe = mda.Universe(str(structure_path), str(trajectory_path))
     heavy = universe.select_atoms('not name H*')
     # One MODEL per frame, heavy atoms only, in the same order as `solute_heavy.gro`: `-owntraj` reads this
-    # without touching the DCD reader that panics on a 12-atom frame.
+    # without touching the DCD reader that panics on a 12-atom frame. The same pass keeps each frame's heavy-atom
+    # block, which is all the ensemble below needs, so the trajectory is read once rather than reopened for it.
+    # ponytail: the blocks are held in memory (frames x heavy atoms, ~3 MB for this 20k-frame ligand); one read of
+    # the ligand instead of two is what that buys.
+    blocks = []
     with mda.Writer(str(work / TRAJECTORY), len(heavy), multiframe=True) as writer_pdb:
         for _ in universe.trajectory:
+            blocks.append(heavy.positions)
             writer_pdb.write(heavy)
 
     physical, names = physical_topology(topology_path.read_text(), beads)
@@ -316,7 +363,7 @@ def run(work, payload=None, runner=None) -> dict:
     fitted = fitted_terms((work / FITTED).read_text()) if (work / FITTED).is_file() else {}
     # `payload['timeout']` is honoured because a model can legitimately need longer: one that writes its linkage
     # dihedral as an improper has BARTENDER scanning it, which took over 400 s where a proper dihedral took 40.
-    ensemble = ensemble_distances(structure_path, trajectory_path, beads)
+    ensemble = _ensemble(blocks, len(heavy), beads)
     physical_names = [bead['name'] for bead in beads if not bead.get('virtual_site')]
     pairs = {}
     for row in fitted.get('constraints', []):

@@ -135,17 +135,25 @@ def pair_series(universe, pairs, frames=slice(0, None, 1)):
 
     Only the pairs asked for are measured: for an 11-bead molecule every pair is 55, most of which no topology
     declares, and measuring them would cost five times what the comparison needs to answer.
+
+    One frame is one read and one vector op for every pair. The distance is `np.linalg.norm`'s own kernel --
+    `sqrt(x.dot(x))`, in the trajectory's float32 -- spelled `np.vecdot` so a batch rounds exactly as one pair does.
     """
     order = {name: index for index, name in enumerate(universe.atoms.names)}
-    collected = {pair: [] for pair in pairs if all(name in order for name in pair)}
+    measured = [pair for pair in pairs if all(name in order for name in pair)]
+    if not measured:
+        return {}
+    first = np.asarray([order[pair[0]] for pair in measured])
+    second = np.asarray([order[pair[1]] for pair in measured])
+    rows = []
     for frame in range(*frames.indices(len(universe.trajectory))):
         universe.trajectory[frame]
         # MDAnalysis reports angstroms; every length in this repository is nanometres.
         positions = universe.atoms.positions / 10.0
-        for pair in collected:
-            collected[pair].append(
-                float(np.linalg.norm(positions[order[pair[0]]] - positions[order[pair[1]]])))
-    return {pair: np.asarray(values, dtype=float) for pair, values in collected.items()}
+        delta = positions[first] - positions[second]
+        rows.append(np.sqrt(np.vecdot(delta, delta)))
+    lengths = np.asarray(rows, dtype=float).reshape(len(rows), len(measured))
+    return {pair: lengths[:, column].copy() for column, pair in enumerate(measured)}
 
 
 def fit_temperature(work):

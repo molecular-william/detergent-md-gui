@@ -539,6 +539,92 @@ def test_a_failing_tool_writes_its_stderr_to_the_job_log_and_the_record_names_th
     assert parameterization.current(candidate) is None
 
 
+def _bartender_work(tmp_path, frames=4):
+    """The work root a fit runs in, with an atomistic reference, the mapping's model, and the CG topology.
+
+    The trajectory is the ligand's own shape: one heavy atom sits among hydrogens, so the heavy-atom block the pass
+    keeps is a proper subset, and one bead is a virtual site the ensemble has to read through its parents.
+    """
+    work = tmp_path / 'work'
+    reference = work / '1_AA-reference' / 'prod'
+    for directory in (reference, work / '2_mapping', work / '3_initial_CG'):
+        directory.mkdir(parents=True)
+    universe = mda.Universe.empty(6, trajectory=True)
+    universe.add_TopologyAttr('name', ['C1', 'C2', 'C3', 'C4', 'H1', 'C5'])
+    universe.add_TopologyAttr('resname', ['LIG'])
+    universe.add_TopologyAttr('resid', [1])
+    start = np.array([[0.00, 0.00, 0.00], [0.15, 0.00, 0.00], [0.30, 0.10, 0.00],
+                      [0.45, 0.10, 0.05], [0.20, 0.30, 0.10], [0.60, 0.20, 0.00]], dtype=np.float32)
+    universe.atoms.positions = start
+    universe.atoms.write(str(reference / 'lig.gro'))
+    rng = np.random.default_rng(3)
+    positions = np.asarray([start + rng.normal(0.0, 0.02, start.shape).astype(np.float32)
+                            for _ in range(frames)], dtype=np.float32)
+    universe.trajectory = mda.coordinates.memory.MemoryReader(positions, order='fac')
+    with mda.Writer(str(reference / 'lig.xtc'), n_atoms=6) as writer:
+        for _ in universe.trajectory:
+            writer.write(universe.atoms)
+    beads = [{'name': 'R1', 'atoms': [1, 2]}, {'name': 'R2', 'atoms': [3]}, {'name': 'R3', 'atoms': [4]},
+             {'name': 'VS', 'virtual_site': {'function': 1, 'parents': ['R1', 'R2']}, 'type': 'TC4'},
+             {'name': 'TAIL', 'atoms': [5]}]
+    (work / '2_mapping' / 'model.json').write_text(json.dumps({'molecule_id': 'LIG', 'beads': beads}))
+    (work / '2_mapping' / 'mapping.ndx').write_text('[ R1 ]\n1\n')
+    (work / '3_initial_CG' / 'LIG1_ff_inter.itp').write_text(
+        '[ moleculetype ]\nLIG1 1\n\n[ atoms ]\n1 C1 1 LIG R1 1 0 54\n2 C2 1 LIG R2 2 0 54\n'
+        '3 C3 1 LIG R3 3 0 54\n4 TC4 1 LIG VS 4 0 0\n5 C5 1 LIG TAIL 5 0 72\n\n'
+        '[ constraints ]\n1 2 1 0.310\n2 3 1 0.299\n3 5 1 0.359\n')
+    return work, beads
+
+
+def _frozen_ensemble(structure, trajectory, beads):
+    """The per-pair loop the one-pass ensemble replaced, kept here as the oracle it has to reproduce.
+
+    It reopens the trajectory and reads every frame for itself, bead by bead and pair by pair.
+    """
+    universe = mda.Universe(str(structure), str(trajectory))
+    heavy = [atom.index for atom in universe.atoms if not atom.name.startswith('H')]
+    heavy_to_all = {position: index for position, index in enumerate(heavy, 1)}
+    groups = {bead['name']: [heavy_to_all[int(index)] for index in bead.get('atoms') or []]
+              for bead in beads if not bead.get('virtual_site')}
+    for bead in beads:
+        if bead.get('virtual_site'):
+            groups[bead['name']] = [index for parent in bead['virtual_site'].get('parents', [])
+                                    for index in groups.get(parent, [])]
+    names = [bead['name'] for bead in beads if not bead.get('virtual_site')]
+    series = [(first, second) for index, first in enumerate(names) for second in names[index + 1:]]
+    collected = {pair: [] for pair in series}
+    for _ in universe.trajectory:
+        centres = {name: universe.atoms[indices].positions.mean(axis=0) / 10.0 for name, indices in groups.items()}
+        for pair in series:
+            collected[pair].append(float(np.linalg.norm(centres[pair[0]] - centres[pair[1]])))
+    return {'-'.join(pair): {'mean_nm': float(np.mean(values)), 'sd_nm': float(np.std(values)), 'frames': len(values)}
+            for pair, values in collected.items()}
+
+
+def test_the_ring_pair_ensemble_is_the_frames_the_fit_already_read(tmp_path, monkeypatch):
+    """`run` read the atomistic trajectory twice: once to write BARTENDER's multi-PDB, once for the ring-pair
+    ensemble. It keeps the blocks the first read holds now, and this is that ensemble against the per-pair loop it
+    replaced -- bit for bit, because a mean ring length reaches `difference_pct` in the record.
+
+    The tool is not run: its invocation is pinned elsewhere, and what this reads is the measurement around it.
+    """
+    from dashboard.analysis.runs import bartender_fit
+
+    work, beads = _bartender_work(tmp_path)
+    monkeypatch.setattr('dashboard.execution.tools.tool_path', lambda _name: str(tmp_path / 'bartender'))
+
+    def nothing(command, cwd, *, timeout=None, env=None):
+        return None
+
+    record = bartender_fit.run(work, {}, runner=nothing)
+    structure, trajectory = work / '1_AA-reference' / 'prod' / 'lig.gro', work / '1_AA-reference' / 'prod' / 'lig.xtc'
+
+    assert record['ensemble'] == _frozen_ensemble(structure, trajectory, beads)
+    assert record['ensemble'] == bartender_fit.ensemble_distances(structure, trajectory, beads)
+    assert set(record['ensemble']) == {'R1-R2', 'R1-R3', 'R1-TAIL', 'R2-R3', 'R2-TAIL', 'R3-TAIL'}
+    assert record['ensemble']['R1-TAIL']['frames'] == 4
+
+
 def test_the_job_log_keeps_only_its_tail(tmp_path):
     """A tool that prints a lot cannot grow a job log without bound; the panel reads a tail anyway."""
     log = tmp_path / 'job.log'
