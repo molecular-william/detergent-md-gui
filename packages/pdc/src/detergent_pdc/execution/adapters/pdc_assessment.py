@@ -20,8 +20,16 @@ Two simplifications, stated rather than hidden:
 from __future__ import annotations
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import cKDTree
 
 CONTACT_NM = 0.6
+#: A hair past the stated distance, so a KD-tree returns every pair numpy's own distance would call a contact. The
+#: tree's C distance is computed in its own order and disagrees with `np.linalg.norm` in the last bits: measured, a
+#: point at exactly the cutoff can be dropped by the search and one a few ulps past it can be kept. So the search is
+#: a candidate filter and numpy's distance makes the decision -- the one `_within` has always made.
+_SLACK = 1.0 + 1e-12
 
 
 def _points(values) -> np.ndarray:
@@ -43,32 +51,71 @@ def _within(one: np.ndarray, other: np.ndarray, distance_nm: float) -> bool:
     return bool(distances.min() <= distance_nm)
 
 
+def _bead_contacts(cloud: np.ndarray, contact_nm: float) -> np.ndarray:
+    """The row pairs of `cloud` within `contact_nm` of each other, found with one KD-tree.
+
+    The tree's search is the candidate filter and `np.linalg.norm` decides, so the answer is the pair of point sets
+    `_within` would find; only the search is different. Without the slack the tree would occasionally drop a pair
+    lying exactly on the cutoff and keep one a few ulps beyond it, which would move a micelle membership.
+    """
+    pairs = cKDTree(cloud).query_pairs(contact_nm * _SLACK, output_type='ndarray')
+    if len(pairs) == 0:
+        return pairs.reshape(0, 2)
+    difference = cloud[pairs[:, 0]] - cloud[pairs[:, 1]]
+    return pairs[np.linalg.norm(difference, axis=1) <= contact_nm]
+
+
+def _touching_rows(rows: np.ndarray, protein_points: np.ndarray, reach: float) -> np.ndarray:
+    """Which tail-bead rows lie within `reach` of some protein bead, `<=` exactly as `_within` means it.
+
+    One tree for the protein beads and one query for every row; the distance is decided by numpy, not by the tree,
+    for the same last-bits reason as `_bead_contacts`. A row with no protein bead in reach gets `False`.
+    """
+    hits = np.zeros(len(rows), dtype=bool)
+    if len(rows) == 0:
+        return hits
+    found = cKDTree(protein_points).query_ball_point(rows, reach * _SLACK)
+    counts = np.fromiter((len(neighbours) for neighbours in found), dtype=int, count=len(found))
+    if counts.sum() == 0:
+        return hits
+    row = np.repeat(np.arange(len(rows)), counts)
+    column = np.concatenate([np.asarray(neighbours, dtype=int) for neighbours in found])
+    near = row[np.linalg.norm(rows[row] - protein_points[column], axis=1) <= reach]
+    hits[np.unique(near)] = True
+    return hits
+
+
 def contact_components(tails, contact_nm: float = CONTACT_NM) -> list[list[int]]:
     """The connected components of the detergent contact graph.
 
     A detergent is connected to another when their tail beads come within `contact_nm`; contacts chain, so a
     detergent touching one end of an aggregate is in the same cluster as the far end even if it never comes near
-    it. Returned as indices into `tails`, largest first.
+    it. Returned as indices into `tails`, largest first; equal clusters keep first-member order.
+
+    The union-find is scipy's own connected-components pass over the molecule-level edges: a Python union loop over
+    the bead pairs cost 19 ms of a 22 ms frame on a 100-detergent micelle (12 000 contacts), more than the search it
+    was supposed to make cheap.
     """
     if contact_nm <= 0:
         raise ValueError('the contact distance must be positive')
     points = [_points(tail) for tail in tails]
-    parent = list(range(len(points)))
-
-    def root(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
-
-    for left in range(len(points)):
-        for right in range(left + 1, len(points)):
-            if _within(points[left], points[right], contact_nm):
-                parent[root(right)] = root(left)
+    sizes = np.array([len(point) for point in points], dtype=int)
+    labels = np.arange(len(points))
+    if sizes.sum() >= 2:
+        # One tree over every tail bead of every detergent; a pair inside one molecule says nothing about a contact.
+        owners = np.repeat(np.arange(len(points)), sizes)
+        cloud = np.concatenate(points)
+        left, right = _bead_contacts(cloud, contact_nm).T
+        one, other = owners[left], owners[right]
+        joined = one != other
+        one, other = one[joined], other[joined]
+        if one.size:
+            graph = coo_matrix((np.ones(one.size), (one, other)), shape=(len(points), len(points)))
+            _count, labels = connected_components(graph, directed=False)
     groups: dict[int, list[int]] = {}
     for index in range(len(points)):
-        groups.setdefault(root(index), []).append(index)
-    return sorted(groups.values(), key=len, reverse=True)
+        groups.setdefault(int(labels[index]), []).append(index)
+    return sorted(groups.values(), key=lambda group: (-len(group), group[0]))
 
 
 def assess_micelle(detergents, protein=None, *, contact_nm: float = CONTACT_NM, aggregation_number: int,
@@ -95,7 +142,16 @@ def assess_micelle(detergents, protein=None, *, contact_nm: float = CONTACT_NM, 
     protein_free = protein_points is None or len(protein_points) == 0
     touching = []
     if protein_points is not None and len(protein_points):
-        touching = [index for index in largest if _within(tails[index], protein_points, reach)]
+        # One query for every tail bead of the largest cluster, then the per-molecule answer: a detergent touches
+        # the protein when any of its own tail beads does.
+        rows = np.concatenate([tails[index] for index in largest]) if largest else np.empty((0, 3))
+        hits = _touching_rows(rows, protein_points, reach)
+        start = 0
+        for index in largest:
+            stop = start + len(tails[index])
+            if hits[start:stop].any():
+                touching.append(index)
+            start = stop
     reasons = []
     if len(largest) < aggregation_number:
         reasons.append(f'the largest cluster holds {len(largest)} of the requested {aggregation_number} detergents')
