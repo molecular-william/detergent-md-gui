@@ -18,8 +18,11 @@ Nothing here decides whether a run is scientifically valid. The output is a figu
 drew, and a sentence saying what was measured and on how many sampled frames.
 """
 import math
+import os
 import re
 import subprocess
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -500,13 +503,16 @@ def _production_energy(work):
     return None
 
 
-def read_energy(edr, work):
+def read_energy(edr, work, terms=None):
     """One `.edr` read through `gmx energy`: its column labels, times in ps, raw columns and per-term summaries.
 
     `(data, None)`, or `(None, reason)` when the file cannot be read. The term menu is discovered first -- without
     `-o`, `gmx energy` prints the terms the file holds on stderr -- and every parsed index is selected in the second
-    call, so the XVG carries the whole file. Shared with the energy-conservation analysis, which measures a 600 ps
-    window and therefore needs the unsampled columns rather than one summary per term.
+    call, so the XVG carries the whole file. `terms` narrows that selection to the menu entries whose spelling folds
+    to one of the names (`_energy_term_key`), which is what a producer that keeps only a few terms should ask for; the
+    requested names are the fallback request when the menu cannot be parsed. `None` keeps the all-term read the
+    trajectory overview records. Shared with the energy-conservation analysis, which measures a 600 ps window and
+    therefore needs the unsampled columns rather than one summary per term.
     """
     gmx = tools.tool_path('gmx')
     if gmx is None:
@@ -514,14 +520,24 @@ def read_energy(edr, work):
     discovery = subprocess.run([gmx, 'energy', '-f', str(edr)], input='0\n',
                                capture_output=True, text=True)
     menu = _energy_menu(discovery.stderr) or _energy_menu(discovery.stdout)
-    output = Path(work) / '.gmx-energy.xvg'
+    requested = None if terms is None else {_energy_term_key(name) for name in terms}
+    # A pool can read two EDRs at once, so the XVG is unique per call rather than one fixed name in the work tree.
+    # The name is reserved and then released: GROMACS backs up an output that already exists as `#<name>.1#`, and
+    # that backup is not hidden, so it would be published as a produced file (measured: a 0-byte `#...#` beside the
+    # attempt's outputs). The name is unique because mkstemp created it; the file must not be.
+    descriptor, name = tempfile.mkstemp(prefix='.gmx-energy-', suffix='.xvg', dir=work)
+    os.close(descriptor)
+    os.unlink(name)
+    output = Path(name)
     try:
         if menu:
-            # Every menu index, one per line, then the zero that ends the selection. The XVG carries all terms, not
-            # only a requested few: the record summarises each one and each producer picks its own columns by legend.
-            selection = '\n'.join([*(str(index) for index, _ in menu), '0', ''])
+            # One menu index per line, then the zero that ends the selection. `None` selects every term: the overview
+            # record summarises each one and draws its own three by legend. A narrowed read selects only its terms.
+            chosen = [index for index, label in menu
+                      if requested is None or _energy_term_key(label) in requested]
+            selection = '\n'.join([*(str(index) for index in chosen), '0', ''])
         else:
-            selection = '\n'.join([*ENERGY_TERMS, '0', ''])
+            selection = '\n'.join([*(terms if terms is not None else ENERGY_TERMS), '0', ''])
         done = subprocess.run([gmx, 'energy', '-f', str(edr), '-o', str(output)],
                               input=selection, capture_output=True, text=True)
         if done.returncode != 0 or not output.is_file():
@@ -639,21 +655,29 @@ def _stages(work):
 
     Explicit paths, not a glob: `4_CG_sim` writes `min.edr`, `eq.edr` and `md.edr` in one directory, and a stage
     trace must read the leg it names. The first existing candidate wins, the same rule `sources` stages by, so the
-    hook and the producer cannot disagree about which file a leg means.
+    hook and the producer cannot disagree about which file a leg means. Each leg is two independent `gmx energy`
+    calls, so the legs run on a small pool (one thread per leg) and are joined in `STAGE_ENERGY` order, which is the
+    order the record publishes.
     """
     gmx = tools.tool_path('gmx')
     if gmx is None:
         return {}
-    stages = {}
+    legs = []
     for leg, spec in STAGE_ENERGY.items():
         for relative in spec['candidates']:
             edr = segments.present(Path(work), relative)
             if edr is None:
                 continue
-            entry = _stage_trace(work, leg, edr, spec, gmx)
-            if entry is not None:
-                stages[leg] = entry
+            legs.append((leg, edr, spec))
             break
+    stages = {}
+    if legs:
+        with ThreadPoolExecutor(max_workers=len(legs)) as pool:
+            futures = [pool.submit(_stage_trace, work, leg, edr, spec, gmx) for leg, edr, spec in legs]
+            for (leg, _, _), future in zip(legs, futures):
+                entry = future.result()
+                if entry is not None:
+                    stages[leg] = entry
     return stages
 
 
@@ -805,8 +829,13 @@ def run(work, payload=None):
             counts.append(0)
             free.append(0)
 
-    energy, energy_reason = _energy(work, trajectory)
-    stages = _stages(work)
+    # The production EDR read and the stage traces are independent gmx calls, so they overlap on two threads; each
+    # result is joined before use and the record keeps its own order. `_draw` stays here, on the main thread.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        energy_read = pool.submit(_energy, work, trajectory)
+        stage_read = pool.submit(_stages, work)
+        energy, energy_reason = energy_read.result()
+        stages = stage_read.result()
     series = {'times_ns': times, 'rmsd_nm': rmsds, 'gyration_nm': gyrations,
               'aggregate_largest': largest, 'aggregates': counts, 'aggregate_free': free}
     segment = _segment(work)

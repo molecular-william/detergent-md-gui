@@ -231,7 +231,7 @@ def run(work, payload=None):
     if leg is None:
         raise layout.NoTrajectory('this run staged no production energy file (.edr) to read; '
                                   'looked for ' + ', '.join(PRODUCTION_ENERGY))
-    data, reason = read_energy(work / leg, work)
+    data, reason = read_energy(work / leg, work, SERIES_TERMS)
     if data is None:
         raise RuntimeError(f'the production energy file {leg} could not be read: {reason}')
     times_ns = [float(time) / 1000.0 for time in data['times_ps']]

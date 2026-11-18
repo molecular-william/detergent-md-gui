@@ -11,6 +11,7 @@ own; it asks `read_energy` once per leg and keeps the three terms the panel draw
 """
 import math
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ... import files
@@ -102,7 +103,8 @@ def _resolved(work):
 
 def _trace(work, leg, edr, spec):
     """One leg's three traces, or None when its .edr is unreadable or carries none of them."""
-    data, _ = read_energy(edr, work)
+    # Only the panel's own terms are requested: the other EDR terms would be parsed and summarised for nothing.
+    data, _ = read_energy(edr, work, TRACE_TERMS)
     if data is None:
         return None
     times, stats, labels, columns = data['times_ps'], data['terms'], data['labels'], data['columns']
@@ -140,11 +142,17 @@ def _trace(work, leg, edr, spec):
 def run(work, payload=None):
     """Write `equilibration-traces.json`: one bounded trace per equilibration leg that has an energy file."""
     work = Path(work)
+    resolved = _resolved(work)
     legs = {}
-    for leg, (edr, spec) in _resolved(work).items():
-        trace = _trace(work, leg, edr, spec)
-        if trace is not None:
-            legs[leg] = trace
+    if resolved:
+        # Each leg is its own `gmx energy` read; the pool overlaps them and the results are joined in the table's
+        # order (`STAGE_ENERGY`, the order the record publishes), never as they finish.
+        with ThreadPoolExecutor(max_workers=len(resolved)) as pool:
+            futures = [pool.submit(_trace, work, leg, edr, spec) for leg, (edr, spec) in resolved.items()]
+            for (leg, _), future in zip(resolved.items(), futures):
+                trace = future.result()
+                if trace is not None:
+                    legs[leg] = trace
     record = {'legs': legs,
               'terms': list(TRACE_TERMS),
               'targets': _targets(work),

@@ -6,6 +6,7 @@ says what is missing instead of inventing a curve.
 """
 import json
 import math
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -520,6 +521,91 @@ def test_xvg_legends_are_folded_to_the_canonical_term_names(tmp_path, monkeypatc
     assert energy['drift']['kinetic_energy_slope_per_ns'] == pytest.approx(1.0)
     assert energy['drift']['ratio'] == pytest.approx(1.0)
     assert energy['terms']['Temperature']['values'] == [300.0] * 5
+
+
+def test_read_energy_requests_only_the_terms_a_producer_records(tmp_path, monkeypatch):
+    """A terms list selects just those menu entries; an unparseable menu falls back to the requested names."""
+    edr = tmp_path / 'run.edr'
+    edr.write_text('not really an edr; gmx is replaced below')
+    menu = ['Potential', 'Temperature', 'Pressure', 'Bond']
+    inputs = []
+    state = {'menu': True}
+
+    def run(command, **kwargs):
+        if '-o' not in command:
+            if not state['menu']:
+                return SimpleNamespace(returncode=1, stdout='', stderr='no term menu here')
+            listed = ''.join(f'{index + 1}  {name}\n' for index, name in enumerate(menu))
+            return SimpleNamespace(returncode=1, stdout='', stderr='Select the terms\n\n' + listed + '\n')
+        inputs.append(kwargs['input'])
+        requested = [line for line in kwargs['input'].splitlines() if line.strip() and line != '0']
+        names = [menu[int(line) - 1] if line.isdigit() else line for line in requested]
+        columns = list(reversed(names))
+        output = Path(command[command.index('-o') + 1])
+        lines = ['# xvg'] + [f'@ s{index} legend "{name}"' for index, name in enumerate(columns)]
+        lines += [f'{row} {" ".join(str(row + index) for index in range(len(columns)))}' for row in range(3)]
+        output.write_text('\n'.join(lines) + '\n')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(trajectory_overview.subprocess, 'run', run)
+    monkeypatch.setattr(trajectory_overview.tools, 'tool_path', lambda *args, **kwargs: 'gmx')
+
+    data, reason = trajectory_overview.read_energy(edr, tmp_path, ('Potential', 'Temperature'))
+
+    assert reason is None
+    assert inputs == ['1\n2\n0\n'], 'only the requested menu entries were selected'
+    assert data['labels'] == ['Temperature', 'Potential'], 'the XVG keeps the order the tool writes'
+    assert set(data['terms']) == {'Potential', 'Temperature'}
+
+    state['menu'] = False
+    data, reason = trajectory_overview.read_energy(edr, tmp_path, ('Potential',))
+
+    assert reason is None
+    assert inputs[-1] == 'Potential\n0\n', 'with no parseable menu the term is requested by its name'
+    assert data['labels'] == ['Potential']
+
+
+def test_two_concurrent_energy_reads_get_their_own_xvg_and_the_same_result(tmp_path, monkeypatch):
+    """Two reads in one work dir must not share the temporary XVG: each call writes its own and both agree."""
+    edr = tmp_path / 'run.edr'
+    edr.write_text('not really an edr; gmx is replaced below')
+    outputs, results = [], [None, None]
+    lock = threading.Lock()
+    # Both reads hold their XVG path before either writes it: with a fixed shared name one would unlink the other's.
+    barrier = threading.Barrier(2)
+
+    def run(command, **kwargs):
+        if '-o' not in command:
+            return SimpleNamespace(returncode=1, stdout='',
+                                   stderr='Select the terms\n\n  1  Potential       2  Temperature\n\n')
+        output = Path(command[command.index('-o') + 1])
+        with lock:
+            outputs.append(output)
+        barrier.wait(timeout=15)
+        columns = ['Temperature', 'Potential']
+        lines = ['# xvg'] + [f'@ s{index} legend "{name}"' for index, name in enumerate(columns)]
+        lines += [f'{row} {-190000.0 - row} {300.0 + row}' for row in range(3)]
+        output.write_text('\n'.join(lines) + '\n')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    monkeypatch.setattr(trajectory_overview.subprocess, 'run', run)
+    monkeypatch.setattr(trajectory_overview.tools, 'tool_path', lambda *args, **kwargs: 'gmx')
+
+    def read(index):
+        results[index] = trajectory_overview.read_energy(edr, tmp_path)
+
+    threads = [threading.Thread(target=read, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert [reason for _, reason in results] == [None, None]
+    assert len({output.name for output in outputs}) == 2, 'each call wrote its own temporary XVG'
+    assert results[0][0]['labels'] == results[1][0]['labels'] == ['Temperature', 'Potential']
+    assert results[0][0]['terms'] == results[1][0]['terms']
+    assert not list(tmp_path.glob('.gmx-energy-*')), 'both temporary XVGs were removed'
 
 
 def test_the_equilibration_energy_files_are_staged(tmp_path):
