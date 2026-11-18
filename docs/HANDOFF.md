@@ -156,6 +156,35 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Next session
 
+**2026-11-18 analysis performance round: Wave 1 built (six slices), Wave 2 (`surfaces`) not started.**
+Plan and execution record: `docs/plans/2026-11-18-analysis-performance-round.md`. What the audit found first, because
+it frames everything below: the tab is **hybrid** by design (`pdc-structure` is GROMACS tools plus one NumPy/MDAnalysis
+aggregation pass; the validation kinds are MDAnalysis + NumPy/SciPy/scikit-image/biotite with only `surfaces` shelling
+out; the core kinds mix `gmx energy`/`gmx trjconv` with MDAnalysis), and the biggest lever was the **engine**, not the
+numerics.
+- *Staging (commit `b8ff2df`).* An attempt now stages each source as a **symlink** to the run's own file, and the
+  producer's input guard is `files.stat_snapshot` instead of two SHA-256 passes. Staging on a 322 MB trajectory
+  1.64 s -> 0.0004 s, whole attempt 1.76 -> 0.016 s. The ceiling is stated in `PROJECT_GUIDE.md` (*Run accounting*):
+  a buggy producer writing through a link reaches the run's file and is detected, not prevented. The analysis
+  subprocess now runs under `sys.executable`, not a `python` from the stage PATH.
+- *Algorithms.* pdc's contact graph and protein-contact test are two `cKDTree`s (`8875dd1`): 40.9 -> 2.8 ms/frame at 100
+  detergents, 186 -> 5.6 ms for the protein test at 8 000 beads, identical clusters and identical `pdc-structure.json`.
+  `measure_torsions` 20.55 -> 2.32 s and BARTENDER reads `lig.xtc` once (`b0a3e17`); `frame-series` decodes only the
+  frames it writes and formats each model once (`9674954`, 1.33 -> 0.18 s real, 22.7 -> 9.5 s worst case);
+  `mapping-consistency` does one pass per trajectory with batched bead geometry (`3fa907b`, 10.9 -> 4.4 s).
+- *Energy reads (`091311c`).* `read_energy(edr, work, terms=None)`: `equilibration-traces` and `energy-conservation`
+  ask only for the terms they record, `trajectory_overview` keeps its all-term record, and the legs overlap on threads.
+  AA overview 13.43 -> 8.87 s, AA eq-traces 7.40 -> 1.63 s, AA energy-conservation 10.86 -> 4.59 s.
+- *One defect the slice proofs could not see.* `mkstemp` pre-creates its file, and GROMACS backs up an existing output
+  as `#<name>.1#`; that name is not hidden, so the worker published it as a 0-byte artifact. The end-to-end replay
+  through `python -m dashboard.analysis` found it; the placeholder is now unlinked before `gmx energy` writes. Lesson:
+  compare the **output set**, not only the record.
+- *Open.* Wave 2 is unbuilt: `surfaces` (18.8 s) is one extraction pass writing all three variants plus a bounded
+  `envelope`, and `mapping-consistency` still reads the CG trajectory twice (the second read is core
+  `bonded_terms.measure`). `np.vecdot` in `dihedral_fit`/`bonded_estimate`/`bartender_fit` requires **numpy >= 2**
+  (venv 2.2.6): it is load-bearing for the +-180 branch cut, so a numpy 1.x host needs a row-per-dot fallback, not a
+  `.sum()`.
+
 **2026-11-17 the pdc New run form is staged, and a run's equilibration traces are drawn in its Runs row.**
 Approved draft: `docs/design/drafts/2026-11-17-pdc-new-run-clarity.html`; plan:
 `docs/plans/2026-11-17-pdc-new-run-clarity.md` (both local -- `.gitignore` keeps drafts and plans out of history).

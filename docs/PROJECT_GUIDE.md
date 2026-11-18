@@ -926,6 +926,16 @@ that file in `DASHBOARD_ANALYSIS_PROGRESS`, so a producer (or a thread it starts
 `dashboard.analysis.progress.report` -- a no-op outside the worker. `surfaces` reports each variant's extraction and
 gmx phase this way. The two readers (`routes/analyses.py`, `views.py`) show the record's `phase`.
 
+An attempt **stages each source as a symlink** to the run's own file (an outside source, such as a paired AA
+reference, is first copied once into the run's `sources/` and the link points at that copy), so an attempt writes no
+second copy of a multi-gigabyte trajectory. `files.safe_files` skips links, so what an attempt publishes is unchanged.
+The producer's input guard is `files.stat_snapshot` -- `(size, mtime_ns, mode)` per staged file, links followed --
+recorded before and re-stated after; only an entry whose stat moved pays a SHA-256, against the file it was staged
+from, and an in-run source's moved stat is itself the refusal. The ceiling this accepts: a buggy producer that opens a
+staged source *for writing* reaches the run's file; the guard detects and refuses it, it does not prevent it, so a
+producer publishes new files and never edits what it was handed. The analysis subprocess runs under `sys.executable`
+-- the install that owns the module -- not a `python` resolved from the stage PATH.
+
 `GET /api/jobs/<id>/structure?path=<run-relative .gro>` writes the run's own `[ bonds ]` and `[ constraints ]` as
 CONECT, locating the topology by `analysis/runs/layout.recorded_topology` -- an `aa_only` run through its
 `stages/common/molecule/molecule.itp` entry point, whose single quoted `#include` `structures.read_moleculetype` follows (refusing
