@@ -181,9 +181,10 @@ numerics.
   compare the **output set**, not only the record.
 - *Open.* Wave 2 is unbuilt: `surfaces` (18.8 s) is one extraction pass writing all three variants plus a bounded
   `envelope`, and `mapping-consistency` still reads the CG trajectory twice (the second read is core
-  `bonded_terms.measure`). `np.vecdot` in `dihedral_fit`/`bonded_estimate`/`bartender_fit` requires **numpy >= 2**
-  (venv 2.2.6): it is load-bearing for the +-180 branch cut, so a numpy 1.x host needs a row-per-dot fallback, not a
-  `.sum()`.
+  `bonded_terms.measure`).
+- *numpy floor.* `np.vecdot` in `dihedral_fit`/`bonded_estimate`/`bartender_fit` is load-bearing for the +-180 branch
+  cut, so `detergent-core` now declares `numpy>=2` (commit `5f89ab8`); the feature distributions inherit it through
+  `detergent-core==0.2.0`. A numpy 1.x host needs a row-per-dot fallback, not a `.sum()`.
 
 **2026-11-17 the pdc New run form is staged, and a run's equilibration traces are drawn in its Runs row.**
 Approved draft: `docs/design/drafts/2026-11-17-pdc-new-run-clarity.html`; plan:
