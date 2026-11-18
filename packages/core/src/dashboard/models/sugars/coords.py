@@ -378,6 +378,93 @@ def coordinates(data, positions, atom_ids=None, scaled=False, representation_mod
     return xyz
 
 
+def _rigid_steps(data, beads, names):
+    """The bead groups and the placement walk `coordinates` uses to keep connected rings rigid.
+
+    `coordinates` dilates each ring about its own centre, groups every unclaimed bead with itself, then walks
+    the connection graph from the first group and translates each group it reaches by the delta the link
+    implies. The walk's order is what makes the result reproducible, so it is computed once here: the bead
+    indices of each group, and `(group, bead in the placed group, its partner in the group moved)` per step.
+    """
+    import numpy as np
+
+    groups = [[names[name] for name in ring['beads']] for ring in data.get('rings', [])]
+    grouped = {index for group in groups for index in group}
+    groups += [[index] for index, bead in enumerate(beads)
+               if index not in grouped and not bead.get('virtual_site')]
+    owner = {index: number for number, group in enumerate(groups) for index in group}
+    links = {number: [] for number in range(len(groups))}
+    for first, second in data['connections']:
+        i, j = names[first], names[second]
+        if owner[i] != owner[j]:
+            links[owner[i]].append((owner[j], i, j)); links[owner[j]].append((owner[i], j, i))
+    steps, seen = [], set()
+
+    def place(number, parent=None):
+        seen.add(number)
+        for other, i, j in links[number]:
+            # The AA graph can produce redundant links between already placed groups. The first path supplies
+            # a stable rigid placement; later links remain available to topology generation but must not
+            # trigger a second placement.
+            if other == parent or other in seen: continue
+            steps.append((other, i, j)); place(other, number)
+
+    for number in links:
+        if number not in seen: place(number)
+    return [np.asarray(group) for group in groups], steps
+
+
+def coordinates_many(data, frames, atom_ids=None, scaled=False, representation_mode=None):
+    """COG of physical groups, ring dilation and rigid translation for a whole block of frames.
+
+    The same arithmetic `coordinates` performs on one frame, as array ops over the block, and it returns the
+    same numbers: `coordinates(data, frame, ...)[bead]` is `coordinates_many(data, [frame], ...)[0][bead]`
+    exactly, in float64, for every frame. `coordinates` stays the per-frame reference (and the oracle this
+    function is tested against); a caller with thousands of frames should use this one.
+
+    `frames` is the block: shape `(frames, atoms, 3)`, one row of atom positions per frame, in whatever unit
+    the positions are (the result carries the same unit). Positions are summed in float64, in the same order
+    `coordinates` sums them, so a float32 trajectory gives the float64 numbers its `.tolist()` would.
+    `atom_ids` names the atom each column belongs to, defaulting to 1..atoms (the mapping's own numbering);
+    `scaled` and `representation_mode` behave exactly as in `coordinates`, and a frame of the block is
+    independent of its neighbours, so the block size changes no value.
+
+    Returns `(frames, beads, 3)`. A single frame is a one-row block -- `coordinates_many(data, [positions])`
+    -- rather than a bare `(atoms, 3)` array, so a frame axis and an atom axis can never be confused.
+    """
+    import numpy as np
+
+    representation_mode = representation_mode or data.get('representation_mode') or 'tc4'
+    if representation_mode not in ('tc4', 'physical_only_ring_constrained'):
+        raise ValueError(f'Unknown carbohydrate representation: {representation_mode}')
+    block = np.asarray(frames, dtype=np.float64)
+    if block.ndim != 3 or block.shape[2] != 3:
+        raise ValueError('frames must be a block of (frame, atom, 3) positions')
+    ids = atom_ids if atom_ids is not None else range(1, block.shape[1] + 1)
+    column = dict(zip(ids, range(len(ids))))
+    beads = data['beads']; names = {b['name']: i for i, b in enumerate(beads)}
+    xyz = np.zeros((block.shape[0], len(beads), 3))
+    for i, b in enumerate(beads):
+        if not b.get('virtual_site'):
+            xyz[:, i] = block[:, [column[a] for a in b['atoms']], :].mean(axis=1)
+    raw = xyz.copy()
+    if scaled:
+        for r in data.get('rings', []):
+            idx = [names[n] for n in r['beads']]
+            centre = raw[:, idx, :].mean(axis=1)
+            xyz[:, idx, :] = centre[:, None, :] + r['scale']*(raw[:, idx, :]-centre[:, None, :])
+    if scaled and data.get('connections'):
+        groups, steps = _rigid_steps(data, beads, names)
+        for other, i, j in steps:
+            delta = xyz[:, i] + raw[:, j] - raw[:, i] - xyz[:, j]
+            xyz[:, groups[other], :] += delta[:, None, :]
+    if representation_mode == 'tc4':
+        for i, b in enumerate(beads):
+            if b.get('virtual_site'):
+                xyz[:, i] = xyz[:, [names[n] for n in b['virtual_site']['parents']], :].mean(axis=1)
+    return xyz
+
+
 def gro_text(data, xyz, *, residue_name, box_nm=0.0):
     """A `.gro` for the beads at `xyz` (nm), named the way every run names them: `B01..` under one residue.
 

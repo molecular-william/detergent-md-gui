@@ -58,17 +58,21 @@ def _terms_for(work_dir, name=None):
 
 
 def _aa_measure(work_dir, mapping, molecule, terms, stride, limit, name=None):
-    """The atomistic side: the supplied mapping's pairs and mean bead centres, under its own dilation."""
-    return {'samples': consistency.aa_samples(work_dir, mapping, molecule, stride, limit),
-            'means': consistency.aa_bead_means(work_dir, mapping, stride, limit),
+    """The atomistic side: the supplied mapping's pairs and mean bead centres, under its own dilation.
+
+    Samples and means come from one reader pass, `consistency.aa_measure`, so the atomistic reference is
+    decoded once for both sections instead of once each.
+    """
+    measured = consistency.aa_measure(work_dir, mapping, molecule, stride, limit)
+    return {'samples': measured['samples'], 'means': measured['means'],
             'terms': bonded_terms.measure(layout.resolve(work_dir, 'mapped_trajectory'),
                                           layout.resolve(work_dir, 'mapped_structure'), terms, stride, limit)}
 
 
 def _cg_measure(work_dir, mapping, terms, stride, limit, name=None):
-    """The simulated side: what the coarse-grained trajectory actually holds."""
-    return {'samples': consistency.cg_samples(work_dir, mapping, stride, limit, name),
-            'means': consistency.cg_bead_means(work_dir, stride, limit, name),
+    """The simulated side: what the coarse-grained trajectory actually holds, from one reader pass."""
+    measured = consistency.cg_measure(work_dir, mapping, stride, limit, name)
+    return {'samples': measured['samples'], 'means': measured['means'],
             'terms': bonded_terms.measure(layout.resolve(work_dir, 'cg_trajectory'),
                                           layout.resolve(work_dir, 'cg_structure'), terms, stride, limit)}
 

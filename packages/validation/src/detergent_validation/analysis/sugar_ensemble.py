@@ -9,13 +9,37 @@ run alone because everything comes from the run's immutable inputs rather than a
 import numpy as np
 
 
+def pair_plan(keys, pairs):
+    """The pairs `keys` can measure, as `(pair, first, second)` in the currency's own bead ids.
+
+    A pair one of whose ends the frame does not hold is dropped rather than guessed, which is the rule
+    `pair_distances` has always applied. Deciding it once, against the bead currency a whole trajectory is read
+    with, is what turns the per-frame per-pair loop into one gather and one vector op per block of frames.
+    """
+    present = set(keys)
+    return [(frozenset((first, second)), first, second) for first, second in pairs
+            if first in present and second in present]
+
+
+def pair_lengths(vectors):
+    """The length of each row of `vectors`, in the floating-point operations `np.linalg.norm` uses.
+
+    One 3-wide matmul instead of a `np.linalg.norm` per row: BLAS evaluates that inner product with the same
+    operations the one-dimensional norm does, so the numbers are bit for bit the ones a per-row norm returned,
+    and the dtype is kept -- which matters, because a coarse-grained frame's positions are float32 and its
+    distances are float32 numbers.
+    """
+    vectors = np.asarray(vectors)
+    return np.sqrt(np.matmul(vectors[..., None, :], vectors[..., :, None])[..., 0, 0])
+
+
 def pair_distances(centres, pairs):
     """Distance in nanometres for each bead pair both of whose ends are present in the frame."""
-    distances = {}
-    for first, second in pairs:
-        if first in centres and second in centres:
-            distances[frozenset((first, second))] = float(np.linalg.norm(centres[first] - centres[second]))
-    return distances
+    plan = pair_plan(list(centres), pairs)
+    if not plan:
+        return {}
+    lengths = pair_lengths([centres[first] - centres[second] for _, first, second in plan])
+    return {pair: float(value) for (pair, _, _), value in zip(plan, lengths)}
 
 
 def summarise(samples):

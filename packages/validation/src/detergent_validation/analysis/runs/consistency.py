@@ -14,7 +14,32 @@ from pathlib import Path
 import numpy as np
 from dashboard.analysis.runs import layout
 from detergent_validation.analysis import sugar_ensemble as ensemble
-from detergent_validation.analysis.sugar_ensemble import pair_distances
+
+#: How many frames one algebra block holds. The trajectory is decoded once either way; the block only decides
+#: how much of it is held in memory at a time, and a frame's bead centres never depend on its neighbours, so the
+#: block size changes no number.
+BLOCK = 512
+
+
+def _batches(universe, stride, limit, size=BLOCK):
+    """The sampled frames' positions in blocks, taken in the order these readers have always taken them.
+
+    `stride` and `limit` are the run's sampling, unchanged: frame `index` is read when `index % stride` is 0 and
+    the read stops once `index // stride` reaches `limit`. Each frame is copied because MDAnalysis reuses one
+    timestep buffer for the whole iteration, so a block of views would hold the last frame `size` times.
+    """
+    block = []
+    for index, timestep in enumerate(universe.trajectory):
+        if index % stride:
+            continue
+        if limit is not None and index // stride >= limit:
+            break
+        block.append(np.array(timestep.positions))
+        if len(block) >= size:
+            yield np.asarray(block)
+            block = []
+    if block:
+        yield np.asarray(block)
 
 
 def expected_currency(mapping):
@@ -60,15 +85,30 @@ def check_currency(topology_text, mapping, source='the CG topology'):
     return currency
 
 
-def cg_samples(cg_run_dir, mapping, stride=1, limit=None, topology_name=None):
-    """Per-pair distance samples over a CG run's own trajectory, keyed by the mapping's pairs.
+def _pair_ends(currency, pairs):
+    """The pair plan and its two endpoint columns, computed once for a whole pass.
+
+    `currency` is the bead ids to the row each is held at; `plan` carries the pairs both of whose ends it
+    holds, so a block needs one gather and one vector op rather than a Python loop per pair.
+    """
+    index = {bead: position for position, bead in enumerate(currency)}
+    plan = ensemble.pair_plan(index, pairs)
+    return plan, [index[bead] for _, bead, _ in plan], [index[bead] for _, _, bead in plan]
+
+
+def cg_measure(cg_run_dir, mapping=None, stride=1, limit=None, topology_name=None):
+    """Samples and mean bead positions from ONE pass over a coarse-grained run's trajectory, in nanometres.
 
     Units follow the trajectory, which for GROMACS is nanometres — the same unit the atomistic side is
-    converted into — so the two series can be compared without a conversion at the comparison site.
+    converted into — so the two series can be compared without a conversion at the comparison site. Returns the
+    two records `cg_samples` and `cg_bead_means` return under `samples` and `means`, because a caller that
+    needs both otherwise decodes the same trajectory twice for the same numbers.
 
     `topology_name` is the topology the run recorded for its simulated molecule. A completed run leaves several
     `.itp` files in the stage directory, and comparing against the wrong one would describe a different
-    molecule; a caller that has the run's record passes the name rather than letting the reader guess.
+    molecule; a caller that has the run's record passes the name rather than letting the reader guess. When a
+    `mapping` is supplied the topology's bead names are checked against it (`cg_samples`' contract); without one
+    only the bead count is checked, which is what `cg_bead_means` promises.
     """
     import MDAnalysis as mda
 
@@ -76,8 +116,10 @@ def cg_samples(cg_run_dir, mapping, stride=1, limit=None, topology_name=None):
     trajectory = layout.resolve(cg_run_dir, 'cg_trajectory')
     structure = layout.resolve(cg_run_dir, 'cg_structure')
     topology_path = layout.cg_topology(cg_run_dir, topology_name)
-    currency = check_currency(topology_path.read_text(), mapping, source=str(topology_path))
-    pairs = ring_pairs(mapping)
+    text = topology_path.read_text()
+    currency = (check_currency(text, mapping, source=str(topology_path)) if mapping is not None
+                else ensemble.currency(text))
+    pairs = ring_pairs(mapping) if mapping is not None else []
 
     universe = mda.Universe(str(structure), str(trajectory))
     beads = len(universe.atoms)
@@ -85,29 +127,44 @@ def cg_samples(cg_run_dir, mapping, stride=1, limit=None, topology_name=None):
         universe.trajectory.close()
         raise ValueError(f'{trajectory} holds {beads} beads but {topology_path} declares {len(currency)}: '
                          'these are not the same system')
+    columns = [bead - 1 for bead in currency]
+    plan, left, right = _pair_ends(currency, pairs)
     sampled, first, frames = {}, None, 0
-    for index, _ in enumerate(universe.trajectory):
-        if index % stride:
-            continue
-        if limit is not None and index // stride >= limit:
-            break
-        frames += 1
+    totals = np.zeros((len(currency), 3))
+    for batch in _batches(universe, stride, limit):
+        frames += len(batch)
         # MDAnalysis holds ångström; this module reports nanometres, as the atomistic side does.
-        positions = np.asarray(universe.atoms.positions) / 10.0
-        centres = {bead: positions[bead - 1] for bead in currency}
-        distances = pair_distances(centres, pairs)
+        positions = batch[:, columns, :] / 10.0
+        for row in positions:
+            totals += row
+        if not plan:
+            continue
+        values = ensemble.pair_lengths(positions[:, left, :] - positions[:, right, :])
         if first is None:
-            first = dict(distances)
-        for pair, distance in distances.items():
-            sampled.setdefault(pair, []).append(distance)
+            first = {pair: float(values[0][column]) for column, (pair, _, _) in enumerate(plan)}
+        for column, (pair, _, _) in enumerate(plan):
+            sampled.setdefault(pair, []).extend(float(value) for value in values[:, column])
     universe.trajectory.close()
-    return {'run': str(cg_run_dir), 'frames': frames,
-            'trajectory': str(trajectory.relative_to(cg_run_dir)),
-            'topology': str(topology_path.relative_to(cg_run_dir)),
-            # The run's own ids (B01..) were checked above; the mapping's letters are what a report beside
-            # the published entry needs, so that is what the samples carry.
-            'beads': ensemble.mapping_currency(mapping), 'pairs': pairs,
-            'samples': sampled, 'first': first or {}}
+    if not frames:
+        raise ValueError(f'{trajectory} holds no frame to average')
+    return {
+        'samples': {'run': str(cg_run_dir), 'frames': frames,
+                    'trajectory': str(trajectory.relative_to(cg_run_dir)),
+                    'topology': str(topology_path.relative_to(cg_run_dir)),
+                    # The run's own ids (B01..) were checked above; the mapping's letters are what a report
+                    # beside the published entry needs, so that is what the samples carry.
+                    'beads': ensemble.mapping_currency(mapping) if mapping is not None else currency,
+                    'pairs': pairs, 'samples': sampled, 'first': first or {}},
+        'means': {'run': str(cg_run_dir), 'beads': currency, 'frames': frames, 'mean': totals / frames,
+                  'trajectory': str(trajectory.relative_to(cg_run_dir))}}
+
+
+def cg_samples(cg_run_dir, mapping, stride=1, limit=None, topology_name=None):
+    """Per-pair distance samples over a CG run's own trajectory, keyed by the mapping's pairs.
+
+    The samples half of `cg_measure`, for a caller that wants nothing else.
+    """
+    return cg_measure(cg_run_dir, mapping, stride, limit, topology_name)['samples']
 
 
 def labels_for(measured, pair):
@@ -131,46 +188,26 @@ def cg_bead_means(cg_run_dir, stride=1, limit=None, topology_name=None):
     A mean position is the shape half of the comparison: constraint lengths say how big the ring is, and a
     per-bead displacement says which part of it moved. The bead count is checked against the topology,
     because averaging a trajectory read with the wrong topology produces a fluent number about nothing.
-    `topology_name` names the file the run recorded for its simulated molecule; see `cg_samples`.
+    `topology_name` names the file the run recorded for its simulated molecule; see `cg_samples`. The means are
+    the other half of `cg_measure`'s one pass.
     """
-    import MDAnalysis as mda
-
-    cg_run_dir = Path(cg_run_dir)
-    trajectory = layout.resolve(cg_run_dir, 'cg_trajectory')
-    structure = layout.resolve(cg_run_dir, 'cg_structure')
-    topology_path = layout.cg_topology(cg_run_dir, topology_name)
-    currency = ensemble.currency(topology_path.read_text())
-    universe = mda.Universe(str(structure), str(trajectory))
-    if len(universe.atoms) != len(currency):
-        universe.trajectory.close()
-        raise ValueError(f'{trajectory} holds {len(universe.atoms)} beads but {topology_path} declares '
-                         f'{len(currency)}: these are not the same system')
-    totals, frames = np.zeros((len(currency), 3)), 0
-    for index, _ in enumerate(universe.trajectory):
-        if index % stride:
-            continue
-        if limit is not None and index // stride >= limit:
-            break
-        frames += 1
-        # MDAnalysis holds ångström; this module reports nanometres.
-        totals += np.asarray(universe.atoms.positions) / 10.0
-    universe.trajectory.close()
-    if not frames:
-        raise ValueError(f'{trajectory} holds no frame to average')
-    return {'run': str(cg_run_dir), 'beads': currency, 'frames': frames, 'mean': totals / frames,
-            'trajectory': str(trajectory.relative_to(cg_run_dir))}
+    return cg_measure(cg_run_dir, stride=stride, limit=limit, topology_name=topology_name)['means']
 
 
-def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
-    """Per-pair samples over an atomistic reference, measured through a mapping the caller supplies.
+def aa_measure(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
+    """Per-pair samples and mean bead centres from ONE pass over an atomistic reference, in nanometres.
 
     The mapping is supplied rather than recognised here. An analysis compares a *saved* mapping with the
     model built from it, and re-recognising would silently compare a different assignment the day the
     recognizer changes. The trailer counts are checked, because a mapping whose beads index atoms the
     trajectory does not have would otherwise be reported as a geometry difference.
+
+    Returns the two records `aa_samples` and `aa_bead_means` return under `samples` and `means`. The dilation
+    the generated constraints carry is applied here too, so a mean bead position and a generated constraint
+    length are the same kind of number and can be read in one table.
     """
     import MDAnalysis as mda
-    from dashboard.models.sugars import coordinates
+    from dashboard.models.sugars.coords import coordinates_many
 
     aa_run_dir = Path(aa_run_dir)
     pairs = ring_pairs(mapping)
@@ -183,51 +220,49 @@ def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
         universe.trajectory.close()
         raise ValueError(f'the mapping names atom {highest} but {aa_run_dir} holds {atoms} atoms: '
                          'these are not the same molecule')
+    columns = [bead - 1 for bead in currency]
+    plan, left, right = _pair_ends(currency, pairs)
     sampled, first, frames = {}, None, 0
-    for index, _ in enumerate(universe.trajectory):
-        if index % stride:
-            continue
-        if limit is not None and index // stride >= limit:
-            break
-        frames += 1
+    totals = np.zeros((len(mapping['beads']), 3))
+    for batch in _batches(universe, stride, limit):
+        frames += len(batch)
         # The dilation the generated constraints carry is applied here too, and ångström becomes nanometres.
-        xyz = np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
-        centres = {bead: xyz[bead - 1] for bead in currency}
-        distances = pair_distances(centres, pairs)
+        xyz = coordinates_many(mapping, batch, scaled=True) / 10.0
+        for row in xyz:
+            totals += row
+        if not plan:
+            continue
+        beads_here = xyz[:, columns, :]
+        values = ensemble.pair_lengths(beads_here[:, left, :] - beads_here[:, right, :])
         if first is None:
-            first = dict(distances)
-        for pair, distance in distances.items():
-            sampled.setdefault(pair, []).append(distance)
+            first = {pair: float(values[0][column]) for column, (pair, _, _) in enumerate(plan)}
+        for column, (pair, _, _) in enumerate(plan):
+            sampled.setdefault(pair, []).extend(float(value) for value in values[:, column])
     universe.trajectory.close()
-    return {'run': str(aa_run_dir), 'molecule': molecule, 'frames': frames, 'beads': currency,
-            'pairs': pairs, 'samples': sampled, 'first': first or {}}
+    if not frames:
+        raise ValueError(f'{aa_run_dir} holds no frame to average')
+    return {
+        'samples': {'run': str(aa_run_dir), 'molecule': molecule, 'frames': frames, 'beads': currency,
+                    'pairs': pairs, 'samples': sampled, 'first': first or {}},
+        'means': {'run': str(aa_run_dir), 'beads': currency, 'frames': frames, 'mean': totals / frames}}
+
+
+def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
+    """Per-pair samples over an atomistic reference, measured through a mapping the caller supplies.
+
+    The samples half of `aa_measure`, for a caller that wants nothing else.
+    """
+    return aa_measure(aa_run_dir, mapping, molecule, stride, limit)['samples']
 
 
 def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
     """Mean bead centres over an atomistic run, through the same assignment, in nanometres.
 
     The dilation the generated constraints carry is applied here too, so a mean bead position and a generated
-    constraint length are the same kind of number and can be read in one table.
+    constraint length are the same kind of number and can be read in one table. The means are the other half of
+    `aa_measure`'s one pass.
     """
-    import MDAnalysis as mda
-    from dashboard.models.sugars import coordinates
-
-    aa_run_dir = Path(aa_run_dir)
-    universe = mda.Universe(str(layout.resolve(aa_run_dir, 'aa_structure')),
-                            str(layout.resolve(aa_run_dir, 'aa_trajectory')))
-    totals, frames = np.zeros((len(mapping['beads']), 3)), 0
-    for index, _ in enumerate(universe.trajectory):
-        if index % stride:
-            continue
-        if limit is not None and index // stride >= limit:
-            break
-        frames += 1
-        totals += np.asarray(coordinates(mapping, universe.atoms.positions.tolist(), scaled=True)) / 10.0
-    universe.trajectory.close()
-    if not frames:
-        raise ValueError(f'{aa_run_dir} holds no frame to average')
-    return {'run': str(aa_run_dir), 'beads': mapping_currency(mapping), 'frames': frames,
-            'mean': totals / frames}
+    return aa_measure(aa_run_dir, mapping, stride=stride, limit=limit)['means']
 
 
 def displacement(aa, cg, physical=None):
