@@ -35,9 +35,12 @@ class Profile:
 
     `variable` names the options whose reviewed value a run may replace -- the numbers the New run form offers as
     overrides. They are not `None`: the profile still states a reviewed default, so an untouched run renders exactly
-    the reviewed file, and only a run that supplied one changes it. A variable key the profile does not state (such
-    as `rlist`, which the CG production profile deliberately leaves to GROMACS) is appended when a run supplies it,
-    and absent otherwise. Every other fixed setting stays the reviewed physics.
+    the reviewed file, and only a run that supplied one changes it. A variable option may also belong to the
+    force-field block rather than the profile (an AA run's `vdwtype` and cut-offs): the run's value replaces the
+    line that block rendered, matched by its folded name (case and `-`/`_` ignored), so the file keeps one spelling
+    of the option rather than two. A variable key the profile does not state (such as `rlist`, which the CG
+    production profile deliberately leaves to GROMACS) is appended when a run supplies it, and absent otherwise.
+    Every other fixed setting stays the reviewed physics.
 
     `force_field` is true for a profile whose force-field block is the registry's, read at render time: the block is
     not baked in here, because a run's force field is a choice recorded in its manifest. The block's constraint set is
@@ -51,6 +54,11 @@ class Profile:
     force_field: bool = False
     notes: tuple = ()
     variable: tuple = ()
+
+
+def _fold(name):
+    """An option name without the spelling differences GROMACS ignores: case and `-` against `_`."""
+    return name.lower().replace('_', '-')
 
 
 def formatted(value):
@@ -108,13 +116,15 @@ def render(profile, values=None):
         header.append(f'; force-field block: {entry.name} (dashboard.execution.forcefields.entry at render time)')
     for key, default in profile.settings.items():
         settings[key] = values.get(key, default)
-    # A variable option the profile does not state has no reviewed default to keep; the run either names it or the
-    # line is absent, which is what `rlist` wants (GROMACS sizes the list from the Verlet tolerance).
+    # A variable option the run named replaces whatever line holds that option -- the profile's own or the
+    # force-field block's -- under the spelling already there, so one option is never written twice. A variable
+    # option neither source states has no reviewed default to keep; it is appended only when the run named it,
+    # which is what `rlist` wants (GROMACS sizes the list from the Verlet tolerance).
     for key in profile.variable:
-        if key in settings:
+        if key not in values:
             continue
-        if key in values:
-            settings[key] = values[key]
+        target = next((name for name in settings if _fold(name) == _fold(key)), key)
+        settings[target] = values[key]
     missing = [key for key in profile.settings if settings[key] is None]
     if missing:
         raise ValueError(f"{profile.version} needs the run's own numbers for: {', '.join(missing)}")

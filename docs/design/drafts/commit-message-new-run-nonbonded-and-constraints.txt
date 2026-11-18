@@ -1,0 +1,28 @@
+New run: one Nonbonded and constraints section for AA and CG
+
+The validation workspace's Stage settings gains one section shared by every dynamics leg -- the AA
+NVT/NPT/production stages and the CG equilibration and production legs; minimisation keeps its
+reviewed values. It exposes rlist, rcoulomb, rvdw, rvdw_switch, vdwtype, vdw_modifier, the
+coupling intervals nsttcouple/nstpcouple, lincs_order, lincs_warnangle, AA lincs_iter, and for CG
+coulombtype, epsilon_r, epsilon_rf. The AA boxes prefill from the force-field block and the CG
+boxes from the reviewed profiles; a value equal to the reviewed one is omitted, so an untouched
+run still renders its files byte for byte, and where the profile states no line (the coupling
+intervals, the AA LINCS numbers) blank writes no line and leaves GROMACS' own rule.
+
+`execution/nonbonded.py` is the one vocabulary (bounds, choices, MDP names, canonical spellings,
+overrides, checks) for the four adapters. `Profile.variable` now replaces an option already
+rendered by the force-field block, matched by folded name, instead of only appending an absent one.
+The old Other run options -> CG production cutoffs group is gone: rlist/rcoulomb/rvdw now reach the
+equilibration leg too. The run read-back shows one Nonbonded and constraints group.
+
+The queue route refuses the combinations readir.cpp refuses: rlist below a cut-off, unequal
+rcoulomb/rvdw outside PME, vdwtype=PME with a switched modifier, a switch not below rvdw,
+epsilon-rf outside reaction-field or below epsilon-r, and an AA cut-off past half the box.
+
+The layout test's two bounding-box reads now happen in one evaluate, so a late molecule-check
+reflow cannot split them.
+
+Checks: fast tier 3128 passed / 1 xfailed; browser 415 passed at -n 8 (the known assessment-rescore
+and pdc -n 16 contention flakes remain, both green solo); ruff clean over every changed Python path.
+Plan: docs/plans/2026-11-18-new-run-nonbonded-and-constraints.md
+Draft: docs/design/drafts/2026-11-18-new-run-nonbonded-and-constraints.html

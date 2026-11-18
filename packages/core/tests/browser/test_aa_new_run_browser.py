@@ -202,8 +202,15 @@ def test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row(dashboard,
     assert len({round(cell['x']) for cell in first}) == 4, cells
     assert all(cell['y'] > max(cell['y'] for cell in first) + 4 for cell in wrapped), cells
 
-    inputs = page.locator('#run-form > .new-run-inputs').bounding_box()
-    settings = page.locator('#run-form > .new-run-settings').bounding_box()
+    # Read both boxes in one evaluate: the molecule input check settles asynchronously, and two separate
+    # bounding_box calls can straddle a reflow and report boxes from two different layouts.
+    inputs, settings = page.evaluate("""() => {
+      const box = selector => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
+      };
+      return [box('#run-form > .new-run-inputs'), box('#run-form > .new-run-settings')];
+    }""")
     assert settings['width'] > inputs['width'] + 40, (inputs, settings)
     browser.assert_no_horizontal_scroll(page)
 
@@ -216,8 +223,13 @@ def test_the_stage_settings_take_the_wider_half_and_fit_four_in_a_row(dashboard,
       const settings = document.querySelector('#run-form > .new-run-settings').getBoundingClientRect();
       return Math.abs(settings.width - inputs.width) <= 2 && settings.y >= inputs.y + inputs.height - 1;
     }""", timeout=30000)
-    stacked = page.locator('#run-form > .new-run-inputs').bounding_box()
-    stacked_settings = page.locator('#run-form > .new-run-settings').bounding_box()
+    stacked, stacked_settings = page.evaluate("""() => {
+      const box = selector => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return {x: rect.x, y: rect.y, width: rect.width, height: rect.height};
+      };
+      return [box('#run-form > .new-run-inputs'), box('#run-form > .new-run-settings')];
+    }""")
     assert abs(stacked_settings['width'] - stacked['width']) <= 2, (stacked, stacked_settings)
     assert stacked_settings['y'] >= stacked['y'] + stacked['height'] - 1, (stacked, stacked_settings)
     browser.assert_no_horizontal_scroll(page)

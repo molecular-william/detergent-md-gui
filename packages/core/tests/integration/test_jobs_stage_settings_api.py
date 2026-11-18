@@ -42,6 +42,22 @@ def _run(owner, run_id, run_type, settings, plan=AA_PLAN):
     return job
 
 
+def test_the_shared_nonbonded_settings_read_back_as_one_group(dashboard):
+    owner = dashboard.coordinator
+    shared = {'rlist': 1.2, 'rcoulomb': 1.2, 'rvdw': 1.2, 'vdwtype': 'cutoff', 'nsttcouple': 50}
+    job = _run(owner, 'aaa000000011', 'aa_only', dict(AA_SETTINGS, **shared))
+
+    with dashboard.client as client:
+        body = client.get(f'{JOBS}/{job["id"]}').get_json()
+
+    groups = body['stage_settings']['groups']
+    assert [group['label'] for group in groups] == \
+        ['Energy minimization', 'NVT equilibration', 'NPT equilibration', 'NPT production',
+         'Nonbonded and constraints', 'Run settings']
+    assert [field['key'] for field in groups[4]['fields']] == \
+        ['rlist', 'rcoulomb', 'rvdw', 'vdwtype', 'nsttcouple']
+
+
 def test_a_run_detail_carries_the_groups_and_the_segments(dashboard):
     owner = dashboard.coordinator
     job = _run(owner, 'aaa000000010', 'aa_only', AA_SETTINGS)

@@ -40,9 +40,34 @@ MDP_HELP = {
                                'buffer, in kJ mol^-1 ps^-1, which indirectly sets rlist; -1 uses the rlist the file '
                                'pins and disables the automatic buffer',
     'rlist': 'cut-off distance for the short-range neighbor list; with dynamics this is by default set by the '
-             'verlet-buffer-tolerance and the value of rlist is ignored',
+             'verlet-buffer-tolerance and the value of rlist is ignored, and it can not be smaller than rvdw or '
+             'rcoulomb',
     'rcoulomb': 'the distance for the Coulomb cut-off',
     'rvdw': 'distance for the LJ or Buckingham cut-off',
+    'rvdw_switch': 'where to start switching the LJ force and possibly the potential, in nm; only relevant when a '
+                   'force or potential switch is used, and it must be below rvdw',
+    'vdwtype': 'the van der Waals interaction type: Cut-off, or PME for LJ-PME. With PME the only supported '
+               'modifiers are potential-shift and none',
+    'vdw_modifier': 'how the van der Waals potential is modified at the cut-off: force-switch or potential-switch '
+                    'between rvdw-switch and rvdw, potential-shift-verlet (the potential is shifted to zero, which '
+                    'does not affect forces), or none',
+    'nsttcouple': 'interval between steps that couple the temperature; GROMACS\' default -1 sets it to 100, or '
+                  'fewer steps where accurate integration requires it (5 steps per tau for first-order, 20 for '
+                  'second-order coupling)',
+    'nstpcouple': 'interval between steps that couple the pressure; GROMACS\' default -1 sets it to 100, or fewer '
+                  'steps where accurate integration requires it (5 steps per tau for first-order, 20 for '
+                  'second-order coupling)',
+    'lincs_order': 'highest order in the expansion of the constraint coupling matrix; 4 usually suffices, 6 is '
+                   'needed for large timesteps with virtual sites',
+    'lincs_warnangle': 'maximum angle, in degrees, that a bond can rotate in one step before LINCS warns',
+    'lincs_iter': 'number of iterations to correct for rotational lengthening in LINCS; one is sufficient for normal '
+                  'runs, and more is for accurate NVE or double-precision minimisation',
+    'epsilon_r': 'relative permittivity for reaction-field electrostatics; it must be non-negative',
+    'epsilon_rf': 'reaction-field permittivity at infinity; 0 means the reaction field at infinity, and a non-zero '
+                  'value must be at least epsilon-r',
+    'coulombtype': 'the Coulomb interaction type: reaction-field (the Martini 3 choice), PME, or a plain cut-off. '
+                   'With Verlet lists a difference between rcoulomb and rvdw is supported only for PME '
+                   'electrostatics with a cut-off van der Waals treatment and rcoulomb > rvdw',
     'tcoupl': 'temperature coupling: V-rescale (velocity rescaling with a stochastic term, the reviewed thermostat '
               'and a proper canonical ensemble), Nose-Hoover, Berendsen, or no',
     'tau_t': 'time constant for temperature coupling (one for each group in tc-grps); -1 means no temperature '

@@ -82,6 +82,15 @@ def test_aa_launch_and_clone_do_not_require_cg_tools(dashboard, service,monkeypa
     assert service.post('/',json={'run_type':'aa_only','molecule_id':'DDM','mapping_candidate':'anything'}).status_code==400
 
 
+def test_the_queue_route_refuses_a_nonbonded_combination_gromacs_refuses(service):
+    """The shared section's refusals are the queue's, not a grompp surprise after the run is admitted."""
+    response = service.post('/', json={'run_type': 'aa_only', 'molecule_id': 'DDM', 'rcoulomb': 1.0})
+    assert response.status_code == 409, response.get_json()
+    assert 'rcoulomb' in response.get_json()['error']
+    assert service.post('/', json={'run_type': 'aa_only', 'molecule_id': 'DDM',
+                                   'nsttcouple': 10.5}).status_code == 409
+
+
 def test_an_aa_only_job_at_the_smoke_profile_records_short_settings(service):
     """The AA-only half of the same rule: a draft profile shortens an AA-only run too,
     and the job records what it will use."""

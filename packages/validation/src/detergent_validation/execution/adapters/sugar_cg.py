@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 
 from dashboard import martini3, paths
-from dashboard.execution import devices, protocol, run_inputs, tools
+from dashboard.execution import devices, nonbonded, protocol, run_inputs, tools
 from dashboard.execution.adapters import cg
 from dashboard.execution.adapters.aa import PME_SETTINGS
 from dashboard.execution.environment import ROOT, environment, recorded_environment
@@ -90,13 +90,15 @@ SETTING_SPECS = {
 CG_SETTINGS = ('cg_minimization_steps', 'cg_minimization_nstlist', 'cg_minimization_verlet_buffer_tolerance',
                'cg_equil_dt_fs', 'cg_equil_nstlist', 'cg_equil_verlet_buffer_tolerance', 'cg_equil_tau_t',
                'cg_equil_tau_p', 'cg_equil_compressibility', 'cg_production_dt_fs',
-               'nstxtcout', *cg.PRODUCTION_OVERRIDES)
+               'nstxtcout', *cg.PRODUCTION_OVERRIDES,
+               *(key for key in nonbonded.CG_FIELDS if key in nonbonded.NUMERIC))
 SETTING_SPECS.update({key: cg.SETTING_SPECS[key] for key in CG_SETTINGS})
 CHOICE_SPECS = {
     'mdrun_nb': ('Nonbonded scheme', ('auto', 'cpu', 'gpu')),
     'mdrun_pme': ('PME scheme', ('auto', 'cpu', 'gpu')),
     'sugar_entry': ('Sugar reference entry', ENTRIES),
 }
+CHOICE_SPECS.update(nonbonded.choice_specs(nonbonded.CG_FIELDS))
 
 MDP_PROFILES = {
     'inputs/minimization.mdp': 'cg-minimization-v1',
@@ -121,6 +123,8 @@ def stage_defaults(profile='sugar-cg-v1'):
     cg_values = cg.stage_defaults(_profile(profile))['values']
     # `rlist` and `nstxtcout` have no reviewed default: their empty control is the reviewed rule.
     values.update({key: cg_values[key] for key in CG_SETTINGS if key in cg_values})
+    # The shared section's choices start on the reviewed CG profile's values, like its numbers.
+    values.update({key: cg_values[key] for key in nonbonded.choice_specs(nonbonded.CG_FIELDS) if key in cg_values})
     return {'values': values, 'sources': {'sugar': VERSION, 'CG stages': 'cg.stage_defaults'},
             'profile': _profile(profile)}
 
@@ -143,6 +147,7 @@ def normalize_settings(settings=None, profile='sugar-cg-v1'):
                  'mdrun_cpt': 'mdrun_cpt must be an integer'}
     integrals.update({key: cg._INTEGRALS[key] for key in CG_SETTINGS if key in cg._INTEGRALS})
     coerce_integers(result, integrals)
+    nonbonded.check(result, cg._shared_defaults(), coulombtype=result.get('coulombtype'))
     if result['sugar_entry'] not in ENTRIES:
         raise ValueError('sugar_entry must be one of ' + ', '.join(ENTRIES))
     for key in PME_SETTINGS:

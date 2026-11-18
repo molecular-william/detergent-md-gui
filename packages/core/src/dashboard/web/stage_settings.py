@@ -21,7 +21,7 @@ fill.
 from __future__ import annotations
 
 from .. import features
-from ..execution import protocol
+from ..execution import nonbonded, protocol
 from ..execution.adapters import aa, cg
 
 #: The reviewed aa-em-v1 step cap, for a run prepared before the minimization numbers were settings. The run's
@@ -59,6 +59,10 @@ PDC_SEGMENTS = (
     ('Back-mapping (CG2AT2)', 'Back-mapping', 'backmap'),
 )
 OSMOTIC_SEGMENTS = (('Osmotic series', 'Osmotic series', 'production'),)
+
+#: The shared Nonbonded and constraints section's keys, in the form's order. They are read back as one group because
+#: the run applied one set to every dynamics leg: repeating them under each stage would invent a per-leg value.
+SHARED_KEYS = tuple(dict.fromkeys(nonbonded.AA_FIELDS + nonbonded.CG_FIELDS))
 
 #: One table per run type that draws a segmented bar. A type absent here keeps the single fill.
 WORK_SEGMENTS = {'cg': CG_SEGMENTS, 'pdc': PDC_SEGMENTS, 'osmotic': OSMOTIC_SEGMENTS}
@@ -150,7 +154,8 @@ def _aa_groups(settings):
              ('aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep')),
             ('AA NVT equilibration', 'NVT equilibration', _prefixed(settings, 'aa_nvt_')),
             ('AA NPT equilibration', 'NPT equilibration', _prefixed(settings, 'aa_npt_')),
-            ('AA NPT production', 'NPT production', _prefixed(settings, 'aa_production_'))]
+            ('AA NPT production', 'NPT production', _prefixed(settings, 'aa_production_')),
+            ('Nonbonded and constraints', 'Nonbonded and constraints', _shared(settings))]
 
 
 def _cg_groups(settings):
@@ -159,7 +164,13 @@ def _cg_groups(settings):
                   if key.startswith('cg_production_') or key in cg.PRODUCTION_OVERRIDES or key == 'nstxtcout']
     return [('CG minimization', 'CG minimization', _prefixed(settings, 'cg_minimization_')),
             ('CG equilibration', 'CG equilibration', _prefixed(settings, 'cg_equil_')),
-            ('CG production', 'CG production', production)]
+            ('CG production', 'CG production', production),
+            ('Nonbonded and constraints', 'Nonbonded and constraints', _shared(settings))]
+
+
+def _shared(settings):
+    """The recorded keys of the one Nonbonded and constraints section, in the form's order."""
+    return [key for key in SHARED_KEYS if key in settings]
 
 
 def _prefixed(settings, prefix):

@@ -59,6 +59,17 @@ _AA_DYNAMICS_COMMENTS = {
     'nstlist': '20 steps by default, a floor with a Verlet buffer (mdrun may raise it); the stage may name its own',
     'verlet-buffer-tolerance': '-1 by default: no automatic buffer in this box, keeping the pinned rlist; a stage may '
                                'name a positive tolerance to have GROMACS size rlist',
+    'rlist': "the run's own neighbour cut-off; with a positive Verlet tolerance GROMACS sizes it and ignores this",
+    'rcoulomb': "the run's own Coulomb cut-off, or the force field's 1.2 nm",
+    'rvdw': "the run's own van der Waals cut-off, or the force field's 1.2 nm",
+    'rvdw-switch': "the run's own LJ switch start; it has to stay below rvdw while a switch is active",
+    'vdwtype': "the run's own van der Waals type, or the force field's cut-off",
+    'vdw-modifier': "the run's own van der Waals modifier, or the force field's force switch",
+    'nsttcouple': "the run's own thermostat coupling interval; absent leaves GROMACS' own rule in force",
+    'nstpcouple': "the run's own barostat coupling interval; absent leaves GROMACS' own rule in force",
+    'lincs-order': "the run's own LINCS order; absent leaves GROMACS' own 4",
+    'lincs-warnangle': "the run's own LINCS warning angle; absent leaves GROMACS' own 30 degrees",
+    'lincs-iter': "the run's own LINCS iteration count; absent leaves GROMACS' own 1",
     'nstxout-compressed': "one compressed frame per `output_interval_ps`, converted at this file's dt",
     'nstenergy': 'energies every min(interval steps, 500)',
     'nstlog': 'the log every min(interval steps, 500)',
@@ -105,7 +116,12 @@ _AA_PRODUCTION_COMMENTS = {
 #: replaces only that option; the reviewed physics of everything else is fixed. `mass-repartition-factor` is absent
 #: from every profile, so a run that names none writes no line (its default is 1, i.e. no repartitioning).
 _AA_DYNAMICS_VARIABLE = ('dt', 'nstlist', 'verlet-buffer-tolerance', 'tcoupl', 'tau-t',
-                         'pcoupl', 'pcoupltype', 'tau-p', 'compressibility', 'mass-repartition-factor')
+                         'pcoupl', 'pcoupltype', 'tau-p', 'compressibility', 'mass-repartition-factor',
+                         # The New run form's one Nonbonded and constraints section, applied to every dynamics leg.
+                         # A value equal to the force-field block's own is omitted by the adapter, so an untouched
+                         # run renders this profile and its force-field block byte for byte.
+                         'rlist', 'rcoulomb', 'rvdw', 'rvdw-switch', 'vdwtype', 'vdw-modifier',
+                         'nsttcouple', 'nstpcouple', 'lincs-order', 'lincs-warnangle', 'lincs-iter')
 
 AA_PROFILES = (
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'steep', 'nsteps': 0, 'emtol': 1000, 'emstep': 0.01,
@@ -163,8 +179,11 @@ _MARTINI_COMMENTS = {
     'rcoulomb': 'electrostatic cut-off (nm)',
     'epsilon-r': 'water dielectric for the reaction field',
     'epsilon-rf': 'reaction field at infinity',
+    'vdw-type': 'Martini 3 keeps a cut-off van der Waals treatment',
     'vdw-modifier': 'Martini 3 shifts the potential to zero at the cut-off',
     'rvdw': 'van der Waals cut-off (nm)',
+    'nsttcouple': "the run's own thermostat coupling interval; absent leaves GROMACS' own rule in force",
+    'nstpcouple': "the run's own barostat coupling interval; absent leaves GROMACS' own rule in force",
     'tc-grps': 'one coupling group, the whole system',
     'tcoupl': 'temperature coupling',
     'tau-t': 'coupling time (ps)',
@@ -240,11 +259,14 @@ _CG_PRODUCTION_COMMENTS = {
 #: the number it used. `rlist` is deliberately not in the production profile's settings: GROMACS sizes the neighbour
 #: list from the Verlet tolerance, so a run may pin it but the reviewed file must not.
 _CG_MINIMIZATION_VARIABLE = ('nsteps', 'nstlist', 'verlet-buffer-tolerance')
+#: The one Nonbonded and constraints section applies to both dynamics legs; minimisation keeps the reviewed values.
+#: A value equal to the profile's own is omitted by `cg.mdp_values`, so an untouched run renders the reviewed file.
+_CG_SHARED_VARIABLE = ('rlist', 'rcoulomb', 'rvdw', 'rvdw-switch', 'epsilon-r', 'epsilon-rf', 'coulombtype',
+                       'vdw-type', 'vdw-modifier', 'nsttcouple', 'nstpcouple', 'lincs-order', 'lincs-warnangle')
 _CG_EQUILIBRATION_VARIABLE = ('dt', 'nsteps', 'nstxtcout', 'nstlist', 'verlet-buffer-tolerance', 'tau-t', 'tau-p',
-                              'compressibility', 'pcoupl', 'pcoupltype', 'ref-p')
+                              'compressibility', 'pcoupl', 'pcoupltype', 'ref-p', *_CG_SHARED_VARIABLE)
 _CG_PRODUCTION_VARIABLE = ('dt', 'nstlog', 'nstenergy', 'xtc-precision', 'nstcomm', 'nstlist',
-                           'verlet-buffer-tolerance', 'rlist', 'rcoulomb', 'rvdw', 'tau-t', 'tau-p',
-                           'compressibility')
+                           'verlet-buffer-tolerance', 'tau-t', 'tau-p', 'compressibility', *_CG_SHARED_VARIABLE)
 
 _CG_PRODUCTION_COMMENTS.update({
     'nstlog': "the run's own log interval, or every 100 steps",

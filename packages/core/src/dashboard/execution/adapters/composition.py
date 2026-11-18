@@ -26,7 +26,7 @@ from pathlib import Path
 from ... import martini3, paths
 from ...models import compositions
 from ...models.compositions import parameterizations as composition_parameterizations
-from .. import devices, protocol, run_inputs, tools
+from .. import devices, nonbonded, protocol, run_inputs, tools
 from ..environment import ROOT, environment, recorded_environment
 from ..mdp import write_mdp
 from ..settings import normalize
@@ -70,6 +70,8 @@ SETTING_SPECS = {key: spec for key, spec in cg.SETTING_SPECS.items() if key not 
 SETTING_SPECS.update({key: aa_adapter.SETTING_SPECS[key] for key in cg.RUN_EXECUTION_SETTINGS})
 CHOICE_SPECS = {key: aa_adapter.CHOICE_SPECS[key]
                 for key in ('mdrun_nb', 'mdrun_pme', 'mdrun_pmefft', 'mdrun_update', 'mdrun_tunepme')}
+# The shared Nonbonded and constraints choices (`execution/nonbonded.py`), advertised with the CG legs' vocabulary.
+CHOICE_SPECS.update({key: cg.CHOICE_SPECS[key] for key in nonbonded.choice_specs(nonbonded.CG_FIELDS)})
 _INTEGRALS = {**cg._INTEGRALS, 'mdrun_gpu': 'mdrun_gpu must be an integer',
               'mdrun_cpt': 'mdrun_cpt must be an integer'}
 
@@ -88,6 +90,9 @@ def stage_defaults(profile='standard'):
     result = {key: values[key] for key in SETTING_SPECS if key in values}
     result.update({key: aa_adapter.DEFAULTS[key] for key in cg.RUN_EXECUTION_SETTINGS})
     result.update({key: aa_adapter.DEFAULTS[key] for key in CHOICE_SPECS if key in aa_adapter.DEFAULTS})
+    # The shared section's choices (van der Waals type/modifier, Coulomb type) start on the reviewed CG profile's
+    # values, which `cg.stage_defaults` already carries.
+    result.update({key: values[key] for key in CHOICE_SPECS if key in values and key not in result})
     return {'values': result, 'sources': {'CG': 'cg.stage_defaults', 'composition': VERSION},
             'profile': _profile(profile)}
 
@@ -104,6 +109,7 @@ def normalize_settings(settings=None, profile='standard'):
         settings, stage_defaults(_profile(profile))['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='Composition CG settings must be an object',
         unknown_prefix='Unknown composition CG setting: ', label_messages=True, integrals=_INTEGRALS)
+    nonbonded.check(values, cg._shared_defaults(), coulombtype=values.get('coulombtype'))
     for key in aa_adapter.PME_SETTINGS:
         values.pop(key, None)
     if values['output_interval_ps'] > values['cg_production_ps']:

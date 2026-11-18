@@ -227,7 +227,15 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // numbers are the editors' own fields; a reference and a composition post them too, because their adapters run the
   // same three legs.
   const CG_PRODUCTION_FIELDS = ['nstlog','nstenergy','nstxtcout','xtc_precision','nstcomm','nstlist',
-    'verlet_buffer_tolerance','rlist','rcoulomb','rvdw','tau_t','tau_p','compressibility'];
+    'verlet_buffer_tolerance','tau_t','tau_p','compressibility'];
+  // One shared Nonbonded and constraints section, posted by each kind with the vocabulary its adapter advertises.
+  // The AA half reads the cut-offs and LINCS values; the CG half reads the reaction-field pair and its Coulomb
+  // type. A revision run carries both halves' keys; it runs only the CG half, so an AA-only key it never fills
+  // simply is not posted.
+  const SHARED_AA_FIELDS = ['rlist','rcoulomb','rvdw','rvdw_switch','vdwtype','vdw_modifier',
+    'nsttcouple','nstpcouple','lincs_order','lincs_warnangle','lincs_iter'];
+  const SHARED_CG_FIELDS = ['rlist','rcoulomb','rvdw','rvdw_switch','vdwtype','vdw_modifier',
+    'nsttcouple','nstpcouple','lincs_order','lincs_warnangle','epsilon_r','epsilon_rf','coulombtype'];
   const CG_STAGE_FIELDS = ['cg_minimization_steps','cg_minimization_nstlist','cg_minimization_verlet_buffer_tolerance',
     'cg_equil_dt_fs','cg_equil_nstlist','cg_equil_verlet_buffer_tolerance','cg_equil_tau_t','cg_equil_tau_p',
     'cg_equil_compressibility','cg_production_dt_fs'];
@@ -236,25 +244,25 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
   // table do not carry it, so the shared form keeps the three keys off those payloads and hides the controls.
   const CG_BAROSTAT_FIELDS = ['cg_equil_pcoupl','cg_equil_pcoupltype','cg_equil_ref_p'];
   const CG_FIELDS = ['cg_equil_ps','cg_production_ps','sasa_probe_nm','cg_seed',
-    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...CG_BAROSTAT_FIELDS];
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...CG_BAROSTAT_FIELDS, ...SHARED_CG_FIELDS];
   // The published sugar reference's own vocabulary (`validation ... sugar_cg.SETTING_SPECS`) plus the production and
   // stage-leg overrides its three legs run: a reference run advertises those, and none of the AA half's settings, so
   // the form posts only what that adapter reads.
   const REFERENCE_FIELDS = ['sugar_entry','cg_equil_ps','cg_production_ps','temperature_k','cg_seed',
     'output_interval_ps','mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb',
-    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...SHARED_CG_FIELDS];
   // A composition is a CG molecule with a *derived* model, so its settings are the CG dialect without the AA half's
   // durations, the sugar entry or the force field (`execution/adapters/composition.py:SETTING_SPECS`). The form posts
   // only these keys, and a `cg` preset fills the ones it carries.
   const COMPOSITION_FIELDS = ['cg_equil_ps','cg_production_ps','cg_seed','temperature_k','output_interval_ps',
     'mdrun_ntomp','mdrun_ranks','mdrun_gpu','mdrun_cpt','mdrun_nb','mdrun_update',
-    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS];
+    ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...SHARED_CG_FIELDS];
   // The topology choice is the AA leg's: a CG run consumes a reference that already ran.
   const AA_TOPOLOGY_FIELDS = ['vsite'];
   const AA_ONLY_FIELDS = [...AA_FIELDS, 'aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep',
-    ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS];
+    ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS, ...SHARED_AA_FIELDS];
   const REVISION_FIELDS = [...AA_FIELDS.filter(name => name !== 'mdrun_pme'), ...GPU_FIELDS, ...CG_RUN_FIELDS,
-    ...CG_FIELDS, 'force_field'];
+    ...CG_FIELDS, 'force_field', ...SHARED_AA_FIELDS];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by
   // `fieldsFor` rather than by visibility -- because a preset and a clone must not lose a setting to a toggle.
   const AA_SAMPLING = ['aa_nvt_ps','aa_npt_ps','aa_production_ps',
@@ -932,7 +940,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     attachHelpIcons(result.help);
     for (const [field, value] of Object.entries(result.values)) {
       const input = form.elements[field];
-      if (input && (force || !input.value)) input.value = value;
+      // A select always holds *some* value (its first option), so it is filled by kind too unless the reader, a
+      // preset or a clone has already stated one. Otherwise a shared choice whose reviewed value is not the first
+      // option would keep the first option's value and post it.
+      if (input && (force || (input.dataset.touched !== '1'
+          && (!input.value || input.tagName === 'SELECT')))) input.value = value;
     }
     setText($('#defaults-source'), 'Defaults from ' + Object.values(stageDefaults.sources).join(' · '));
     syncStageSummaries(form);
@@ -1096,8 +1108,8 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
 
   const savedForm = storage.get('form', {});
   for (const input of [...form.elements].filter(el => el.name)) {
-    if (savedForm[input.name] !== undefined) input.value = savedForm[input.name];
-    input.addEventListener('input', () => storage.set('form', formValues()));
+    if (savedForm[input.name] !== undefined) { input.value = savedForm[input.name]; input.dataset.touched = '1'; }
+    input.addEventListener('input', () => { input.dataset.touched = '1'; storage.set('form', formValues()); });
   }
   // A collapsed stage still says what it holds: the facts line follows its duration, timestep, neighbour list and
   // (CG minimisation) step cap, and the first paint states the restored numbers before `/api/defaults` answers. The
@@ -1180,6 +1192,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       // A stored value the form cannot offer -- a GPU this host lost -- is skipped rather than blanking the control.
       if (control.tagName === 'SELECT' && ![...control.options].some(option => option.value === String(settings[key]))) continue;
       control.value = settings[key];
+      control.dataset.touched = '1';
     }
     appliedPreset = {id: preset.id, name: preset.name};
     const select = $('#preset-select');
@@ -1251,7 +1264,11 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     try {
       defaultsLoading ||= loadStageDefaults(); await defaultsLoading; defaultsLoading = null;
       const field = button.dataset.field;
-      if (form.elements[field] && stageDefaults.values[field] !== undefined) form.elements[field].value = stageDefaults.values[field];
+      const input = form.elements[field];
+      if (input && stageDefaults.values[field] !== undefined) input.value = stageDefaults.values[field];
+      // A field whose reviewed rule is "no line" (a coupling interval, and the AA LINCS numbers) has no value to
+      // restore; the button clears it instead, which is what leaves GROMACS' own default in force.
+      else if (input?.hasAttribute('data-clear-default')) input.value = '';
       gpuDevice.refresh();
       syncStageSummaries(form);
       syncRunSummary(); refreshReadiness();
@@ -1434,7 +1451,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
         detergent: source.detergent || source.molecule_id,
         label: (source.label || source.id) + ' copy',
         clone_of: source.id})) {
-      if (form.elements[key]) form.elements[key].value = value;
+      if (form.elements[key]) { form.elements[key].value = value; form.elements[key].dataset.touched = '1'; }
     }
     setCloneSource(source.id); syncRunType();
     await mount();

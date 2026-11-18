@@ -10,6 +10,22 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **New run: one Nonbonded and constraints section for AA and CG (2026-11-18).** The validation workspace's
+  Stage settings gains one section shared by every dynamics leg -- AA NVT/NPT/production and CG equilibration and
+  production; minimisation keeps its reviewed values. It exposes `rlist`, `rcoulomb`, `rvdw`, `rvdw_switch`,
+  `vdwtype`, `vdw_modifier`, `nsttcouple`, `nstpcouple`, `lincs_order`, `lincs_warnangle`, AA `lincs_iter`, and for
+  CG `coulombtype`, `epsilon_r`, `epsilon_rf`. The AA boxes prefill from the force-field block, the CG boxes from the
+  reviewed profiles; a value equal to the reviewed one is omitted by `execution/nonbonded.py:overrides`, so an
+  untouched run still renders its files byte for byte, and where the profile states no line (the coupling intervals,
+  the AA LINCS numbers) blank writes no line and leaves GROMACS' own rule. The old Other run options → CG production
+  cutoffs group is gone: those three now apply to the equilibration leg too. `nonbonded.check` refuses the
+  combinations `readir.cpp` refuses -- `rlist` below a cut-off, unequal `rcoulomb`/`rvdw` outside PME, `vdwtype = PME`
+  with a switched modifier, a switch not below `rvdw`, `epsilon-rf` outside reaction-field or below `epsilon-r`, and
+  an AA cut-off past half the box -- at the queue route (409, the run-type refusal's status). The run read-back shows
+  one `Nonbonded and constraints` group. `Profile.variable` now replaces a force-field-block line by folded name
+  rather than only appending an absent option. Plan: `docs/plans/2026-11-18-new-run-nonbonded-and-constraints.md`;
+  draft: `docs/design/drafts/2026-11-18-new-run-nonbonded-and-constraints.html`. The running dashboard unit predates
+  this change (Python and template), so restart it with no run in flight.
 - **New run: queue on the GPU or share it (2026-11-17).** The form's one Start button is two: **Queue run on GPU**
   (`#start-run`, the old id) and **Share run on GPU** (`#start-run-share`, enabled only when the selected device
   already holds a run, read from `/api/run/devices`' new `active: {device: [run ids]}` -- NVML's `in_use` is empty

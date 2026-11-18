@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>New run · Nonbonded and constraints draft</title>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/dashboard.css'>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/new-run.css'>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/layout.css'>
+<style>
+  body{padding:24px;background:#fff}
+  main{max-width:1240px;margin:0 auto}
+  .draft-banner{background:#fffbe6;border:1px solid #e6d78a;border-radius:10px;padding:14px 18px;margin:0 0 22px}
+  .draft-banner h2{margin:0 0 6px;font-size:17px}
+  .draft-banner p{font-size:13px;line-height:1.55;margin:4px 0}
+  .draft-tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin:0 0 10px}
+  h2.draft-h{font-size:15px;margin:30px 0 4px;padding-top:16px;border-top:1px solid var(--line)}
+  p.draft-lede{font-size:13px;color:var(--muted);margin:0 0 14px;max-width:82ch}
+  .demo{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+  @media(max-width:1100px){.demo{grid-template-columns:1fr}}
+  .demo-frame{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+  .demo-frame > figcaption{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+  /* The section as it will sit inside the New run form. The real form supplies #run-form's width and the
+     dashboard's fieldset styling; this scope only stands in for the missing panel chrome. */
+  .draft-form{max-width:560px}
+  .draft-form fieldset.run-settings{padding:12px 14px}
+  .draft-form .settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .draft-note{font-size:12px;color:var(--muted);margin:10px 0 0}
+</style>
+</head>
+<body>
+<main>
+<div class='draft-banner'>
+  <span class='draft-tag'>Draft · no code yet</span>
+  <h2>New run · Nonbonded and constraints</h2>
+  <p>One section inside <b>Stage settings</b>, shared by every dynamics leg of the run. AA: NVT, NPT and
+     production. CG: equilibration and production. Minimisation keeps its reviewed values.</p>
+  <p>The numbers shown are the reviewed defaults the form will prefill. Blank means the reviewed profile or
+     force-field value; for <code>nsttcouple</code>/<code>nstpcouple</code> and the AA LINCS fields a blank
+     writes no line at all and leaves GROMACS' own rule in force (a <b>Default</b> click clears those).</p>
+  <p>Rejected combinations (named at the queue route and in the hint below): <code>rlist</code> below
+     <code>max(rcoulomb, rvdw)</code>; unequal <code>rcoulomb</code>/<code>rvdw</code> outside PME;
+     <code>vdwtype = PME</code> with a switched modifier; a switched modifier without
+     <code>0 &lt; rvdw-switch &lt; rvdw</code>; <code>epsilon-rf</code> outside reaction-field or below
+     <code>epsilon-r</code>; a cut-off that cannot fit the AA box.</p>
+</div>
+
+<h2 class='draft-h'>AA run · <code>aa_only</code></h2>
+<p class='draft-lede'>The AA half is PME, so the Coulomb type and the reaction-field permittivities are not
+  offered. The force-field block's own cut-off values are the prefills.</p>
+<div class='demo'>
+  <figure class='demo-frame draft-form'>
+    <figcaption>Stage settings › Nonbonded and constraints</figcaption>
+    <form onsubmit='return false'>
+      <fieldset class='run-settings card'>
+        <legend>Stage settings</legend>
+        <details class='stage-editor' open>
+          <summary><span class='stage-name'>NPT production</span><span class='stage-facts'>10 000 ps · 2 fs · 5 000 000 steps · nstlist 20</span></summary>
+          <div class='stage-body'><div class='settings-grid'>
+            <label>Duration (ps)<span class='setting-control'><input type='number' value='10000'><button type='button' class='secondary use-default'>Default</button></span></label>
+            <label>Timestep (fs)<span class='setting-control'><input type='number' value='2'><button type='button' class='secondary use-default'>Default</button></span></label>
+          </div></div>
+        </details>
+        <section class='new-option-group' aria-labelledby='draft-nonbonded-title'>
+          <h4 id='draft-nonbonded-title' class='new-option-title'>Nonbonded and constraints</h4>
+          <p class='hint'>One set for every dynamics leg of this run: AA NVT, NPT and production (and the CG
+            equilibration and production legs when the run has them). Minimisation keeps its reviewed values.
+            Blank keeps the reviewed force-field or profile value; where the profile states none, blank writes
+            no line and GROMACS' default applies.</p>
+          <div class='settings-grid'>
+            <label>Neighbour cut-off <span class='hint'>nm</span><span class='setting-control'><input name='rlist' type='number' min='0.1' max='5' step='0.05' value='1.2'><button type='button' class='secondary use-default' data-field='rlist'>Default</button></span></label>
+            <label>Coulomb cut-off <span class='hint'>nm</span><span class='setting-control'><input name='rcoulomb' type='number' min='0.1' max='5' step='0.05' value='1.2'><button type='button' class='secondary use-default' data-field='rcoulomb'>Default</button></span></label>
+            <label>van der Waals cut-off <span class='hint'>nm</span><span class='setting-control'><input name='rvdw' type='number' min='0.1' max='5' step='0.05' value='1.2'><button type='button' class='secondary use-default' data-field='rvdw'>Default</button></span></label>
+            <label>LJ switch start <span class='hint'>nm · switched potentials</span><span class='setting-control'><input name='rvdw_switch' type='number' min='0' max='5' step='0.05' value='1.0'><button type='button' class='secondary use-default' data-field='rvdw_switch'>Default</button></span></label>
+            <label>van der Waals type<span class='setting-control'><select name='vdwtype'><option value='cutoff' selected>cut-off</option><option value='pme'>PME · LJ-PME</option></select><button type='button' class='secondary use-default' data-field='vdwtype'>Default</button></span></label>
+            <label>van der Waals modifier<span class='setting-control'><select name='vdw_modifier'><option value='force-switch' selected>Force-switch</option><option value='potential-shift-verlet'>Potential-shift-verlet</option><option value='potential-switch'>Potential-switch</option><option value='none'>none</option></select><button type='button' class='secondary use-default' data-field='vdw_modifier'>Default</button></span></label>
+            <label>Thermostat coupling interval <span class='hint'>steps · blank = GROMACS</span><span class='setting-control'><input name='nsttcouple' type='number' min='1' max='10000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='nsttcouple'>Default</button></span></label>
+            <label>Barostat coupling interval <span class='hint'>steps · blank = GROMACS</span><span class='setting-control'><input name='nstpcouple' type='number' min='1' max='10000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='nstpcouple'>Default</button></span></label>
+            <label>LINCS order <span class='hint'>blank = 4</span><span class='setting-control'><input name='lincs_order' type='number' min='1' max='12' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='lincs_order'>Default</button></span></label>
+            <label>LINCS warn angle <span class='hint'>deg · blank = 30</span><span class='setting-control'><input name='lincs_warnangle' type='number' min='0' max='180' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='lincs_warnangle'>Default</button></span></label>
+            <label>LINCS iterations <span class='hint'>blank = 1</span><span class='setting-control'><input name='lincs_iter' type='number' min='1' max='10' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='lincs_iter'>Default</button></span></label>
+          </div>
+          <p class='hint draft-note'>All bonds are constrained in this force field, so the LINCS values are live.
+            <code>rlist</code> is ignored while a stage's Verlet buffer tolerance is positive: GROMACS sizes the
+            neighbour list itself in that case.</p>
+        </section>
+      </fieldset>
+    </form>
+  </figure>
+
+  <figure class='demo-frame draft-form'>
+    <figcaption>Stage settings › Nonbonded and constraints</figcaption>
+    <form onsubmit='return false'>
+      <fieldset class='run-settings card'>
+        <legend>Stage settings</legend>
+        <details class='stage-editor cg-setting' open>
+          <summary><span class='stage-name'>CG production</span><span class='stage-facts'>10 000 ps · 20 fs · 500 000 steps · nstlist 40</span></summary>
+          <div class='stage-body'><div class='settings-grid'>
+            <label>Duration (ps)<span class='setting-control'><input type='number' value='10000'><button type='button' class='secondary use-default'>Default</button></span></label>
+            <label>Timestep (fs)<span class='setting-control'><input type='number' value='20'><button type='button' class='secondary use-default'>Default</button></span></label>
+          </div></div>
+        </details>
+        <section class='new-option-group' aria-labelledby='draft-nonbonded-title-cg'>
+          <h4 id='draft-nonbonded-title-cg' class='new-option-title'>Nonbonded and constraints</h4>
+          <p class='hint'>One set for the CG equilibration and production legs. Minimisation keeps its reviewed
+            values. Blank keeps the reviewed profile value; where the profile states none, blank writes no line
+            and GROMACS' default applies.</p>
+          <div class='settings-grid'>
+            <label>Neighbour cut-off <span class='hint'>nm · blank = GROMACS sizes it</span><span class='setting-control'><input name='rlist' type='number' min='0.1' max='5' step='0.05' placeholder='sized from the Verlet tolerance'><button type='button' class='secondary use-default' data-field='rlist' data-clear-default>Default</button></span></label>
+            <label>Coulomb cut-off <span class='hint'>nm</span><span class='setting-control'><input name='rcoulomb' type='number' min='0.1' max='5' step='0.05' value='1.1'><button type='button' class='secondary use-default' data-field='rcoulomb'>Default</button></span></label>
+            <label>van der Waals cut-off <span class='hint'>nm</span><span class='setting-control'><input name='rvdw' type='number' min='0.1' max='5' step='0.05' value='1.1'><button type='button' class='secondary use-default' data-field='rvdw'>Default</button></span></label>
+            <label>LJ switch start <span class='hint'>nm · switched potentials</span><span class='setting-control'><input name='rvdw_switch' type='number' min='0' max='5' step='0.05' placeholder='only for a switched potential' data-clear-default><button type='button' class='secondary use-default' data-field='rvdw_switch'>Default</button></span></label>
+            <label>van der Waals type<span class='setting-control'><select name='vdwtype'><option value='cutoff' selected>cut-off</option><option value='pme'>PME · LJ-PME</option></select><button type='button' class='secondary use-default' data-field='vdwtype'>Default</button></span></label>
+            <label>van der Waals modifier<span class='setting-control'><select name='vdw_modifier'><option value='force-switch'>Force-switch</option><option value='potential-shift-verlet' selected>Potential-shift-verlet</option><option value='potential-switch'>Potential-switch</option><option value='none'>none</option></select><button type='button' class='secondary use-default' data-field='vdw_modifier'>Default</button></span></label>
+            <label>Coulomb type<span class='setting-control'><select name='coulombtype'><option value='reaction-field' selected>reaction-field</option><option value='pme'>PME</option><option value='cut-off'>cut-off</option></select><button type='button' class='secondary use-default' data-field='coulombtype'>Default</button></span></label>
+            <label>Relative permittivity <span class='hint'>epsilon-r</span><span class='setting-control'><input name='epsilon_r' type='number' min='0' max='1000' step='0.1' value='15'><button type='button' class='secondary use-default' data-field='epsilon_r'>Default</button></span></label>
+            <label>Reaction-field permittivity <span class='hint'>epsilon-rf</span><span class='setting-control'><input name='epsilon_rf' type='number' min='0' max='1000' step='0.1' value='0'><button type='button' class='secondary use-default' data-field='epsilon_rf'>Default</button></span></label>
+            <label>Thermostat coupling interval <span class='hint'>steps · blank = GROMACS</span><span class='setting-control'><input name='nsttcouple' type='number' min='1' max='10000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='nsttcouple'>Default</button></span></label>
+            <label>Barostat coupling interval <span class='hint'>steps · blank = GROMACS</span><span class='setting-control'><input name='nstpcouple' type='number' min='1' max='10000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default' data-field='nstpcouple'>Default</button></span></label>
+            <label>LINCS order <span class='hint'>4 · inert for CG</span><span class='setting-control'><input name='lincs_order' type='number' min='1' max='12' step='1' value='4'><button type='button' class='secondary use-default' data-field='lincs_order'>Default</button></span></label>
+            <label>LINCS warn angle <span class='hint'>deg · 30 · inert for CG</span><span class='setting-control'><input name='lincs_warnangle' type='number' min='0' max='180' step='1' value='30'><button type='button' class='secondary use-default' data-field='lincs_warnangle'>Default</button></span></label>
+          </div>
+          <p class='hint draft-note'>This run's molecules carry no distance constraints, so the LINCS values are
+            inert until a model states a constraint set. Reaction-field electrostatics requires
+            <code>rcoulomb = rvdw</code>; PME may state <code>rcoulomb &gt; rvdw</code>.</p>
+        </section>
+      </fieldset>
+    </form>
+  </figure>
+</div>
+
+<h2 class='draft-h'>Notes for review</h2>
+<ul class='draft-lede'>
+  <li>The section replaces the old <em>Other run options → CG production cutoffs</em> group; those three
+      controls now live here and apply to the equilibration leg too.</li>
+  <li>The layout uses the form's existing four-across grid (two across in this narrow stand-in).</li>
+  <li>Every control keeps the existing <b>Default</b> button; on a field with no reviewed value it clears
+      the box instead.</li>
+  <li>The info buttons beside each label quote the GROMACS manual, as the rest of the form does.</li>
+</ul>
+</main>
+</body>
+</html>

@@ -18,7 +18,7 @@ from ...models import mappings
 from ...models.bonded import parameterization as parameterizations
 from ...models.molecules import aa as aa_molecules
 from ...models.molecules import draft as draft_model
-from .. import devices, protocol, run_inputs, tools
+from .. import devices, nonbonded, protocol, run_inputs, tools
 from ..environment import AA_TEMPLATE, FORCE_FIELD, ROOT, TUTORIAL_TEMPLATE, environment, probe_tool, recorded_environment
 from ..mdp import PROFILES, write_mdp
 from ..settings import normalize
@@ -326,9 +326,6 @@ SETTING_SPECS = {
     # has no pinned `rlist` for -1 to fall back on, so the domain is positive only. The unit is the manual's: the
     # maximum pair-interaction error in kJ mol^-1 ps^-1 per atom pair.
     'verlet_buffer_tolerance': ('CG Verlet buffer tolerance (kJ mol^-1 ps^-1)', 0.001, 0.1),
-    'rlist': ('CG neighbour cut-off (nm)', 0.1, 5.0),
-    'rcoulomb': ('CG Coulomb cut-off (nm)', 0.1, 5.0),
-    'rvdw': ('CG van der Waals cut-off (nm)', 0.1, 5.0),
     'tau_t': ('CG thermostat coupling (ps)', 0.01, 100.0),
     'tau_p': ('CG barostat coupling (ps)', 0.1, 100.0),
     'compressibility': ('CG compressibility (bar^-1)', 0.0, 1.0),
@@ -345,14 +342,18 @@ CHOICE_SPECS = {
     # (`admit_device`); the queue and share choices are the coordinator's admission policy, not MD.
     'gpu_sharing': ('GPU sharing', ('queue', 'share')),
 }
+# The shared Nonbonded and constraints section (`execution/nonbonded.py`): one vocabulary for AA and CG. Its values
+# apply to the equilibration and production legs, not to minimisation.
+SETTING_SPECS.update(nonbonded.numeric_specs(nonbonded.CG_FIELDS))
+CHOICE_SPECS.update(nonbonded.choice_specs(nonbonded.CG_FIELDS))
 
 #: The MDP option each CG production override writes, keyed by the setting the form posts. The reviewed profile keeps
 #: its own value for each; `mdp_values` adds one only when the run named it, which is what makes the default file
-#: byte-identical to the reviewed one.
+#: byte-identical to the reviewed one. The cut-offs and the van der Waals treatment are not here: they are the shared
+#: Nonbonded and constraints section's, and reach both dynamics legs (`nonbonded.CG_MDP`).
 PRODUCTION_OVERRIDES = {'nstlog': 'nstlog', 'nstenergy': 'nstenergy', 'xtc_precision': 'xtc-precision',
                         'nstcomm': 'nstcomm', 'nstlist': 'nstlist',
-                        'verlet_buffer_tolerance': 'verlet-buffer-tolerance', 'rlist': 'rlist',
-                        'rcoulomb': 'rcoulomb', 'rvdw': 'rvdw', 'tau_t': 'tau-t', 'tau_p': 'tau-p',
+                        'verlet_buffer_tolerance': 'verlet-buffer-tolerance', 'tau_t': 'tau-t', 'tau_p': 'tau-p',
                         'compressibility': 'compressibility'}
 
 #: The CG equilibration leg's barostat overrides, keyed by the setting the form posts. Like the production table, the
@@ -362,12 +363,22 @@ EQUILIBRATION_OVERRIDES = {'cg_equil_pcoupl': 'pcoupl', 'cg_equil_pcoupltype': '
                            'cg_equil_ref_p': 'ref-p'}
 
 # What counts as a step count rather than a size: a fractional one is refused by name.
-_INTEGRALS = {'cg_seed': 'CG random seed must be an integer', 'nstlog': 'nstlog must be an integer',
+_INTEGRALS = {**nonbonded.INTEGRALS,
+              'cg_seed': 'CG random seed must be an integer', 'nstlog': 'nstlog must be an integer',
               'nstenergy': 'nstenergy must be an integer', 'nstxtcout': 'nstxtcout must be an integer',
               'nstcomm': 'nstcomm must be an integer', 'nstlist': 'nstlist must be an integer',
               'cg_minimization_steps': 'CG minimisation step cap must be an integer',
               'cg_minimization_nstlist': 'CG minimisation nstlist must be an integer',
               'cg_equil_nstlist': 'CG equilibration nstlist must be an integer'}
+
+
+def _shared_defaults():
+    """The shared Nonbonded and constraints section's reviewed values, in the form's spelling.
+
+    Read from the production profile, whose cut-offs, dielectric and LINCS values are the equilibration leg's too;
+    an option the profile does not state (a coupling interval, a pinned `rlist`) is omitted and starts blank.
+    """
+    return nonbonded.defaults(PROFILES['cg-production-v1'].settings, nonbonded.CG_MDP, nonbonded.CG_FIELDS)
 
 
 def _production_defaults():
@@ -440,6 +451,7 @@ def stage_defaults(profile='standard'):
               'temperature_k': _mdp_value(aa_eqf, 'ref_t'), 'sasa_probe_nm': 0.191, 'output_interval_ps': 10.0, 'cg_seed': 20260911}
     values.update(_production_defaults())
     values.update(_reviewed_stage_defaults())
+    values.update(_shared_defaults())
     if profile == 'draft-smoke': values.update(aa_equil_ps=10.0, aa_production_ps=50.0, cg_equil_ps=10.0, cg_production_ps=50.0)
     if profile == 'draft-smoke-reference': values.update(cg_equil_ps=10.0, cg_production_ps=10000.0)
     return {'values': values, 'sources': {'AA': 'resources/templates/small_mols_fast_forward/1_AA_reference/mdps/{eq,md}.mdp', 'CG': 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/{eq,md}.mdp', 'SASA probe': 'Fast_Forward tutorial probe convention (0.191 nm)'}, 'profile': profile}
@@ -450,6 +462,7 @@ def _normalize_cg_settings(settings=None, profile='standard'):
         settings, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='Run settings must be an object', unknown_prefix='Unknown run setting: ',
         label_messages=True, integrals=_INTEGRALS)
+    nonbonded.check(values, _shared_defaults(), coulombtype=values.get('coulombtype'))
     if values['output_interval_ps'] > min(values['aa_production_ps'], values['cg_production_ps']):
         raise ValueError('Trajectory interval must not exceed either production duration')
     return values
@@ -499,6 +512,8 @@ def mdp_values(settings, profile):
         for setting, mdp in EQUILIBRATION_OVERRIDES.items():
             if settings.get(setting) is not None:
                 values[mdp] = settings[setting]
+        values.update(nonbonded.overrides(settings, PROFILES[profile].settings,
+                                          nonbonded.CG_MDP, nonbonded.CG_FIELDS))
         return values
     dt = settings['cg_production_dt_fs'] / 1000
     values = {'dt': dt, 'nsteps': round(settings['cg_production_ps'] / dt),
@@ -508,6 +523,8 @@ def mdp_values(settings, profile):
     for setting, mdp in PRODUCTION_OVERRIDES.items():
         if settings.get(setting) is not None:
             values[mdp] = settings[setting]
+    values.update(nonbonded.overrides(settings, PROFILES[profile].settings,
+                                      nonbonded.CG_MDP, nonbonded.CG_FIELDS))
     if settings.get('nstxtcout') is not None:
         values['nstxtcout'] = settings['nstxtcout']
     return values
@@ -536,7 +553,13 @@ def normalize_settings(settings=None, profile='standard'):
                - set(aa.SETTING_SPECS) - set(aa.CHOICE_SPECS))
     if unknown:
         raise ValueError('Unknown run settings: ' + ', '.join(sorted(unknown)))
-    aa_settings = aa.normalize_settings({key: value for key, value in supplied.items() if key in aa.SETTING_SPECS or key in aa.CHOICE_SPECS}, profile)
+    # The shared Nonbonded and constraints keys are the CG half's here: a revision run consumes an AA source, it does
+    # not run the AA stages, so the AA half must not validate or default them from its own force-field block (an AA
+    # LJ switch start would otherwise refuse a legitimate CG cut-off pair).
+    aa_supplied = {key: value for key, value in supplied.items()
+                   if (key in aa.SETTING_SPECS or key in aa.CHOICE_SPECS)
+                   and key not in nonbonded.CG_FIELDS}
+    aa_settings = aa.normalize_settings(aa_supplied, profile)
     cg_settings = _normalize_cg_settings(
         {key: value for key, value in supplied.items() if key in SETTING_SPECS or key in CHOICE_SPECS}
         | mirror_aa_settings(aa_settings), profile)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ... import files
 from ...models.molecules import aa as aa_molecules
-from .. import devices, forcefields, protocol, run_inputs, tools
+from .. import devices, forcefields, nonbonded, protocol, run_inputs, tools
 from ..environment import environment, probe_tool, recorded_environment
 from ..mdp import write_mdp
 from ..settings import normalize
@@ -395,6 +395,10 @@ for _stage, _coupling in _AA_COUPLING_DEFAULTS.items():
 #: clone or retry re-feeds no null into the normalizer. GROMACS itself refuses a factor its topology cannot take
 #: (the bonded heavy atom would fall below the repartitioned hydrogen mass).
 SETTING_SPECS['mass_repartition_factor'] = ('Hydrogen mass repartition factor', 1, 10)
+# The shared Nonbonded and constraints section: one vocabulary for AA and CG (`execution/nonbonded.py`), and the
+# force-field block's own cut-offs and van der Waals treatment as this run's defaults.
+SETTING_SPECS.update(nonbonded.numeric_specs(nonbonded.AA_FIELDS))
+CHOICE_SPECS.update(nonbonded.choice_specs(nonbonded.AA_FIELDS))
 
 
 def stage_defaults(profile='standard'):
@@ -410,14 +414,32 @@ def stage_defaults(profile='standard'):
     values.update(DRAFT_DURATIONS.get(profile, {}))
     values.update(LONG_DURATIONS.get(profile, {}))
     default = forcefields.entry(values['force_field'])
+    # The shared Nonbonded and constraints section starts on the force-field block's own values: its cut-offs, its
+    # van der Waals treatment and its switch distance. The options the block does not state (the coupling intervals
+    # and the LINCS numbers) stay blank, which is GROMACS' own default at render time.
+    values.update(nonbonded.defaults(default.mdp, nonbonded.AA_MDP, nonbonded.AA_FIELDS))
     return {'values': values, 'sources': {'AA': f'{VERSION} · {default.name} / {default.water_molecule}'},
             'profile': VERSION}
 
 
+def _shared_cutoffs(settings):
+    """The cut-offs this AA run will actually run with: the force-field block's, unless the run named its own."""
+    reviewed = nonbonded.defaults(forcefields.entry(settings['force_field']).mdp,
+                                  nonbonded.AA_MDP, nonbonded.AA_FIELDS)
+    return {key: settings.get(key) if settings.get(key) is not None else reviewed[key]
+            for key in ('rlist', 'rcoulomb', 'rvdw')}
+
+
 def normalize_settings(settings=None, profile='standard'):
     supplied=settings or {}
+    # The shared values are not defaults of the normalizer: `cg.normalize_settings` runs both halves and then
+    # `cg_settings | aa_settings`, so an AA default here would overwrite the CG half's reviewed cut-offs in a
+    # revision run. A value the caller names is still read and checked; an unnamed one is left out of the result
+    # and the force-field block supplies it at render time.
+    defaults = {key: value for key, value in stage_defaults(profile)['values'].items()
+                if key not in nonbonded.AA_FIELDS}
     result=normalize(
-        settings, stage_defaults(profile)['values'], specs=SETTING_SPECS, choices=CHOICE_SPECS,
+        settings, defaults, specs=SETTING_SPECS, choices=CHOICE_SPECS,
         object_message='AA settings must be an object', unknown_prefix='Unknown AA setting: ',
         bool_message='AA settings must be numeric',
         integrals={'mdrun_gpu':'mdrun_gpu must be an integer', 'mdrun_cpt':'mdrun_cpt must be an integer',
@@ -425,7 +447,8 @@ def normalize_settings(settings=None, profile='standard'):
                    'aa_nvt_nstlist':'aa_nvt_nstlist must be an integer',
                    'aa_npt_nstlist':'aa_npt_nstlist must be an integer',
                    'aa_production_nstlist':'aa_production_nstlist must be an integer',
-                   'aa_minimization_steps':'aa_minimization_steps must be an integer'})
+                   'aa_minimization_steps':'aa_minimization_steps must be an integer',
+                   **nonbonded.INTEGRALS})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
     if result.get('vsite', 'none') != 'none' and result.get('mdrun_update') == 'gpu':
         raise ValueError('mdrun_update gpu cannot be used with a pdb2gmx virtual-site topology: GROMACS '
@@ -438,6 +461,12 @@ def normalize_settings(settings=None, profile='standard'):
         if result[key]==0:
             raise ValueError(f'{key} must not be 0: GROMACS answers "Can not have Verlet buffer tolerance of exactly '
                              '0"; use -1 for the pinned rlist or a positive tolerance to let GROMACS size it')
+    # The shared Nonbonded and constraints section: the combinations GROMACS refuses are refused here, with the
+    # setting to change named, and every cut-off has to fit inside half the box this run builds.
+    reviewed = nonbonded.defaults(forcefields.entry(result['force_field']).mdp,
+                                  nonbonded.AA_MDP, nonbonded.AA_FIELDS)
+    nonbonded.check(result, reviewed, coulombtype='pme')
+    aa_box.check_cutoffs(result['box_nm'], max(_shared_cutoffs(result).values()))
     # The temperature a run starts from belongs to the force field: each parameterisation assumes one, and the
     # reference protocol this project reproduces runs each force field at its own. A caller who names a
     # temperature still wins, because they may be testing the assumption.
@@ -531,6 +560,11 @@ def mdp_values(settings, profile):
                        'pcoupl': settings[f'aa_{stage}_pcoupl'],
                        'pcoupltype': settings[f'aa_{stage}_pcoupltype'], 'tau-p': settings[f'aa_{stage}_tau_p'],
                        'compressibility': (compressibility,) * directions if directions > 1 else compressibility})
+    # The shared Nonbonded and constraints section, on every dynamics leg. Only a value that differs from the
+    # force-field block's own is written, so an untouched run renders the reviewed block byte for byte; an option
+    # the block does not state (a coupling interval, a LINCS number) is written whenever the run names one.
+    values.update(nonbonded.overrides(settings, forcefields.entry(settings['force_field']).mdp,
+                                      nonbonded.AA_MDP, nonbonded.AA_FIELDS))
     # One factor for the whole run, so every dynamics leg states the same masses; absent writes no line at all.
     if settings.get('mass_repartition_factor') is not None:
         values['mass-repartition-factor'] = settings['mass_repartition_factor']
@@ -599,9 +633,10 @@ def prepare_run(run_dir,molecule_root,molecule_snapshot,settings=None):
     # solute interacting with its own periodic image three stages later.
     aa_box.check_fit(molecule_snapshot['metadata']['name'], aa_box.read_coordinates(molecule/'molecule.gro'),
                      settings['box_nm'])
-    # The box also has to be big enough for the force field's own neighbour-list cut-off, which is a different
-    # requirement from holding the solute: the two failures look nothing alike and only one of them is obvious.
-    aa_box.check_cutoffs(settings['box_nm'], float(forcefields.entry(settings['force_field']).mdp['rlist']))
+    # The box also has to be big enough for the run's own cut-offs, which is a different requirement from holding
+    # the solute: the two failures look nothing alike and only one of them is obvious. The queue route checks this
+    # too; this is the second look, at the box that was actually built.
+    aa_box.check_cutoffs(settings['box_nm'], max(_shared_cutoffs(settings).values()))
     ff=forcefields.entry(settings['force_field']); tree=ff.tree()
     if any(p.is_symlink() for p in tree.rglob('*')):raise ValueError('Force-field symlinks are unsupported')
     vsite_result = None

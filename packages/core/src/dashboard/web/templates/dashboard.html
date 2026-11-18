@@ -352,6 +352,35 @@
           <label>Compressibility (bar⁻¹)<span class="setting-control"><input name="compressibility" type="number" min="0" max="1" step="any"><button type="button" class="secondary use-default" data-field="compressibility">Default</button></span></label>
         </div></div>
       </details>
+      {# One shared Nonbonded and constraints section: the AA half's PME runs and the CG half's reaction-field legs
+         expose the same knobs, and a run applies one set to every dynamics leg (NVT/NPT/production, CG equilibration
+         and production). Minimisation keeps its reviewed values. The reviewed values prefill the boxes; an option a
+         profile does not state stays blank and writes no line, which leaves GROMACS' own rule in force. #}
+      <section class="new-option-group" aria-labelledby="new-nonbonded-title">
+        <h4 id="new-nonbonded-title" class="new-option-title">Nonbonded and constraints</h4>
+        <p class="hint">One set for every dynamics leg of this run. A blank box keeps the reviewed force-field or
+          profile value; where the profile states none, blank writes no line and GROMACS' default applies. The
+          queue route refuses a combination GROMACS refuses (a neighbour list inside a cut-off, unequal
+          <code>rcoulomb</code>/<code>rvdw</code> outside PME, a switched potential without a switch below
+          <code>rvdw</code>, <code>epsilon-rf</code> outside reaction-field, and a cut-off that cannot fit the AA
+          box). The LINCS values are inert for a CG model, whose molecules carry no distance constraints.</p>
+        <div class="settings-grid">
+          <label>Neighbour cut-off <span class="hint">nm</span><span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05" placeholder="sized from the Verlet tolerance" data-clear-default><button type="button" class="secondary use-default" data-field="rlist">Default</button></span></label>
+          <label>Coulomb cut-off <span class="hint">nm</span><span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rcoulomb">Default</button></span></label>
+          <label>van der Waals cut-off <span class="hint">nm</span><span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rvdw">Default</button></span></label>
+          <label>LJ switch start <span class="hint">nm · switched potentials</span><span class="setting-control"><input name="rvdw_switch" type="number" min="0" max="5" step="0.05" placeholder="only for a switched potential" data-clear-default><button type="button" class="secondary use-default" data-field="rvdw_switch">Default</button></span></label>
+          <label>van der Waals type<span class="setting-control"><select name="vdwtype"><option value="cutoff">cut-off</option><option value="pme">PME · LJ-PME</option></select><button type="button" class="secondary use-default" data-field="vdwtype">Default</button></span></label>
+          <label>van der Waals modifier<span class="setting-control"><select name="vdw_modifier"><option value="force-switch">Force-switch</option><option value="potential-shift-verlet">Potential-shift-verlet</option><option value="potential-switch">Potential-switch</option><option value="none">none</option></select><button type="button" class="secondary use-default" data-field="vdw_modifier">Default</button></span></label>
+          <label>Thermostat coupling interval <span class="hint">steps · blank = GROMACS</span><span class="setting-control"><input name="nsttcouple" type="number" min="1" max="10000" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="nsttcouple">Default</button></span></label>
+          <label>Barostat coupling interval <span class="hint">steps · blank = GROMACS</span><span class="setting-control"><input name="nstpcouple" type="number" min="1" max="10000" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="nstpcouple">Default</button></span></label>
+          <label>LINCS order <span class="hint">blank = 4</span><span class="setting-control"><input name="lincs_order" type="number" min="1" max="12" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="lincs_order">Default</button></span></label>
+          <label>LINCS warn angle <span class="hint">deg · blank = 30</span><span class="setting-control"><input name="lincs_warnangle" type="number" min="0" max="180" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="lincs_warnangle">Default</button></span></label>
+          <label class="aa-setting">LINCS iterations <span class="hint">blank = 1</span><span class="setting-control"><input name="lincs_iter" type="number" min="1" max="10" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="lincs_iter">Default</button></span></label>
+          <label class="cg-setting">Coulomb type<span class="setting-control"><select name="coulombtype"><option value="reaction-field">reaction-field</option><option value="pme">PME</option><option value="cut-off">cut-off</option></select><button type="button" class="secondary use-default" data-field="coulombtype">Default</button></span></label>
+          <label class="cg-setting">Relative permittivity <span class="hint">epsilon-r</span><span class="setting-control"><input name="epsilon_r" type="number" min="0" max="1000" step="0.1"><button type="button" class="secondary use-default" data-field="epsilon_r">Default</button></span></label>
+          <label class="cg-setting">Reaction-field permittivity <span class="hint">epsilon-rf</span><span class="setting-control"><input name="epsilon_rf" type="number" min="0" max="1000" step="0.1"><button type="button" class="secondary use-default" data-field="epsilon_rf">Default</button></span></label>
+        </div>
+      </section>
       <section class="new-option-group" aria-labelledby="new-sampling-title">
         <h4 id="new-sampling-title" class="new-option-title">Sampling</h4>
         <div class="settings-grid">
@@ -406,14 +435,6 @@
               <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1" placeholder="from Trajectory interval (ps)"></span></label>
               <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"><button type="button" class="secondary use-default" data-field="xtc_precision">Default</button></span></label>
               <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary use-default" data-field="nstcomm">Default</button></span></label>
-            </div>
-          </section>
-          <section class="new-option-group aa-cg-setting" aria-labelledby="new-cutoffs-title">
-            <h4 id="new-cutoffs-title" class="new-option-title">CG production cutoffs</h4>
-            <div class="settings-grid">
-              <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05" placeholder="GROMACS sizes it"></span></label>
-              <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rcoulomb">Default</button></span></label>
-              <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary use-default" data-field="rvdw">Default</button></span></label>
             </div>
           </section>
           <section class="new-option-group" aria-labelledby="new-execution-title">
