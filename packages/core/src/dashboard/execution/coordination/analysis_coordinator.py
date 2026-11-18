@@ -4,7 +4,6 @@ from __future__ import annotations
 import functools
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -303,11 +302,10 @@ class AnalysisCoordinator:
                 raise CapacityFull('Analysis capacity is busy')
             with owner.lease(owner.run_path(job) / '.worker.lock'):
                 pass
-            # What the request stages, plus the run's own durable copy of each outside source: the run keeps one
-            # `sources/` copy per external input, and these bytes land beside the attempt's, so they are charged to
-            # the same ceiling. A copy already present is not charged twice; the second attempt of a kind adds none.
-            copied_bytes = sum(path.stat().st_size for path in source_entries.values())
-            copied_bytes += analysis.source_copy_bytes(owner.run_path(job), source_entries)
+            # What the request stores is the run's durable copy of each outside source: every source is staged as a
+            # link to the file the run already holds (`worker.execute`), so the attempt writes no per-source copy.
+            # A copy already present is not charged twice; the second attempt of a kind adds none.
+            copied_bytes = analysis.source_copy_bytes(owner.run_path(job), source_entries)
             if resources.usage(owner.run_path(job)) + copied_bytes > owner.limits()['max_run_bytes']:
                 raise CapacityFull('Analysis workspace exceeds the per-run storage limit')
             resources.admit(owner.storage_report(), len(owner.WORKERS) + len(owner.ANALYSIS_WORKERS), copied_bytes)
@@ -404,9 +402,10 @@ class AnalysisCoordinator:
                                      on_exit=finish):
                     worker.lease_file = self._claim(owner, owner.run_path(job) / '.worker.lock')
                     environment = workflow.environment()
-                    command = [shutil.which('python', path=environment['PATH']) or sys.executable,
-                               '-m', 'dashboard.analysis', str(attempt / 'request.json')]
-                    write(None, command=command)
+                    # The analysis is this application's own module, so it runs under the interpreter that owns the
+                    # install: a `python` resolved from the stage PATH can be another environment's.
+                    command = [sys.executable, '-m', 'dashboard.analysis', str(attempt / 'request.json')]
+                    write(None, command=command, interpreter=sys.executable)
                     attempt.mkdir(parents=True, exist_ok=stable)
                     files.atomic_json(attempt / 'request.json', request)
                     with (attempt / 'console.log').open('w') as output:

@@ -1,4 +1,4 @@
-"""Isolated analysis subprocess: sources are copied, outputs never replace them.
+"""Isolated analysis subprocess: sources are linked, outputs never replace them.
 
 What each kind *is* -- its name, the files it is handed, how it runs and how it reads -- lives in one row of
 `kinds.TABLE`. This module reads the names, the sources and the dispatch from there, so the two shapes it names below
@@ -243,17 +243,25 @@ def execute(request_path):
         versions['gmx'] = {'path':gmx,'version_output':info.stdout}
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='.work-', dir=attempt) as temporary:
-        work = Path(temporary); sources = []
+        work = Path(temporary); sources = []; staged = {}
         for relative,path in source_entries(root,kind,request.get('payload', {})).items():
             target = work/relative; target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
             name = _source_provenance(run, path)
             sources.append(name)
             # A source from outside the run -- the paired AA reference's trajectory, the parameterization store's
             # histograms -- is copied into the run itself, once, under the name `sources.json` records. An attempt
-            # keeps no copy, so a second attempt of a kind finds the run's copy and stages nothing; the run
-            # directory alone then holds every input its analyses read.
-            _stage_source_copy(run, path, name)
+            # keeps no copy of its own, so a second attempt of a kind finds the run's copy and stages nothing; the
+            # run directory alone then holds every input its analyses read, and is the link target below.
+            link = Path(path)
+            if name.startswith(COPIES+'/'):
+                _stage_source_copy(run, path, name)
+                link = Path(run)/name
+            # A run's files are immutable and an analysis only reads them, so every source is staged as a link to
+            # the file itself: the attempt writes no second copy of a multi-gigabyte trajectory. `safe_files` skips
+            # links, so produced-output enumeration is unchanged, and the stat guard below watches the targets, so
+            # a producer that opens one of its inputs for writing is still refused.
+            os.symlink(str(link.absolute()), target)
+            staged[relative] = Path(path)
         # Refinement depends on the latest completed diagnostic reports, with legacy fallback.
         if TABLE[kind].takes_dependencies:
             for name in ('numerical_stability.json', 'experimental_targets.json'):
@@ -262,7 +270,10 @@ def execute(request_path):
                 if path.is_file():
                     if path.is_symlink() or not path.resolve().is_relative_to(run.resolve()): raise ValueError('Invalid analysis dependency')
                     target = work/'analysis'/name; target.parent.mkdir(exist_ok=True)
+                    # A small report read against the file it names is copied: the producer may edit its own copy,
+                    # and the guard re-hashes only a copy whose stat moved, against this source.
                     shutil.copy2(path, target); sources.append(str(path.relative_to(run)))
+                    staged[str(target.relative_to(work))] = path
         # The run's own manifest comes along, for the one thing no source path can state: the *name* of the file the
         # run simulated. A fitted run leaves six `.itp` files under `3_initial_CG/`, and `FINAL_ITP` in this manifest
         # is what says which one the simulation ran with -- a producer that must draw the model's own bonds has no
@@ -272,10 +283,11 @@ def execute(request_path):
         if manifest.is_file():
             shutil.copy2(manifest, work / manifest.name)
             sources.append('manifest.json')
+            staged[manifest.name] = manifest
         # What an attempt read is recorded by name, never by digest: the identities the queue compares are names
-        # and a code version. The digests below are the producer's own guard -- it must publish new files, not edit
-        # the copies it was handed -- and are never written down or compared across attempts.
-        baseline = files.hashes(work)
+        # and a code version. The stat snapshot below is the producer's own guard -- it must publish new files, not
+        # edit the inputs it was handed -- and is never written down or compared across attempts.
+        baseline = files.stat_snapshot(work)
         files.atomic_json(attempt/'sources.json', sorted(set(sources)))
         progress('Calculating ' + kind)
         # One call for every kind: the row holds the dispatch, and the analyses that read only the sources they were
@@ -305,11 +317,29 @@ def execute(request_path):
         files.atomic_json(work/'analysis-metadata.json', analysis_metadata.describe(kind, result))
         stable = TABLE[kind].stable_directory
         progress('Publishing results' if stable else 'Publishing immutable results')
+        # The producer must publish new files, not edit the ones it was handed. Re-statting the snapshot is one walk;
+        # a digest is paid only for an entry whose stat moved, against the file it was staged from -- a real copy (a
+        # dependency, the run's manifest) or an outside source's original -- so a producer that only touched one is
+        # not accused of editing it. An in-run source's link target *is* that file, so there is nothing to compare
+        # with: the moved stat is the evidence, and the run's immutable file has been written through.
+        after = files.stat_snapshot(work)
+        for relative, before in baseline.items():
+            if after.get(relative) == before:
+                continue
+            path, source = work/relative, staged.get(relative)
+            try:
+                intact = path.is_file() and source is not None \
+                    and os.path.realpath(source) != os.path.realpath(path) \
+                    and files.sha256(path) == files.sha256(source)
+            except OSError:
+                intact = False
+            if intact:
+                continue
+            raise ValueError('Analysis modified its source copy: ' + relative)
         produced = []
         for path in files.safe_files(work):
             relative = str(path.relative_to(work))
             if relative in baseline:
-                if files.sha256(path) != baseline[relative]: raise ValueError('Analysis modified its source copy: ' + relative)
                 continue
             produced.append((path, relative))
         if stable:
