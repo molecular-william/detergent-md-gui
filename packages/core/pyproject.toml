@@ -10,13 +10,17 @@ name = "detergent-core"
 version = "0.2.0"
 description = "Local GROMACS/Martini run lifecycle and dashboard engine."
 requires-python = ">=3.12"
-# The scientific stack (numpy, MDAnalysis, mdtraj's dependants, GROMACS) is provisioned by the host
-# environment; these are the dashboard's own third-party imports.
+# Most of the scientific stack (MDAnalysis, mdtraj's dependants, GROMACS) is provisioned by the host environment.
+# numpy is declared because the analyses depend on its *version*, not only its presence: `dihedral_fit`,
+# `bonded_estimate` and `bartender_fit` spell their batch dot products `np.vecdot` (numpy 2), which is what makes a
+# batch round exactly as the per-row `np.dot` the fit compares against. `(a*b).sum(axis=-1)` sums in another order
+# and moves an angle on the +-180 branch cut into a different histogram bin. Floor: numpy 2.
 dependencies = [
   "flask",
   "werkzeug",
   "plotly",
   "rdkit",
+  "numpy>=2",
 ]
 
 [project.scripts]
