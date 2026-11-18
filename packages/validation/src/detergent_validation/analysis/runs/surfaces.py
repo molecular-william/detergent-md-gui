@@ -25,15 +25,26 @@ SNAPSHOT_TIMEOUT = 120
 
 def envelope(positions, radii, spacing=.04):
     from skimage.measure import marching_cubes
+    positions = np.asarray(positions, dtype=float)
     radii = np.asarray(radii) + PROBE
     low = (positions-radii[:,None]).min(axis=0)-spacing
     high = (positions+radii[:,None]).max(axis=0)+spacing
     shape = np.ceil((high-low)/spacing).astype(int)+1
     if np.prod(shape)>8_000_000: raise ValueError('Surface grid too large; check molecule-whole coordinates')
-    grid = np.indices(shape,dtype=np.float32)*spacing+low[:,None,None,None]
-    field = np.full(shape,-np.inf,dtype=np.float32)
+    axes = [np.arange(n,dtype=np.float32)*spacing+low[i] for i,n in enumerate(shape)]
+    field = np.full(shape,-np.inf,dtype=np.float64)
     for p,r in zip(positions,radii):
-        field = np.maximum(field,r-np.sqrt(((grid-p[:,None,None,None])**2).sum(axis=0)))
+        # A sphere's contribution is negative outside its own bounding box, and a grid point whose value can sit on
+        # a level-0 edge is never more than one cell beyond it, so evaluating the sphere only over its box plus one
+        # cell leaves every intersected edge's endpoints -- and therefore every mesh vertex -- as the whole-grid
+        # pass computed them. Outside it the point's value cannot be the maximum and is negative either way.
+        start = np.floor((p-r-spacing-low)/spacing).astype(int)-1
+        stop = np.ceil((p+r+spacing-low)/spacing).astype(int)+2
+        start = np.clip(start,0,shape); stop = np.clip(stop,0,shape)
+        sub = tuple(slice(a,b) for a,b in zip(start,stop))
+        dx = axes[0][sub[0]]-p[0]; dy = axes[1][sub[1]]-p[1]; dz = axes[2][sub[2]]-p[2]
+        contribution = r-np.sqrt((dx[:,None,None]**2+dy[None,:,None]**2)+dz[None,None,:]**2)
+        field[sub] = np.maximum(field[sub],contribution)
     vertices,faces,_,_ = marching_cubes(field,level=0,spacing=(spacing,)*3)
     return vertices+low,faces
 
@@ -80,6 +91,54 @@ def _write_variant(label, universe, reader, radii, model, work):
                 universe.atoms.write(str(work/'surface.gro'))
             writer.write(universe.atoms)
     (work/'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n' for a, r in zip(universe.atoms, radii)))
+    return first
+
+
+def _write_mapped_variants(labels, variants, aa, model, output):
+    """Every mapped variant from ONE read of the AA trajectory.
+
+    `Mapped raw` and `Mapped ring-scaled` read the same atomistic file through the mapping, so before this pass each
+    decoded it (measured 4.05-4.84 s and 4.94-5.77 s; one of the two decodes was pure duplicate work). One pass
+    writes both.
+
+    The mapped variants keep calling `sugars.coordinates` per frame, not `coordinates_many`: `coordinates` is
+    dtype-sensitive -- a float32 trajectory makes its bead centre of geometry a float32 mean -- and the published
+    surfaces were built through that rounding, so a float64 batch changes every mapped byte (measured on the real
+    24-atom reference: 18 378 of 20 001 frames still differ after the timestep's float32 store, and both
+    `surface.xtc`s). One decode is what this pass buys; the arithmetic stays the oracle's.
+
+    Runs on the main thread, like `_write_variant`: the AA reader is stateful and its offsets cache sits beside it.
+    Returns `{label: frame-0 positions in nm}`.
+    """
+    import MDAnalysis as mda
+    writers = {}
+    for label in labels:
+        universe = variants[label][0]
+        work = output / label.lower().replace(' ', '-')
+        writers[label] = (mda.Writer(str(work / 'surface.xtc'), n_atoms=len(universe.atoms)), work)
+    first = {}
+    try:
+        for idx, frame in enumerate(aa.trajectory):
+            for label in labels:
+                universe, radii = variants[label]
+                universe.atoms.positions = carbohydrates.coordinates(
+                    model, frame.positions, scaled=label == 'Mapped ring-scaled')
+                universe.dimensions = frame.dimensions
+                universe.trajectory.ts.time = frame.time
+                if not np.isfinite(universe.atoms.positions).all():
+                    raise ValueError('Nonfinite surface coordinates')
+                if idx == 0:
+                    first[label] = universe.atoms.positions.copy() / 10
+                    universe.atoms.write(str(writers[label][1] / 'surface.gro'))
+                writers[label][0].write(universe.atoms)
+    finally:
+        for writer, _ in writers.values():
+            writer.close()
+    for label in labels:
+        universe, radii = variants[label]
+        work = writers[label][1]
+        (work / 'vdwradii.dat').write_text(''.join(f'{a.resname} {a.name} {r}\n'
+                                                   for a, r in zip(universe.atoms, radii)))
     return first
 
 
@@ -131,24 +190,41 @@ def generate(run_dir):
     if not gmx: raise FileNotFoundError('GROMACS not available')
     first={};stats={};commands=[]
     try:
-        # Extract each variant on this thread, submit its gmx work as soon as its XTC is closed, then extract the
-        # next: that overlaps the 26 s of extraction with the AA variant's long full-trajectory sasa.
+        # Every variant is extracted on this thread, and each one's `gmx sasa` legs are submitted as soon as its files
+        # close. The order is by what frees the tail earliest: the CG variant is independent, the AA variant's leg is
+        # the longest (a full-trajectory sasa), and the two mapped variants share one read of the AA file (see
+        # `_write_mapped_variants`). Submissions are collected by label and joined in variant order below, so the
+        # record's `commands` order stays the one it always had.
         with ThreadPoolExecutor(max_workers=min(len(variants),os.cpu_count() or 1)) as pool:
-            futures={}
-            for label,(universe,radii) in variants.items():
-                work=output/label.lower().replace(' ','-');work.mkdir()
-                mapped=label.startswith('Mapped')
-                reader=aa if mapped else universe
-                progress.report(f'Surfaces: extracting {label}')
-                first[label]=_write_variant(label,universe,reader,radii,model,work)
+            submitted={}
+            mapped=[label for label in variants if label.startswith('Mapped')]
+            others=[label for label in variants if label != 'AA' and label not in mapped]
+            for label in variants:
+                (output/label.lower().replace(' ','-')).mkdir()
+            def submit(label):
+                work=output/label.lower().replace(' ','-')
                 progress.report(f'Surfaces: {label} · gmx sasa')
-                futures[label]=pool.submit(_gmx_variant,label,work,gmx)
-                futures[label].add_done_callback(lambda _,label=label: progress.report(f'Surfaces: {label} done'))
+                future=pool.submit(_gmx_variant,label,work,gmx)
+                future.add_done_callback(lambda _,label=label: progress.report(f'Surfaces: {label} done'))
+                submitted[label]=future
+            for label in others:
+                universe,radii=variants[label]
+                progress.report(f'Surfaces: extracting {label}')
+                first[label]=_write_variant(label,universe,universe,radii,model,output/label.lower().replace(' ','-'))
+                submit(label)
+            progress.report('Surfaces: extracting AA')
+            first['AA']=_write_variant('AA',aa,aa,variants['AA'][1],model,output/'aa')
+            submit('AA')
+            for label in mapped:
+                progress.report(f'Surfaces: extracting {label}')
+            first.update(_write_mapped_variants(mapped, variants, aa, model, output))
+            for label in mapped:
+                submit(label)
             # Join in variant order so metadata['commands'] is deterministic even when completions interleave.
             failures=[]
-            for label,future in futures.items():
+            for label in variants:
                 try:
-                    variant_commands,variant_stats=future.result()
+                    variant_commands,variant_stats=submitted[label].result()
                 except Exception as exc:
                     failures.append(str(exc) if label in str(exc) else f'{label}: {exc}')
                     continue

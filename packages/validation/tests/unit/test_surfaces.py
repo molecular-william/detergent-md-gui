@@ -65,6 +65,9 @@ def _fake_generate(monkeypatch):
     monkeypatch.setitem(sys.modules, 'MDAnalysis', _fake_mda())
     monkeypatch.setattr(surfaces, '_write_variant',
                         lambda label, universe, reader, radii, model, work: np.zeros((4, 3)) + _variant_offset(label))
+    monkeypatch.setattr(surfaces, '_write_mapped_variants',
+                        lambda labels, variants, aa, model, output: {
+                            label: np.zeros((4, 3)) + _variant_offset(label) for label in labels})
     monkeypatch.setattr(surfaces, 'align', lambda points, target, physical: points)
     monkeypatch.setattr(surfaces, 'envelope',
                         lambda points, radii: (np.zeros((4, 3)), np.array([[0, 1, 2], [0, 1, 3]])))
@@ -73,6 +76,50 @@ def _fake_generate(monkeypatch):
 def _variant_offset(label):
     return {'AA': (0, 0, 0), 'Mapped raw': (1, 0, 0), 'Mapped ring-scaled': (2, 0, 0),
             'Simulated CG': (3, 0, 0)}[label]
+
+
+def _whole_grid_envelope(positions, radii, spacing=.04):
+    """The evaluation before the sub-box, kept as the oracle: a sub-box may only skip cells the mesh cannot see."""
+    from skimage.measure import marching_cubes
+    radii = np.asarray(radii) + PROBE
+    low = (positions - radii[:, None]).min(axis=0) - spacing
+    high = (positions + radii[:, None]).max(axis=0) + spacing
+    shape = np.ceil((high - low) / spacing).astype(int) + 1
+    grid = np.indices(shape, dtype=np.float32) * spacing + low[:, None, None, None]
+    field = np.full(shape, -np.inf, dtype=np.float32)
+    for p, r in zip(positions, radii):
+        field = np.maximum(field, r - np.sqrt(((grid - p[:, None, None, None]) ** 2).sum(axis=0)))
+    vertices, faces, _, _ = marching_cubes(field, level=0, spacing=(spacing,) * 3)
+    return vertices + low, faces
+
+
+@pytest.mark.parametrize('seed, count', [(20261118, 40), (7, 120)])
+def test_the_bounded_envelope_is_the_whole_grid_mesh(seed, count):
+    """Each sphere is evaluated only in its own box; the box must not move a single vertex or face."""
+    rng = np.random.default_rng(seed)
+    positions = rng.uniform(-.8, .8, (count, 3))
+    radii = rng.uniform(.08, .4, count)
+
+    vertices, faces = surfaces.envelope(positions, radii)
+    oracle_vertices, oracle_faces = _whole_grid_envelope(positions, radii)
+
+    assert np.array_equal(vertices, oracle_vertices)
+    assert np.array_equal(faces, oracle_faces)
+
+
+def test_a_single_sphere_survives_its_sub_box():
+    positions, radii = np.array([[0., 0., 0.]]), np.array([.3])
+
+    vertices, faces = surfaces.envelope(positions, radii)
+    oracle_vertices, oracle_faces = _whole_grid_envelope(positions, radii)
+
+    assert np.array_equal(vertices, oracle_vertices)
+    assert np.array_equal(faces, oracle_faces)
+
+
+def test_a_grid_over_the_cell_refusal_is_still_refused():
+    with pytest.raises(ValueError, match='Surface grid too large'):
+        surfaces.envelope(np.array([[-20., -20., -20.], [20., 20., 20.]]), np.array([.3, .3]))
 
 
 def test_sasa_commands_pin_the_reviewed_knobs():
@@ -184,3 +231,52 @@ def test_phases_say_which_variant_is_running(tmp_path, monkeypatch):
         done = phases.index(f'Surfaces: {label} done')
         assert extracting < submitted < done, (label, phases)
     assert phases[-1] == 'Surfaces: envelopes and pair'
+
+
+def test_the_shared_aa_pass_writes_the_same_bytes_as_one_pass_per_mapped_variant(tmp_path):
+    """The mapped pass must produce the files the per-variant writer produced, byte for byte.
+
+    That is the whole property it exists for: one decode of the atomistic trajectory for both mapped variants. It is
+    also what makes them call the per-frame `coordinates` oracle rather than the float64 `coordinates_many` -- a
+    float64 bead mean changes the XTC bytes (measured on the real reference: 18 378 of 20 001 frames still differ
+    after the timestep's float32 store).
+    """
+    import MDAnalysis as mda
+    from MDAnalysis.coordinates.memory import MemoryReader
+
+    box = np.array([10, 10, 10, 90, 90, 90], dtype=np.float32)
+    aa = mda.Universe.empty(2)
+    aa.add_TopologyAttr('names', ['C1', 'C2'])
+    aa.add_TopologyAttr('resnames', ['LIG'])
+    aa.load_new(np.array([[[0, 0, 0], [1, 2, 0]], [[3, 1, 0], [4, 3, 1]]], dtype=np.float32),
+                format=MemoryReader, order='fac')
+    for timestep in aa.trajectory:
+        timestep.dimensions = box
+    cg = mda.Universe.empty(1)
+    cg.add_TopologyAttr('names', ['B01'])
+    cg.add_TopologyAttr('resnames', ['LIG'])
+    cg.load_new(np.zeros((2, 1, 3), dtype=np.float32), format=MemoryReader, order='fac')
+    for timestep in cg.trajectory:
+        timestep.dimensions = box
+
+    model = {'beads': [{'name': 'B01', 'export_name': 'B01', 'atoms': [1, 2], 'size': 'S'}],
+             'rings': [{'beads': ['B01'], 'scale': 1.0}], 'connections': []}
+    variants = {'Mapped raw': (cg, [.2]), 'Mapped ring-scaled': (cg, [.2])}
+
+    merged = tmp_path / 'merged'
+    for label in variants:
+        (merged / label.lower().replace(' ', '-')).mkdir(parents=True)
+    first = surfaces._write_mapped_variants(list(variants), variants, aa, model, merged)
+
+    one = tmp_path / 'one'
+    for label, (universe, radii) in variants.items():
+        work = one / label.lower().replace(' ', '-')
+        work.mkdir(parents=True)
+        surfaces._write_variant(label, universe, aa, radii, model, work)
+
+    for label in variants:
+        directory = label.lower().replace(' ', '-')
+        for artifact in ('surface.xtc', 'surface.gro', 'vdwradii.dat'):
+            assert (merged / directory / artifact).read_bytes() == \
+                (one / directory / artifact).read_bytes(), (label, artifact)
+    assert first['Mapped raw'].shape == (1, 3)

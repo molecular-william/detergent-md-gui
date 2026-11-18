@@ -67,19 +67,24 @@ def bead_distance_series(universe, residue_name, *, bead_names=None, start=0, st
         raise ValueError('an overlap needs at least two beads before there is a pair to measure')
     position = {name: i for i, name in enumerate(available)}
     wanted = [position[name] for name in names]
-    endpoints = [(names.index(a), names.index(b)) for a, b in pairs]
+    column = {name: i for i, name in enumerate(names)}
+    left = np.array([column[a] for a, _ in pairs])
+    right = np.array([column[b] for _, b in pairs])
+    columns = np.array([residue.atoms.indices[wanted] for residue in residues])
 
     frames = list(range(*slice(start, stop, stride).indices(len(universe.trajectory))))
-    collected = {pair: [] for pair in pairs}
-    for frame in frames:
+    # One gather and one vector op per frame for every residue and pair at once, still in frame-major,
+    # residue-minor order. `np.vecdot` is the `x.dot(x)` path `np.linalg.norm` takes for a 1-D vector, so each
+    # distance is the same number the per-pair norm returned.
+    values = np.empty((len(frames), len(residues), len(pairs)))
+    for index, frame in enumerate(frames):
         universe.trajectory[frame]
-        for residue in residues:
-            # MDAnalysis reports angstroms; every length in this repository is nanometres.
-            positions = np.asarray(residue.atoms.positions, dtype=float)[wanted] / 10.0
-            for pair, (i, j) in zip(pairs, endpoints):
-                collected[pair].append(float(np.linalg.norm(positions[i] - positions[j])))
+        # MDAnalysis reports angstroms; every length in this repository is nanometres.
+        positions = np.asarray(universe.trajectory.ts.positions[columns], dtype=float) / 10.0
+        delta = positions[:, left] - positions[:, right]
+        values[index] = np.sqrt(np.vecdot(delta, delta))
 
-    series = {pair: np.asarray(values, dtype=float) for pair, values in collected.items()}
+    series = {pair: values[:, :, index].ravel() for index, pair in enumerate(pairs)}
     return {'bead_names': names, 'pairs': pairs, 'series': series,
             'range_nm': (float(min(v.min() for v in series.values())), float(max(v.max() for v in series.values()))),
             'frames': len(frames), 'residues': len(residues)}

@@ -5,6 +5,7 @@ the Bhattacharyya coefficient, and the Kullback-Leibler divergence -- and they a
 is bounded by 1 and symmetric, which is what lets a matrix of it be read at all. So the tests pin which one this is,
 including a case where two of them disagree by a factor of two.
 """
+import itertools
 import pathlib
 
 import MDAnalysis as mda
@@ -227,6 +228,61 @@ def test_a_residue_name_the_trajectory_does_not_have_is_refused(tmp_path, monkey
     topology, trajectory = _bead_universe(FRAMES)
     with pytest.raises(ValueError, match='no residue named LIG'):
         overlap.intra_bead_distances(mda.Universe(topology, trajectory), 'LIG')
+
+
+def _multi_residue_universe(tmp_path, monkeypatch, frames=6, residues=3):
+    """Several copies of one four-bead residue: the residue axis the vectorised gather has to keep in order."""
+    rng = np.random.default_rng(20261118)
+    monkeypatch.chdir(tmp_path)
+    universe = mda.Universe.empty(4 * residues, n_residues=residues,
+                                  atom_resindex=np.repeat(np.arange(residues), 4), trajectory=True)
+    universe.add_TopologyAttr('names', ['B01', 'B02', 'B03', 'B04'] * residues)
+    universe.add_TopologyAttr('resnames', ['DDM'] * residues)
+    universe.add_TopologyAttr('resids', np.arange(1, residues + 1))
+    positions = rng.uniform(-2., 2., (frames, 4 * residues, 3)).astype(np.float32)
+    with mda.Writer('many.xtc', n_atoms=4 * residues) as writer:
+        for index, frame in enumerate(positions):
+            universe.atoms.positions = frame
+            universe.trajectory.ts.time = float(index)
+            if index == 0:
+                universe.atoms.write('many.gro')
+            writer.write(universe.atoms)
+    return mda.Universe('many.gro', 'many.xtc')
+
+
+def _pair_by_pair_norm(universe, bead_names, **window):
+    """The loop the vectorised series replaced: it is the arithmetic oracle, frame by frame and pair by pair."""
+    residues = universe.select_atoms('resname DDM').residues
+    available = list(residues[0].atoms.names)
+    wanted = [available.index(name) for name in bead_names]
+    pairs = list(itertools.combinations(bead_names, 2))
+    frames = list(range(*slice(window.get('start', 0), window.get('stop'),
+                               window.get('stride', 1)).indices(len(universe.trajectory))))
+    collected = {pair: [] for pair in pairs}
+    for frame in frames:
+        universe.trajectory[frame]
+        for residue in residues:
+            positions = np.asarray(residue.atoms.positions, dtype=float)[wanted] / 10.0
+            for pair, (i, j) in zip(pairs, itertools.combinations(range(len(bead_names)), 2)):
+                collected[pair].append(float(np.linalg.norm(positions[i] - positions[j])))
+    return collected, frames
+
+
+@pytest.mark.parametrize('window', [{}, {'start': 1, 'stop': 6, 'stride': 2}])
+def test_the_vectorised_series_is_the_pair_by_pair_norm(tmp_path, monkeypatch, window):
+    """One gather and one vector op per frame may not change a number: every frame, residue and pair must be the
+    one the per-pair loop returns, in the same order, so the histograms and the record stay byte-identical."""
+    universe = _multi_residue_universe(tmp_path, monkeypatch)
+    beads = ['B01', 'B02', 'B03', 'B04']
+
+    reference, frames = _pair_by_pair_norm(universe, beads, **window)
+    measured = overlap.bead_distance_series(universe, 'DDM', bead_names=beads, **window)
+
+    assert measured['frames'] == len(frames)
+    assert measured['residues'] == 3
+    assert measured['pairs'] == list(reference)
+    assert all(np.array_equal(measured['series'][pair], np.asarray(values, dtype=float))
+               for pair, values in reference.items())
 
 
 # --- the matrix ------------------------------------------------------------------------------------------------

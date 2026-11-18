@@ -26,6 +26,8 @@ import math
 import re
 from pathlib import Path
 
+import numpy as np
+
 AVOGADRO = 6.02214076e23
 #: kJ/mol/nm2 -> bar. A pressure of 1 kJ/mol/nm3 is 1e30 J/mol/m3, and per molecule that is 1e30/N_A = 1.6605e6 Pa.
 #: Written out because the number 16.605 is the only place a factor of 1e5 or of N_A can hide in this module.
@@ -168,16 +170,28 @@ def measure(run_dir, *, force_constant_kj_mol_nm2=None, frames=None):
         raise ValueError(f'{run_dir}: the trajectory has {len(universe.atoms)} atoms and the walls name atom '
                          f'{max(max(group) for group in walls["molecules"])}')
     step = int(frames or 1)
+    # The molecule grouping is fixed for the whole trajectory, so its atom columns and masses are read once: one
+    # gather from the timestep and one mass-weighted einsum then reproduce `center_of_mass()` for every molecule.
+    # A short molecule is padded with a zero mass, whose product is exactly zero and cannot move the sum.
+    groups = [[index - 1 for index in group] for group in walls['molecules']]
+    width = max(len(group) for group in groups)
+    columns = np.zeros((len(groups), width), dtype=np.intp)
+    masses = np.zeros((len(groups), width), dtype=np.float64)
+    for number, group in enumerate(groups):
+        columns[number, :len(group)] = group
+        masses[number, :len(group)] = universe.atoms.masses[group]
+    total_mass = masses.sum(axis=1)
     upper, lower, counted = [], [], 0
     for number, _ in enumerate(universe.trajectory):
         if number % step:
             continue
         counted += 1
-        for group in walls['molecules']:
+        centres = np.einsum('mij,mi->mj', universe.trajectory.ts.positions[columns],
+                            masses) / total_mass[:, None]
+        for z in centres[:, 2] / 10.0:
             # MDAnalysis reports positions in Angstrom; the walls are in nm, and this line multiplied where it
             # should have divided. The comment said "Angstrom -> nm" the whole time: a comment is not a check, and
             # the only thing that caught it was the force coming out a hundred times too large.
-            z = universe.atoms[[index - 1 for index in group]].center_of_mass()[2] / 10.0
             up, down = wall_force_kj_nm(z, centre_nm=walls['centre_nm'], half_width_nm=half,
                                         force_constant_kj_mol_nm2=force_constant)
             upper.append(up)

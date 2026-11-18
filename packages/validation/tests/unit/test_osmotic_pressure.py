@@ -197,6 +197,65 @@ def test_measure_returns_the_force_the_frames_imply(tmp_path):
         PAPER_FORCE_CONSTANT * excursion / AREA_NM2 * op.KJ_MOL_NM2_TO_BAR, rel=5e-4)
 
 
+def test_the_centres_are_the_ones_center_of_mass_reports(tmp_path):
+    """The gather/einsum path may only be faster: on uneven molecules with unequal atom masses it must return
+    `center_of_mass()`'s own numbers, bit for bit. A padded zero-mass column must not move a sum either."""
+    import MDAnalysis as mda
+    import numpy as np
+
+    names = ['C1', 'O1', 'C2', 'O2', 'H1', 'C3', 'O3']
+    resids = [1, 1, 2, 2, 2, 3, 3]
+    groups = [[1, 2], [3, 4, 5], [6, 7]]
+    frames = 3
+    rng = np.random.default_rng(20261118)
+    # Written in nanometres, the unit a .gro field carries: molecule 1 beyond the upper wall, 2 beyond the lower,
+    # 3 inside the flat region. The x/y of an atom and the z spread differ, so masses decide the centre.
+    nm = rng.uniform(4.5, 5.5, (frames, len(names), 3))
+    for molecule, group in enumerate(groups):
+        wall_z = (CENTRE_NM + HALF_NM + 0.31, CENTRE_NM - HALF_NM - 0.27, CENTRE_NM)[molecule]
+        nm[:, np.asarray(group) - 1, 2] = wall_z + rng.uniform(-.01, .01, (frames, len(group)))
+    angstrom = (nm * 10.0).astype(np.float32)
+    (tmp_path / 'prod').mkdir()
+    lines = ['a synthetic osmotic system\n', f'{len(names):5d}\n']
+    for index, (name, resid) in enumerate(zip(names, resids), 1):
+        x, y, z = (angstrom[0, index - 1] / 10.0)
+        lines.append(f'{resid:5d}{"MOL":<5s}{name:>5s}{index:5d}{x:8.3f}{y:8.3f}{z:8.3f}\n')
+    lines.append(f'{BOX_NM[0]:9.5f}{BOX_NM[1]:9.5f}{BOX_NM[2]:9.5f}\n')
+    (tmp_path / op.STRUCTURE[0]).write_text(''.join(lines))
+    universe = mda.Universe(str(tmp_path / op.STRUCTURE[0]))
+    with mda.Writer(str(tmp_path / op.TRAJECTORY[0]), universe.atoms.n_atoms) as writer:
+        for frame in angstrom:
+            universe.atoms.positions = frame
+            writer.write(universe.atoms)
+    (tmp_path / op.WALLS).write_text(
+        f'# The box centre is z = {CENTRE_NM} nm, so the walls sit at {CENTRE_NM - HALF_NM} and {CENTRE_NM + HALF_NM}.\n'
+        'UNITS LENGTH=nm ENERGY=kj/mol TIME=ps\n'
+        'm1: COM ATOMS=1,2\n'
+        'm2: COM ATOMS=3,4,5\n'
+        'm3: COM ATOMS=6,7\n'
+        f'upper1: UPPER_WALLS ARG=m1.z AT={CENTRE_NM + HALF_NM:g} KAPPA=500 EXP=2 EPS=1 OFFSET=0\n'
+        f'lower1: LOWER_WALLS ARG=m1.z AT={CENTRE_NM - HALF_NM:g} KAPPA=500 EXP=2 EPS=1 OFFSET=0\n')
+    (tmp_path / op.MANIFEST).write_text(
+        '{"dividing_area_nm2": %r, "confinement_nm": %r}\n' % (AREA_NM2, HALF_NM))
+
+    measured = op.measure(tmp_path)
+
+    walls = op.read_walls(tmp_path / op.WALLS)
+    oracle = mda.Universe(str(tmp_path / op.STRUCTURE[0]), str(tmp_path / op.TRAJECTORY[0]))
+    upper, lower = [], []
+    for _ in oracle.trajectory:
+        for group in walls['molecules']:
+            z = oracle.atoms[[index - 1 for index in group]].center_of_mass()[2] / 10.0
+            up, down = op.wall_force_kj_nm(z, centre_nm=walls['centre_nm'], half_width_nm=HALF_NM,
+                                           force_constant_kj_mol_nm2=2.0 * walls['kappa_kj_mol_nm2'])
+            upper.append(up)
+            lower.append(down)
+    assert measured['frames'] == frames
+    assert measured['upper_force_kj_nm'] == sum(upper) / frames
+    assert measured['lower_force_kj_nm'] == sum(lower) / frames
+    assert measured['force_kj_nm'] == (sum(upper) / frames + sum(lower) / frames) / 2.0
+
+
 def test_the_kind_is_registered_in_all_four_places():
     """A kind missing the fourth is accepted by the queue and then produces nothing -- learned here the hard way, so
     the four are asserted together rather than discovered one at a time as each failure surfaces.
