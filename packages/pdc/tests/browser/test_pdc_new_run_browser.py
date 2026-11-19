@@ -754,7 +754,7 @@ def test_the_model_picker_lists_the_servers_models_by_what_they_carry(dashboard,
 
 def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redraws_the_chain(
         dashboard, live_page):
-    """The two settings the plan adds are visible where they act: no protein means no Bonds/Ribbon and no
+    """The settings the plan adds are visible where they act: no protein means no Ribbon and no
     prepare/coarse-grain node; removing the removal pipeline leaves one CG MD leg instead of judge/extend/final."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
@@ -763,7 +763,9 @@ def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redra
 
     expect(page.locator('[data-new-summary=prepare]')).to_contain_text('skipped · empty micelle')
     expect(page.locator('[data-new-summary=removal]')).to_contain_text('on')
-    assert page.locator('.new-pdc-preview-bonds input').is_disabled()
+    # The protein's beads are no longer drawn, so the card carries no Bonds control at all; the ribbon is the one
+    # protein view left, and an empty micelle has no all-atom structure to draw.
+    assert page.locator('.new-pdc-preview-bonds').count() == 0, 'the Bonds control is gone from the card'
     assert page.locator('.new-pdc-preview-ribbon input').is_disabled()
 
     page.locator('details.new-pdc-diagram summary').click()

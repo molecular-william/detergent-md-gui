@@ -21,10 +21,10 @@ Four claims, and each is the plan's:
 * **the card shows what the placement measured** -- the shell the sites were placed on (and which number sized it),
   the detergent's own body as the clearance gate read it, and, when the requested count does not fit, the count the
   shape would hold offered as a control that writes it into the count field; and
-* **the protein's backbone is coloured by its secondary structure, and its bonds can be made visible** -- the
-  assignment the server keyed by this frame's residue numbers, one representation per class, with the three swatches
-  beside the family legend and the assignment's own counts on the card; the Bonds control switches the protein's
-  representations to licorice and leaves the detergent's alone, changing nothing the build derives.
+* **only the detergent is drawn** -- the frame still holds the protein's beads, numbered 1..N before the detergent,
+  but no representation covers them: `basis.protein_residues` is how many there are and the one representation is
+  `not (1-N)`. The all-atom structure is the ribbon beneath, the Ribbon control remains, and the Bonds control is
+  gone; a non-DDM mapping (OG) is drawn from its own families and `CONECT` records like any other.
 
 The route is served as a fixture, so nothing here reads the developer's workspace, and the frames are written by
 `pdc_view.system_pdb` -- the same writer a run's own snapshot goes through -- rather than being typed out by hand.
@@ -126,7 +126,7 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
-           capacity: dict | None = None, secondary: dict | None = None,
+           capacity: dict | None = None, protein_residues: int = 2,
            structure: dict | None = None):
     """A response shaped as the route answers, with the fields the card renders."""
     return {
@@ -146,10 +146,9 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'body_profile': body_profile, 'body_profile_reason': body_profile_reason,
                   'bead_clearance_nm': bead_clearance, 'estimated_density_per_nm3': density,
                   'capacity_aggregation': capacity,
-                  # The assignment martinize2 coarse-grained the protein with, keyed by the frame's residue numbers:
-                  # `None` for a build with no protein or an answer that carries no assignment, exactly as the
-                  # service writes it.
-                  'secondary_structure': secondary,
+                  # How many protein residues the frame holds, 0 for an empty micelle: the writer numbers the
+                  # protein's beads 1..N before the detergent's molecules, so the preview draws the frame minus them.
+                  'protein_residues': protein_residues,
                   # The all-atom structure the beads were coarse-grained from -- a cache key and the URL that serves
                   # it, exactly as `pdc_preview.protein_structure_basis` writes one -- or `None` for a build with no
                   # protein, exactly as the service writes that.
@@ -446,6 +445,7 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     """
     page, errors = live_page
     serve(page, answer(centres_pdb(), protein=None, chains=(), protein_beads=0, beads=3, clearance=None,
+                       protein_residues=0,
                        placement_shape='sphere', band=None, representation='one centre per molecule',
                        cost={'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
                              'placement_seconds': 0.001, 'seconds': 0.0005, 'cg_bytes': 0, 'cg_key': None}))
@@ -653,7 +653,8 @@ def test_the_model_picker_shows_the_fit_and_still_sends_the_mappings_file(dashbo
     """
     page, errors = live_page
     requests = []
-    serve(page, answer(empty_micelle_pdb()), requests)
+    serve(page, answer(empty_micelle_pdb(), protein=None, chains=(), protein_beads=0, protein_residues=0),
+          requests)
     open_panel(page, live_page.base_url, protein=None)
 
     select = page.locator('#new-mapping')
@@ -690,7 +691,7 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     def frame_for(url):
         mapped = 'mapping_candidate=' in url
         return answer(empty_micelle_pdb() if mapped else centres_pdb(),
-                      protein=None, chains=(), protein_beads=0,
+                      protein=None, chains=(), protein_beads=0, protein_residues=0,
                       beads=3 * len(DDM_BEADS) if mapped else 3, clearance=None,
                       placement_shape='sphere', band=None,
                       representation="the mapping\u2019s beads" if mapped else 'one centre per molecule')
@@ -728,21 +729,17 @@ def test_the_empty_micelle_preview_is_the_detergents_own_mapping_and_carries_its
     assert errors == [], errors
 
 
-# --- the protein's secondary structure, and its bonds ------------------------------------------------------------
+# --- only the detergent is drawn; the protein's beads stay in the frame ------------------------------------------
 #
-# The assignment was computed and then dropped: `pdc_preview.preview` now puts it in `basis.secondary_structure`,
-# keyed by the residue number this frame gives each protein residue, and the card colours the protein's backbone beads
-# by their residue's class -- one representation per class, over NGL's own selections. What these two tests measure is
-# that picture and that control, off the loaded frame rather than off the code that drew it: the colours the
-# representations resolve to, the legend under them, and the shapes the Bonds control switches.
+# The frame a run records is unchanged: `pdc_view.system_pdb` writes the protein's beads first, numbered 1..N, then
+# the detergent's molecules. The preview now draws only the detergent's beads -- `basis.protein_residues` is N, and
+# the one representation is `not (1-N)` -- while the all-atom structure the beads were coarse-grained from stays as
+# the ribbon beneath. These tests measure that off the loaded frame: which atoms a representation covers, which
+# control the card offers, and that a non-DDM mapping is drawn the same way.
 
 #: Four residues as martinize2 writes them, then the detergents. The writer renames every protein bead `PRO` whatever
-#: amino acid it stands for and numbers the residues 1..4, which is what the assignment above is keyed by.
+#: amino acid it stands for and numbers the residues 1..4.
 PROTEIN_RESIDUES = ['ALA', 'GLY', 'SER', 'THR']
-#: The letters planted for them: two helices, one strand, one coil -- three classes in one frame.
-PROTEIN_LETTERS = 'HHEC'
-#: `ngl-beads.js`'s three class colours, written out so this file is not the module's answer read back to itself.
-SECONDARY_COLOURS = {'helix': '#e03131', 'sheet': '#f59f00', 'coil': '#495057'}
 
 
 def protein_frame(molecules=MOLECULES, *, residues=PROTEIN_RESIDUES):
@@ -763,18 +760,6 @@ def protein_frame(molecules=MOLECULES, *, residues=PROTEIN_RESIDUES):
 
 
 FRAME_ATOMS = len(PROTEIN_RESIDUES) * 2 + MOLECULES * len(DDM_BEADS)
-
-
-def secondary_basis(letters=PROTEIN_LETTERS):
-    """The assignment the service puts in `basis.secondary_structure`, written the way it writes one."""
-    table = {'H': 'helix', 'G': 'helix', 'I': 'helix', 'E': 'sheet', 'B': 'sheet'}
-    classes = {str(number): table.get(letter, 'coil') for number, letter in enumerate(letters, 1)}
-    summary = {name: 0 for name in SECONDARY_COLOURS}
-    for name in classes.values():
-        summary[name] += 1
-    return {'source': 'mdtraj.compute_dssp', 'route': '-dssp', 'residues': len(letters),
-            'letters': {str(number): letter for number, letter in enumerate(letters, 1)},
-            'protein_residues': len(letters), 'classes': classes, 'summary': summary, 'detail': None}
 
 
 #: Every representation's own selection, its resolved colours and the atoms it covers, read off the loaded component
@@ -815,145 +800,120 @@ MEASURE_REPRESENTATIONS = """
 """
 
 
-def drawn_colours(measured):
-    """The colour each atom is drawn in, from the representations that cover it."""
-    colours = {}
-    for rep in measured['reps']:
-        for index, colour in zip(rep['atoms'], rep['colours']):
-            colours[index] = '#' + colour
-    return colours
+def test_the_protein_beads_stay_in_the_frame_but_no_representation_covers_them(dashboard, live_page):
+    """The frame is still the run's snapshot; the one representation is its detergent, minus residues 1..N.
 
-
-def test_the_protein_backbone_is_drawn_in_its_residues_class_colour_and_the_legend_names_the_three(
-        dashboard, live_page):
-    """Measured off the loaded frame: each backbone bead its residue's class, each side chain its family, one legend.
-
-    Two residues are helix, one is a strand and one is coil, so a colouring that read one class for the whole protein
-    would show one colour here. Every atom is covered exactly once -- the class representations and the complement
-    below them are built from the same residue numbers -- and the detergents keep their polarity families, which is
-    the other table the same module carries.
+    `basis.protein_residues` is 4 here, so the protein's eight beads are written first in residues 1..4 and the belt
+    follows. The card must keep the frame whole -- the protein beads stay loaded, they are the artifact a run records
+    -- while covering none of them: one `ball+stick` representation whose selection is `not (1-4)` and whose coverage
+    is exactly the `DET` atoms.
     """
     page, errors = live_page
-    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
-                       beads=FRAME_ATOMS, clearance=0.51))
+    serve(page, answer(protein_frame(), protein_beads=len(PROTEIN_RESIDUES) * 2, beads=FRAME_ATOMS,
+                       protein_residues=len(PROTEIN_RESIDUES), clearance=0.51))
     open_panel(page, live_page.base_url)
     derive(page)
     assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
     measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
 
-    # The frame the writer wrote, read back: `PRO` for every protein bead, `BB` for its backbone, `DET` for the belt.
+    # The writer's frame, read back: `PRO` beads numbered 1..N before the `DET` molecules.
     assert measured['atoms'][0] == {'resname': 'PRO', 'atomname': 'BB', 'resno': 1}, measured['atoms'][0]
-    residues = measured['atoms']
-    backbone = [index for index, atom in enumerate(residues) if atom['resname'] == 'PRO' and atom['atomname'] == 'BB']
-    sidechains = [index for index, atom in enumerate(residues)
-                  if atom['resname'] == 'PRO' and atom['atomname'] == 'SC1']
-    detergents = [index for index, atom in enumerate(residues) if atom['resname'] == 'DET']
-    assert len(backbone) == 4 and len(sidechains) == 4 and len(detergents) == MOLECULES * len(DDM_BEADS)
-
-    # No bead is drawn twice and none is dropped: the complement is the selections above it, not a second rule.
-    covered = sorted(index for rep in measured['reps'] for index in rep['atoms'])
-    assert covered == list(range(measured['count'])), covered
-
-    colours = drawn_colours(measured)
-    assert [colours[index] for index in backbone] == [SECONDARY_COLOURS['helix'], SECONDARY_COLOURS['helix'],
-                                                      SECONDARY_COLOURS['sheet'], SECONDARY_COLOURS['coil']]
-    # The protein's side chains have no secondary structure of their own, so they stay `family not stated`.
-    assert {colours[index] for index in sidechains} == {FAMILY_COLOURS['unstated']}
-    # And the belt is untouched by any of it: its beads are still their own polarity families' colours.
-    names = [name for _ in range(MOLECULES) for name in DDM_BEADS]
-    assert [colours[index] for index in detergents] == [FAMILY_COLOURS[DDM_FAMILIES[name]] for name in names]
-
-    # The legend beside the picture is the key to those three colours, and it is the module's table that draws it.
-    legend = page.locator('.new-pdc-preview .new-pdc-preview-secondary-legend')
-    expect(legend).to_be_visible()
-    entries = legend.locator('.bead-legend-item')
-    assert entries.count() == 3
-    names = [entries.nth(index).get_attribute('data-secondary-class') for index in range(3)]
-    assert names == ['helix', 'sheet', 'coil'], names
-    for index, name in enumerate(names):
-        item = entries.nth(index)
-        assert item.locator('.bead-legend-label').inner_text() == name
-        assert item.locator('.bead-legend-swatch').get_attribute('data-colour') == SECONDARY_COLOURS[name]
-        assert item.locator('.bead-legend-swatch').evaluate(
-            "el => getComputedStyle(el).backgroundColor") == rgb(SECONDARY_COLOURS[name])
-
-    # The counts are the server's own, printed beside the legend: a record of the assignment, not a measurement here.
-    expect(page.locator('.new-pdc-preview-secondary')).to_contain_text('1qj8: 2 helix, 1 sheet, 1 coil')
-    assert errors == [], errors
-
-
-def test_the_bonds_control_switches_the_protein_to_licorice_and_leaves_the_detergent_alone(dashboard, live_page):
-    """The control is a view of this frame: the protein's representations change shape, the belt's does not.
-
-    The frame carries the model's own bonds as `CONECT` records, drawn at a quarter of a bead's radius -- which the
-    beads at this card's 0.3 scale hide. `Bonds` redraws the protein's own representations as licorice, leaves the
-    detergent's `ball+stick` where it was, asks the server for nothing and leaves the state line saying the frame on
-    screen is the one this form asked for.
-    """
-    page, errors = live_page
-    requests = []
-    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
-                       beads=FRAME_ATOMS, clearance=0.51), requests)
-    open_panel(page, live_page.base_url)
-    derive(page)
-    assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
-
-    def shapes():
-        measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
-        detergent, protein = [], []
-        for rep in measured['reps']:
-            names = {measured['atoms'][index]['resname'] for index in rep['atoms']}
-            (detergent if 'DET' in names else protein).append(rep['type'])
-        return {'detergent': detergent, 'protein': protein, 'bonds': measured['bonds']}
-
-    before = shapes()
-    assert before['protein'] and set(before['protein']) == {'ball+stick'}, before
-    assert set(before['detergent']) == {'ball+stick'}, before
-    assert before['bonds'] > 0, 'the frame carries no bond for the control to make readable'
-    assert len(requests) == 1
-
-    toggle = page.locator('.new-pdc-preview-bonds input')
-    toggle.check()
-    after = shapes()
-    assert set(after['protein']) == {'licorice'}, after
-    assert after['detergent'] == ['ball+stick'], f'the detergent was switched with the protein: {after}'
-    assert after['bonds'] == before['bonds'], 'the control changed which bonds are drawn'
-    # Nothing was asked of the server, and the frame is still the one the form asked for: this is a view, not a
-    # different placement.
-    assert len(requests) == 1, requests
-    expect(page.locator('.new-pdc-preview-state')).to_have_text(DERIVED)
-
-    toggle.uncheck()
-    assert set(shapes()['protein']) == {'ball+stick'}
-    assert errors == [], errors
-
-
-def test_a_frame_with_no_assignment_says_so_and_colours_nothing_by_structure(dashboard, live_page):
-    """martinize2's no-assignment case on the card: the reason it gave, no legend, and the beads in their families.
-
-    A protein whose structure neither DSSP source could assign is a real build (it is what `-maxwarn 1` is for), so
-    the card must neither invent a class nor leave a legend keyed to colours nothing resolved to. The frame is drawn
-    as one representation, exactly as it was before there was an assignment to carry.
-    """
-    page, errors = live_page
-    no_assignment = {'source': None, 'route': None, 'residues': 0, 'protein_residues': len(PROTEIN_RESIDUES),
-                     'letters': {}, 'classes': {}, 'summary': None,
-                     'detail': 'mdtraj is not importable: no module named mdtraj'}
-    serve(page, answer(protein_frame(), secondary=no_assignment, protein_beads=len(PROTEIN_RESIDUES) * 2,
-                       beads=FRAME_ATOMS, clearance=0.51))
-    open_panel(page, live_page.base_url)
-    derive(page)
-    assert loaded_atoms(page, FRAME_ATOMS) == FRAME_ATOMS
-
-    expect(page.locator('.new-pdc-preview-secondary')).to_contain_text(
-        'No secondary structure is drawn: mdtraj is not importable: no module named mdtraj')
-    expect(page.locator('.new-pdc-preview .new-pdc-preview-secondary-legend')).to_be_hidden()
-
-    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_REPRESENTATIONS)
-    assert len(measured['reps']) == 1, 'an answer with no assignment drew more than one representation'
-    colours = drawn_colours(measured)
     protein = [index for index, atom in enumerate(measured['atoms']) if atom['resname'] == 'PRO']
-    assert protein and {colours[index] for index in protein} == {FAMILY_COLOURS['unstated']}, colours
+    detergents = [index for index, atom in enumerate(measured['atoms']) if atom['resname'] == 'DET']
+    assert len(protein) == len(PROTEIN_RESIDUES) * 2, protein
+    assert {measured['atoms'][index]['resno'] for index in protein} == set(range(1, len(PROTEIN_RESIDUES) + 1))
+    assert detergents, 'the frame lost its detergent'
+
+    # One representation, the detergent's: its selection excludes residues 1..N and it covers no protein atom.
+    assert len(measured['reps']) == 1, measured['reps']
+    rep = measured['reps'][0]
+    assert rep['type'] == 'ball+stick', rep
+    assert rep['sele'] == f'not (1-{len(PROTEIN_RESIDUES)})', rep
+    assert rep['scheme'] == 'bfactor', rep
+    assert sorted(rep['atoms']) == detergents, rep['atoms']
+    assert not set(rep['atoms']) & set(protein), 'a representation covers the protein beads'
+    for drawn in measured['reps']:
+        assert not any(measured['atoms'][index]['resno'] <= len(PROTEIN_RESIDUES) for index in drawn['atoms']), drawn
+    assert errors == [], errors
+
+
+def test_the_bonds_control_is_gone_and_the_ribbon_control_remains(dashboard, live_page):
+    """The card offers the Ribbon switch only: the protein is a ribbon now, so there is no bead shape to switch.
+
+    The Bonds control rewrote the protein's bead representations, which no longer exist. The Ribbon control stays and
+    is checked by default; the card sends nothing for either.
+    """
+    page, errors = live_page
+    serve(page, answer(placement_pdb()))
+    open_panel(page, live_page.base_url)
+
+    assert page.locator('.new-pdc-preview-bonds').count() == 0, 'the card still offers the Bonds control'
+    ribbon = page.locator('.new-pdc-preview-ribbon')
+    expect(ribbon).to_be_visible()
+    assert ribbon.locator('input').is_checked(), 'the ribbon is drawn by default'
+    assert errors == [], errors
+
+
+# --- a non-DDM mapping, the user's template-DDM + OG case ------------------------------------------------------
+#
+# The user reported a frame built from a DDM template with an OG mapping: its beads came out undrawn. The writer and
+# the renderer must not depend on the template's residue name -- `detergent_residue` is the frame's own residue, so an
+# OG frame is drawn from the OG moleculetype's families and its `CONECT` records exactly like a DDM one.
+OG_BEADS = ('G1', 'G2', 'T1')
+OG_TYPES = ('SP1r', 'TC4', 'C1')
+OG_BONDS = ((1, 2),)
+OG_CONSTRAINTS = ((2, 3),)
+#: Each OG bead's family, from its type's first letter after any `S`/`T` class prefix: `SP1r` polar, `TC4` and `C1`
+#: apolar.
+OG_FAMILIES = {'G1': 'P', 'G2': 'C', 'T1': 'C'}
+
+
+def og_moleculetype() -> str:
+    """The OG mapping as a moleculetype: one polar sugar bead, one apolar ring site, one tail bead."""
+    atoms = '\n'.join(f'{index} {OG_TYPES[index - 1]} 1 OG {name} {index} 0 54'
+                      for index, name in enumerate(OG_BEADS, 1))
+    bonds = '\n'.join(f'{first} {second} 1 0.4 5000' for first, second in OG_BONDS)
+    constraints = '\n'.join(f'{first} {second} 1 0.35' for first, second in OG_CONSTRAINTS)
+    return ('[ moleculetype ]\nOG 1\n\n[ atoms ]\n' + atoms + '\n\n'
+            '[ constraints ]\n' + constraints + '\n\n[ bonds ]\n' + bonds + '\n')
+
+
+def og_frame(molecules=MOLECULES):
+    """A frame from a DDM template's build whose detergent is the OG mapping's beads."""
+    atoms = []
+    for molecule in range(molecules):
+        for index, name in enumerate(OG_BEADS):
+            atoms.append({'residue_id': 1 + molecule, 'residue': 'OG', 'name': name,
+                          'position': [0.4 * index + 3.0 * molecule, 0.0, 0.0]})
+    model = pdc_view.read_moleculetype_text(og_moleculetype(), source='detergent_CG.itp')
+    return pdc_view.system_pdb(atoms, detergent_residue='OG', topology=model,
+                               title='placement preview (DDM template, OG mapping, AN=2, mode=lattice, seed=20261013)')
+
+
+def test_a_non_ddm_og_mapping_is_drawn_in_its_families_with_the_models_bonds(dashboard, live_page):
+    """The user's case: an OG mapping on a DDM template draws OG beads, their families and the model's bonds."""
+    page, errors = live_page
+    frame = og_frame()
+    serve(page, answer(frame, protein=None, chains=(), protein_beads=0, protein_residues=0,
+                       beads=MOLECULES * len(OG_BEADS), clearance=None, placement_shape='sphere', band=None,
+                       representation='the mapping\u2019s beads'))
+    open_panel(page, live_page.base_url, protein=None)
+    derive(page)
+    assert loaded_atoms(page, MOLECULES * len(OG_BEADS)) == MOLECULES * len(OG_BEADS)
+
+    measured = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_COLOURS)
+    beads = [name for _ in range(MOLECULES) for name in OG_BEADS]
+    expected = [FAMILY_COLOURS[OG_FAMILIES[name]] for name in beads]
+    drawn = ['#' + colour for colour in measured['colours']]
+    assert drawn == expected, f'the OG beads are not drawn in their families: {drawn} against {expected}'
+    assert set(drawn) == {FAMILY_COLOURS['P'], FAMILY_COLOURS['C']}, sorted(drawn)
+    assert measured['scheme'] == 'bfactor', measured['scheme']
+
+    # The model states one bond and one constraint per molecule, and the file carries them as `CONECT`; the guess is
+    # off, so the drawn count is exactly the model's.
+    bonds = page.locator('.new-pdc-preview-viewer').evaluate(MEASURE)['bonds']
+    assert bonds == MOLECULES * (len(OG_BONDS) + len(OG_CONSTRAINTS)), \
+        f'{bonds} bonds drawn where the OG model bonds {MOLECULES * (len(OG_BONDS) + len(OG_CONSTRAINTS))}'
     assert errors == [], errors
 
 
@@ -979,8 +939,7 @@ def peptide(residues=4, *, chain='A'):
     Real peptide geometry -- 1.45 A `N`-`CA`, 1.45 A `CA`-`C`, 1.33 A `C`-`N` to the next residue -- because the
     viewer splits a polymer where its backbone stops being bonded, and a chain of residues spaced far apart arrives
     as separate pieces that `cartoon` draws nothing for. `HELIX`/`SHEET` records are not written: the ribbon is one
-    neutral colour either way, and the classes in this picture are the *beads'* (`secondary_basis`), which is the
-    other half of the claim.
+    neutral colour either way, and the colours in this picture are the detergent beads'.
     """
     lines, serial = [], 0
     for index in range(residues):
@@ -1045,7 +1004,7 @@ def test_the_protein_is_a_ribbon_of_its_all_atom_structure_under_the_beads(dashb
     """
     page, errors = live_page
     requests = []
-    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+    serve(page, answer(protein_frame(), protein_beads=len(PROTEIN_RESIDUES) * 2, protein_residues=len(PROTEIN_RESIDUES),
                        beads=FRAME_ATOMS, clearance=0.51, structure=STRUCTURE), requests, structure=PEPTIDE)
     open_panel(page, live_page.base_url)
     derive(page)
@@ -1064,25 +1023,16 @@ def test_the_protein_is_a_ribbon_of_its_all_atom_structure_under_the_beads(dashb
 
     assert frame['atoms'] == FRAME_ATOMS, frame
     assert {'BB', 'SC1'} <= set(frame['atomnames']) and 'CA' not in frame['atomnames'], frame['atomnames']
-    assert set(rep['type'] for rep in frame['reps']) == {'ball+stick'}, frame['reps']
-    # The ribbon runs through the very atoms these beads were coarse-grained from, so the protein's bead
-    # representations are translucent (and write no depth) while the detergent's stay solid: with both at full
-    # opacity the cartoon is invisible under the beads it belongs to.
-    detergent_reps = [rep for rep in frame['reps'] if str(rep['sele']).startswith('not (')]
-    protein_reps = [rep for rep in frame['reps'] if not str(rep['sele']).startswith('not (')]
-    assert detergent_reps and protein_reps, frame['reps']
-    for rep in protein_reps:
-        assert rep['opacity'] is not None and 0 < rep['opacity'] < 1, rep
-        assert rep['depthWrite'] is False, rep
-    for rep in detergent_reps:
-        assert rep['opacity'] in (None, 1), 'the micelle is not under the ribbon and is not drawn as if it were'
-    # The bead representations are the frame's, and the ribbon's representation is not among them: the two layers are
-    # separate components, so the Bonds and Ribbon controls cannot redraw each other's.
-    assert abs(sum(1 for rep in frame['reps'] if rep['type'] == 'cartoon')) == 0
+    # One representation over the detergent only: the protein's beads stay in the frame but nothing covers them, so
+    # the ribbon is the protein's whole picture.
+    assert [rep['type'] for rep in frame['reps']] == ['ball+stick'], frame['reps']
+    assert frame['reps'][0]['sele'] == f'not (1-{len(PROTEIN_RESIDUES)})', frame['reps']
+    assert frame['reps'][0]['opacity'] in (None, 1), frame['reps']
+    assert not any(rep['type'] == 'cartoon' for rep in frame['reps']), 'the ribbon was drawn on the beads component'
 
-    # The legend is still one key per question and no third for the ribbon: the family colours and the three classes.
-    assert page.locator('.new-pdc-preview .bead-legend').count() == 2
-    assert page.locator('.new-pdc-preview .bead-legend:not([hidden])').count() == 2
+    # The legend is the family key and no second for the ribbon.
+    assert page.locator('.new-pdc-preview .bead-legend').count() == 1
+    assert page.locator('.new-pdc-preview .bead-legend:not([hidden])').count() == 1
 
     # One request each: the card asked the URL the server named, and built no URL of its own.
     protein_requests = [url for url in requests if '/preview/protein' in url]
@@ -1093,15 +1043,16 @@ def test_the_protein_is_a_ribbon_of_its_all_atom_structure_under_the_beads(dashb
 
 
 def test_the_ribbon_control_removes_and_adds_only_the_ribbon(dashboard, live_page):
-    """The Ribbon switch beside Bonds is a view of this frame: one representation goes, the beads do not move.
+    """The Ribbon switch is a view of this frame: one representation goes, the detergent's does not move.
 
-    Unchecked, the ribbon component carries no representation at all and every bead representation is exactly what it
-    was; checked again, one ribbon comes back. Nothing is asked of the server and the state line still says the frame
-    on screen is the one this form asked for -- it is a way of looking at the frame, not a different frame.
+    Unchecked, the ribbon component carries no representation at all and the detergent's representation -- selection,
+    type and opacity -- is exactly what it was; checked again, one ribbon comes back. Nothing is asked of the server
+    and the state line still says the frame on screen is the one this form asked for -- it is a way of looking at the
+    frame, not a different frame.
     """
     page, errors = live_page
     requests = []
-    serve(page, answer(protein_frame(), secondary=secondary_basis(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+    serve(page, answer(protein_frame(), protein_beads=len(PROTEIN_RESIDUES) * 2, protein_residues=len(PROTEIN_RESIDUES),
                        beads=FRAME_ATOMS, clearance=0.51, structure=STRUCTURE), requests, structure=PEPTIDE)
     open_panel(page, live_page.base_url)
     derive(page)
@@ -1119,20 +1070,16 @@ def test_the_ribbon_control_removes_and_adds_only_the_ribbon(dashboard, live_pag
     toggle.uncheck()
     hidden = layers(page, 2, FRAME_ATOMS)
     assert hidden[0]['reps'] == [], hidden[0]
-    # The same beads, the same selections -- now opaque, because the ribbon they were drawn translucent over is gone.
-    assert [(rep['type'], rep['sele']) for rep in hidden[1]['reps']] == \
-           [(rep['type'], rep['sele']) for rep in bead_reps], 'the control changed which beads are drawn'
-    for rep in hidden[1]['reps']:
-        assert rep['opacity'] in (None, 1), rep
+    # The same beads and the same selection, at the same opacity: only the ribbon layer went.
+    assert [(rep['type'], rep['sele'], rep['opacity']) for rep in hidden[1]['reps']] == \
+           [(rep['type'], rep['sele'], rep['opacity']) for rep in bead_reps], 'the control changed the detergent drawing'
     assert hidden[1]['atoms'] == frame['atoms']
 
     toggle.check()
     shown = layers(page, 2, FRAME_ATOMS)
     assert [rep['type'] for rep in shown[0]['reps']] == ['cartoon'], shown[0]
-    assert [(rep['type'], rep['sele']) for rep in shown[1]['reps']] == \
-           [(rep['type'], rep['sele']) for rep in bead_reps]
-    protein_reps = [rep for rep in shown[1]['reps'] if not str(rep['sele']).startswith('not (')]
-    assert protein_reps and all(rep['opacity'] is not None and 0 < rep['opacity'] < 1 for rep in protein_reps)
+    assert [(rep['type'], rep['sele'], rep['opacity']) for rep in shown[1]['reps']] == \
+           [(rep['type'], rep['sele'], rep['opacity']) for rep in bead_reps]
 
     # A view, not a derive: one request each, and the state line has not moved.
     assert len(requests) == 2, requests
@@ -1148,7 +1095,7 @@ def test_a_protein_free_frame_asks_for_no_structure_and_draws_one_component(dash
     """
     page, errors = live_page
     requests = []
-    serve(page, answer(empty_micelle_pdb(), protein=None, chains=(), protein_beads=0,
+    serve(page, answer(empty_micelle_pdb(), protein=None, chains=(), protein_beads=0, protein_residues=0,
                        beads=len(DDM_BEADS) * 3, clearance=None, placement_shape='sphere', band=None,
                        representation='the mapping\u2019s beads'), requests, structure=PEPTIDE)
     open_panel(page, live_page.base_url, protein=PROTEIN['id'])

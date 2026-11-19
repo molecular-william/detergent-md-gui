@@ -402,8 +402,9 @@
     </div>
     <aside class="new-run-settings">
     {# The system preview: the build's own placement step, derived on demand by `GET /api/pdc/preview/placement`.
-       It is the picture the build would write, and every statement around it is there to keep that from being read
-       as a prediction of the whole run. Every hook here is
+       It draws the detergent's beads on their Martini 3 polarity families, with the all-atom structure they were
+       coarse-grained from as a ribbon beneath them; the protein's own beads stay in the frame but are not drawn over.
+       Every statement around it keeps that from being read as a prediction of the whole run. Every hook here is
        a class, because `packages/core/tests/integration/test_dom_ids.py` requires an id a module names in a selector to be
        rendered on the single-molecule page too, and this fieldset is not rendered there. #}
     <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
@@ -411,15 +412,9 @@
       <h3 id="new-preview-title">What these inputs would build</h3>
 
       <div class="new-pdc-preview-viewer" role="img"
-           aria-label="Coarse-grained protein and detergent belt inside the simulation box"></div>
+           aria-label="Detergent beads in their polarity families, over the all-atom protein ribbon, inside the simulation box"></div>
       <div class="bead-legend" data-bead-legend
            aria-label="Bead colour by Martini 3 polarity family"></div>
-      {# The protein's backbone is coloured by secondary structure, and this is that key: the three classes come from
-         `ngl-beads.js`'s table, the same one the representations are coloured from, and the counts above it are the
-         assignment the server made. Both are hidden until a frame carries an assignment to decode. #}
-      <div class="bead-legend new-pdc-preview-secondary-legend" data-secondary-legend hidden
-           aria-label="Protein backbone colour by secondary structure"></div>
-      <p class="hint new-pdc-preview-secondary" role="status" hidden></p>
       <p class="hint new-pdc-preview-ribbon-note" role="status" hidden></p>
       <p class="hint new-pdc-preview-basis" role="status"></p>
       {# Which conformations this preview's placement draws, when a derive answers with the resolved library: the
@@ -432,14 +427,9 @@
       <div class="new-pdc-preview-actions">
         <button type="button" class="secondary new-pdc-preview-derive">Derive the preview</button>
         <button type="button" class="secondary new-pdc-preview-use-capacity" hidden>Use the measured count</button>
-        {# A view of the frame on screen, not an input to the derive: it switches the protein's beads to a licorice
-           stick so the model's own bonds are readable at this card's scale, and sends nothing to the server. #}
-        <label class="new-pdc-preview-bonds" title="Draw the protein as licorice sticks so the model's own bonds are visible">
-          <input type="checkbox"> Bonds
-        </label>
-        {# The all-atom structure the beads were coarse-grained from, drawn as a ribbon under them. A view switch like
-           Bonds -- it sends nothing, changes no derived value, and is not one of the derive's inputs; the server names
-           the structure, so this card never builds the URL for it. #}
+        {# The all-atom structure the detergent's beads were coarse-grained from, drawn as a ribbon under them. A view
+           of the frame on screen, not an input to the derive: it sends nothing, changes no derived value, and is not
+           one of the derive's inputs; the server names the structure, so this card never builds the URL for it. #}
         <label class="new-pdc-preview-ribbon"
                title="Draw the all-atom structure the beads were coarse-grained from, as a ribbon under the beads">
           <input type="checkbox" checked> Ribbon

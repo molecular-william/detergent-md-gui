@@ -18,6 +18,10 @@ Three things this step had wrong, each measured on the tool before it was change
 assigned here by MDAnalysis (`MDAnalysis.analysis.dssp`), which is what every earlier run used and what a virtualenv
 without mdtraj still gets. Which of the two was used is recorded in the report, so a reader never has to guess.
 
+`assign_structure=False` is the preview's derive: it wants the beads and no assignment, so the step computes none and
+the command carries neither flag (`-maxwarn 1` still covers the tool's "no secondary structure" warning). A run leaves
+the default `True`, so its command and report are what they were.
+
 The fixtures build their own molecule tree and their own protein; nothing here reads the developer's workspace, and
 the tool itself is stubbed, because what is tested is the stage's own command and read-back. The two assignment
 sources are *not* stubbed where a test is about which one answers: mdtraj and MDAnalysis are both declared
@@ -194,6 +198,30 @@ def test_the_command_asks_martinize2_to_assign_the_structure_itself(tmp_path, mo
     assert command[-1] == '-dssp', 'the bare flag is what makes vermouth use mdtraj'
     assert '-ss' not in command, 'the tool declares the two flags mutually exclusive'
     assert command[command.index('-maxwarn') + 1] == '1'
+
+
+def test_a_derive_that_asks_for_no_assignment_is_handed_no_structure_flag(tmp_path, monkeypatch):
+    """The preview asks the step for the beads and no assignment, so neither flag reaches martinize2.
+
+    `assign_structure=False` is a caller's choice, not a second stage: the tool is still run, `-maxwarn 1` still
+    covers its documented "no secondary structure" warning, and `secondary_structure` is never called. A run leaves
+    the default `True`, which the test above pins.
+    """
+    _, stage = prepared(tmp_path)
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_run(calls))
+
+    def never(structure, *args, **kwargs):
+        raise AssertionError('the assignment was computed for a derive that asked for none')
+
+    monkeypatch.setattr(pdc_build, 'secondary_structure', never)
+
+    beads, command, record = pdc_build.cg_protein(stage, stage / 'protein.pdb', assign_structure=False)
+
+    assert len(beads) == 3 and record == {}
+    assert command[command.index('-maxwarn') + 1] == '1', 'the run path\'s room for the tool\'s other warnings'
+    assert 'missing-flag:1' in command, 'the warning this derive expects is named rather than paid from that room'
+    assert '-dssp' not in command and '-ss' not in command
 
 
 def test_martinize2_is_handed_the_letters_only_when_mdtraj_cannot_assign_them(tmp_path, monkeypatch):

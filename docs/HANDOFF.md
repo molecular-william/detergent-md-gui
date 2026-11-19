@@ -10,6 +10,27 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Protein-detergent preview: a mapping's own detergent, detergent beads only, no secondary structure (2026-11-19).**
+  The preview classified detergent beads by the **template's** residue. The catalogue ships only DDM's
+  `micelle_template.json`, so an OG mapping previewed against it wrote every OG bead as protein: no `CONECT` bonds,
+  no family code in the b-factor column, generic element. `pdc_preview.preview` now takes `basis['detergent']` /
+  `basis['residue']` from the derived model (mapping or conformation library) and passes that residue to
+  `pdc_view.system_pdb`; a centres-only build keeps the template's. The regression test builds an OG mapping against
+  the DDM template fixture and asserts DET records, the model's CONECT bonds and nonzero family codes.
+  The preview now draws **only the detergent's beads**; the protein's beads stay in the frame (the PDB is the
+  snapshot) but no representation covers them. `basis['protein_residues']` is the number of protein residues, and the
+  one representation is `not (1-N)` (whole frame for an empty micelle). The **Bonds** control and the secondary-
+  structure legends/notes are gone; the all-atom **Ribbon** stays.
+  The preview no longer computes secondary structure: `pdc_build.cg_protein(..., assign_structure=False)` is used by
+  the preview only (runs keep the default `True`), so mdtraj/MDAnalysis DSSP does not run and the martinize2 command
+  carries `-maxwarn 1 -maxwarn missing-flag:1` (the deliberate no-SS warning is named; the run path's ordinary single
+  warning room is unchanged). `CACHE_FORMAT` is 3 so old SS-built preview entries are not reused; the secondary
+  tables and `renderSecondaryLegend` are removed from `ngl-beads.js`. `/api/pdc/preview/placement` no longer returns
+  `basis.secondary_structure`.
+  Checks: pdc fast area 804 passed / 1 xfailed; full fast tier 3133 passed / 1 xfailed; full browser tier 420 passed
+  (`test_pdc_preview_browser.py` 19, including the OG regression and the protein-beads-uncovered case); ruff clean.
+  The running dashboard unit predates this change (Python, template and JS), so restart it with no run in flight.
+
 - **Protein-detergent New run: the validation panel's launch split, per-setting help, Default and Auto (2026-11-19).**
   The pdc form now has the same two launch buttons as the single-molecule form: **Queue run on GPU** (`#start-run`)
   and **Share run on GPU** (`#start-run-share`). Both post `gpu_sharing` (`queue`|`share`), advertised by

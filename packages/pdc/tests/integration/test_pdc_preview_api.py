@@ -33,8 +33,7 @@ def peptide(residues=6, *, chain='A', shift_nm=0.0) -> str:
     protein** -- the extent about the centroid plus the clearance plus the detergent's own length -- and a protein
     reaching past that shell puts its own atoms where the sites land, which is the clearance *refusal* rather than a
     picture. Every atom here is within 1.3 nm of the centre, so the shell clears the protein by more than a
-    nanometre and the cold/warm test measures the cache instead of the gate. Six residues is the shortest fixture
-    both secondary-structure sources answer (MDAnalysis' DSSP raises below five).
+    nanometre and the cold/warm test measures the cache instead of the gate.
 
     `chain` and `shift_nm` place a second copy in its own chain, for the tests about a chain selection: a structure
     whose two halves are far apart measures a different shell for each.
@@ -108,8 +107,7 @@ def test_a_coarse_grained_bead_with_no_position_refuses_with_a_reason_the_panel_
     monkeypatch.setattr(preview_module, 'coarse_grained',
                         lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
                                                          'path': '', 'beads_bytes': 0, 'dropped_residues': [],
-                                                         'protein_input': 'protein.pdb', 'command': None,
-                                                         'secondary_structure': None}))
+                                                         'protein_input': 'protein.pdb', 'command': None}))
     entry = import_protein(dashboard, monkeypatch)
 
     response = get(dashboard, template=TEMPLATE, protein=entry['name'], pdc_seed=20261013, aggregation_number=12)
@@ -272,11 +270,10 @@ def test_a_real_cold_and_warm_preview_pay_the_coarse_graining_once(dashboard, mo
     assert cold['pdb'] == warm['pdb'], 'the cached beads must give the same frame as the ones the tool wrote'
     assert cold['basis']['protein_beads'] > 0 and cold['basis']['beads'] > cold['basis']['protein_beads']
     assert cold['basis']['clearance_nm'] is not None, 'the sphere placement reports how close it got'
-    # The assignment survives the cache: `pdc_build.cg_protein` reports none for an entry it did not build, so the
-    # warm derive reads the one kept beside the beads rather than losing the colours on the second ask.
-    assignment = cold['basis']['secondary_structure']
-    assert assignment['letters'] and assignment['summary'], assignment
-    assert warm['basis']['secondary_structure'] == assignment
+    # The protein's residue numbering survives the cache: the warm derive re-reads the entry's beads, so the number
+    # the browser uses to draw only the detergent is the same on the second ask.
+    assert cold['basis']['protein_residues'] > 0
+    assert warm['basis']['protein_residues'] == cold['basis']['protein_residues']
 
     # The cache is the workspace's own scratch area, and it is not a run: nothing appears in the runs list.
     assert (dashboard.paths.workspace / 'preview/cg').is_dir()
@@ -301,7 +298,7 @@ def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
                        'position': [0.8 * index + shift, 0.0, 0.0]} for index in range(1, 5)]
         return beads, {'cached': True, 'seconds': 0.0, 'key': 'stub', 'path': str(cache_root),
                        'beads_bytes': 0, 'dropped_residues': [], 'protein_input': 'protein.pdb',
-                       'command': None, 'secondary_structure': None}
+                       'command': None}
 
     monkeypatch.setattr(preview_module, 'coarse_grained', stub)
     entry = import_protein(dashboard, monkeypatch, text=TWO_CHAINS, pdbid='1abc')
@@ -343,7 +340,7 @@ def test_the_route_reads_the_preparation_choice_and_refuses_a_value_that_is_not_
                                                          'path': '', 'beads_bytes': 0, 'dropped_residues': [],
                                                          'protein_input': 'protein.pdb',
                                                          'structure': str(kwargs.get('protein_path') or ''),
-                                                         'command': None, 'secondary_structure': None,
+                                                         'command': None,
                                                          'prepare': None, 'prepare_seconds': 0.0}))
     entry = import_protein(dashboard, monkeypatch)
     query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 12}

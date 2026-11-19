@@ -29,14 +29,6 @@ Two things this module exists to state rather than to hide:
 What it deliberately does not do: draw anything the build's own functions did not produce. A hand-drawn schematic
 would look like a prediction of a system these inputs do not make.
 
-The protein's **secondary structure** travels with the frame rather than being left behind at the coarse-graining
-step. martinize2 is handed an assignment out of `pdc_build.secondary_structure` (mdtraj's DSSP, `SS_SOURCE`), the CG
-beads are built from it, and `basis['secondary_structure']` carries those letters keyed by the residue number the
-frame gives each protein residue, the three classes they sort into, and their counts -- so the panel can colour a
-backbone bead by its residue's class without measuring anything itself. The mapping of DSSP's letters onto the three
-classes is one table in this module (`SECONDARY_CLASSES`), and a residue the frame cannot give one class to is left
-uncoloured rather than guessed at.
-
 The beads are a coarse-graining of a structure, so the picture carries both halves: `basis['protein_structure']`
 names the **all-atom file martinize2 was handed** -- its cache key and the URL that serves it
 (`PROTEIN_STRUCTURE_ROUTE`), never the file itself, which would double every placement answer -- and the card draws
@@ -54,7 +46,6 @@ mapping decides where the beads are.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 import subprocess
@@ -76,10 +67,12 @@ from micelle import registry as micelle_registry
 #: never be mistaken for a run's input.
 CACHE_DIRECTORY = 'preview/cg'
 #: Bumped when the shape of what an entry holds changes, so an entry written by an older version is never read as if
-#: it were this one's. It is part of every key, which is what makes that true of entries on disk as well. Format 2:
-#: an entry can now hold a **prepared** protein -- `protein_prepared.pdb`, the preparer's log and its own
-#: `protein_input.pdb` -- which is a different entry from the one the same protein coarse-grained unprepared.
-CACHE_FORMAT = 2
+#: it were this one's. It is part of every key, which is what makes that true of entries on disk as well. Format 3: a
+#: preview no longer asks martinize2 for a secondary-structure assignment, so an entry its older command built must not
+#: be re-used as if the new derive had produced it. Format 2: an entry can hold a **prepared** protein --
+#: `protein_prepared.pdb`, the preparer's log and its own `protein_input.pdb` -- which is a different entry from the one
+#: the same protein coarse-grained unprepared.
+CACHE_FORMAT = 3
 
 
 def _refusal(step, reasons, basis, cost, *, subject=None):
@@ -104,24 +97,6 @@ def _refusal(step, reasons, basis, cost, *, subject=None):
         sentences = [f'the {step} step refused these inputs and named no reason{where}']
     return {'valid': False, 'step': step, 'reasons': sentences, 'pdb': None, 'basis': basis, 'cost': cost}
 
-
-#: DSSP's eight letters, sorted into the three classes a picture can draw. This is the **one** table: the per-residue
-#: classes the panel colours from, the summary the card prints and the unit tests all read it, so a helix cannot be
-#: red here and coil there. vermouth's own `SS_CG` -- which `pdc_build.martini_classes` counts with, because that is
-#: what martinize2 runs over the same letters -- is the same partition under martinize2's names, its `extended` being
-#: this `sheet`; `packages/pdc/tests/unit/test_pdc_preview.py` pins the two against each other on the DSSP alphabet.
-SECONDARY_CLASSES = {'H': 'helix', 'G': 'helix', 'I': 'helix', 'E': 'sheet', 'B': 'sheet'}
-#: Every letter the table does not name -- DSSP's `T`, `S` and `C` -- is a coil. It is a rule rather than an entry
-#: per letter because the table's whole claim is "three classes", and a letter added to either source's alphabet is
-#: then a coil rather than an unknown state a picture would have to invent a colour for.
-SECONDARY_DEFAULT_CLASS = 'coil'
-#: The order the card's legend and the summary sentence use. `sheet` rather than martinize2's `extended` because that
-#: is the word for what the beads are: an extended strand is a sheet's residue.
-SECONDARY_CLASS_ORDER = ('helix', 'sheet', 'coil')
-
-#: The file inside a cache entry holding the assignment martinize2 was built with. Optional: an entry written before
-#: it existed has none, and a record that carries no letters is not written at all -- see `_secondary_record`.
-SECONDARY_RECORD = 'secondary_structure.json'
 
 #: A cache entry's name: `cache_key`'s digest to `CACHE_KEY_LENGTH` hex characters, and the only spelling anything
 #: resolving an entry will take. The preview's protein route validates against this pattern rather than against the
@@ -168,136 +143,6 @@ def protein_structure_basis(key, entry):
     if not entry or not CACHE_KEY_PATTERN.fullmatch(token) or protein_structure_path(entry) is None:
         return None
     return {'key': token, 'url': f'{PROTEIN_STRUCTURE_ROUTE}?key={token}'}
-
-
-def secondary_class(letter) -> str:
-    """The class a DSSP letter belongs to, from the one table above (`SECONDARY_CLASSES`)."""
-    return SECONDARY_CLASSES.get(str(letter).strip().upper(), SECONDARY_DEFAULT_CLASS)
-
-
-def protein_residues(beads) -> list[tuple[tuple[str, int], int]]:
-    """The protein residues a frame's beads hold, as `((resname, residue_id), frame residue number)` in bead order.
-
-    A *residue occurrence*, not a distinct key: martinize2 writes one bead group per residue in the order the file
-    holds them, and a structure of three chains restarts its residue numbering at each chain, so two residues can
-    carry the same `(resname, residue_id)`. Both are list entries here, which is what lets the assignment's letters
-    stay lined up with the beads residue for residue.
-
-    The frame's **residue number** is `pdc_view.system_pdb`'s own rule -- one number per distinct
-    `(residue, residue_id)` in the order the coordinates first show it, `1` upward -- so the number here is the number
-    a viewer sees and can select on. It is counted over the protein's beads alone, which is the frame's numbering
-    because a preview writes the protein's atoms before the detergent's and a template's residue name cannot collide
-    with an amino acid's. Two residues that share a key therefore share a number, which the caller has to handle
-    rather than this function guessing which of them a viewer is looking at.
-    """
-    occurrences, numbering, previous = [], {}, None
-    for bead in beads:
-        key = (str(bead['residue']).upper(), int(bead['residue_id']))
-        if key not in numbering:
-            numbering[key] = len(numbering) + 1
-        # One entry per residue *group*: a residue's beads are written consecutively, so a key that differs from the
-        # bead before it is a new residue -- including the second chain's `LEU 19`, which has the same key as the
-        # first chain's and must still be its own entry for the letters to stay lined up.
-        if key != previous:
-            occurrences.append(key)
-            previous = key
-    return [(key, numbering[key]) for key in occurrences]
-
-
-def secondary_structure_basis(record, beads) -> dict:
-    """The assignment `record` carries, keyed the way the frame names its protein residues, with its class counts.
-
-    `record` is `pdc_build.secondary_structure`'s own record -- `letters` (one DSSP letter per residue, in the order
-    the file martinize2 read holds them), `source`, `route` -- and `beads` are the coarse-grained protein's atoms, in
-    the order `pdc_view.system_pdb` writes them. The letters are matched to the residues positionally, because that
-    is what the two have in common: martinize2 writes its beads residue by residue in the order of the file it was
-    handed, and mdtraj assigned the letters over that same file. The counts are checked before anything is keyed --
-    an assignment of 230 letters for a frame of 379 residues cannot be handed on without saying which residue each
-    letter belongs to, and guessing is the one thing this cannot do.
-
-    **A bead that covers residues of different classes is not coloured by secondary structure at all.** That is the
-    rule here, and it has one case in this writer: the frame numbers a residue by `(name, residue_id)`, so two chains
-    that both hold `LEU 19` share frame residue 19 -- and if those two residues are a helix and a coil, no colour can
-    be put on that number without claiming a secondary structure one of the two beads does not have. Such a number
-    is `None` in `classes` and in `letters`, so the panel draws those beads in their family colour and says nothing
-    about their structure; the number itself stays unstated rather than being resolved to the first or the majority.
-    The same applies to a bead whose residue the assignment does not reach at all. `summary` still counts every
-    letter, because it is a statement about the protein's assignment rather than about what could be drawn.
-
-    Returns the record the basis carries. It is always a dict, so a caller can render "no assignment, and why"
-    instead of an absence: `source`, `route`, `residues` (letters handed on), `protein_residues` (residue
-    occurrences the frame holds), `letters` and `classes` keyed by frame residue number, `summary` and, when no
-    assignment could be keyed, `detail` naming the reason.
-    """
-    occurrences = protein_residues(beads)
-    basis = {'source': (record or {}).get('source'), 'route': (record or {}).get('route'),
-             'residues': 0, 'protein_residues': len(occurrences),
-             'letters': {}, 'classes': {}, 'summary': None, 'detail': None}
-    letters = str((record or {}).get('letters') or '')
-    if not letters:
-        basis['detail'] = ((record or {}).get('detail')
-                           or 'no secondary-structure assignment was made for this protein')
-        return basis
-    if len(letters) != len(occurrences):
-        basis['detail'] = (f'the assignment holds {len(letters)} letters for the {len(occurrences)} residues this '
-                           f'frame holds, so no residue can be given one without guessing which')
-        return basis
-
-    grouped = {}
-    for (_, number), letter in zip(occurrences, letters):
-        grouped.setdefault(number, []).append(str(letter))
-    for number in sorted(grouped):
-        assigned = grouped[number]
-        classes = {secondary_class(letter) for letter in assigned}
-        basis['letters'][str(number)] = assigned[0] if len(set(assigned)) == 1 else None
-        basis['classes'][str(number)] = classes.pop() if len(classes) == 1 else None
-    basis['residues'] = len(letters)
-    summary = {name: 0 for name in SECONDARY_CLASS_ORDER}
-    for letter in letters:
-        summary[secondary_class(letter)] += 1
-    basis['summary'] = summary
-    return basis
-
-
-def _secondary_record(entry, protein_input, record):
-    """The assignment martinize2 was given, from this derive, from the entry's sidecar, or by asking again.
-
-    `pdc_build.cg_protein` reports the assignment only when it *ran* martinize2: a re-used entry answers
-    `{'source': None, 'detail': 'protein_cg.pdb was already there, so martinize2 was not run again'}`, which is
-    honest about the step and says nothing about the structure. The assignment is a property of the file martinize2
-    read, and that file is in the entry, so a re-used entry is assigned the same way it was the first time --
-    `pdc_build.secondary_structure`, the same call on the same bytes -- rather than the panel losing its colours the
-    second time it is asked. The answer is kept beside the beads so a warm derive does not pay for it again.
-
-    A record that carries no letters is deliberately not persisted: its reason is a library that is not importable or
-    a structure neither source can work on, and the next derive is entitled to ask again rather than inherit it.
-    """
-    path = Path(entry) / SECONDARY_RECORD
-    if (record or {}).get('letters'):
-        try:
-            files.atomic_json(path, record)
-        except OSError:
-            pass        # a sidecar that cannot be written costs the next derive an assignment, and nothing else
-        return record
-    if path.is_file():
-        try:
-            stored = json.loads(path.read_text())
-        except (OSError, ValueError):
-            stored = None
-        if isinstance(stored, dict) and stored.get('letters'):
-            return stored
-    if not Path(protein_input).is_file():
-        return record
-    try:
-        fresh = pdc_build.secondary_structure(Path(protein_input))
-    except (OSError, ValueError, SystemExit):
-        return record
-    if fresh.get('letters'):
-        try:
-            files.atomic_json(path, fresh)
-        except OSError:
-            pass
-    return fresh
 
 
 def cache_key(protein_path, chains, executable, *, prepare=False, prepare_executable=None) -> str:
@@ -374,11 +219,10 @@ def coarse_grained(cache_root, protein_path, chains, *, executable=None, prepare
     if prepared_path.is_file():
         protein_input = prepared_path
     started = time.perf_counter()
-    beads, command, secondary = pdc_build.cg_protein(entry, protein_input, executable=executable)
+    # The preview wants the beads and no secondary-structure assignment: the picture does not colour a backbone by
+    # one, and asking for it here would hand martinize2 a flag the build this preview stands for does not use.
+    beads, command, _ = pdc_build.cg_protein(entry, protein_input, executable=executable, assign_structure=False)
     seconds = time.perf_counter() - started
-    # The assignment travels with the beads, including for an entry martinize2 was not run for this time: see
-    # `_secondary_record`.
-    secondary = _secondary_record(entry, protein_input, secondary)
 
     # The command `cg_protein` would have run names the file it writes; a step that was already built returns the
     # beads with no command, which is this entry being re-used rather than a second run of the tool. The bytes are
@@ -387,7 +231,7 @@ def coarse_grained(cache_root, protein_path, chains, *, executable=None, prepare
                    'key': entry.name, 'path': str(entry),
                    'beads_bytes': structure.stat().st_size if structure.is_file() else 0,
                    'dropped_residues': dropped, 'protein_input': protein_input.name,
-                   'structure': str(protein_input), 'command': command, 'secondary_structure': secondary,
+                   'structure': str(protein_input), 'command': command,
                    # The step's own record and its wall time, or `None` and zero for a derive that did not ask for
                    # it. `prepare_seconds` is what the panel's Cost row reports for it.
                    'prepare': record, 'prepare_seconds': round(float(record['seconds']), 3) if record else 0.0}
@@ -499,11 +343,15 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     mapping belongs to; a mapping is a mapping *of* a molecule and the residue the structure is written with comes
     from it.
 
-    `basis['secondary_structure']` is the assignment martinize2 coarse-grained this protein with
-    (`secondary_structure_basis`): the DSSP letters keyed by the residue number the frame gives each protein residue,
-    the class each letter falls in, and how many residues each class holds. It is `None` for a build with no protein,
-    and a dict that names its reason when a protein has no assignment to hand on -- so the panel can say the one
-    thing or the other, and never colour a bead from a structure that was not stated.
+    `basis['detergent']` and `basis['residue']` name the molecule the frame is drawn from, and when a detergent model
+    was derived -- from the mapping, or from the conformation library's own derive -- both come from that model rather
+    than from the template: the catalogue ships DDM's skeleton for every detergent, and an OG mapping previewed with
+    the template's residue would write its beads as protein. A centres-only build has no model and keeps the
+    template's residue.
+
+    `basis['protein_residues']` is the number of distinct protein residue keys `(residue.upper(), residue_id)` the
+    frame's leading protein atoms hold -- the origin of the residue numbers `system_pdb` gives them. It is `0` for an
+    empty micelle, and the browser reads it to draw only the detergent (`residue number > protein_residues`).
 
     `basis['detergent_terms']` is which terms the picture's bonds are: `{source, terms, revision}` when the mapping
     was given. `source` is the sentence the run's own record carries (`detergent_cg.terms_source`), `terms` the count
@@ -565,11 +413,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'detergent_terms': None,
              # The plan's step 1: whether this derive would prepare the protein, and the record when it did.
              'prepare_protein': bool(prepare_protein), 'prepare': None,
-             # The assignment martinize2 builds the protein with, keyed by the frame's own residue numbers. `None`
-             # until a frame is actually drawn from a coarse-grained protein: a refusal carries no coordinates, so
-             # it has no residues to give a class to, and says that rather than naming an assignment for a picture
-             # that does not exist.
-             'secondary_structure': None,
+             # The number of distinct protein residues the frame's leading atoms hold. `0` until a frame is drawn,
+             # and for an empty micelle: the browser draws only the detergent from `residue number > this`.
+             'protein_residues': 0,
              # The all-atom protein the beads were coarse-grained from: `{key, url}` for the route that serves it, so
              # the card can draw a ribbon of the structure the beads stand for. `None` for a build with no protein,
              # and for a derive whose entry holds no such structure -- see `protein_structure_basis`.
@@ -757,6 +603,14 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         # The library's derive already derived it, to match the library against the run's own beads.
         seconds = model_seconds
     cost['detergent_seconds'] = round(seconds, 3)
+    # The molecule and residue the picture says it is drawn from. A derived model's own, because the catalogue's
+    # template is DDM's skeleton for every detergent: an OG mapping written with the template's residue would be
+    # classified as protein by `system_pdb`, with no CONECT bonds and no family code. A centres-only build has no
+    # model and keeps the template's residue.
+    if model is not None:
+        basis['detergent'] = str(model['molecule_id'])
+        basis['residue'] = model['residue']
+    detergent_residue = basis['residue']
 
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
               'position': bead['position']} for bead in beads]
@@ -796,18 +650,17 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                     'revision': (model.get('parameterization') or {}).get('revision')}
 
     basis['beads'] = len(atoms)
-    # The assignment martinize2 built the protein with, keyed by the residue number the frame below gives each
-    # protein residue. Only on the valid path: a refusal carries no coordinates, so it has no residue to give a class
-    # to, and its basis says `None` rather than naming an assignment for a picture that does not exist.
     if beads:
-        basis['secondary_structure'] = secondary_structure_basis(cg.get('secondary_structure'), beads)
+        # The distinct protein residue keys the frame's leading atoms hold. `system_pdb` numbers molecules by that
+        # key in this order, so the detergent's first residue is `protein_residues + 1`.
+        basis['protein_residues'] = len({(str(bead['residue']).upper(), int(bead['residue_id'])) for bead in beads})
         # The all-atom protein the beads stand for, named by the entry that holds it and the route that serves it:
         # the card draws it as a ribbon under the beads, so what was coarse-grained and what it became are in one
         # picture. A derive whose coarse-graining was answered by something other than a cache entry names none,
         # and so does an entry that holds neither a prepared nor a selected structure.
         basis['protein_structure'] = protein_structure_basis(cg.get('key'), cg.get('path'))
     cost['seconds'] = time.perf_counter() - started
-    pdb = pdc_view.system_pdb(atoms, detergent_residue=record.residue, topology=topology,
+    pdb = pdc_view.system_pdb(atoms, detergent_residue=detergent_residue, topology=topology,
                               title=f'placement preview ({record.name}, AN={aggregation_number}, mode={mode}, '
                                     f'seed={seed})')
     return {'valid': True, 'step': None, 'reasons': [], 'pdb': pdb, 'basis': basis, 'cost': cost}

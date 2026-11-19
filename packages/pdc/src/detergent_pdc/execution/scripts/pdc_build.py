@@ -483,7 +483,8 @@ def _absolute(command: list, flags=('-f', '-x', '-o')) -> list:
     return resolved
 
 
-def cg_protein(stage: Path, protein: Path, *, executable=None) -> tuple[list, list[str] | None, dict]:
+def cg_protein(stage: Path, protein: Path, *, executable=None,
+               assign_structure=True) -> tuple[list, list[str] | None, dict]:
     """The CG protein's beads, running martinize2 only when the stage has not been built before.
 
     martinize2's own file names are its business, so what is read back is the file its own command names (`-x`, a
@@ -503,6 +504,12 @@ def cg_protein(stage: Path, protein: Path, *, executable=None) -> tuple[list, li
 
     Returns the beads, the command that was run (`None` when the step was already built) and what the secondary
     structure assignment was, all three of which the report carries.
+
+    `assign_structure=False` is the preview's derive: it wants the beads and not an assignment, so the step is handed
+    no assignment to compute (`ss_flags({})` is the tool's own `-maxwarn 1`) and returns no record. The command then
+    names martinize2's `missing-flag` warning type, which that derive deliberately triggers; without it the tool exits
+    2 on that warning plus its ordinary one (measured). A run leaves the default `True`, so its command and report are
+    byte for byte what they were.
     """
     directory = stage / CG_DIRECTORY
     directory.mkdir(exist_ok=True)
@@ -516,8 +523,14 @@ def cg_protein(stage: Path, protein: Path, *, executable=None) -> tuple[list, li
     if structure.is_file():
         return (pdc_import.structure_atoms(structure), None,
                 {'source': None, 'detail': f'{structure.name} was already there, so martinize2 was not run again'})
-    record = secondary_structure(protein)
+    record = secondary_structure(protein) if assign_structure else {}
     command = command + ss_flags(record)
+    if not assign_structure:
+        # The no-assignment derive is the preview's, and martinize2 says by name (`missing-flag`) that it is building
+        # without secondary structure -- that warning is this command's deliberate consequence, not a defect. Naming
+        # the type keeps `-maxwarn 1` as room for the tool's *other* warnings, exactly as a run's command has it.
+        # Measured: without this the same protein exits 2 on that warning plus its own single one.
+        command += ['-maxwarn', 'missing-flag:1']
     with (stage / 'martinize.log').open('w') as log:
         subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, cwd=directory)
     if not structure.is_file():

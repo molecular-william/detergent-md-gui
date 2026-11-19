@@ -319,7 +319,7 @@ def stub_coarse_grained(monkeypatch, tmp_path, beads):
                         lambda *args, **kwargs: (beads, {'cached': True, 'seconds': 0.0, 'key': 'stub',
                                                          'path': str(tmp_path / 'entry'), 'beads_bytes': 0,
                                                          'dropped_residues': [], 'protein_input': 'protein.pdb',
-                                                         'command': None, 'secondary_structure': None}))
+                                                         'command': None}))
 
 
 def preview_basis(tmp_path, monkeypatch, radius_nm: float):
