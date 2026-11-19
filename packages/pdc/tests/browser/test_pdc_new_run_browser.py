@@ -48,6 +48,33 @@ CATALOG = {
 }
 
 
+#: The settings the Stage settings fieldset renders, keyed by the name each input posts. The panel attaches one
+#: server-sent info button to each of them; this list is the contract between `setting_help.HELP` and the markup.
+STAGE_SETTING_NAMES = (
+    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep', 'pdc_posres_min',
+    'pdc_nvt_ps', 'pdc_nvt_dt_fs', 'pdc_nvt_nstlist', 'pdc_nvt_ref_t', 'pdc_nvt_tau_t', 'pdc_posres_nvt',
+    'pdc_npt_ps', 'pdc_npt_dt_fs', 'pdc_npt_nstlist', 'pdc_npt_ref_t', 'pdc_npt_tau_t', 'pdc_npt_pcoupl',
+    'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility', 'pdc_posres_npt',
+    'pdc_assessment_ns', 'pdc_assessment_dt_fs', 'pdc_extension_ns', 'pdc_extension_dt_fs',
+    'pdc_production_nstlist', 'pdc_production_ref_t', 'pdc_production_tau_t', 'pdc_production_tau_p',
+    'pdc_production_ref_p', 'pdc_production_compressibility',
+    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
+    'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
+    'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
+    'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
+)
+
+#: One sentence per setting, in the shape `/api/pdc/catalog` answers with. The sentences are the fixture's, so the
+#: text is not the panel's claim; that every setting gets its own accessible button is.
+CATALOG['help'] = {name: f'What {name} means.' for name in STAGE_SETTING_NAMES}
+CATALOG['help_sources'] = {'mdp': 'https://manual.gromacs.org/', 'project': 'Dashboard text, not GROMACS'}
+
+
+def control_label(page, name):
+    """The one label a control sits in: the info button and any Default button are its siblings."""
+    return page.locator('label').filter(has=page.locator(f'[name={name}]')).first
+
+
 def open_panel(page, base_url):
     # The shape card and the preset bar read routes this lane's server does not serve yet; empty answers keep the
     # form's existing claims independent of those features while still exercising their mount.
@@ -529,6 +556,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/v1/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
         'backmap': True, 'remove_out_of_micelle': True,
+        # The launch button's own choice, like the validation panel's: Queue is the default action.
+        'gpu_sharing': 'queue',
         # The back-map's pdb2gmx choice is stated always, like the back-map toggle: a run that asked for virtual sites
         # must not be readable as one that used the default.
         'protein_vsite': 'none',
@@ -774,4 +803,153 @@ def test_the_front_door_uses_the_only_module_s_form_and_its_storage_line(dashboa
     page.get_by_role('tab', name='New run', exact=True).click()
     expect(page.locator('#new-protein')).to_be_visible()
     assert page.locator('#leave-clone').count() == 0, 'the engine form was built inside the pdc workspace'
+    assert errors == [], errors
+
+
+# The launch row: the validation panel's split, with the same ids and the same gating rule. Share is a second run on a
+# device that already has one, so it is enabled only when the chosen device reports an active run.
+DEVICES = [{'index': 0, 'name': 'NVIDIA GeForce RTX 4090', 'memory_mib': 24564, 'uuid': 'GPU-aaaa'}]
+
+
+def serve_devices(page, active):
+    page.route('**/api/run/devices', lambda route: route.fulfill(
+        json={'devices': DEVICES, 'in_use': {}, 'active': active}))
+
+
+def serve_ready(page):
+    page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(
+        json={'ready': True, 'checks': [], 'blockers': []}))
+
+
+def capture_queue(page, posted):
+    def queue(route):
+        if route.request.method != 'POST':
+            route.fallback()
+            return
+        posted.append(route.request.post_data_json or {})
+        route.fulfill(status=201, json={'id': 'pdcqueued1', 'run_type': 'pdc'})
+    page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
+
+
+def test_the_launch_row_splits_queue_from_share_and_share_posts_its_own_choice(dashboard, live_page):
+    """A busy device enables Share; pressing it stamps the run with `gpu_sharing=share` and the adapter keeps it."""
+    page, errors = live_page
+    posted = []
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_ready(page)
+    serve_devices(page, {'0': ['an-active-run']})
+    capture_queue(page, posted)
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    expect(page.locator('#start-run')).to_have_text('Queue run on GPU')
+    expect(page.locator('#start-run-share')).to_have_text('Share run on GPU')
+    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#start-run-share')).to_be_enabled()
+    page.locator('#start-run-share').click()
+
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert posted and posted[0]['gpu_sharing'] == 'share', posted
+    assert errors == [], errors
+
+
+def test_share_is_disabled_while_the_chosen_device_is_free(dashboard, live_page):
+    """Share is not a second way to press Queue: with no active run on the device there is nothing to share."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_ready(page)
+    serve_devices(page, {})
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    expect(page.locator('#start-run')).to_be_enabled()
+    expect(page.locator('#start-run-share')).to_be_disabled()
+    assert errors == [], errors
+
+
+#: The run-wide groups the user asked to carry a Default button: output cadence, neighbour search and cutoffs, and
+#: salt, seed and box. The seed's Default is today's date (the project's own default seed); the rest read the
+#: catalogue. Initial z is the exception: it carries Auto, not Default.
+DEFAULTED = (('nstlog', '2'), ('nstenergy', '2'), ('nstxtcout', '2'), ('xtc_precision', '2'), ('nstcomm', '2'),
+             ('verlet_buffer_tolerance', '0.02'), ('rlist', '2'), ('rcoulomb', '2'), ('rvdw', '2'),
+             ('salt_molar', '1'), ('box_margin_nm', '3'), ('contact_nm', '1'),
+             ('selection_threshold_fraction', '0.2'))
+
+
+def test_each_run_wide_group_restores_its_default_and_the_seed_restores_todays_date(dashboard, live_page):
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_devices(page, {})
+    open_panel(page, live_page.base_url)
+
+    for name, sample in DEFAULTED:
+        field = page.locator(f'[name={name}]')
+        default = field.input_value()
+        field.fill(sample)
+        control_label(page, name).locator('button.pdc-default').click()
+        expect(field).to_have_value(default)
+
+    today = page.evaluate("() => { const d = new Date(); const pad = n => String(n).padStart(2, '0');"
+                          "return Number(`${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`); }")
+    seed = page.locator('[name=pdc_seed]')
+    seed.fill('1')
+    control_label(page, 'pdc_seed').locator('button.pdc-default').click()
+    expect(seed).to_have_value(str(today))
+    assert errors == [], errors
+
+
+def test_every_stage_setting_carries_an_info_button_with_the_servers_sentence(dashboard, live_page):
+    """One focusable info control per setting, its tooltip the text the server sent, and Escape closes it.
+
+    The map is the contract: a setting with no sentence renders no button, so this fails on a missing entry as well
+    as on a missing attachment.
+    """
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_devices(page, {})
+    open_panel(page, live_page.base_url)
+
+    for name in STAGE_SETTING_NAMES:
+        label = control_label(page, name)
+        assert label.count() == 1, f'{name} has no label'
+        assert label.locator('button.info-btn').count() == 1, f'{name} has no info button'
+    button = control_label(page, 'pdc_nvt_ps').locator('button.info-btn')
+    # The caption's units and the info button share the line rather than covering each other: a hint pushed into the
+    # button's cell is text nobody can read.
+    geometry = control_label(page, 'pdc_nvt_ps').evaluate("""el => {
+      const hint = el.querySelector('.hint').getBoundingClientRect();
+      const help = el.querySelector('.field-help').getBoundingClientRect();
+      return {hintRight: hint.right, helpLeft: help.left};
+    }""")
+    assert geometry['helpLeft'] >= geometry['hintRight'] - 1, geometry
+    button.click()
+    expect(page.locator('#setting-help-pdc_nvt_ps')).to_be_visible()
+    expect(page.locator('#setting-help-pdc_nvt_ps')).to_have_text('What pdc_nvt_ps means.')
+    page.keyboard.press('Escape')
+    # The pointer is still over the button, and CSS shows the tip on hover; the click-opened state is what Escape owns.
+    tip = page.locator('#setting-help-pdc_nvt_ps')
+    assert 'is-open' not in (tip.get_attribute('class') or '')
+    page.mouse.move(0, 0)
+    expect(tip).to_be_hidden()
+    assert errors == [], errors
+
+
+AUTO_EXTENT = {**EXTENT, 'auto_initial_z_nm': 10.4}
+
+
+def test_the_initial_z_auto_button_measures_the_protein_and_writes_the_answered_number(dashboard, live_page):
+    """Auto is a measurement, not a default: the extent route's auto z replaces the stated 6 nm, and an empty micelle
+    has no structure to measure, so the button says so by being disabled."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_devices(page, {})
+    page.route(re.compile(r'/extent'), lambda route: route.fulfill(json=AUTO_EXTENT))
+    open_panel(page, live_page.base_url)
+
+    expect(page.locator('.pdc-auto-z')).to_be_disabled()
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+    expect(page.locator('.pdc-auto-z')).to_be_enabled()
+    expect(page.locator('[name=initial_z_nm]')).to_have_value('6')
+    page.locator('.pdc-auto-z').click()
+    expect(page.locator('[name=initial_z_nm]')).to_have_value('10.4')
     assert errors == [], errors

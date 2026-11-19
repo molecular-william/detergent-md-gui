@@ -80,3 +80,33 @@ def test_a_belt_inside_the_slab_does_not_shrink_a_membrane_box():
 def test_a_protein_that_states_no_membrane_keeps_todays_box_exactly():
     assert pdc_box.membrane_box([[0.0, 0.0, 0.0], [4.0, 2.0, 1.0]], half_thickness_nm=None) == [8.0, 6.0, 6.0]
 
+
+def test_auto_initial_z_without_a_membrane_is_the_points_own_z_span_plus_the_margins():
+    """The Auto button's answer is the rule `initial_box` would apply when that number is passed as its z."""
+    points = [[0.0, 0.0, -1.0], [0.0, 0.0, 3.5]]
+    assert pdc_box.auto_initial_z(points, margin_nm=2.0) == 4.5 + 2 * 2.0
+    assert pdc_box.auto_initial_z(points, margin_nm=2.0) == \
+        pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=8.5)[2]
+
+
+def test_auto_initial_z_with_a_membrane_is_the_membrane_box_z():
+    """A membrane-stating protein's box is centred on the plane, so its z is the slab-or-protein reach plus margins."""
+    points = [[0.0, 0.0, -2.26], [0.0, 0.0, 3.80]]
+    assert pdc_box.auto_initial_z(points, half_thickness_nm=1.18, margin_nm=2.0) == 2 * (3.80 + 2.0)
+    assert pdc_box.auto_initial_z(points, half_thickness_nm=1.18, margin_nm=2.0) == \
+        pdc_box.membrane_box(points, half_thickness_nm=1.18, margin_nm=2.0)[2]
+
+
+def test_auto_initial_z_reaches_at_least_the_slab_it_is_centred_on():
+    assert pdc_box.auto_initial_z([[0.0, 0.0, -0.2], [0.0, 0.0, 0.2]], half_thickness_nm=1.48,
+                                  margin_nm=2.0) == 2 * (1.48 + 2.0)
+
+
+def test_auto_initial_z_refuses_input_it_cannot_compute():
+    with pytest.raises(ValueError, match='at least one coordinate'):
+        pdc_box.auto_initial_z([])
+    with pytest.raises(ValueError, match='positive'):
+        pdc_box.auto_initial_z([[0.0, 0.0, 0.0]], margin_nm=0)
+    with pytest.raises(ValueError, match='positive'):
+        pdc_box.auto_initial_z([[0.0, 0.0, 0.0]], margin_nm=-1.0)
+

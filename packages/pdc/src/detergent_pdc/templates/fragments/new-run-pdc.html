@@ -293,38 +293,42 @@
 
       {# What used to be the Other run options fold: the run's output, forces, coupling, salt, box and execution.
          They are sections of this same fieldset now, in the validation panel's shape (a titled group over a grid),
-         because they are stage settings like the stages above them. #}
+         because they are stage settings like the stages above them. Every control here that names a reviewed profile
+         value carries a Default button (`pdc-default`), like the stage editors above; the seed keeps its Generate
+         next to that Default, and the initial z box gets Auto instead, because it measures the chosen protein rather
+         than restoring a profile number. #}
       <section class="new-option-group">
         <h4 class="new-option-title">Output cadence</h4>
         <div class="settings-grid">
-          <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"></span></label>
-          <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"></span></label>
-          <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"></span></label>
+          <label>Log interval (steps)<span class="setting-control"><input name="nstlog" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary pdc-default" data-field="nstlog">Default</button></span></label>
+          <label>Energy interval (steps)<span class="setting-control"><input name="nstenergy" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary pdc-default" data-field="nstenergy">Default</button></span></label>
+          <label>Trajectory interval (steps)<span class="setting-control"><input name="nstxtcout" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary pdc-default" data-field="nstxtcout">Default</button></span></label>
+          <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"><button type="button" class="secondary pdc-default" data-field="xtc_precision">Default</button></span></label>
+          <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary pdc-default" data-field="nstcomm">Default</button></span></label>
         </div>
       </section>
 
       <section class="new-option-group">
         <h4 class="new-option-title">Neighbour search and cutoffs</h4>
         <div class="settings-grid">
-          <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"></span></label>
-          <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"></span></label>
-          <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"></span></label>
-          <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"></span></label>
+          <label>Verlet buffer tolerance<span class="setting-control"><input name="verlet_buffer_tolerance" type="number" min="0" max="0.1" step="0.001"><button type="button" class="secondary pdc-default" data-field="verlet_buffer_tolerance">Default</button></span></label>
+          <label>Neighbour cut-off (nm)<span class="setting-control"><input name="rlist" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary pdc-default" data-field="rlist">Default</button></span></label>
+          <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary pdc-default" data-field="rcoulomb">Default</button></span></label>
+          <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary pdc-default" data-field="rvdw">Default</button></span></label>
         </div>
       </section>
 
       <section class="new-option-group">
         <h4 class="new-option-title">Salt, seed and box</h4>
         <div class="settings-grid">
-          <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"></span></label>
+          <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"><button type="button" class="secondary pdc-default" data-field="salt_molar">Default</button></span></label>
           <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required>
+            <button type="button" class="secondary pdc-default" data-field="pdc_seed">Default</button>
             <button type="button" class="secondary pdc-generate-seed">Generate</button></span></label>
-          <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"></span></label>
-          <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"></span></label>
-          <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"></span></label>
-          <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"></span></label>
+          <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"><button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button></span></label>
+          <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"><button type="button" class="secondary pdc-auto-z" title="Measure the selected protein and size the z box from it">Auto</button></span></label>
+          <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"><button type="button" class="secondary pdc-default" data-field="contact_nm">Default</button></span></label>
+          <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"><button type="button" class="secondary pdc-default" data-field="selection_threshold_fraction">Default</button></span></label>
         </div>
       </section>
       <section class="new-option-group">
@@ -496,6 +500,13 @@
     <p class="hint review-note">Execution success does not establish scientific validation.</p>
     <p id="launch-blocker" class="hint" role="status"></p>
     <details id="new-provenance"><summary>View detailed provenance and stages</summary><h4>Readiness details</h4><div id="readiness" aria-live="polite">Checking requirements…</div></details>
-    <button type="submit" id="start-run" disabled>Start run</button>
+    {# The launch row is the validation panel's: Queue starts the run this form describes as soon as its device has a
+       free slot, and Share starts it alongside a run already on the chosen device. Both stay disabled until the review
+       clears; Share also waits for the device to report an active run. The pdc adapter reads the same controls either
+       way and records `gpu_sharing`. #}
+    <div class="run-actions">
+      <button type="submit" id="start-run" disabled>Queue run on GPU</button>
+      <button type="submit" id="start-run-share" disabled>Share run on GPU</button>
+    </div>
     </section></aside>
   </form>

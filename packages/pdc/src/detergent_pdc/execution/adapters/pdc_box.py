@@ -5,8 +5,9 @@ without GROMACS and the easiest part to get quietly wrong: an off-by-a-margin bo
 periodic image or silently changes the density a placement was built for.
 
 `initial_box` is the box a protein is inserted into, `extended_box` the one it gets once the detergents are placed,
-and `membrane_box` the one a protein that states its own membrane gets: centred on that membrane's plane, with z
-clearing the protein rather than the belt the placement put inside the slab.
+`membrane_box` the one a protein that states its own membrane gets: centred on that membrane's plane, with z
+clearing the protein rather than the belt the placement put inside the slab. `auto_initial_z` is the z those two
+insertion rules measure when the caller states none, which is what the form's Auto button asks for.
 """
 
 
@@ -25,6 +26,30 @@ def initial_box(points, margin_nm=2.0, initial_z_nm=6.0):
     return [round(max(xs) - min(xs) + 2 * margin_nm, 6),
             round(max(ys) - min(ys) + 2 * margin_nm, 6),
             round(float(initial_z_nm), 6)]
+
+
+def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
+    """The z a box should have when nobody states one, from the protein's own coordinates.
+
+    This is `initial_box`'s and `membrane_box`'s z rule with the stated z replaced by a measurement, which is what the
+    form's Auto button asks for. Without a membrane it is the protein's own z span plus the margin at each face -- the
+    same answer `initial_box` gives when that number is passed as `initial_z_nm`. With a membrane it is
+    `membrane_box`'s z, `2 x (max(furthest atom, half-thickness) + margin)`: the box is centred on the membrane plane,
+    so the protein already clears it by the margin rather than needing a second span's worth of box.
+
+    A caller that wants no belt in the measurement passes no `belt_reach_nm`; this is the box before the detergents
+    are placed, exactly as `membrane_box`'s default states. The value is rounded like its neighbours' boxes.
+    """
+    if not points:
+        raise ValueError('a box needs at least one coordinate')
+    if margin_nm <= 0:
+        raise ValueError('box extents must be positive')
+    zs = [float(point[2]) for point in points]
+    if half_thickness_nm is None:
+        return round(max(zs) - min(zs) + 2 * margin_nm, 6)
+    furthest = max(abs(z) for z in zs)
+    reach = max(furthest, abs(float(half_thickness_nm)))
+    return round(2 * (reach + margin_nm), 6)
 
 
 def extended_box(xy, placed_points, margin_nm=2.0):

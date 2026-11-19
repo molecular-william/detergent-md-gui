@@ -530,6 +530,10 @@ def pdc_extent(entry):
     coarse-grained rebuild -- martinize2 is not run and nothing is written, which is what lets the panel ask again on
     every change to the protein, the chains, the margin or the initial-z.
 
+    `auto_initial_z_nm` is the same measurement's z, which is what the form's Auto button fills in: the box the build
+    would get with no stated z, from `pdc_box.auto_initial_z`, rounded to 3 decimals and clamped to the range the form
+    offers. It is answered for both rules and is independent of the `initial_z_nm` the caller sent.
+
     A malformed request -- a non-numeric or non-positive margin or z, a chain the file does not name -- is a 400 with
     the reason; an entry the catalogue does not hold is a 404. A structure the reader refuses (including one that
     holds no atoms) is a 400 carrying that refusal's own sentence.
@@ -563,8 +567,16 @@ def pdc_extent(entry):
                                                initial_z_nm=initial_z_nm)
     except ValueError as error:
         return jsonify({'error': f'{protein["name"]}: {error}'}), 400
+    # What the form's Auto button asks for: the z the build would measure, not the z the caller typed -- the same
+    # answer for both rules, clamped to the range the form offers. It deliberately ignores `initial_z_nm`, so pressing
+    # Auto cannot depend on the value it replaces.
+    low, high = pdc.SETTING_SPECS['initial_z_nm'][1], pdc.SETTING_SPECS['initial_z_nm'][2]
+    auto_z = pdc_box.auto_initial_z(atoms['positions_nm'], half_thickness_nm=protein.get('half_thickness_nm'),
+                                    margin_nm=margin_nm)
+    auto_z = round(min(max(auto_z, low), high), 3)
     return jsonify({'protein': protein['name'], 'dimensions_nm': dimensions, 'initial_box_nm': box,
-                    'rule': rule, 'half_thickness_nm': protein.get('half_thickness_nm'), 'chains': chains})
+                    'auto_initial_z_nm': auto_z, 'rule': rule,
+                    'half_thickness_nm': protein.get('half_thickness_nm'), 'chains': chains})
 
 
 def requested_chains(source):

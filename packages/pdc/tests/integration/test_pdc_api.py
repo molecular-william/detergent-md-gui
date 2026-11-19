@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import files
-from dashboard.execution import run_inputs
+from dashboard.execution import run_inputs, settings_help
 from detergent_pdc import conformations
 from detergent_pdc.execution.adapters import pdc
 from detergent_pdc.execution.scripts import pdc_build
@@ -47,6 +47,15 @@ def test_the_catalogue_carries_the_decided_defaults(dashboard):
     assert defaults['assessment_ns'] == 100 and defaults['extension_ns'] == 900
     assert defaults['selection_threshold_fraction'] == 0.10 and defaults['attempts_max'] == 3
     assert defaults['box_margin_nm'] == 2.0 and defaults['initial_z_nm'] == 6.0 and defaults['contact_nm'] == 0.6
+
+
+def test_the_catalogue_carries_the_stage_settings_help(dashboard):
+    """The panel draws one info button per key from this map, so a control with no sentence has no explanation."""
+    body = dashboard.client.get('/api/pdc/catalog').get_json()
+
+    assert {'pdc_seed', 'initial_z_nm', 'nstlog'} <= set(body['help'])
+    assert body['help_sources'] == settings_help.SOURCES
+    assert 'Auto measures the selected protein' in body['help']['initial_z_nm']
 
 
 def test_the_protein_list_is_what_the_repository_holds(dashboard):

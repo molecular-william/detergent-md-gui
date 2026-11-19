@@ -10,6 +10,28 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Protein-detergent New run: the validation panel's launch split, per-setting help, Default and Auto (2026-11-19).**
+  The pdc form now has the same two launch buttons as the single-molecule form: **Queue run on GPU** (`#start-run`)
+  and **Share run on GPU** (`#start-run-share`). Both post `gpu_sharing` (`queue`|`share`), advertised by
+  `pdc.CHOICE_SPECS` so `runs.py:queue` keeps it; Share is enabled only when the chosen device already reports an
+  active run (`/api/run/devices` `active`), and both obey readiness and an in-flight submit.
+  Every control in the Stage settings fieldset carries an info button. The text is server-side in the new
+  `detergent_pdc/setting_help.py`, keyed by the name each control posts: MDP and mdrun sentences are reused from
+  `dashboard.execution.settings_help`, prefixed pdc legs alias the same options, and the project rules (seed, POSRES,
+  box margin/initial z, contact/removal threshold, salt) say they are dashboard text. `/api/pdc/catalog` returns the
+  map as `help`/`help_sources`; `new-run.js` exports `attachHelpIcons(form, help)` (one per form, per setting) and the
+  pdc panel calls it after the catalogue loads.
+  **Output cadence**, **Neighbour search and cutoffs** and **Salt, seed and box** controls gained Default buttons read
+  from the same catalogue defaults (`pdc-default`); the seed's Default writes today's date and its Generate button is
+  unchanged. **Initial z box** has **Auto** instead: the extent route now answers `auto_initial_z_nm` from
+  `pdc_box.auto_initial_z` (a membrane protein's membrane-box z; otherwise the measured z span plus twice the box
+  margin, clamped to 1-50 nm), and Auto writes that number into the field. An empty micelle has no structure to
+  measure, so Auto is disabled there and the tooltip says why.
+  Checks: pdc fast area 806 passed / 1 xfailed; `test_pdc_new_run_browser.py` 26 passed (launch split and its posted
+  `gpu_sharing`, every stage setting's info button and tooltip geometry, Default restoration, Auto); targeted browser
+  tier + fast tier green; ruff clean. The running dashboard unit predates this change (Python, template and JS), so
+  restart it with no run in flight.
+
 - **AA production output cadence (2026-11-19).** The AA **NPT production** stage editor gains five optional
   cadence boxes: `aa_production_nstlog`, `aa_production_nstenergy`, `aa_production_nstxtcout`,
   `aa_production_xtc_precision` (compressed-x-precision) and `aa_production_nstcomm`. Blank keeps the derived rule

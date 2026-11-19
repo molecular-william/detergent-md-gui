@@ -45,6 +45,16 @@ def test_the_settings_carry_every_protocol_number_with_bounds():
         assert label and low < high, (key, label, low, high)
 
 
+def test_gpu_sharing_is_advertised_and_normalised_as_a_choice():
+    """The coordinator reads the same two words for both run types, so the panel's choice must survive the filter."""
+    label, options = pdc.CHOICE_SPECS['gpu_sharing']
+    assert label == 'GPU sharing' and options == ('queue', 'share')
+    assert pdc.normalize_settings({'gpu_sharing': 'queue'})['gpu_sharing'] == 'queue'
+    assert pdc.normalize_settings({'gpu_sharing': 'share'})['gpu_sharing'] == 'share'
+    with pytest.raises(ValueError, match='gpu_sharing must be one of queue, share'):
+        pdc.normalize_settings({'gpu_sharing': 'later'})
+
+
 def _workspace(tmp_path, *, with_sidecar=True, pdbid='1qj8'):
     """An isolated workspace holding one imported structure, and a repository holding one packaged one."""
     workspace = tmp_path / 'workspace'

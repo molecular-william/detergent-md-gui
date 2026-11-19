@@ -15,6 +15,7 @@ from dashboard.execution.environment import TUTORIAL_TEMPLATE
 from dashboard.execution.mdp import PROFILES, write_mdp
 from dashboard.execution.settings import normalize
 from dashboard.execution.stages import Stage
+from detergent_pdc import setting_help
 from detergent_pdc.execution.adapters import pdc_import, pdc_preparation
 
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
@@ -515,7 +516,8 @@ def catalog(project_root):
     saying so would be promising a fitted detergent model that does not exist yet.
     """
     root = Path(project_root)
-    return {'templates': _templates(root), 'proteins': _proteins(root), 'defaults': dict(DEFAULTS)}
+    return {'templates': _templates(root), 'proteins': _proteins(root), 'defaults': dict(DEFAULTS),
+            'help': dict(setting_help.HELP), 'help_sources': dict(setting_help.SOURCES)}
 
 
 def _templates(root):
@@ -1513,6 +1515,11 @@ def _protocol_prepare(run_dir, metadata):
 # protein happens to name, the second is a boolean -- so their options are declared empty or as the two booleans, and
 # their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
 CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
+                # How a run behaves when its device already holds a run. Advertised so `runs.py:queue` keeps it;
+                # absent keeps the coordinator's historical refusal, and the two choices are its own admission
+                # policy rather than MD. The values are `cg.CHOICE_SPECS`' own spelling, because one coordinator
+                # reads both run types.
+                'gpu_sharing': ('GPU sharing', ('queue', 'share')),
                 # The optional transient POSRES window, one choice per leg that can hold it. Martinize2 always
                 # writes the block; only each mdp's define decides whether it acts, which is why the question is
                 # asked per file. The retired single choice stays advertised so an older form still validates.

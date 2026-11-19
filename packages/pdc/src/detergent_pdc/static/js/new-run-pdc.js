@@ -3,7 +3,7 @@ import { createGpuDevice } from '/static/js/gpu-device.js';
 import { ensureNgl } from '/static/js/ngl-loader.js';
 import { BEAD_FAMILY_PARAMETERS, BEAD_RADIUS_PARAMETERS, SECONDARY_CLASS_COLOURS, SECONDARY_CLASS_ORDER,
          PROTEIN_BACKBONE, applyBeadRadii, renderBeadLegend, renderSecondaryLegend } from '/static/js/ngl-beads.js';
-import { registerNewRunExtension, writeReadiness } from '/static/js/new-run.js';
+import { attachHelpIcons, registerNewRunExtension, writeReadiness } from '/static/js/new-run.js';
 
 // The protein-detergent feature's New run extension: the whole of the pdc workspace's form.
 //
@@ -62,10 +62,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // none sends nothing, so the adapter's default device stands. The note is a readiness fact, never a gate.
   const gpuSelect = field('mdrun_gpu');
   const gpuDevice = gpuSelect
-    ? createGpuDevice({select: gpuSelect, note: pdcNode('.new-pdc-gpu-note'), saved: () => saved().mdrun_gpu})
+    ? createGpuDevice({select: gpuSelect, note: pdcNode('.new-pdc-gpu-note'), saved: () => saved().mdrun_gpu,
+                       onChange: () => syncStartButtons()})
     : {load: async () => {}, refresh: () => {}};
   let catalogue = null, detergents = [], chosen = new Map();
   let mounted = false, mounting = null, generation = 0;
+  //: The last readiness answer, and whether a POST is out: both launch buttons are held by these two facts.
+  let readyState = false, submitting = false;
   // The coverage estimate is the server's answer. `estimateState` is the last one rendered; `estimateRequest`
   // numbers the questions asked, so the answer to an older question can be recognised and dropped rather than put
   // on screen -- a reader moving the count must not see a slow earlier answer land on a newer question.
@@ -267,6 +270,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function syncChains() {
+    // The z-box's Auto button measures a protein, so it follows the same selection this block does.
+    syncAutoButton();
     const block = pdcNode('.new-pdc-subunits'), list = pdcNode('.new-pdc-chain-list');
     if (!block || !list) return;
     const chains = chainEntries(), hasProtein = !!field('protein').value;
@@ -285,6 +290,18 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       return label;
     }));
     describeChains();
+  }
+
+  // The initial-z Auto is a measurement of the chosen protein. An empty micelle has no structure to measure, so the
+  // button says why by being disabled rather than answering a number about nothing.
+  function syncAutoButton() {
+    const button = pdcNode('.pdc-auto-z');
+    if (!button) return;
+    const hasProtein = !!field('protein').value;
+    button.disabled = !hasProtein;
+    button.title = hasProtein
+      ? 'Measure the selected protein and size the z box from it'
+      : 'Choose a protein: an empty micelle has no structure to measure a z box from.';
   }
 
   // The detergent shape ------------------------------------------------------------------------------------------
@@ -920,7 +937,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderExtent();
       return;
     }
-    extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial'};
+    // The route's own suggested z box, when it answers one: the Auto button writes this number into the field.
+    const autoZ = Number(body.auto_initial_z_nm);
+    extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial',
+                   autoZ: Number.isFinite(autoZ) ? autoZ : undefined};
     renderExtent();
   }
 
@@ -962,17 +982,28 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return '';
   }
 
+  // Queue holds on readiness and an in-flight submit; Share adds the chosen device's active run, because there is
+  // nothing to share with a free device. The dashboard's own `active` map is what says a run is already there.
+  function syncStartButtons() {
+    const ready = readyState === true;
+    $('#start-run').disabled = !ready || submitting;
+    const share = $('#start-run-share');
+    if (share) share.disabled = !ready || submitting || !gpuDevice.hasActiveRun?.();
+  }
+
   async function checkReadiness() {
     // A check already scheduled by the debounced `input` is superseded by this one; letting it fire after this
     // request settles would disable the launch button again for no new information.
     clearTimeout(readinessTimer);
     const mine = ++generation;
-    $('#start-run').disabled = true;
+    readyState = false;
+    syncStartButtons();
     syncSummary();
     const blocker = gate();
     if (blocker) {
       setText($('#review-status'), 'Action required'); $('#review-status').dataset.ready = 'false';
       setText($('#readiness'), blocker); setText($('#launch-blocker'), blocker);
+      syncStartButtons();
       return;
     }
     const query = new URLSearchParams({run_type: 'pdc', molecule_id: field('molecule_id').value,
@@ -984,9 +1015,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       setText($('#review-status'), ready.ready ? 'Inputs ready' : (ready.blockers?.length ? 'Action required' : 'Not ready'));
       $('#review-status').dataset.ready = String(!!ready.ready);
       setText($('#launch-blocker'), ready.ready ? '' : (ready.blockers?.[0] || 'Inputs are not ready.'));
-      $('#start-run').disabled = !ready.ready;
+      readyState = !!ready.ready;
+      syncStartButtons();
     } catch (error) {
       if (mine !== generation) return;
+      readyState = false;
+      syncStartButtons();
       setText($('#readiness'), error.message); setText($('#launch-blocker'), error.message);
       setText($('#review-status'), 'Readiness unavailable'); $('#review-status').dataset.ready = 'false';
     }
@@ -1894,8 +1928,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       const name = button.dataset.field;
       const input = field(name);
       if (!input) return;
+      // The seed's default is the project's own: today's date. It is no catalogue number, so it is written here.
+      if (name === 'pdc_seed') input.value = String(todaySeed());
       // A per-stage timestep has no catalogue default: blank is the reviewed profile's own dt, so Default clears it.
-      if (DT_FIELDS.has(name)) input.value = '';
+      else if (DT_FIELDS.has(name)) input.value = '';
       else {
         const value = (catalogue?.defaults || {})[CATALOGUE_KEY[name] || name];
         if (value === undefined) return;
@@ -1954,6 +1990,30 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own two inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
+  // Auto is the extent route's own suggested z box, written into the field as a reader typing it would: the box
+  // line, the preview's staleness, the summary and the gate then follow the same `input`/`change` events.
+  pdcNode('.pdc-auto-z')?.addEventListener('click', async () => {
+    if (!field('protein').value) {
+      notice('Choose a protein: an empty micelle has no structure to measure a z box from.');
+      return;
+    }
+    const button = pdcNode('.pdc-auto-z');
+    if (button) button.disabled = true;
+    try {
+      await loadExtent();
+      if (extentState.kind === 'answer' && Number.isFinite(extentState.autoZ)) {
+        const input = field('initial_z_nm');
+        if (!input) return;
+        input.value = String(extentState.autoZ);
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+      } else if (extentState.kind === 'refused') {
+        notice(extentState.reason);
+      }
+    } finally {
+      syncAutoButton();
+    }
+  });
   pdcNode('.new-pdc-preview-derive')?.addEventListener('click', derivePreview);
   // The Bonds control is a view of the frame on screen and nothing else: it redraws the protein's own
   // representations in `licorice` so the model's CONECT records read as sticks, leaves the detergent's as they were,
@@ -1994,7 +2054,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    $('#start-run').disabled = true;
+    const sharing = event.submitter?.id === 'start-run-share' ? 'share' : 'queue';
+    submitting = true;
+    syncStartButtons();
     try {
       if (gate()) return;
       const payload = {run_type: 'pdc', molecule_id: field('molecule_id').value,
@@ -2036,6 +2098,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // Stated always, like the back-map choice: the update scheme a run asked for must not be readable as one that
       // took the profile's own, and `auto` is a choice rather than an absence.
       payload.mdrun_update = field('mdrun_update')?.value || 'auto';
+      // Each launch button states its own choice, always: a run asked to share a device must not be readable as one
+      // that asked to queue beside it.
+      payload.gpu_sharing = sharing;
       await post('/', payload);
       notice('Run queued.');
       // A build from runs writes its library into the store, so the stored list is read again and the new library
@@ -2046,6 +2111,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     } catch (error) {
       notice(error.message);
     } finally {
+      submitting = false;
       checkReadiness();
     }
   });
@@ -2062,6 +2128,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderBeadLegend(pdcNode('.new-pdc-preview .bead-legend'));
       renderSecondaryLegend(pdcNode('.new-pdc-preview .new-pdc-preview-secondary-legend'));
       await Promise.all([loadCatalogue(), loadDetergents()]);
+      // One info button per setting the catalogue sent a sentence for, on the same contract as the engine's panel.
+      // `attachHelpIcons` keeps one attachment per (form, name), so a re-read of the catalogue adds no duplicate.
+      attachHelpIcons(form, catalogue?.help);
       // After the picks that decide what this build is: the device list is a host fact and a status line, not a
       // precondition for the form.
       gpuDevice.load();

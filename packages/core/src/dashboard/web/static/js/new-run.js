@@ -159,6 +159,52 @@ async function preselectBondedMapping(file) {
   return false;
 }
 
+// The info buttons: one accessible control per setting the server sent help for, and no help text in this file or
+// in the template. The button is focusable, `aria-describedby` names its tooltip, the tooltip shows on hover or
+// keyboard focus (CSS) and on a click for touch, and Escape closes it. Attached per form, so a feature panel that
+// mounts beside the engine's (or remounts after an import) still gets exactly one icon per setting.
+const HELP_ATTACHED = new WeakMap();
+function attachedHelp(form) {
+  let names = HELP_ATTACHED.get(form);
+  if (!names) { names = new Set(); HELP_ATTACHED.set(form, names); }
+  return names;
+}
+function closeHelpTips() {
+  document.querySelectorAll('.setting-tip.is-open').forEach(tip => tip.classList.remove('is-open'));
+  const active = document.activeElement;
+  if (active?.classList?.contains('info-btn')) active.blur();
+}
+export function attachHelpIcons(form, help) {
+  if (!form || !help || typeof help !== 'object') return;
+  const attached = attachedHelp(form);
+  for (const [name, text] of Object.entries(help)) {
+    if (attached.has(name) || !text) continue;
+    const input = form.elements[name];
+    const label = input?.closest?.('label');
+    if (!label) continue;
+    const wrap = document.createElement('span'); wrap.className = 'field-help';
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'info-btn'; button.textContent = 'i';
+    button.setAttribute('aria-label', `About ${input.name.replace(/_/g, ' ')}`);
+    const tip = document.createElement('span');
+    tip.className = 'setting-tip'; tip.id = `setting-help-${name}`; tip.setAttribute('role', 'tooltip');
+    tip.textContent = text;
+    button.setAttribute('aria-describedby', tip.id);
+    button.addEventListener('click', event => {
+      event.preventDefault(); event.stopPropagation();
+      const wasOpen = tip.classList.contains('is-open');
+      closeHelpTips();
+      if (!wasOpen) tip.classList.add('is-open');
+    });
+    wrap.append(button, tip);
+    const control = label.querySelector('.setting-control');
+    if (control) control.before(wrap); else label.append(wrap);
+    attached.add(name);
+  }
+}
+document.addEventListener('keydown', event => { if (event.key === 'Escape') closeHelpTips(); });
+document.addEventListener('click', event => { if (!event.target.closest?.('.field-help')) closeHelpTips(); });
+
 // Owns the persisted run form, inherited settings, and readiness checks.
 //
 // The panel is chosen on first use, not here. A feature's extension module is a dynamic import `boot` starts before
@@ -941,7 +987,7 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     if (runType !== form.elements.run_type.value || kind !== currentKind()) return;
     stageDefaults = result;
     fillForceFields(result.force_fields);
-    attachHelpIcons(result.help);
+    attachHelpIcons(form, result.help);
     for (const [field, value] of Object.entries(result.values)) {
       const input = form.elements[field];
       // A select always holds *some* value (its first option), so it is filled by kind too unless the reader, a
@@ -1071,45 +1117,6 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
       syncRunSummary(); refreshReadiness(); storage.set('form', formValues());
     };
   }
-  // The info buttons: one accessible control per setting the server sent help for, and no help text in this file or
-  // in the template. The button is focusable, `aria-describedby` names its tooltip, the tooltip shows on hover or
-  // keyboard focus (CSS) and on a click for touch, and Escape closes it.
-  const HELP_ATTACHED = new Set();
-  function closeHelpTips() {
-    $$('.setting-tip.is-open').forEach(tip => tip.classList.remove('is-open'));
-    const active = document.activeElement;
-    if (active?.classList?.contains('info-btn')) active.blur();
-  }
-  function attachHelpIcons(help) {
-    if (!help || typeof help !== 'object') return;
-    for (const [name, text] of Object.entries(help)) {
-      if (HELP_ATTACHED.has(name) || !text) continue;
-      const input = form.elements[name];
-      const label = input?.closest?.('label');
-      if (!label) continue;
-      const wrap = document.createElement('span'); wrap.className = 'field-help';
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'info-btn'; button.textContent = 'i';
-      button.setAttribute('aria-label', `About ${input.name.replace(/_/g, ' ')}`);
-      const tip = document.createElement('span');
-      tip.className = 'setting-tip'; tip.id = `setting-help-${name}`; tip.setAttribute('role', 'tooltip');
-      tip.textContent = text;
-      button.setAttribute('aria-describedby', tip.id);
-      button.addEventListener('click', event => {
-        event.preventDefault(); event.stopPropagation();
-        const wasOpen = tip.classList.contains('is-open');
-        closeHelpTips();
-        if (!wasOpen) tip.classList.add('is-open');
-      });
-      wrap.append(button, tip);
-      const control = label.querySelector('.setting-control');
-      if (control) control.before(wrap); else label.append(wrap);
-      HELP_ATTACHED.add(name);
-    }
-  }
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeHelpTips(); });
-  document.addEventListener('click', event => { if (!event.target.closest?.('.field-help')) closeHelpTips(); });
-
   const savedForm = storage.get('form', {});
   for (const input of [...form.elements].filter(el => el.name)) {
     if (savedForm[input.name] !== undefined) { input.value = savedForm[input.name]; input.dataset.touched = '1'; }

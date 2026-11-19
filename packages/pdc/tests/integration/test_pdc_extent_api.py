@@ -49,6 +49,7 @@ def test_a_structure_that_states_no_membrane_gets_the_initial_box_rule(dashboard
     assert body['protein'] == '1qj8'
     assert body['dimensions_nm'] == {'x': 3.0, 'y': 2.0, 'z': 4.0}
     assert body['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=2.0, initial_z_nm=6.0)
+    assert body['auto_initial_z_nm'] == round(pdc_box.auto_initial_z(POINTS_NM, margin_nm=2.0), 3)
     assert body['rule'] == 'initial'
     assert body['half_thickness_nm'] is None
     assert body['chains'] is None
@@ -65,6 +66,18 @@ def test_a_structure_that_states_a_membrane_gets_the_membrane_box_rule(dashboard
     assert body['dimensions_nm'] == {'x': 3.0, 'y': 2.0, 'z': 4.0}
     assert body['initial_box_nm'] == pdc_box.membrane_box(POINTS_NM, half_thickness_nm=1.0,
                                                           margin_nm=2.0, initial_z_nm=6.0)
+    assert body['auto_initial_z_nm'] == round(pdc_box.auto_initial_z(POINTS_NM, half_thickness_nm=1.0,
+                                                                     margin_nm=2.0), 3)
+
+
+def test_the_auto_initial_z_is_the_same_whatever_z_the_caller_asked_for(dashboard, monkeypatch):
+    """Auto is a measurement, so it cannot depend on the value it is about to replace."""
+    _import(dashboard, monkeypatch, '1qj8', NO_MEMBRANE)
+
+    default = _extent(dashboard, '1qj8').get_json()['auto_initial_z_nm']
+    requested = _extent(dashboard, '1qj8', '?initial_z_nm=40.0').get_json()['auto_initial_z_nm']
+
+    assert default == requested == round(pdc_box.auto_initial_z(POINTS_NM, margin_nm=2.0), 3)
 
 
 def test_the_margin_and_initial_z_the_caller_sends_reach_the_box(dashboard, monkeypatch):
