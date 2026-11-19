@@ -83,7 +83,12 @@ def open_panel(page, base_url):
                         (re.compile(r'/api/pdc/conformations/runs'), {'runs': []}),
                         (re.compile(r'/api/pdc/conformations/libraries'), {'libraries': []}),
                         (re.compile(r'/api/setting-presets'), {'presets': [], 'default': None}))
-    return browser.open_pdc_new_run(page, base_url)
+    opened = browser.open_pdc_new_run(page, base_url)
+    # Mount fills the catalogue defaults, the seed and the device list after the detergent options the helper
+    # waits for. A case that reads those controls has to wait for the panel, not for its first fetch.
+    page.wait_for_function("() => document.querySelector('#new-run')?.getAttribute('aria-busy') !== 'true'",
+                           timeout=30000)
+    return opened
 
 
 def serve_catalogue(page, proteins=None):
