@@ -646,6 +646,9 @@ def build(stage: Path) -> int:
                                                belt_axial_window_nm=settings.get(
                                                    'belt_axial_window_nm',
                                                    pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM),
+                                               vertical_spread=settings.get(
+                                                   'belt_vertical_spread',
+                                                   pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD),
                                                body_profile=body_profile)
     report.update({
         'cg_command': command,

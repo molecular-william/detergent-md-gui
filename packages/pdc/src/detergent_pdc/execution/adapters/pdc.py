@@ -59,6 +59,9 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # measured. Both are belt-only; the sphere and self-assembly never read them, and they mirror
             # `pdc_placement`'s constants.
             'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
+            # The vertical half-height of the belt as a multiple of the detergent's own length. 1.1 was the old
+            # reviewed value; 2.0 widens the band so the belt covers more of the membrane.
+            'belt_vertical_spread': 2.0,
             'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
             # The CG production legs' own numbers. They are written from `pdc-assessment-v1`/`pdc-extension-v1`,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
@@ -162,6 +165,7 @@ SETTING_SPECS = {
     # half-height over which one site's local protein surface is measured.
     'min_body_gap_nm': ('Minimum body-bead distance (nm)', 0.0, 2.0),
     'belt_axial_window_nm': ('Local surface axial window (nm)', 0.1, 5.0),
+    'belt_vertical_spread': ('Vertical spread (x detergent length)', 0.5, 5.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
     # equilibration and restart profiles keep their own values. The production neighbour list, temperature and

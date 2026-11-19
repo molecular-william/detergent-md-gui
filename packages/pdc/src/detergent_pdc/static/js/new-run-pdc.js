@@ -27,7 +27,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
-                   'min_body_gap_nm', 'belt_axial_window_nm',
+                   'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -742,7 +742,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // from a random start, so they are hidden there. Hidden, not disabled: the values still travel, and the adapter
   // ignores them outside a belt.
   function syncBeltGap() {
-    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm']) {
+    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread']) {
       const label = form.querySelector(`[name=${name}]`)?.closest('label');
       if (label) label.hidden = placementMode() === 'self-assembly';
     }
@@ -1196,6 +1196,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             gap: field('belt_gap_nm').value || '',
             bodyGap: field('min_body_gap_nm').value || '',
             axialWindow: field('belt_axial_window_nm').value || '',
+            verticalSpread: field('belt_vertical_spread').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
@@ -1205,7 +1206,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
-                                  inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.template].join('|');
+                                  inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
+                                  inputs.template].join('|');
 
   function seconds(value) {
     const count = Number(value) || 0;
@@ -1327,6 +1329,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
     if (inputs.axialWindow) query.set('belt_axial_window_nm', inputs.axialWindow);
+    if (inputs.verticalSpread) query.set('belt_vertical_spread', inputs.verticalSpread);
     // The shape spec travels as JSON, URL-encoded by `URLSearchParams`: `single` has no spec and sends nothing,
     // exactly as the submit payload does not.
     if (inputs.shape) query.set('conformation_library', inputs.shape);
@@ -1943,7 +1946,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'belt_gap_nm', 'min_body_gap_nm',
-                      'belt_axial_window_nm']) field(name)?.addEventListener('input', previewMoved);
+                      'belt_axial_window_nm', 'belt_vertical_spread']) field(name)?.addEventListener('input', previewMoved);
   // The box's own two inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
   // Auto is the extent route's own suggested z box, written into the field as a reader typing it would: the box

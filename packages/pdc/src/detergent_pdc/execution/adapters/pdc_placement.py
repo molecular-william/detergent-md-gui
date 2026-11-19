@@ -83,6 +83,9 @@ CYLINDER_AXIS_FRAME = 'frame-normal'
 # symmetric about the cylinder's mid-plane. 1.1 is the reviewed setting: a little taller and lower than the torus,
 # without leaving the membrane's headgroup region.
 VERTICAL_SPREAD = 1.1
+#: The belt's default when the pdc pipeline states the run's own setting. 1.1 was the reviewed value; 2.0 widens the
+#: band to twice the detergent's length either side of the mid-plane, so the belt covers more of the membrane.
+DEFAULT_BELT_VERTICAL_SPREAD = 2.0
 # The belt's body is mostly the outward surface normal, tilted about the local tangent by this angle. The tilt's sign
 # is chosen so the head end leans away from the cylinder's mid-plane and the tail therefore dips towards it; the
 # radial component always shrinks, so the tail end is always closer to the axis than the head end.
@@ -94,6 +97,11 @@ TILT_RADIANS = np.deg2rad(TILT_DEGREES)
 # narrower window would let a neighbouring site stand inside the same protrusion, and a wider one would spread one
 # helix's extra radius around a larger arc than it occupies.
 BELT_LOCAL_ANGLE_DEG = 10.0
+#: How deeply a base slot's body must reach into the protein before the slot is skipped rather than nudged. The
+#: ordinary bead gate (0.25 nm) is a clearance, not a penetration: a body that merely grazes the surface can be
+#: moved by a trial; one whose beads are essentially inside the protein means the protein passes through the belt at
+#: that slot, and the honest answer is to leave the slot empty.
+BELT_PENETRATION_NM = 0.05
 # The axial half-window of that local measurement, in nm: only in-slab atoms within this axial distance of the site's
 # own height set its surface. Without it a sector is one angular-only maximum, so a helix that reaches 3 nm at one
 # axial end stands every site in that sector off at 3 nm, including the sites above and below it. 0.75 nm is about the
@@ -494,7 +502,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                      initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None,
                      belt_gap_nm=0.0, belt_floor_nm=0.0,
                      min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
-                     belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET):
+                     belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
+                     vertical_spread=VERTICAL_SPREAD):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -557,6 +566,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('the belt radius floor cannot be negative')
     if min_body_gap_nm < 0:
         raise ValueError('the minimum body gap cannot be negative')
+    if float(vertical_spread) <= 0:
+        raise ValueError('the belt vertical spread must be positive')
     if belt_axial_window_nm <= 0:
         raise ValueError('the belt axial window must be positive')
     belt_gap_nm = float(belt_gap_nm)
@@ -601,7 +612,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         if points is not None and frame is not None:
             band, belt_reason = _belt_cylinder(points, aggregation_number, seed, frame, min_clearance_nm,
                                                belt_floor_nm, profile, belt_gap_nm,
-                                               min_body_gap_nm, belt_axial_window_nm, belt_length_nm)
+                                               min_body_gap_nm, belt_axial_window_nm, belt_length_nm,
+                                               vertical_spread)
         if band is None:
             shell = _sphere_shell(points, template, profile, radius_nm, min_clearance_nm)
             centers, directions = pack_micelle(points, template, aggregation_number, seed,
@@ -644,7 +656,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                         initial_z_nm=initial_z_nm, frame=frame, belt_gap_nm=belt_gap_nm,
                                         belt_floor_nm=belt_floor_nm, min_body_gap_nm=min_body_gap_nm,
                                         belt_axial_window_nm=belt_axial_window_nm,
-                                        body_profile=body_profile)
+                                        body_profile=body_profile, vertical_spread=vertical_spread)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
 
@@ -771,7 +783,8 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
              min_clearance_nm=MIN_CLEARANCE_NM, margin_nm=DEFAULT_MARGIN_NM,
              initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, seeds=(1, 2, 3), belt_gap_nm=0.0,
              belt_floor_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
-             belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET) -> dict:
+             belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
+             vertical_spread=VERTICAL_SPREAD) -> dict:
     """The largest count every seed places validly, by bisection over the placer's own gate.
 
     A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
@@ -793,6 +806,8 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
         raise ValueError('the minimum body gap cannot be negative')
     if belt_axial_window_nm <= 0:
         raise ValueError('the belt axial window must be positive')
+    if float(vertical_spread) <= 0:
+        raise ValueError('the belt vertical spread must be positive')
 
     def fits(count: int) -> bool:
         if count < 1:
@@ -803,7 +818,7 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
                                     belt_gap_nm=belt_gap_nm, belt_floor_nm=belt_floor_nm,
                                     min_body_gap_nm=min_body_gap_nm,
                                     belt_axial_window_nm=belt_axial_window_nm,
-                                    body_profile=body_profile)['valid']
+                                    body_profile=body_profile, vertical_spread=vertical_spread)['valid']
                    for seed in seeds)
 
     if fits(requested):
@@ -820,7 +835,8 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
 
 def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, profile=None,
                    belt_gap_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
-                   belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, belt_length_nm=_UNSET):
+                   belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, belt_length_nm=_UNSET,
+                   vertical_spread=VERTICAL_SPREAD):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
     The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
@@ -880,7 +896,7 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     if length is None:
         return None, ('the detergent\'s own length cannot be measured from the molecule the build carries, so the '
                       'cylinder has no surface to stand off and the placement keeps the sphere')
-    half_band = VERTICAL_SPREAD * length
+    half_band = float(vertical_spread) * length
     axis = np.asarray(cylinder['axis'], dtype=float)
     origin = np.asarray(cylinder['origin'], dtype=float)
     relative = np.asarray(inside, dtype=float) - origin
@@ -974,7 +990,7 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         'detergent_length_nm': round(float(length), 6),
         'belt_reach_nm': round(belt_reach, 6),
         'vertical_half_band_nm': round(float(half_band), 6),
-        'vertical_spread': VERTICAL_SPREAD,
+        'vertical_spread': round(float(vertical_spread), 6),
         'tilt_deg': TILT_DEGREES,
         'orientation': {'policy': ORIENTATION_CYLINDER_TILTED, 'tilt_deg': TILT_DEGREES,
                         'axis_source': cylinder['axis_source']},
@@ -1075,10 +1091,12 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     build hangs back along `-direction` -- dips towards it, and its radial component is always smaller than the
     head's. Every site is its own angle, height and direction; no single heading is shared by the belt.
 
-    **Each slot keeps the ladder's own (heading, height).** A slot whose first trial fails a gate tries the module's
-    bounded local offsets (`_belt_trials`), recomputing the surface at every trial, and is left empty if none clears.
-    So the ladder is drawn exactly once -- the next pass's phase is never used to replace a refused slot -- and the
-    belt's coverage stays the ladder's own even spacing rather than clustering wherever a later pass found room.
+    **Each slot keeps the ladder's own (heading, height).** A slot whose own region the protein penetrates -- its
+    base head site or body is inside the protein clearance gates -- is left empty, not nudged out of the way; the hole
+    is where the protein passes through the belt. A slot whose base clears the protein but fails a detergent-spacing
+    gate tries the module's bounded local offsets (`_belt_trials`), recomputing the surface at every trial, and is
+    left empty if none clears. The ladder is drawn exactly once -- the next pass's phase is never used to replace a
+    refused slot -- so coverage stays the ladder's own even spacing rather than clustering wherever a pass found room.
 
     Four gates decide a trial: the **head site** must keep `min_clearance_nm` from every protein bead (the number the
     placement reports), no two head sites may be closer than `MIN_DISTANCE_NM`, the detergent's **own body**
@@ -1104,6 +1122,20 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
         if len(kept) >= count:
             break
         drawn += 1
+        # The slot's own region is the ladder's position, not a nudge from it. If the protein reaches into that
+        # region -- a helix through the belt, a soluble domain crossing the band -- the slot is left empty rather
+        # than pushed outwards or sideways: the hole is the honest picture of a torus the protein penetrates.
+        base_outward = float(np.cos(base_heading)) * across + float(np.sin(base_heading)) * up
+        base_radius = surface_at(base_heading, base_height) + length
+        base_candidate = origin + base_radius * base_outward + base_height * axis
+        base_lean = 1.0 if base_height >= 0.0 else -1.0
+        base_direction = cosine * base_outward + base_lean * sine * axis
+        if float(np.linalg.norm(base_candidate - protein_points, axis=1).min()) < min_clearance_nm:
+            rejected += 1
+            continue
+        if body_clearance(base_candidate, base_direction, profile, protein_points) < BELT_PENETRATION_NM:
+            rejected += 1
+            continue
         accepted = False
         for heading_offset, height_offset, radial_offset in _belt_trials():
             height = float(np.clip(base_height + height_offset, -half_band, half_band))

@@ -156,13 +156,11 @@ def test_the_stage_refuses_a_cg_protein_whose_beads_have_no_position(tmp_path):
     assert not (stage / 'system.gro').exists(), 'nothing was placed, so there is no system to write'
 
 
-def test_the_band_builds_a_box_whose_z_clears_the_protein_rather_than_the_belt(tmp_path):
-    """The box's z margin is the protein's: the belt sits inside the slab and is thinner than the protein here.
+def test_the_band_builds_a_box_whose_z_clears_whichever_reaches_further(tmp_path):
+    """`membrane_box`'s z is 2 x (the furthest thing from the plane + the margin), protein or belt.
 
-    Phase C1: `membrane_box`'s z is 2 x (the furthest bead from the plane + the margin). The rule it replaces took
-    the placed centres' span instead -- on 1AT9 that is the 2.96 nm slab against a protein whose own z span is
-    6.03 nm -- so a protein reaching past the belt got a fraction of the margin the run asked every face to clear it
-    by. A bead at +2.5 nm makes the protein the further thing, and the box has to follow it.
+    A bead at +5 nm reaches past the slab; with the default 2.0x vertical spread the belt can reach further still,
+    and the box has to contain whichever of the two does.
     """
     stage = stage_directory(prepared(tmp_path))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb',
@@ -172,8 +170,9 @@ def test_the_band_builds_a_box_whose_z_clears_the_protein_rather_than_the_belt(t
     report = report_of(stage)
 
     assert code == 3
-    assert report['box_nm'][2] == pytest.approx(2 * (5.0 + 2.0)), \
-        'z clears the furthest protein bead, not the belt the placement was given'
+    furthest = max(5.0, report['placement_band']['belt_reach_nm'])
+    assert report['box_nm'][2] == pytest.approx(2 * (furthest + 2.0)), \
+        'z clears the furthest protein bead or the belt, whichever reaches further'
 
 
 def test_the_box_contains_the_belt_that_reaches_past_the_slab(tmp_path):

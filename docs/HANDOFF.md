@@ -18,7 +18,11 @@ state, what is next, what is open, and the measurements and incidents a reader h
   `belt_axial_window_nm` of its height (default 0.75 nm; nearest-height-slice fallback for sparse clouds). The
   surface is `max(local + belt_gap_nm, belt_floor_nm)`, with `belt_floor_nm` 0 for a belt (`radius_nm` is the
   sphere's radius and floor only); the old 3.0 nm floor is gone. A site above/below the helix therefore sees the
-  ~1.6 nm bundle and can sit under the protrusion.
+  ~1.6 nm bundle and can sit under the protrusion. The vertical band is `belt_vertical_spread` times the detergent
+  length, default **2.0** (the old reviewed value was 1.1), bounds 0.5–5; the panel has a Default button and help.
+  A slot whose **own** region the protein penetrates (base head site inside the protein, or base body beads
+  essentially inside it, < 0.05 nm) is left empty rather than nudged aside — the hole is where the protein passes
+  through the belt. Local trials still resolve detergent–detergent spacing; they cannot move a penetrated slot.
   Packing is a second change. `min_body_gap_nm` (default 0.3 nm, 0 disables) is a **body-body** gate: the run's own
   stamped model body (the mapping's beads for a mapped run; an explicit `None` for a centres-only build, which is the
   head-only gate) must keep that distance from every accepted detergent body, not just head sites. The selected
@@ -33,7 +37,7 @@ state, what is next, what is open, and the measurements and incidents a reader h
   <0.25 nm (minimum 0.079 nm); default 0.3 nm gate → 121 placed, minimum body pair 0.301 nm, count-gate refusal and
   capacity ≈62. The 0.3 nm default is a genuine separation, not a template artefact: a 150-detergent 2ydo belt is
   overpacked at that spacing, so lower the count or the gap to run it.
-  Checks: pdc fast area 815 passed / 1 xfailed; full fast tier 3145 passed / 1 xfailed; full browser tier 423 passed.
+  Checks: pdc fast area 816 passed / 1 xfailed; full fast tier 3146 passed / 1 xfailed; full browser tier 423 passed.
   The running dashboard unit predates this change, so restart it with no run in flight.
 
 - **Protein-detergent New run: belt-protein gap and auto-generated run labels (2026-11-19).**

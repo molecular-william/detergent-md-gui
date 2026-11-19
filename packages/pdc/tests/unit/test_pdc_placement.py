@@ -1254,3 +1254,32 @@ def test_the_body_gate_measures_the_model_body_and_an_explicit_none_is_a_centres
     # `_UNSET` is the template fallback, byte-identical to a caller that never heard of a model.
     assert fallback['body_profile'] == pdc_placement._profile_record(pdc_placement.detergent_profile(template))
     assert fallback['body_profile']['source'] == 'coordinates'
+
+
+def test_a_slot_whose_base_head_is_inside_the_protein_is_skipped_not_nudged():
+    """A protein through the belt makes a hole: the slot's own region is left empty, not pushed aside.
+
+    The base site is the ladder's own heading/height placed at the supplied local surface. A protein point on that
+    head is deep penetration (distance 0), so the slot is refused before any local trial. A point far away leaves the
+    same slot placeable, so the test pins the skip and not a broken generator.
+    """
+    from micelle.packing import golden_angle_directions
+
+    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
+    length, half_band = 0.5, 1.0
+    ladder = golden_angle_directions(1, 3)
+    heading = float(np.arctan2(ladder[0, 1], ladder[0, 0]))
+    height = float(np.sin(0.5 * np.pi * ladder[0, 2]) * half_band)
+    across, up = pdc_placement._plane_basis(np.asarray(cylinder['axis']))
+    outward = np.cos(heading) * across + np.sin(heading) * up
+    base_site = (1.0 + length) * outward + height * np.asarray(cylinder['axis'])
+
+    blocked = pdc_placement._cylinder_sites(
+        1, 3, cylinder, lambda heading, height: 1.0, length, half_band, [base_site],
+        pdc_placement.MIN_CLEARANCE_NM)
+    clear = pdc_placement._cylinder_sites(
+        1, 3, cylinder, lambda heading, height: 1.0, length, half_band, [base_site + np.array([20.0, 0.0, 0.0])],
+        pdc_placement.MIN_CLEARANCE_NM)
+
+    assert len(blocked[0]) == 0, 'the penetrated slot is left empty'
+    assert len(clear[0]) == 1, 'the same slot is placeable when the protein is not there'

@@ -336,7 +336,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
             prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
-            belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM):
+            belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
+            belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
@@ -569,6 +570,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                               conformations=conformations, belt_gap_nm=float(belt_gap_nm),
                                               min_body_gap_nm=float(min_body_gap_nm),
                                               belt_axial_window_nm=float(belt_axial_window_nm),
+                                              vertical_spread=float(belt_vertical_spread),
                                               body_profile=body_profile)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the numbers it was derived from. A belt's surface follows the protein locally, so
@@ -596,6 +598,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   # for a self-assembled cloud, which read neither.
                   'min_body_gap_nm': band.get('min_body_gap_nm'),
                   'axial_window_nm': band.get('axial_window_nm'),
+                  'vertical_spread': band.get('vertical_spread'),
                   # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
                   # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
                   # measures a smaller shell, and these two fields are where that shows.

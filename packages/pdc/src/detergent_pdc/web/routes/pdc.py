@@ -670,6 +670,8 @@ def preview_choices(source):
     choices['min_body_gap_nm'] = number('min_body_gap_nm', float(pdc.DEFAULTS['min_body_gap_nm']))
     choices['belt_axial_window_nm'] = number('belt_axial_window_nm',
                                              float(pdc.DEFAULTS['belt_axial_window_nm']))
+    choices['belt_vertical_spread'] = number('belt_vertical_spread',
+                                             float(pdc.DEFAULTS['belt_vertical_spread']))
     return choices
 
 
@@ -764,6 +766,7 @@ def pdc_preview_placement():
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
             belt_gap_nm=choices['belt_gap_nm'],
             min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],
+            belt_vertical_spread=choices['belt_vertical_spread'],
             prepare_protein=choices['prepare_protein'],
             # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
             # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.
