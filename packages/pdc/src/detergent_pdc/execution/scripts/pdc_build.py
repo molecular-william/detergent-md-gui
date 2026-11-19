@@ -635,7 +635,8 @@ def build(stage: Path) -> int:
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
                                                initial_z_nm=settings['initial_z_nm'], frame=frame,
-                                               conformations=library.conformations() if library is not None else None)
+                                               conformations=library.conformations() if library is not None else None,
+                                               belt_gap_nm=settings.get('belt_gap_nm', 0.0))
     report.update({
         'cg_command': command,
         'secondary_structure': secondary,

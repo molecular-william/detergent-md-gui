@@ -533,6 +533,38 @@ def test_a_radius_smaller_than_the_measured_cylinder_changes_nothing(tmp_path):
     assert smaller['band']['radius_nm'] == measured['band']['radius_nm'] == 1.0
 
 
+def test_the_belt_gap_moves_the_surface_out_by_exactly_the_gap(tmp_path):
+    """The belt-protein gap is extra stand-off on the measured surface: 0 is today's geometry, and a positive gap
+    moves every head site out by the gap and records it. The sphere keeps the radius it always had, so a protein that
+    states no membrane is untouched by the setting."""
+    points = _asymmetric_protein()          # a 1.0 nm in-slab radius, so the cylinder measures 1.0 nm
+    template = _template(tmp_path)
+    unstated = pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(), radius_nm=1.0,
+                                              belt_gap_nm=0.0)
+    gapped = pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(), radius_nm=1.0,
+                                            belt_gap_nm=1.5)
+    sphere = pdc_placement.place_detergents(points, template, 12, seed=4, radius_nm=3.0)
+    sphere_gapped = pdc_placement.place_detergents(points, template, 12, seed=4, radius_nm=3.0, belt_gap_nm=1.5)
+
+    assert unstated['valid'] and gapped['valid'], gapped['issues']
+    assert unstated['band']['radius_nm'] == 1.0 and unstated['band']['gap_nm'] == 0.0
+    assert unstated['band']['cylinder']['radius_nm'] == 1.0, 'the measured cylinder itself never moves'
+    assert gapped['band']['gap_nm'] == 1.5
+    assert gapped['band']['radius_nm'] == pytest.approx(2.5), 'the surface is measured radius plus the gap'
+    assert gapped['band']['cylinder']['surface_radius_nm'] == pytest.approx(2.5)
+    assert gapped['band']['radius_nm'] - unstated['band']['radius_nm'] == pytest.approx(1.5), \
+        'the difference is exactly the gap'
+    assert np.allclose(distance_to_axis(gapped['centers'], gapped['band']['cylinder']['axis'],
+                                        gapped['band']['cylinder']['origin_nm']),
+                       gapped['band']['radius_nm'] + MOLECULE_LENGTH_NM, atol=1e-9)
+    assert sphere['centers'] == sphere_gapped['centers'], 'the sphere never reads the gap'
+    assert sphere_gapped['band'] is None
+    with pytest.raises(ValueError, match='gap cannot be negative'):
+        pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(), belt_gap_nm=-0.5)
+    with pytest.raises(ValueError, match='gap cannot be negative'):
+        pdc_placement.capacity(points, template, 12, frame=_frame(), belt_gap_nm=-0.5)
+
+
 def test_an_empty_micelle_still_uses_the_radius_as_the_sphere_it_builds(tmp_path):
     """No protein, no measured cylinder: `radius_nm` is the sphere's own radius, exactly as it was before any floor."""
     placed = pdc_placement.place_detergents(None, None, 8, seed=3, radius_nm=2.0, frame=_frame())

@@ -38,18 +38,28 @@ def application_context(function):
     return invoke
 
 
-def generated_label(molecule, run_type, settings=None, profile='standard'):
+def generated_label(molecule, run_type, settings=None, profile='standard', *, protein=None):
     """`[molecule]-[AA|CG]-[length]ns-[YYYYMMDD]`: the label an unnamed run is given.
 
     The New run panel suggests the same string while its label field is untouched (`new-run.js`), so a caller
     that posts none gets what the form would have shown. Length is the total simulated time: the AA half's
     NVT + NPT + production, the CG half's equilibration + production. A composition run configures no
     duration, so its label carries no length segment rather than a false `0ns`.
+
+    A run type whose ``Protocol`` names a label generator answers with its own vocabulary instead -- the pdc
+    label names the protein, the belt size and the sampling -- so the engine carries no feature's naming rule.
     """
+    adapter = None
+    try:
+        adapter = protocol.adapter_for(run_type)
+    except ValueError:
+        pass        # the run's own normalisation refuses this type a moment later; the label must not be the refusal
+    if adapter is not None and adapter.label is not None:
+        return adapter.label(molecule, settings, protein=protein)
     name = re.sub(r'\s+', '-', str(molecule or '').strip()) or 'run'
     tag = 'AA' if run_type == 'aa_only' else 'CG'
     try:
-        values = protocol.adapter_for(run_type).normalize_settings(settings, profile)
+        values = (adapter or protocol.adapter_for(run_type)).normalize_settings(settings, profile)
     except ValueError:
         # The run's own normalization refuses these settings a moment later; the label must not be the thing
         # that changes the refusal, so it is derived from what can be read and the length is left out.
@@ -617,7 +627,7 @@ class Coordinator:
         # not left with a run that has none. The settings are the ones the run will use, so the length is the
         # length the manifest will state.
         if not str(label or '').strip():
-            label = generated_label(molecule_id or detergent, run_type, settings, profile)
+            label = generated_label(molecule_id or detergent, run_type, settings, profile, protein=protein)
         settings_preset = preset_record(settings_preset)
         if run_type=='aa_only':
             if molecule_snapshot:

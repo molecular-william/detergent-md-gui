@@ -63,6 +63,15 @@
         </label>
       </div>
       <div class="new-pdc-belt-block" id="new-belt-block">
+        {# The gap between the measured membrane surface and the detergents' bodies: a belt setting, so it lives inside
+           the belt block and disappears with an empty micelle. Hidden -- not disabled -- in self-assembly, where the
+           adapter ignores it, because the value still posts and nothing about the payload changes. #}
+        <label>Belt–protein gap <span class="hint">nm · added clearance</span>
+          <span class="setting-control">
+            <input name="belt_gap_nm" type="number" min="0" max="5" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
+          </span>
+        </label>
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
           {# The estimate states its number and folds its method into the dashboard's own info button: a real
              button, so it is focusable and announced, showing its tooltip on hover, keyboard focus or a tap

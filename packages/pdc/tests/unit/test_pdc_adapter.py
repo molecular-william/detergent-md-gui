@@ -40,9 +40,39 @@ def test_the_stage_list_is_the_protocol_in_order():
 
 def test_the_settings_carry_every_protocol_number_with_bounds():
     for key in ('pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'aggregation_number', 'salt_molar',
-                'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction'):
+                'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm'):
         label, low, high = pdc.SETTING_SPECS[key]
         assert label and low < high, (key, label, low, high)
+
+
+def test_the_belt_gap_is_advertised_as_a_bounded_setting():
+    """The belt's extra stand-off is a run setting like the radius: defaulted to today's geometry and bounded."""
+    assert pdc.DEFAULTS['belt_gap_nm'] == 0.0
+    assert pdc.SETTING_SPECS['belt_gap_nm'] == ('Belt-protein gap (nm)', 0.0, 5.0)
+    assert pdc.normalize_settings({})['belt_gap_nm'] == 0.0
+    assert pdc.normalize_settings({'belt_gap_nm': 2.5})['belt_gap_nm'] == 2.5
+    assert pdc.normalize_settings({'belt_gap_nm': 5})['belt_gap_nm'] == 5.0
+    for outside in (-0.1, 5.5):
+        with pytest.raises(ValueError, match='belt_gap_nm'):
+            pdc.normalize_settings({'belt_gap_nm': outside})
+
+
+def test_the_generated_label_names_the_choices_it_was_built_from():
+    """The panel's label field, filled from the same numbers the run is built with -- not a second vocabulary."""
+    assert pdc.generated_label('DDM', {'aggregation_number': 192}) == 'DDM_micelle_192_1conf_1us'
+    assert pdc.generated_label('DDM', {'aggregation_number': 192},
+                               protein='molecules/DDM/4iar.pdb') == 'DDM_4iar_192_1conf_1us'
+    # A library's bodies are drawn, so the conformation token says so; the form's own spelling of the durations
+    # normalises like every other setting.
+    library = {'runs': ['b920391735dd'], 'size': 8}
+    assert pdc.generated_label('OG', {'aggregation_number': 80, 'conformation_library': library}) \
+        == 'OG_micelle_80_libconf_1us'
+    assert pdc.generated_label('DDM', {'aggregation_number': 192, 'conformation_library': library}) \
+        == 'DDM_micelle_192_libconf_1us'
+    assert pdc.generated_label('DDM', {'aggregation_number': 192, 'pdc_assessment_ns': 600,
+                                       'extension_ns': 900}) == 'DDM_micelle_192_1conf_1.5us'
+    assert pdc.generated_label('OG', {'aggregation_number': 80, 'pdc_assessment_ns': 201,
+                                      'extension_ns': 1}) == 'OG_micelle_80_1conf_202ns'
 
 
 def test_gpu_sharing_is_advertised_and_normalised_as_a_choice():

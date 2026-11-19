@@ -58,6 +58,22 @@ PEPTIDE = peptide()
 TWO_CHAINS = peptide() + peptide(chain='B', shift_nm=8.0)
 
 
+def membrane_ring(radius_nm=3.2, count=4, half_thickness_nm=1.18):
+    """Four atoms on a ring inside a stated membrane: a measured cylinder of `radius_nm`, not a sphere."""
+    records = []
+    for index in range(count):
+        angle = 2.0 * math.pi * index / count
+        records.append(f'ATOM  {index + 1:5d}  CA  ALA A{index + 1:4d}    '
+                       f'{radius_nm * 10.0 * math.cos(angle):8.3f}'
+                       f'{radius_nm * 10.0 * math.sin(angle):8.3f}{0.0:8.3f}  1.00  0.00           C')
+    return (f'REMARK      1/2 of bilayer thickness:   {half_thickness_nm * 10.0:5.1f}\n'
+            + '\n'.join(records) + '\nEND\n')
+
+
+MEMBRANE_RING = [[3.2 * math.cos(2.0 * math.pi * index / 4), 3.2 * math.sin(2.0 * math.pi * index / 4), 0.0]
+                 for index in range(4)]
+
+
 def import_protein(dashboard, monkeypatch, text=PEPTIDE, pdbid='1qj8'):
     """Put a structure in the workspace through the real import path, and answer with its catalogue entry."""
     monkeypatch.setitem(dashboard.app.config, 'PDC_FETCHER', lambda url, body=text: body.encode())
@@ -320,6 +336,38 @@ def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
     # The density the panel prints comes from the same volume, and the count is still the user's 20.
     assert part_basis['aggregation_number'] == 20 and part_basis['estimated_density_per_nm3'] > 0
     assert part_basis['capacity_aggregation'] is None, 'the count fits, so there is nothing to report'
+
+
+def test_the_belt_gap_moves_the_preview_belt_out_by_the_gap(dashboard, monkeypatch):
+    """The run's belt-protein gap travels through the preview too: the picture is the build's own geometry.
+
+    The protein states a membrane, so the placement is the belt about its measured cylinder; the coarse-graining is
+    stubbed with the ring's own atoms because what is under test is the radius the route reports. `belt_gap_nm`
+    changes nothing else in the request, and a positive gap moves `basis.band_radius_nm` out by exactly that gap.
+    """
+    from detergent_pdc.execution import pdc_preview as preview_module
+
+    def stub(cache_root, protein_path, chains, **kwargs):
+        beads = [{'residue_id': index + 1, 'residue': 'PRO', 'name': f'B{index + 1:03d}',
+                  'position': list(position)} for index, position in enumerate(MEMBRANE_RING)]
+        return beads, {'cached': True, 'seconds': 0.0, 'key': 'stub', 'path': str(cache_root),
+                       'beads_bytes': 0, 'dropped_residues': [], 'protein_input': 'protein.pdb',
+                       'structure': str(protein_path), 'command': None}
+
+    monkeypatch.setattr(preview_module, 'coarse_grained', stub)
+    entry = import_protein(dashboard, monkeypatch, text=membrane_ring(), pdbid='1mem')
+    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 12}
+
+    base = get(dashboard, **query)
+    gapped = get(dashboard, **{**query, 'belt_gap_nm': 1.0})
+
+    assert base.status_code == 200 and gapped.status_code == 200
+    plain, offset = base.get_json(), gapped.get_json()
+    assert plain['valid'] and offset['valid'], (plain.get('reasons'), offset.get('reasons'))
+    assert plain['basis']['placement_shape'] == offset['basis']['placement_shape'] == 'belt-cylinder'
+    assert plain['basis']['band_radius_nm'] == pytest.approx(3.2), 'the measured cylinder decides over the floor'
+    assert offset['basis']['band_radius_nm'] == pytest.approx(plain['basis']['band_radius_nm'] + 1.0), \
+        'the preview places its belt on the surface the run asked for'
 
 
 @pytest.mark.xfail(strict=True, reason='route passes explicit false for absent prepare_protein, overriding adapter default true; reproduced at HEAD 837be7c')

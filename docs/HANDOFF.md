@@ -10,6 +10,25 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Protein-detergent New run: belt-protein gap and auto-generated run labels (2026-11-19).**
+  `belt_gap_nm` is a new run setting (DEFAULTS 0.0, bounds 0–5 nm): the extra stand-off between the protein's measured
+  transmembrane-cylinder surface and the belt's detergent bodies. `_belt_cylinder` places the surface at
+  `max(measured radius + gap, radius_nm)`, the band record states `gap_nm`, and the sphere/self-assembly paths never
+  read it (0 is byte-identical to the old geometry). It is threaded through `pdc.prepare`, `pdc_build`, the preview
+  and `/api/pdc/preview/placement` (`belt_gap_nm` query), and the panel control lives in the belt block with a
+  Default button and an info sentence; it is hidden in self-assembly (where the adapter ignores it) but still posts.
+  A run label is suggested while the reader has not typed one:
+  `[detergent]_micelle_[count]_[1conf|libconf]_[time]` for an empty micelle, and
+  `[detergent]_[pdb]_[count]_[1conf|libconf]_[time]` with a protein, where the conformation token is `libconf` when
+  the shape card draws from a library and `time` is the total CG sampling (`assessment + extension`: `202ns`, `1us`,
+  `1.5us`). The suggestion is not stored until edited, and it is what the payload posts. The server fallback is the
+  same rule: `Protocol.label` is an optional adapter answer and `pdc.generated_label` supplies it, so an unnamed API
+  run gets the pdc format instead of the engine's `[molecule]-CG-[YYYYMMDD]`.
+  Checks: full fast tier 3138 passed / 1 xfailed; full browser tier 422 passed (new belt-gap and label tests in
+  `test_pdc_new_run_browser.py`); pdc fast area 808 passed / 1 xfailed; ruff clean; core label-dispatch test added in
+  `test_setting_presets_api.py`. The running dashboard unit predates this change (Python, template and JS), so restart
+  it with no run in flight.
+
 - **Protein-detergent preview: a mapping's own detergent, detergent beads only, no secondary structure (2026-11-19).**
   The preview classified detergent beads by the **template's** residue. The catalogue ships only DDM's
   `micelle_template.json`, so an OG mapping previewed against it wrote every OG bead as protein: no `CONECT` bonds,

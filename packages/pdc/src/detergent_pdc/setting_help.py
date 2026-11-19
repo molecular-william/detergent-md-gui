@@ -64,6 +64,9 @@ _INITIAL_Z = ('the z extent of the box a protein with no stated membrane is inse
 _CONTACT = ("the distance within which two detergents' tail beads count as touching (dashboard text, not GROMACS): "
             "the contact graph's largest connected cluster is the micelle, and a detergent in a smaller cluster is "
             'outside it')
+_BELT_GAP = ("the gap added between the measured transmembrane-cylinder surface and the detergents' bodies (dashboard "
+             "text, not GROMACS), in nm: 0 keeps today's geometry, and a run placed as a sphere about the protein or "
+             'settled by self-assembly ignores it')
 _THRESHOLD = ('the fraction of detergents removed from outside the micelle above which the extension records the '
               'removal as above threshold (dashboard text, not GROMACS): it records how much the removal took, not '
               'the criterion -- that is the largest tail-bead contact cluster')
@@ -124,6 +127,7 @@ HELP = {
     'box_margin_nm': _BOX_MARGIN,
     'initial_z_nm': _INITIAL_Z,
     'contact_nm': _CONTACT,
+    'belt_gap_nm': _BELT_GAP,
     'selection_threshold_fraction': _THRESHOLD,
     'protein_vsite': _VSITE,
     'mdrun_gpu': CORE_HELP['mdrun_gpu'],

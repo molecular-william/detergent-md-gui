@@ -126,3 +126,27 @@ def test_a_very_long_molecule_name_trims_the_name_not_the_date():
 
     assert len(label) == 160
     assert re.fullmatch(r'X+-AA-11\.1ns-\d{8}', label)
+
+
+def test_an_unnamed_run_uses_its_run_types_own_label_generator(monkeypatch):
+    """A run type that names its own label generator answers for itself, and the protein is handed over.
+
+    The shell keeps no feature's naming rule: `generated_label` asks the adapter and the adapter's own function
+    decides the words. The existing AA/CG tests above pin the shared fallback for a type that names none.
+    """
+    from types import SimpleNamespace
+
+    from dashboard.execution import protocol
+    from dashboard.execution.coordination import coordinator
+
+    calls = []
+
+    def own_label(molecule, settings, *, protein=None):
+        calls.append((molecule, settings, protein))
+        return 'own-label'
+
+    monkeypatch.setattr(protocol, 'adapter_for', lambda run_type: SimpleNamespace(label=own_label))
+
+    assert coordinator.generated_label('DDM', 'pdc', {'aggregation_number': 192}, protein='proteins/4iar.pdb') \
+        == 'own-label'
+    assert calls == [('DDM', {'aggregation_number': 192}, 'proteins/4iar.pdb')]

@@ -26,7 +26,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const saved = () => storage.get('pdc-form', {}) || {};
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
-                   'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
+                   'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -126,8 +126,60 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // against the project root. So the path travels from the entry, never from the option's value.
   const templatePath = () => templateEntry()?.template || '';
 
+  // The run label ------------------------------------------------------------------------------------------------
+  //
+  // A suggestion, not a stored value: the engine's `new-run.js` writes its own tokens until the reader types, and
+  // this panel names what it built instead -- `[detergent]_[micelle|pdb]_[count]_[conformation]_[time]`.
+  // `labelEdited` is the one fact that decides both, and it starts true only when a stored label proves the reader
+  // once wrote one. An untouched label is never stored, so the next mount suggests from that mount's inputs.
+  let labelEdited = saved().label !== undefined;
+  const labelInput = field('label');
+  const trimZeros = value => String(Number(value.toFixed(3)));
+  // A blank duration is the catalogue's own, exactly as `fillDefaults` would have written it. The catalogue
+  // publishes the builders' names (`assessment_ns`), while the controls carry the panel's (`pdc_assessment_ns`),
+  // so the default is looked up through the same alias map the Default buttons use.
+  const catalogueName = name => Object.keys(DEFAULT_ALIASES).find(key => DEFAULT_ALIASES[key] === name) || name;
+  function labelNs(name) {
+    const text = String(field(name)?.value ?? '').trim();
+    const value = text === '' ? Number(catalogue?.defaults?.[catalogueName(name)]) : Number(text);
+    return Number.isFinite(value) ? value : null;
+  }
+  // `1000` ns is `1us`, `1500` is `1.5us`, `202` stays `202ns`: the printed time carries no trailing zeros.
+  function labelTime() {
+    const assessment = labelNs('pdc_assessment_ns'), extension = labelNs('pdc_extension_ns');
+    if (assessment === null || extension === null) return '';
+    const total = assessment + extension;
+    if (!(total > 0)) return '';
+    return total >= 1000 ? `${trimZeros(total / 1000)}us` : `${trimZeros(total)}ns`;
+  }
+  // The catalogue names the protein; a picked file it does not list is named by its stem, which is what was chosen.
+  function labelProtein() {
+    const name = String(proteinEntry()?.name || '').trim();
+    if (name) return name.replace(/\s+/g, '-');
+    return String(field('protein').value || '').split('/').pop().replace(/\.[^.]+$/, '').replace(/\s+/g, '-');
+  }
+  function suggestedLabel() {
+    const detergentName = String(field('molecule_id').value || '').trim();
+    const count = String(field('aggregation_number').value || catalogue?.defaults?.aggregation_number || '').trim();
+    if (!detergentName || !count) return '';
+    return [detergentName, preparing() ? labelProtein() : 'micelle', count,
+            shapeSpec() ? 'libconf' : '1conf', labelTime()].filter(part => part !== '').join('_');
+  }
+  // Emptied by hand, the label stays empty: the server generates the fallback for a run with no label, and a
+  // suggestion written over the reader's empty field would be a value they did not choose.
+  function updateSuggestedLabel() {
+    if (labelEdited || !labelInput) return;
+    const suggestion = suggestedLabel();
+    if (suggestion) labelInput.value = suggestion;
+  }
+  labelInput?.addEventListener('input', () => { labelEdited = true; store(); });
+
   function store() {
-    storage.set('pdc-form', Object.fromEntries([...form.elements].filter(el => el.name).map(el => [el.name, el.value])));
+    const values = Object.fromEntries([...form.elements].filter(el => el.name).map(el => [el.name, el.value]));
+    // A suggestion is not the reader's value: an untouched label is left out of the store, so a later mount
+    // suggests from that mount's inputs rather than restoring a name nobody wrote.
+    if (!labelEdited) delete values.label;
+    storage.set('pdc-form', values);
   }
 
   function describeProtein(entry) {
@@ -481,7 +533,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function shapeChanged() {
-    syncShape(); store(); checkReadiness(); renderPreviewState();
+    // The label's conformation token follows the shape, so the suggestion moves with it.
+    syncShape(); syncSummary(); store(); checkReadiness(); renderPreviewState();
   }
 
   // The workflow diagram is a render of the choices above, not a second copy of the pipeline. The static SVG used to
@@ -684,6 +737,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     syncTimeRows();
   }
 
+  // The gap acts on a pre-assembled belt on a membrane-stating protein; self-assembly settles the belt from a random
+  // start, so the control is hidden there. Hidden, not disabled: the value still travels, and the adapter ignores it
+  // outside a belt.
+  function syncBeltGap() {
+    const input = form.querySelector('[name=belt_gap_nm]');
+    const label = input?.closest('label');
+    if (label) label.hidden = placementMode() === 'self-assembly';
+  }
+
   // The count is an input in both modes -- it is the belt's size with a protein and the micelle's without -- and
   // what changes with the protein choice is what is worth reading beside it. The estimate is the server's to size
   // and the experimental number is the registry's own; neither is computed here.
@@ -761,6 +823,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : `experimental aggregation number ${number ?? 'not recorded yet'}`);
     say('.new-pdc-empty-number', number ?? '— not recorded yet');
     say('.new-pdc-empty-count', String(count));
+    syncBeltGap();
+    updateSuggestedLabel();
     syncPreviewControls();
     renderWorkflowDiagram();
   }
@@ -1127,6 +1191,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             mapping: field('mapping_candidate').value || '', molecule: field('molecule_id').value || '',
             template: templatePath(), count: field('aggregation_number').value || '',
             mode: placementMode(), seed: field('pdc_seed').value || '',
+            gap: field('belt_gap_nm').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
@@ -1136,7 +1201,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
-                                  inputs.template].join('|');
+                                  inputs.gap, inputs.template].join('|');
 
   function seconds(value) {
     const count = Number(value) || 0;
@@ -1255,6 +1320,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.mapping) query.set('mapping_candidate', inputs.mapping);
     if (inputs.margin) query.set('box_margin_nm', inputs.margin);
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
+    if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     // The shape spec travels as JSON, URL-encoded by `URLSearchParams`: `single` has no spec and sends nothing,
     // exactly as the submit payload does not.
     if (inputs.shape) query.set('conformation_library', inputs.shape);
@@ -1865,7 +1931,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // the cache -- the coarse-grained protein is not rebuilt -- which is why these move and the three expensive ones
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
-  for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', previewMoved);
+  for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'belt_gap_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own two inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
   // Auto is the extent route's own suggested z box, written into the field as a reader typing it would: the box

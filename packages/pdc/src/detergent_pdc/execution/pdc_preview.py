@@ -334,7 +334,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
-            prepare_executable=None, conformation_library=None, workspace=None):
+            prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
@@ -372,6 +372,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     single-conformation build this service has always drawn. A spec the library package refuses is a `ValueError`
     (a malformed request); a library that is missing, changed or not this run's detergent is a refusal here, with
     the package's own sentence.
+
+    `belt_gap_nm` is the run's extra stand-off between the protein's measured cylinder surface and the belt's
+    detergent bodies, forwarded to the placement and to nothing else: a sphere placement never reads it, so an
+    unstated gap keeps the frame a build has always written and `0.0` is byte-identical to it.
 
     Raises `ValueError` for a question that cannot be asked at all -- a template or protein that is not a file, a
     chain the file does not name, a mapping that does not exist, a count below one, a preparation asked for with no
@@ -539,7 +543,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
                                               margin_nm=margin, initial_z_nm=initial_z, frame=frame,
-                                              conformations=conformations)
+                                              conformations=conformations, belt_gap_nm=float(belt_gap_nm))
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the two numbers it was derived from. `band_radius_nm` is what the card renders as
     # "the belt is a band of radius X nm in the membrane plane", so it is the measured **cylinder surface radius**

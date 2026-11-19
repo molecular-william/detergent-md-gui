@@ -27,6 +27,8 @@ Shapes, as of this module:
   and ``blockers``. Incomplete metadata is a blocker, never an exception: a
   caller that does not know what a run type needs must still get an answer.
 - ``prepare(run_dir, metadata)`` -> writes the run directory.
+- ``label(molecule, settings, *, protein=None)`` -> the name an unnamed run of this type is given, when the type
+  names one. A type that names none keeps the engine's ``[molecule]-[AA|CG]-...`` label.
 
 Every run type's wrapper lives in its own adapter: ``adapter_for`` returns the
 adapter's own ``Protocol`` instance. The builders import their adapter inside the
@@ -227,6 +229,9 @@ class Protocol:
     # `settings_specs` because they are bounded differently and a caller rendering a form needs each in its own
     # control. Everything that has none takes the shared default instead of repeating an empty mapping.
     choice_specs: Callable[[], Mapping] = dict
+    #: An unnamed run's label in this type's own vocabulary. `None` keeps the engine's generated label, so the
+    #: shell states no feature's naming rule and a feature that has one declares it beside its other answers.
+    label: Callable[..., str] | None = None
 
 
 def blocked(*reasons: str) -> dict:

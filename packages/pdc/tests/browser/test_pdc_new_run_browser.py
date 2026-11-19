@@ -30,7 +30,7 @@ CATALOG = {
     'proteins': [{'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
@@ -60,7 +60,8 @@ STAGE_SETTING_NAMES = (
     'pdc_production_ref_p', 'pdc_production_compressibility',
     'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
-    'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction',
+    'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
+    'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
 )
 
@@ -461,6 +462,84 @@ def test_the_empty_micelle_branch_works_in_both_styles(dashboard, live_page):
     assert errors == [], errors
 
 
+def test_the_belt_gap_starts_at_zero_restores_it_and_only_shows_for_a_belt(dashboard, live_page):
+    """The gap is a belt setting: zero by default, restored by Default, hidden where the adapter ignores it, and it
+    travels in the preview query as the run's own setting."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route(re.compile(r'/api/pdc/preview/placement'),
+               lambda route: route.fulfill(json={'valid': False, 'reasons': ['the fixture draws no frame']}))
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    gap = page.locator('[name=belt_gap_nm]')
+    expect(gap).to_have_value('0')
+    gap.fill('0.8')
+    control_label(page, 'belt_gap_nm').locator('button.pdc-default').click()
+    expect(gap).to_have_value('0')
+
+    # The gap acts on a pre-assembled belt on a membrane-stating protein: self-assembly hides the control, lattice
+    # brings it back, and the value still posts either way (the adapter ignores it outside a belt).
+    label = control_label(page, 'belt_gap_nm')
+    expect(label).to_be_visible()
+    page.locator('#new-placement').select_option('self-assembly')
+    expect(label).to_be_hidden()
+    page.locator('#new-placement').select_option('lattice')
+    expect(label).to_be_visible()
+
+    gap.fill('0.5')
+    with page.expect_request(re.compile(r'/api/pdc/preview/placement')) as captured:
+        page.locator('.new-pdc-preview-derive').click()
+    assert 'belt_gap_nm=0.5' in captured.value.url, captured.value.url
+    assert errors == [], errors
+
+
+def test_the_run_label_is_suggested_until_the_reader_types_one_and_the_suggestion_is_posted(dashboard, live_page):
+    """The suggestion names what the run builds, moves with the inputs, is stored only once the reader writes one,
+    and still travels with the payload while they have not."""
+    page, errors = live_page
+    posted = {}
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route(re.compile(r'/api/readiness\?'), lambda route: route.fulfill(json={'ready': True, 'checks': [], 'blockers': []}))
+
+    def queue(route):
+        if route.request.method != 'POST':
+            route.fallback()
+            return
+        posted.update(route.request.post_data_json or {})
+        route.fulfill(status=201, json={'id': 'pdcqueued1', 'run_type': 'pdc'})
+
+    page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
+    open_panel(page, live_page.base_url)
+    page.wait_for_function("() => document.querySelector('[name=label]')?.value !== ''", timeout=30000)
+    page.locator('#new-count').fill('192')
+    page.locator('#new-count').press('Tab')
+
+    # No protein: the micelle's own name. A protein adds the entry's catalogue name where `micelle` stood.
+    expect(page.locator('[name=label]')).to_have_value('DDM_micelle_192_1conf_1us')
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+    expect(page.locator('[name=label]')).to_have_value('DDM_1qj8_192_1conf_1us')
+
+    # A suggestion is not the reader's value: it is not in the stored form, but it is what the field carries, so it
+    # is what the payload posts.
+    stored = page.evaluate("() => JSON.parse(localStorage.getItem('ddm.pdc-form') || '{}')")
+    assert 'label' not in stored, stored
+    expect(page.locator('#start-run')).to_be_enabled()
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert posted['label'] == 'DDM_1qj8_192_1conf_1us', posted
+
+    # Typing stops the updates: the form moves on, the label the reader wrote does not.
+    page.get_by_role('tab', name='New run', exact=True).click()
+    page.locator('[name=label]').fill('my run')
+    page.locator('#new-count').fill('200')
+    page.locator('#new-count').press('Tab')
+    expect(page.locator('[name=label]')).to_have_value('my run')
+    stored = page.evaluate("() => JSON.parse(localStorage.getItem('ddm.pdc-form') || '{}')")
+    assert stored.get('label') == 'my run', stored
+    assert errors == [], errors
+
+
 def test_the_panel_sends_the_initialisation_style_it_shows(dashboard, live_page):
     """The choice reaches the payload under the adapter's placement-mode alias, beside the same settings the rest of
     the panel sends."""
@@ -567,6 +646,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'aggregation_number': 220, 'pdc_nvt_ps': 100, 'pdc_npt_ps': 200,
         'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+        'belt_gap_nm': 0.0,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
         'pdc_nvt_dt_fs': 10, 'pdc_npt_dt_fs': 10,

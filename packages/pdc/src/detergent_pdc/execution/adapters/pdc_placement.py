@@ -425,7 +425,8 @@ def _profile_record(profile) -> dict | None:
 
 def place_detergents(protein_points, template, aggregation_number, seed, *, radius_nm=DEFAULT_RADIUS_NM,
                      min_clearance_nm=MIN_CLEARANCE_NM, mode=DEFAULT_PLACEMENT_MODE, margin_nm=DEFAULT_MARGIN_NM,
-                     initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None):
+                     initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None,
+                     belt_gap_nm=0.0):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -446,12 +447,14 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     the placement is the sphere it has always been, and `belt_reason` says which of those it was.
 
     `radius_nm` is a **floor** under both lattice shapes, and the record keeps both numbers. A belt's cylinder
-    surface is `max(measured radius, radius_nm)`, and its vertical band is `VERTICAL_SPREAD` times the detergent's
-    own length either side of the cylinder's mid-plane; the sphere's shell is `max(radius_nm, extent about the
-    centroid + min_clearance_nm + the molecule's own reach)`, so a shell follows the subunits the run actually
-    includes instead of being the same 3 nm about the whole complex (`radius_source` says which of the two decided).
-    An empty micelle has no protein to measure, so it keeps using `radius_nm` as the sphere's radius, and can only
-    ever report that.
+    surface is `max(measured radius + belt_gap_nm, radius_nm)` -- `belt_gap_nm` is the run's extra stand-off between
+    the protein's measured surface and the detergent bodies, and it is recorded in the band (`gap_nm`) -- and its
+    vertical band is `VERTICAL_SPREAD` times the detergent's own length either side of the cylinder's mid-plane; the
+    sphere's shell is `max(radius_nm, extent about the centroid + min_clearance_nm + the molecule's own reach)`, so a
+    shell follows the subunits the run actually includes instead of being the same 3 nm about the whole complex
+    (`radius_source` says which of the two decided). A gap never reaches the sphere: a protein that states no
+    membrane keeps the geometry it had. An empty micelle has no protein to measure, so it keeps using `radius_nm` as
+    the sphere's radius, and can only ever report that.
 
     A placement that fails its gates measures what a shell *could* hold (`capacity`), against the same gates, and
     records it as `capacity_aggregation` -- the requested number itself is never changed. `measure_capacity=False` is
@@ -468,6 +471,9 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('a placement needs at least one detergent')
     if radius_nm <= 0 or min_clearance_nm < 0:
         raise ValueError('the placement radius must be positive and the clearance cannot be negative')
+    if belt_gap_nm < 0:
+        raise ValueError('the belt-protein gap cannot be negative')
+    belt_gap_nm = float(belt_gap_nm)
     mode = canonical_mode(mode)
     profile = detergent_profile(template)
     points = None
@@ -492,7 +498,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     elif mode == 'lattice':
         if points is not None and frame is not None:
             band, belt_reason = _belt_cylinder(points, aggregation_number, seed, frame, min_clearance_nm, radius_nm,
-                                               template, profile)
+                                               template, profile, belt_gap_nm)
         if band is None:
             shell = _sphere_shell(points, template, profile, radius_nm, min_clearance_nm)
             centers, directions = pack_micelle(points, template, aggregation_number, seed,
@@ -532,7 +538,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     if issues and not unplaced and measure_capacity:
         capacity_aggregation = capacity(points, template, aggregation_number, mode=mode, radius_nm=radius_nm,
                                         min_clearance_nm=min_clearance_nm, margin_nm=margin_nm,
-                                        initial_z_nm=initial_z_nm, frame=frame)
+                                        initial_z_nm=initial_z_nm, frame=frame, belt_gap_nm=belt_gap_nm)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
 
@@ -653,7 +659,7 @@ def _capacity_sentence(measurement) -> str:
 
 def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius_nm=DEFAULT_RADIUS_NM,
              min_clearance_nm=MIN_CLEARANCE_NM, margin_nm=DEFAULT_MARGIN_NM,
-             initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, seeds=(1, 2, 3)) -> dict:
+             initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, seeds=(1, 2, 3), belt_gap_nm=0.0) -> dict:
     """The largest count every seed places validly, by bisection over the placer's own gate.
 
     A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
@@ -667,13 +673,16 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
     """
     requested = int(requested)
     seeds = tuple(int(seed) for seed in (seeds or (1,))) or (1,)
+    if belt_gap_nm < 0:
+        raise ValueError('the belt-protein gap cannot be negative')
 
     def fits(count: int) -> bool:
         if count < 1:
             return False
         return all(place_detergents(points, template, count, seed=seed, radius_nm=radius_nm,
                                     min_clearance_nm=min_clearance_nm, mode=mode, margin_nm=margin_nm,
-                                    initial_z_nm=initial_z_nm, frame=frame, measure_capacity=False)['valid']
+                                    initial_z_nm=initial_z_nm, frame=frame, measure_capacity=False,
+                                    belt_gap_nm=belt_gap_nm)['valid']
                    for seed in seeds)
 
     if fits(requested):
@@ -688,7 +697,8 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
     return {'count': low, 'seeds': list(seeds), 'requested': requested}
 
 
-def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, template, profile=None):
+def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, template, profile=None,
+                   belt_gap_nm=0.0):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
     The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
@@ -717,9 +727,10 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, temp
     keeps the sphere it had and `belt_reason` names the measurement that was missing.
 
     The measured radius is recorded in the cylinder and `radius_nm` remains a **floor** under the surface the sites
-    are placed on: the greater of the two is used, so the setting can push a belt out but never pull it inside the
-    protein the cylinder was measured to occupy. The record carries both numbers and `radius_source` says which one
-    decided, so a reader can tell a measured belt from one the setting enlarged and can re-add the floor.
+    are placed on: the surface is `max(measured radius + belt_gap_nm, radius_nm)`, so a run's gap can push a belt out
+    and the floor can too, but neither can pull it inside the protein the cylinder was measured to occupy. The record
+    carries both numbers, the gap, and `radius_source` saying which decided, so a reader can tell a measured belt from
+    one the setting enlarged and can re-add the floor.
 
     The gate is applied *while the sites are drawn*: an entry of the ladder whose site lands within the clearance of
     the protein -- or within the overlap gate of an earlier site -- is refused and the ladder carries on to its next
@@ -736,7 +747,9 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, temp
     if not len(inside):
         return None, 'the membrane frame\'s slab holds no atom of the protein, so no cylinder can be measured'
     cylinder = _transmembrane_cylinder(inside, frame_axis, bounds)
-    surface_radius = max(cylinder['radius_nm'], float(radius_nm))
+    # The belt stands off the measured surface by the run's gap, and `radius_nm` is still only a floor under the
+    # result: a positive gap can push the surface out, never pull it inside the cylinder the protein occupies.
+    surface_radius = max(cylinder['radius_nm'] + float(belt_gap_nm), float(radius_nm))
     length = detergent_length_nm(template)
     if length is None:
         return None, ('the detergent\'s own length cannot be measured from the molecule the build carries, so the '
@@ -771,7 +784,12 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, radius_nm, temp
         'slab_radius_nm': round(float(cylinder['slab_radius_nm']), 6),
         'radius_nm': round(float(surface_radius), 6),
         'radius_floor_nm': round(float(radius_nm), 6),
-        'radius_source': RADIUS_MEASURED if cylinder['radius_nm'] > float(radius_nm) + 1e-12 else RADIUS_FLOOR,
+        # The extra distance the run asked for between the measured surface and the belt, so the record states the
+        # geometry that was actually built. It is the number the surface above was computed with, not a re-derivation.
+        'gap_nm': round(float(belt_gap_nm), 6),
+        'radius_source': (RADIUS_MEASURED
+                          if cylinder['radius_nm'] + float(belt_gap_nm) > float(radius_nm) + 1e-12
+                          else RADIUS_FLOOR),
         'detergent_length_nm': round(float(length), 6),
         'belt_reach_nm': round(belt_reach, 6),
         'vertical_half_band_nm': round(float(half_band), 6),

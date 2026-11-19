@@ -51,6 +51,9 @@ INPUTS_DIRECTORY = run_inputs.INPUTS_DIRECTORY
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
             'initial_z_nm': 6.0, 'contact_nm': 0.6,
+            # The belt's extra stand-off from the protein's measured transmembrane-cylinder surface, in nm. 0 is
+            # exactly the geometry every belt had before this setting existed, and the sphere never reads it.
+            'belt_gap_nm': 0.0,
             'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
             # The CG production legs' own numbers. They are written from `pdc-assessment-v1`/`pdc-extension-v1`,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
@@ -147,6 +150,9 @@ SETTING_SPECS = {
     'box_margin_nm': ('Box margin (nm)', 0.5, 10.0),
     'initial_z_nm': ('Initial z box (nm)', 1.0, 50.0),
     'contact_nm': ('Micelle contact distance (nm)', 0.1, 2.0),
+    # The belt's extra stand-off from the measured cylinder surface. Belt-only: a sphere placement never reads it,
+    # so 0 keeps every previous geometry byte for byte.
+    'belt_gap_nm': ('Belt-protein gap (nm)', 0.0, 5.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
     # equilibration and restart profiles keep their own values. The production neighbour list, temperature and
@@ -1426,6 +1432,38 @@ def normalize_settings(settings=None, profile='standard'):
     return _numbers(settings or {}, ignore_unknown=False)
 
 
+def _sampling_text(total_ns: float) -> str:
+    """The run's total CG sampling as one token: `202ns`, `1us`, `1.5us` -- microseconds past a thousand, trimmed."""
+    if total_ns >= 1000:
+        return f'{total_ns / 1000:g}us'
+    return f'{total_ns:g}ns'
+
+
+def generated_label(molecule, settings=None, *, protein=None) -> str:
+    """A run's name from the choices that describe it, so a panel field can be filled rather than guessed.
+
+    `[detergent]_micelle_[count]_[conformation]_[time]` for an empty micelle and
+    `[detergent]_[protein stem]_[count]_[conformation]_[time]` with a protein. The settings are read through the
+    adapter's own normalizer, so the panel's spellings (`pdc_assessment_ns`) mean what they mean everywhere else;
+    a payload the normalizer cannot accept falls back to the defaults merged with what was supplied, because a label
+    is a convenience and must not refuse a build the real settings reader might still accept. The conformation is
+    `libconf` whenever the run draws from a library and `1conf` otherwise, and the time is the total CG sampling
+    (assessment plus extension). The result is capped at 160 characters.
+    """
+    supplied = settings if isinstance(settings, dict) else {}
+    try:
+        numbers = normalize_settings(supplied)
+    except ValueError:
+        numbers = {**DEFAULTS, **supplied}
+    detergent = re.sub(r'[\s/]+', '_', str(molecule)).strip('_') or 'detergent'
+    count = int(float(numbers.get('aggregation_number', DEFAULTS['aggregation_number'])))
+    conformation = 'libconf' if numbers.get('conformation_library') else '1conf'
+    total_ns = (float(numbers.get('assessment_ns', DEFAULTS['assessment_ns']))
+                + float(numbers.get('extension_ns', DEFAULTS['extension_ns'])))
+    middle = re.sub(r'[\s/]+', '_', Path(str(protein)).stem).strip('_') if protein else 'micelle'
+    return '_'.join([detergent, middle, str(count), conformation, _sampling_text(total_ns)])[:160]
+
+
 def readiness(protein=None, template=None, project_root=None, **kwargs):
     """What a protein-detergent build needs, in the shape every run type answers with.
 
@@ -1561,4 +1599,5 @@ PROTOCOL = protocol.Protocol(
     normalize_settings=normalize_settings,
     readiness=_protocol_readiness,
     prepare=_protocol_prepare,
+    label=generated_label,
 )
