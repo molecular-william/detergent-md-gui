@@ -93,6 +93,10 @@ for _stage in ('nvt', 'npt', 'production'):
         _aliases.update({'pcoupl': 'pcoupl', 'pcoupltype': 'pcoupltype', 'tau_p': 'tau_p',
                          'compressibility': 'compressibility'})
     MDP_HELP.update({f'aa_{_stage}_{name}': MDP_HELP[source] for name, source in _aliases.items()})
+# The AA production leg's output cadence, keyed by the setting name its input posts.
+MDP_HELP.update({f'aa_production_{name}': MDP_HELP[source] for name, source in (
+    ('nstlog', 'nstlog'), ('nstenergy', 'nstenergy'), ('nstxtcout', 'nstxtcout'),
+    ('xtc_precision', 'xtc_precision'), ('nstcomm', 'nstcomm'))})
 
 #: The CG stages each carry their own copy of the same MDP options, keyed by the setting name their input posts.
 #: Production's own overrides already use the generic names above; the other two legs prefix theirs, so the form

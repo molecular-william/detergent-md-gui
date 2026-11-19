@@ -70,7 +70,10 @@ _AA_DYNAMICS_COMMENTS = {
     'lincs-order': "the run's own LINCS order; absent leaves GROMACS' own 4",
     'lincs-warnangle': "the run's own LINCS warning angle; absent leaves GROMACS' own 30 degrees",
     'lincs-iter': "the run's own LINCS iteration count; absent leaves GROMACS' own 1",
-    'nstxout-compressed': "one compressed frame per `output_interval_ps`, converted at this file's dt",
+    'nstxout-compressed': "one compressed frame per `output_interval_ps`, converted at this file's dt; the "
+                          "production leg may state its own step count instead",
+    'xtc-precision': "the run's own compressed-trajectory precision; absent leaves GROMACS' own value",
+    'nstcomm': "the run's own centre-of-mass removal interval; absent leaves GROMACS' own value",
     'nstenergy': 'energies every min(interval steps, 500)',
     'nstlog': 'the log every min(interval steps, 500)',
     'tc-grps': 'one coupling group, the whole system',
@@ -121,7 +124,9 @@ _AA_DYNAMICS_VARIABLE = ('dt', 'nstlist', 'verlet-buffer-tolerance', 'tcoupl', '
                          # A value equal to the force-field block's own is omitted by the adapter, so an untouched
                          # run renders this profile and its force-field block byte for byte.
                          'rlist', 'rcoulomb', 'rvdw', 'rvdw-switch', 'vdwtype', 'vdw-modifier',
-                         'nsttcouple', 'nstpcouple', 'lincs-order', 'lincs-warnangle', 'lincs-iter')
+                         'nsttcouple', 'nstpcouple', 'lincs-order', 'lincs-warnangle', 'lincs-iter',
+                         # The AA production leg's own output cadence; the other two legs never supply these.
+                         'xtc-precision', 'nstcomm')
 
 AA_PROFILES = (
     Profile(settings={**_AA_PROTOCOL, 'integrator': 'steep', 'nsteps': 0, 'emtol': 1000, 'emstep': 0.01,

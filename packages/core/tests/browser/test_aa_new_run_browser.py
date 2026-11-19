@@ -138,9 +138,12 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     page.locator('[name=aa_nvt_ps]').fill('100')
     expect(page.locator('#stage-aa-nvt-facts')).to_have_text('100 ps · 1 fs · 100 000 steps · nstlist 20')
 
-    # Open production, change one of its numbers, close it again: a collapsed stage still posts.
+    # Open production, change one of its numbers and two output-cadence boxes, close it again: a collapsed stage
+    # still posts, and a blank cadence box writes no setting at all.
     page.locator('#stage-aa-production > summary').click()
     page.locator('[name=aa_production_nstlist]').fill('50')
+    page.locator('[name=aa_production_nstlog]').fill('250')
+    page.locator('[name=aa_production_xtc_precision]').fill('500')
     page.locator('#stage-aa-production > summary').click()
     assert page.locator('#stage-aa-production').evaluate('(el) => el.open') is False
     expect(page.locator('#stage-aa-production-facts')).to_have_text(
@@ -157,6 +160,11 @@ def test_the_stage_editors_state_their_numbers_and_post_while_collapsed(dashboar
     assert body['aa_npt_nstlist'] == '20'
     assert body['aa_production_nstlist'] == '50'
     assert body['aa_production_verlet_buffer_tolerance'] == '-1'
+    assert body['aa_production_nstlog'] == '250'
+    assert body['aa_production_xtc_precision'] == '500'
+    # The cadence boxes left blank are not posted: the run keeps the derived rule and GROMACS' defaults.
+    assert 'aa_production_nstenergy' not in body and 'aa_production_nstxtcout' not in body
+    assert 'aa_production_nstcomm' not in body
 
     # A CG run consumes a reference that already ran: none of the three AA stage editors is offered, and the three
     # CG editors take their place.

@@ -196,6 +196,31 @@ def test_the_aa_stage_settings_reach_their_own_mdp():
             '0.01' if profile == 'aa-production-v1' else '-1'), profile
 
 
+def test_aa_production_output_cadence_overrides_only_production():
+    """The five production cadence numbers replace the derived ones; equilibration legs are untouched.
+
+    A blank box keeps the derivation (`nstxout-compressed` from `output_interval_ps`, energy/log capped at 500), so
+    the parity maps above still hold. An explicit trajectory step count wins over the ps-derived stride.
+    """
+    default = aa.normalize_settings({})
+    chosen = aa.normalize_settings({'aa_production_nstlog': 250, 'aa_production_nstenergy': 100,
+                                    'aa_production_nstxtcout': 1000, 'aa_production_xtc_precision': 500,
+                                    'aa_production_nstcomm': 50})
+    before = parsed(render('aa-production-v1', aa.mdp_values(default, 'aa-production-v1')))
+    after = parsed(render('aa-production-v1', aa.mdp_values(chosen, 'aa-production-v1')))
+    assert before['nstlog'] == before['nstenergy'] == '500'
+    assert (after['nstlog'], after['nstenergy'], after['nstxout-compressed']) == ('250', '100', '1000')
+    assert after['xtc-precision'] == '500' and after['nstcomm'] == '50'
+    # The two options the profile does not state are absent from an untouched production file.
+    assert 'xtc-precision' not in before and 'nstcomm' not in before
+    # The equilibration legs do not read the production cadence.
+    for profile in ('aa-nvt-v1', 'aa-npt-v1'):
+        assert parsed(render(profile, aa.mdp_values(chosen, profile))) == \
+            parsed(render(profile, aa.mdp_values(default, profile))), profile
+    with pytest.raises(ValueError, match='aa_production_nstlog must be an integer'):
+        aa.normalize_settings({'aa_production_nstlog': 1.5})
+
+
 def test_an_aa_verlet_buffer_tolerance_of_exactly_zero_is_refused_by_name():
     """GROMACS itself refuses it, so the run that would reach grompp with it is refused here, naming the setting."""
     for stage in ('nvt', 'npt', 'production'):

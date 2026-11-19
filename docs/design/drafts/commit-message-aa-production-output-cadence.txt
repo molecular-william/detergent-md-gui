@@ -1,0 +1,16 @@
+AA production output cadence
+
+The AA NPT production stage editor gains five optional cadence boxes: nstlog, nstenergy,
+nstxout-compressed (trajectory interval), compressed-x-precision (trajectory precision) and nstcomm.
+They are advertised as aa_production_* settings and written only into aa-production-v1; the NVT and
+NPT equilibration legs keep the derived cadence.
+
+A blank box keeps the rule mdp_values already used: the trajectory stride follows the run-wide
+Trajectory interval (ps), and energy/log are that stride capped at 500 steps. So an untouched run
+renders the reviewed MDP byte for byte; an explicit trajectory step count overrides the ps-derived
+stride for production only, and the precision/COM-removal lines are absent unless named. Default
+buttons clear the five boxes (they have no prefill).
+
+Checks: fast tier 3128 passed / 1 xfailed; browser 415 passed at -n 8; ruff clean.
+Plan: docs/plans/2026-11-18-aa-production-output-cadence.md
+Draft: docs/design/drafts/2026-11-18-aa-production-output-cadence.html

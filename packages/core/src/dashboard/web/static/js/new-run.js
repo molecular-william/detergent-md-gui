@@ -259,8 +259,12 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
     ...CG_PRODUCTION_FIELDS, ...CG_STAGE_FIELDS, ...SHARED_CG_FIELDS];
   // The topology choice is the AA leg's: a CG run consumes a reference that already ran.
   const AA_TOPOLOGY_FIELDS = ['vsite'];
+  // The AA production leg's output cadence is the AA half's own: a CG run consumes an AA reference that already ran.
+  const AA_PRODUCTION_CADENCE_FIELDS = ['aa_production_nstlog','aa_production_nstenergy','aa_production_nstxtcout',
+    'aa_production_xtc_precision','aa_production_nstcomm'];
   const AA_ONLY_FIELDS = [...AA_FIELDS, 'aa_minimization_steps', 'aa_minimization_emtol', 'aa_minimization_emstep',
-    ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS, ...SHARED_AA_FIELDS];
+    ...GPU_FIELDS, ...RUN_FIELDS, 'force_field', ...AA_TOPOLOGY_FIELDS, ...SHARED_AA_FIELDS,
+    ...AA_PRODUCTION_CADENCE_FIELDS];
   const REVISION_FIELDS = [...AA_FIELDS.filter(name => name !== 'mdrun_pme'), ...GPU_FIELDS, ...CG_RUN_FIELDS,
     ...CG_FIELDS, 'force_field', ...SHARED_AA_FIELDS];
   // Which controls each run type/kind shows. The hidden ones keep their values -- the payload is filtered by

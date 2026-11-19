@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>AA production output cadence draft</title>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/dashboard.css'>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/new-run.css'>
+<link rel='stylesheet' href='../../../packages/core/src/dashboard/web/static/layout.css'>
+<style>
+  body{padding:24px;background:#fff}
+  main{max-width:900px;margin:0 auto}
+  .draft-banner{background:#fffbe6;border:1px solid #e6d78a;border-radius:10px;padding:14px 18px;margin:0 0 22px}
+  .draft-banner h2{margin:0 0 6px;font-size:17px}
+  .draft-banner p{font-size:13px;line-height:1.55;margin:4px 0}
+  .draft-tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin:0 0 10px}
+  h2.draft-h{font-size:15px;margin:30px 0 4px;padding-top:16px;border-top:1px solid var(--line)}
+  p.draft-lede{font-size:13px;color:var(--muted);margin:0 0 14px;max-width:82ch}
+  .draft-frame{border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff}
+  .draft-frame > figcaption{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+  .draft-frame .settings-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+</style>
+</head>
+<body>
+<main>
+<div class='draft-banner'>
+  <span class='draft-tag'>Draft · no code yet</span>
+  <h2>AA production output cadence</h2>
+  <p>The NPT production stage editor gains five optional cadence boxes. A blank box keeps today's
+    derivation: the trajectory stride follows the run-wide <b>Trajectory interval (ps)</b>, and the
+    log and energy intervals are that stride capped at 500 steps. An explicit trajectory step count
+    overrides the ps interval for production only. Precision and COM removal are absent unless named,
+    so an untouched run's MDP is unchanged.</p>
+</div>
+
+<h2 class='draft-h'>Stage settings › NPT production</h2>
+<p class='draft-lede'>The five boxes sit under the stage's existing duration, timestep, neighbour list,
+  Verlet tolerance and coupling controls, in a separate <b>Output cadence</b> block.</p>
+<figure class='draft-frame'>
+  <figcaption>Stage settings</figcaption>
+  <fieldset class='run-settings card'>
+    <legend>Stage settings</legend>
+    <details class='stage-editor' open>
+      <summary><span class='stage-name'>NPT production</span><span class='stage-facts'>10 000 ps · 2 fs · 5 000 000 steps · nstlist 20</span></summary>
+      <div class='stage-body'>
+        <div class='settings-grid'>
+          <label>Duration (ps)<span class='setting-control'><input type='number' value='10000'><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>Timestep (fs)<span class='setting-control'><input type='number' value='2'><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>Neighbour list rebuild (steps)<span class='setting-control'><input type='number' value='20'><button type='button' class='secondary use-default'>Default</button></span></label>
+        </div>
+        <h5 class='new-option-title' style='margin-top:10px'>Output cadence</h5>
+        <p class='hint'>Blank keeps the derived rule: the trajectory stride follows Trajectory interval (ps)
+          in Sampling, and energy/log are that stride capped at 500 steps. An explicit trajectory step count
+          overrides the ps interval for this stage.</p>
+        <div class='settings-grid'>
+          <label>Log interval <span class='hint'>steps</span><span class='setting-control'><input type='number' min='1' max='1000000' step='1' placeholder='min(stride, 500)' data-clear-default><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>Energy interval <span class='hint'>steps</span><span class='setting-control'><input type='number' min='1' max='1000000' step='1' placeholder='min(stride, 500)' data-clear-default><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>Trajectory interval <span class='hint'>steps</span><span class='setting-control'><input type='number' min='1' max='1000000' step='1' placeholder='from Trajectory interval (ps)' data-clear-default><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>Trajectory precision <span class='hint'>compressed-x-precision</span><span class='setting-control'><input type='number' min='1' max='1000000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default'>Default</button></span></label>
+          <label>COM removal <span class='hint'>steps</span><span class='setting-control'><input type='number' min='1' max='1000000' step='1' placeholder='GROMACS default' data-clear-default><button type='button' class='secondary use-default'>Default</button></span></label>
+        </div>
+      </div>
+    </details>
+  </fieldset>
+</figure>
+</main>
+</body>
+</html>

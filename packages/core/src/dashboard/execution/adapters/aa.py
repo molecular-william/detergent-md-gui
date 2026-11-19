@@ -395,6 +395,16 @@ for _stage, _coupling in _AA_COUPLING_DEFAULTS.items():
 #: clone or retry re-feeds no null into the normalizer. GROMACS itself refuses a factor its topology cannot take
 #: (the bonded heavy atom would fall below the repartitioned hydrogen mass).
 SETTING_SPECS['mass_repartition_factor'] = ('Hydrogen mass repartition factor', 1, 10)
+# The AA production leg's output cadence: the numbers the CG production group already offers, on the atomistic
+# trajectory. They have no prefill on purpose -- a blank box keeps the derived rule in `mdp_values` (the trajectory
+# stride from `output_interval_ps`, energy/log capped at 500 steps), so an untouched run renders the reviewed file
+# byte for byte. An explicit trajectory step count overrides the ps-derived stride for production only.
+for _key, _label in (('nstlog', 'AA production log interval (steps)'),
+                     ('nstenergy', 'AA production energy interval (steps)'),
+                     ('nstxtcout', 'AA production trajectory interval (steps)'),
+                     ('xtc_precision', 'AA production trajectory precision'),
+                     ('nstcomm', 'AA production centre-of-mass removal (steps)')):
+    SETTING_SPECS[f'aa_production_{_key}'] = (_label, 1, 1000000)
 # The shared Nonbonded and constraints section: one vocabulary for AA and CG (`execution/nonbonded.py`), and the
 # force-field block's own cut-offs and van der Waals treatment as this run's defaults.
 SETTING_SPECS.update(nonbonded.numeric_specs(nonbonded.AA_FIELDS))
@@ -448,6 +458,11 @@ def normalize_settings(settings=None, profile='standard'):
                    'aa_npt_nstlist':'aa_npt_nstlist must be an integer',
                    'aa_production_nstlist':'aa_production_nstlist must be an integer',
                    'aa_minimization_steps':'aa_minimization_steps must be an integer',
+                   'aa_production_nstlog':'aa_production_nstlog must be an integer',
+                   'aa_production_nstenergy':'aa_production_nstenergy must be an integer',
+                   'aa_production_nstxtcout':'aa_production_nstxtcout must be an integer',
+                   'aa_production_xtc_precision':'aa_production_xtc_precision must be an integer',
+                   'aa_production_nstcomm':'aa_production_nstcomm must be an integer',
                    **nonbonded.INTEGRALS})
     if result['output_interval_ps']>result['aa_production_ps']:raise ValueError('Output interval exceeds AA production duration')
     if result.get('vsite', 'none') != 'none' and result.get('mdrun_update') == 'gpu':
@@ -549,6 +564,17 @@ def mdp_values(settings, profile):
                    'ref-t': settings['temperature_k'], 'gen-temp': settings['temperature_k'],
                    'gen-seed': settings['aa_seed'], 'ld-seed': settings['aa_seed'],
                    'nstxout-compressed': interval, 'nstenergy': min(interval, 500), 'nstlog': min(interval, 500)})
+    if profile == 'aa-production-v1':
+        # The production leg's own output cadence. A blank box keeps the derived number above; naming one replaces
+        # only that option, and an explicit trajectory step count wins over the ps-derived stride for this stage.
+        for setting, mdp in (('aa_production_nstlog', 'nstlog'),
+                             ('aa_production_nstenergy', 'nstenergy'),
+                             ('aa_production_nstxtcout', 'nstxout-compressed'),
+                             ('aa_production_xtc_precision', 'xtc-precision'),
+                             ('aa_production_nstcomm', 'nstcomm')):
+            value = settings.get(setting)
+            if value is not None:
+                values[mdp] = value
     if profile != 'aa-nvt-v1':
         # Isotropic takes one value each; semiisotropic two (x/y and z) and anisotropic six. The form states one
         # compressibility and one pressure, so a larger kind repeats them -- the run stays executable and the file

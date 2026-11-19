@@ -309,7 +309,22 @@
           <label>Neighbour list rebuild (steps)<span class="setting-control"><input name="aa_production_nstlist" type="number" min="1" max="10000" step="1"><button type="button" class="secondary use-default" data-field="aa_production_nstlist">Default</button></span></label>
           <label>Verlet buffer tolerance <span class="hint">kJ mol⁻¹ ps⁻¹ · -1 = off</span><span class="setting-control"><input name="aa_production_verlet_buffer_tolerance" type="number" min="-1" max="0.1" step="0.001"><button type="button" class="secondary use-default" data-field="aa_production_verlet_buffer_tolerance">Default</button></span></label>
           {{ aa_coupling_fields('production', true, true) }}
-        </div></div>
+        </div>
+        {# The production leg's output cadence: the same options the CG production group offers, on the atomistic
+           trajectory. Blank keeps the derived rule -- the trajectory stride from Trajectory interval (ps) above, and
+           energy/log capped at 500 steps -- so an untouched run writes exactly the reviewed MDP. #}
+        <h5 class="new-option-title stage-cadence-title">Output cadence</h5>
+        <p class="hint">Blank keeps the derived rule: the trajectory stride follows <b>Trajectory interval (ps)</b>
+          in Sampling, and energy and log are that stride capped at 500 steps. An explicit trajectory step count
+          overrides the ps interval for production only.</p>
+        <div class="settings-grid">
+          <label>Log interval <span class="hint">steps</span><span class="setting-control"><input name="aa_production_nstlog" type="number" min="1" max="1000000" step="1" placeholder="min(stride, 500)" data-clear-default><button type="button" class="secondary use-default" data-field="aa_production_nstlog">Default</button></span></label>
+          <label>Energy interval <span class="hint">steps</span><span class="setting-control"><input name="aa_production_nstenergy" type="number" min="1" max="1000000" step="1" placeholder="min(stride, 500)" data-clear-default><button type="button" class="secondary use-default" data-field="aa_production_nstenergy">Default</button></span></label>
+          <label>Trajectory interval <span class="hint">steps</span><span class="setting-control"><input name="aa_production_nstxtcout" type="number" min="1" max="1000000" step="1" placeholder="from Trajectory interval (ps)" data-clear-default><button type="button" class="secondary use-default" data-field="aa_production_nstxtcout">Default</button></span></label>
+          <label>Trajectory precision <span class="hint">compressed-x-precision</span><span class="setting-control"><input name="aa_production_xtc_precision" type="number" min="1" max="1000000" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="aa_production_xtc_precision">Default</button></span></label>
+          <label>COM removal <span class="hint">steps</span><span class="setting-control"><input name="aa_production_nstcomm" type="number" min="1" max="1000000" step="1" placeholder="GROMACS default" data-clear-default><button type="button" class="secondary use-default" data-field="aa_production_nstcomm">Default</button></span></label>
+        </div>
+      </div>
       </details>
       {# The CG simulation's three legs, in its own editor shells. The CG production leg keeps its output cadence and
          cutoffs under Other run options, because those are the run's output rather than the leg's physics; every

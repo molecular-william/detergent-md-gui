@@ -10,6 +10,15 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **AA production output cadence (2026-11-19).** The AA **NPT production** stage editor gains five optional
+  cadence boxes: `aa_production_nstlog`, `aa_production_nstenergy`, `aa_production_nstxtcout`,
+  `aa_production_xtc_precision` (compressed-x-precision) and `aa_production_nstcomm`. Blank keeps the derived rule
+  `aa.mdp_values` already used -- the trajectory stride from `output_interval_ps` with energy/log capped at 500
+  steps -- so an untouched run's MDP is unchanged; an explicit trajectory step count overrides the ps-derived stride
+  for production only, and the precision/COM-removal lines are absent unless named. The equilibration legs keep
+  their derivation. Plan: `docs/plans/2026-11-18-aa-production-output-cadence.md`; draft:
+  `docs/design/drafts/2026-11-18-aa-production-output-cadence.html`. The running dashboard unit predates this change
+  (template and Python), so restart it with no run in flight.
 - **Surfaces: two models, and the Align-trajectory tickbox gone (2026-11-18).** `analysis/runs/surfaces.py`
   measures only `AA` (the atomistic reference) and `Simulated CG` (this run's own trajectory). The `Mapped raw` and
   `Mapped ring-scaled` variants are removed: no mapped trajectory is written and no mapped `gmx sasa` leg runs. The
