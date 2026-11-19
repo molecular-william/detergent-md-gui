@@ -121,7 +121,8 @@ def empty_micelle_pdb(molecules=3):
 
 
 def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, clearance: float | None = 0.5436,
-           placement_shape='belt-cylinder', band: float | None = 3.1408, representation='the mapping\u2019s beads',
+           placement_shape='belt-cylinder', band: float | None = 3.1408, band_min: float | None = None,
+           band_max: float | None = None, representation='the mapping\u2019s beads',
            cost=None, protein: str | None = '1qj8', chains=('A', 'B'), mode='lattice', aggregation=150,
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,
@@ -138,7 +139,8 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'box_nm': [8.3517, 6.7817, 11.0804] if valid else None,
                   'clearance_nm': clearance,
                   'placement_shape': placement_shape,
-                  'band_radius_nm': band, 'detergent_representation': representation,
+                  'band_radius_nm': band, 'band_radius_min_nm': band_min, 'band_radius_max_nm': band_max,
+                  'detergent_representation': representation,
                   # What the placement measured: the shell it placed on and which number decided its radius, the
                   # detergent's own body as the clearance gate read it, and -- when the requested count fails the
                   # gate -- the count the shape would hold.
@@ -277,6 +279,17 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('already cached')
     expect(page.locator('.new-pdc-preview-kept')).to_contain_text('preview/cg/0423f94ce62e7698')
     expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
+    assert errors == [], errors
+
+
+def test_a_belt_whose_surface_varies_states_the_range_the_protein_imposes(dashboard, live_page):
+    """The local surface is not one radius: the card states the interval the detergents were placed in."""
+    page, errors = live_page
+    serve(page, answer(placement_pdb(), band=2.04, band_min=1.35, band_max=3.72))
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    expect(page.locator('.new-pdc-preview-box')).to_contain_text('follows the protein at 1.35–3.72 nm')
     assert errors == [], errors
 
 

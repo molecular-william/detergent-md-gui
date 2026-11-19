@@ -110,15 +110,15 @@ def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_
     assert report['membrane_frame']['axis'] == [0.0, 0.0, 1.0]
     assert 'protein.pdb' in report['membrane_frame']['source'], 'traceable to the file that stated it'
     assert report['placement_shape'] == 'belt-cylinder'
-    # The measured cylinder is the bundle's own 1.0 nm radius; the run's radius_nm (3.0 nm, the sphere's number) is a
-    # floor under it, so the surface this build uses is the larger of the two. The stand-off is nobody's setting: it
-    # is the detergent's length, measured from the molecule's own structure (2.4 nm here).
+    # The measured cylinder is the bundle's own 1.0 nm radius, and the belt now follows that measurement: the sphere's
+    # 3.0 nm default is not a belt floor any more. The stand-off is the detergent's length, measured from the
+    # molecule's own structure (2.4 nm here).
     band = report['placement_band']
     assert band['slab_radius_nm'] == 1.0
     assert band['cylinder']['radius_nm'] == 1.0
     assert band['cylinder']['atom_count'] == len(CG_BEADS)
     assert band['cylinder']['axis'] == [0.0, 0.0, 1.0]
-    assert band['radius_nm'] == 3.0 and band['radius_source'] == 'floor'
+    assert band['radius_nm'] == 1.0 and band['radius_source'] == 'measured'
     assert band['detergent_length_nm'] == MOLECULE_LENGTH_NM
     assert report['protein_clearance_nm'] >= MIN_CLEARANCE_NM
 

@@ -410,7 +410,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
-             'placement_shape': None, 'band_radius_nm': None, 'slab_radius_nm': None,
+             'placement_shape': None, 'band_radius_nm': None, 'band_radius_min_nm': None,
+             'band_radius_max_nm': None, 'slab_radius_nm': None,
              'detergent_representation': None,
              # Which terms the picture's bonds are -- the mapping's fit or its derivation -- in the run's own words.
              # `None` for a centres-only build, which draws no bonds to attribute.
@@ -545,11 +546,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                               margin_nm=margin, initial_z_nm=initial_z, frame=frame,
                                               conformations=conformations, belt_gap_nm=float(belt_gap_nm))
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
-    # The belt's own radius, and the two numbers it was derived from. `band_radius_nm` is what the card renders as
-    # "the belt is a band of radius X nm in the membrane plane", so it is the measured **cylinder surface radius**
-    # (with the run's radius setting applied as its floor) the belt was placed about -- the number that moves when a
-    # selection moves the transmembrane atoms. The detergent's own length, which is how far outside that surface each
-    # head stands, is stated under its own name, and the measured radius before the floor beside it.
+    # The belt's own radius, and the numbers it was derived from. A belt's surface follows the protein locally, so
+    # `band_radius_nm` is the mean local surface and `band_radius_min_nm`/`band_radius_max_nm` are its range; the
+    # card states the range where it varies. `slab_radius_nm` is the cylinder's one global measurement, kept beside
+    # it so a reader can see what a single furthest atom would have reported.
     band = placement['band'] or {}
     shell = placement.get('shell') or {}
     # The shell's own numbers, and the density they and the count make. `shell`/`band` are never both set: a belt's
@@ -557,7 +557,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     # shape and the shape's name says which geometry produced them.
     shape_record = shell or band
     basis.update({'placement_shape': placement['placement_shape'], 'clearance_nm': placement['protein_clearance_nm'],
-                  'band_radius_nm': band.get('radius_nm'), 'slab_radius_nm': band.get('slab_radius_nm'),
+                  'band_radius_nm': band.get('radius_nm'),
+                  'band_radius_min_nm': band.get('radius_min_nm'),
+                  'band_radius_max_nm': band.get('radius_max_nm'),
+                  'slab_radius_nm': band.get('slab_radius_nm'),
                   'detergent_length_nm': band.get('detergent_length_nm'),
                   # The cylinder the belt was measured about, and the vertical band and tilt the sites were given,
                   # so the panel can name the shape without re-deriving it from the coordinates.

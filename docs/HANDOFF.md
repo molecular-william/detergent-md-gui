@@ -10,11 +10,27 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Protein-detergent belt: local surface, so one protruding helix no longer inflates the whole belt (2026-11-19).**
+  The belt's surface was one global radius (the furthest in-slab atom) with the sphere's 3.0 nm default as a floor.
+  On 2ydo that measured 3.72 nm because one helix at 160–175° reaches 3.72 nm while the rest of the slab is ~1.6 nm,
+  so the whole belt stood ~2 nm off the bundle. `_belt_cylinder` now measures a **local** surface per site: the
+  furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10°) of the site's heading, widened automatically when the
+  coarse-grained headings are sparse (so a four-bead cross-section cannot leave a site on zero radius). The surface
+  is `max(local + belt_gap_nm, belt_floor_nm)`, with `belt_floor_nm` 0 for a belt (`radius_nm` is the sphere's
+  radius and floor only); the old 3.0 nm floor is gone. The record keeps the global `slab_radius_nm` as before and
+  the belt's mean/min/max local surface (`radius_nm`, `radius_min_nm`, `radius_max_nm`), plus `gap_nm` and
+  `radius_floor_nm`. The existing head/body clearance gates remain the safety net: a site whose body still reaches
+  the protein is refused and redrawn on the next ladder pass. Measured on 2ydo with DDM: global 3.72 nm, local
+  surfaces 1.35–3.72 nm, mean 2.04 nm, all 150 placed. The preview card states the range when it varies.
+  Checks: pdc fast area 809 passed / 1 xfailed (new local-helix regression in `test_pdc_placement.py`); full fast
+  tier 3139 passed / 1 xfailed; full browser tier 423 passed (the preview card's range sentence included). The
+  running dashboard unit predates this change, so restart it with no run in flight.
+
 - **Protein-detergent New run: belt-protein gap and auto-generated run labels (2026-11-19).**
-  `belt_gap_nm` is a new run setting (DEFAULTS 0.0, bounds 0–5 nm): the extra stand-off between the protein's measured
-  transmembrane-cylinder surface and the belt's detergent bodies. `_belt_cylinder` places the surface at
-  `max(measured radius + gap, radius_nm)`, the band record states `gap_nm`, and the sphere/self-assembly paths never
-  read it (0 is byte-identical to the old geometry). It is threaded through `pdc.prepare`, `pdc_build`, the preview
+  `belt_gap_nm` is a new run setting (DEFAULTS 0.0, bounds 0–5 nm): the extra stand-off between the protein's
+  measured belt surface and the belt's detergent bodies. `_belt_cylinder` adds it to each site's local surface
+  (floored by `belt_floor_nm`, 0 for a belt), the band record states `gap_nm`, and the sphere/self-assembly paths
+  never read it. It is threaded through `pdc.prepare`, `pdc_build`, the preview
   and `/api/pdc/preview/placement` (`belt_gap_nm` query), and the panel control lives in the belt block with a
   Default button and an info sentence; it is hidden in self-assembly (where the adapter ignores it) but still posts.
   A run label is suggested while the reader has not typed one:

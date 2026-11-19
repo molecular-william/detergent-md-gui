@@ -207,7 +207,7 @@ def test_a_stated_membrane_puts_the_placement_on_the_cylinders_own_surface(tmp_p
     own height from the golden-angle ladder -- not one shared meridian around a tube.
     """
     points = _asymmetric_protein()
-    placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(), radius_nm=1.0)
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame())
 
     band = placed['band']
     cylinder = band['cylinder']
@@ -225,8 +225,9 @@ def test_a_stated_membrane_puts_the_placement_on_the_cylinders_own_surface(tmp_p
     assert cylinder['axis_source'] == 'frame-normal', 'the axis is always the membrane normal'
     assert cylinder['radius_nm'] == pytest.approx(1.0)
     assert cylinder['height_nm'] == pytest.approx(2.0), 'the axial extent widened to the stated slab thickness'
-    # The surface is the measured 1.0 nm: the `radius_nm` setting is a floor under it and 1.0 is not above it.
-    assert band['radius_nm'] == 1.0 and band['radius_floor_nm'] == 1.0
+    # The surface is the measured 1.0 nm, and the sphere's radius is not a belt floor any more.
+    assert band['radius_nm'] == 1.0 and band['radius_floor_nm'] == 0.0
+    assert band['radius_source'] == 'measured'
     assert band['slab_radius_nm'] == 1.0, 'the old frame-axis measurement is kept beside the cylinder'
     assert band['detergent_length_nm'] == MOLECULE_LENGTH_NM
     assert band['vertical_half_band_nm'] == pytest.approx(pdc_placement.VERTICAL_SPREAD * MOLECULE_LENGTH_NM)
@@ -263,7 +264,7 @@ def test_a_tilted_transmembrane_bundle_still_uses_the_frame_normal(tmp_path):
     points = [list(height * tilt + 0.35 * across * np.cos(angle) + 0.35 * around * np.sin(angle))
               for height in heights for angle in np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)]
     placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=0.5), 8, seed=2,
-                                            frame=_frame(), radius_nm=1.0)
+                                            frame=_frame(), belt_floor_nm=1.0)
 
     cylinder = placed['band']['cylinder']
     axis = np.asarray(cylinder['axis'])
@@ -513,8 +514,10 @@ def test_a_cylinder_faces_the_way_the_frame_states_rather_than_the_way_z_does(tm
 def test_a_radius_larger_than_the_measured_cylinder_lifts_the_surface_to_it(tmp_path):
     """The setting may push a belt out; it can never shrink it below what the protein was measured to need."""
     points = _asymmetric_protein()          # a 1.0 nm in-slab radius, so the cylinder measures 1.0 nm
-    measured = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(), radius_nm=0.75)
-    lifted = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(), radius_nm=2.5)
+    measured = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
+                                              belt_floor_nm=0.75)
+    lifted = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
+                                            belt_floor_nm=2.5)
 
     assert measured['band']['radius_nm'] == 1.0, 'a setting below the measurement leaves the surface alone'
     assert lifted['band']['radius_nm'] == 2.5, 'a setting above it sets the surface'
@@ -1025,3 +1028,23 @@ def test_a_long_drawn_entry_fails_the_body_gate_where_a_short_one_passes(tmp_pat
     assert plain['bead_clearance_nm'] != short_placed['bead_clearance_nm'], \
         'the template body and the library body are different measurements'
     assert short_placed['body_profile'] == plain['body_profile'], "body_profile stays the template's"
+
+
+def test_a_local_helix_steps_only_its_own_arc_out_and_the_rest_hugs_the_bundle(tmp_path):
+    """The belt follows the local protein surface, not the one furthest atom anywhere on the cylinder.
+
+    The transmembrane ring measures 1.0 nm everywhere except a small arc, where three atoms reach 3.0 nm -- the
+    protruding-helix case. A global maximum would put the whole belt on a 3.0 nm surface. The local surface must put
+    the sites over the helix outside it and keep every other sector near the 1.0 nm bundle.
+    """
+    points = _ring(1.0, 0.0) + [[3.0, 0.0, 0.0], [2.9, 0.3, 0.0], [2.8, -0.3, 0.0]]
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame())
+
+    assert placed['valid'], placed['issues']
+    band = placed['band']
+    assert band['radius_max_nm'] == pytest.approx(band['cylinder']['radius_nm'], abs=1e-6), \
+        'the protrusion still sets its own arc'
+    assert band['radius_min_nm'] < 1.0, 'an arc away from the protrusion hugs the bundle'
+    assert band['radius_nm'] < band['cylinder']['radius_nm'] - 0.5, \
+        'the mean local surface is not the global maximum'
+    assert placed['protein_clearance_nm'] >= pdc_placement.MIN_CLEARANCE_NM

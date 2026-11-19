@@ -1540,9 +1540,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       + (basis.detergent_representation === 'one centre per molecule'
           ? 'one centre per detergent: this build records no bead model'
           : "the mapping's beads, bonded the model's way"));
+    const bandMin = Number(basis.band_radius_min_nm), bandMax = Number(basis.band_radius_max_nm);
+    const bandSentence = Number.isFinite(bandMin) && Number.isFinite(bandMax) && Math.abs(bandMax - bandMin) > 0.05
+      ? ` · the belt follows the protein at ${bandMin.toFixed(2)}–${bandMax.toFixed(2)} nm in the membrane plane`
+      : (basis.band_radius_nm
+          ? ` · the belt is a band of radius ${Number(basis.band_radius_nm).toFixed(2)} nm in the membrane plane`
+          : '');
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
-      + 'writes, before equilibration changes it'
-      + (basis.band_radius_nm ? ` · the belt is a band of radius ${Number(basis.band_radius_nm).toFixed(2)} nm in the membrane plane` : ''));
+      + 'writes, before equilibration changes it' + bandSentence);
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
     renderPreviewPlacement(basis);

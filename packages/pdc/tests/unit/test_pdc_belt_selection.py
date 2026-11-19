@@ -86,14 +86,15 @@ def structure(directory: Path, chains, *, name: str = 'stated.pdb', stated: bool
     return path
 
 
-def placement_for(stage: Path, source: Path, chains, count: int, *, radius_nm=pdc_placement.DEFAULT_RADIUS_NM):
+def placement_for(stage: Path, source: Path, chains, count: int, *, radius_nm=pdc_placement.DEFAULT_RADIUS_NM,
+                  belt_floor_nm=0.0):
     """What the build would place for this selection: the stage's own chain filter, frame and placement step."""
     stage.mkdir(parents=True, exist_ok=True)
     selected, _, _ = pdc_build.select_protein(stage, source, chains)
     points = [list(atom['position']) for atom in pdc_import.structure_atoms(selected)]
     frame = frame_from_pdb(selected)
     placed = pdc_placement.place_detergents(points, template(stage / 'molecule'), count, seed=20261014,
-                                            frame=frame, radius_nm=radius_nm)
+                                            frame=frame, radius_nm=radius_nm, belt_floor_nm=belt_floor_nm)
     return placed, frame
 
 
@@ -138,8 +139,8 @@ def test_the_selection_moves_the_belt_whenever_the_measurement_is_over_the_floor
     """
     source = structure(tmp_path, [('A', ring(3.0)), ('B', ring(1.0, count=6))])
 
-    one, _ = placement_for(tmp_path / 'a', source, ['A'], 12, radius_nm=1.0)
-    other, _ = placement_for(tmp_path / 'b', source, ['B'], 12, radius_nm=1.0)
+    one, _ = placement_for(tmp_path / 'a', source, ['A'], 12, belt_floor_nm=1.0)
+    other, _ = placement_for(tmp_path / 'b', source, ['B'], 12, belt_floor_nm=1.0)
 
     assert one['band']['radius_nm'] == pytest.approx(3.0, abs=1e-4)
     assert other['band']['radius_nm'] == pytest.approx(1.0, abs=1e-4)
@@ -151,25 +152,24 @@ def test_the_selection_moves_the_belt_whenever_the_measurement_is_over_the_floor
     assert np.allclose(distances, cylinder['surface_radius_nm'] + MOLECULE_LENGTH_NM, atol=1e-5)
 
 
-def test_a_selection_under_the_default_radius_keeps_the_default_belt_not_the_measured_one(tmp_path):
-    """The one case that does *not* shrink, and it is the default radius and not the selection.
+def test_a_selection_under_the_default_radius_follows_its_measured_cylinder(tmp_path):
+    """The belt follows the selection's own measurement, not the sphere's 3.0 nm default.
 
-    `place_detergents` treats `radius_nm` as a floor under the measured centre-line -- the panel states no radius at
-    all, so the pipeline's own default 3.0 nm is what it passes. A selection that measures less than 3.0 nm is
-    therefore placed on a 3.0 nm belt: the measurement shrank and the plane did not. This is a limitation of the
-    floor's default rather than of the selection, and it never shows on 1AT9 (whose trimer measures 3.14 nm), which
-    is why the report is against the geometry in general and not against this protein. Pinned so that changing the
-    floor is a change to a test rather than a silent difference in what runs.
+    `radius_nm` is the sphere's radius, not a belt floor any more: the belt surface is measured from the selected
+    transmembrane atoms, and the old 3.0 nm floor that used to hold a small selection out on the default belt is
+    gone. A selection that measures 1.0 nm is therefore placed on a 1.0 nm belt, and its `radius_source` says the
+    measurement decided.
     """
     source = structure(tmp_path, [('A', ring(3.0)), ('B', ring(1.0))])
 
     placed, _ = placement_for(tmp_path / 'b', source, ['B'], 12)
 
-    assert placed['band']['slab_radius_nm'] == pytest.approx(1.0, abs=1e-4), 'the measurement did shrink'
+    assert placed['band']['slab_radius_nm'] == pytest.approx(1.0, abs=1e-4), 'the measurement shrank'
     assert placed['band']['cylinder']['radius_nm'] == pytest.approx(1.0, abs=1e-4)
-    assert placed['band']['radius_floor_nm'] == pdc_placement.DEFAULT_RADIUS_NM
-    assert placed['band']['radius_nm'] == pytest.approx(pdc_placement.DEFAULT_RADIUS_NM, abs=1e-4), \
-        'the belt surface is the default floor, not the measured cylinder'
+    assert placed['band']['radius_floor_nm'] == 0.0
+    assert placed['band']['radius_nm'] == pytest.approx(1.0, abs=1e-4), \
+        'the belt surface is the measured cylinder, not the sphere default'
+    assert placed['band']['radius_source'] == 'measured'
 
 
 def test_a_three_fold_selection_leaves_the_measured_radius_unchanged(tmp_path):

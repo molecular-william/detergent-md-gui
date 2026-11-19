@@ -1058,10 +1058,13 @@ is postponed. A bartender-parameterized mapping therefore runs with stage 5 `ski
 
 ### Shapes, stages and series
 
-A pdc belt is a **cylinder** about the membrane frame's normal when the protein states a membrane: its radius is the
-slab atoms' measured radial extent (`radius_nm` is a floor), and each detergent is placed at its own closest point on
-that surface with its head outward and its tail tilted 15 deg toward the axis, over a vertical band 1.1x the detergent
-length (`_belt_cylinder`, `SHAPE_CYLINDER`). A
+A pdc belt is a **cylinder** about the membrane frame's normal when the protein states a membrane: its surface is
+measured **locally per site** -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10 deg) of that site's
+heading, plus `belt_gap_nm`, floored by `belt_floor_nm` (0) -- and each detergent is placed at its own closest point
+on that local surface with its head outward and its tail tilted 15 deg toward the axis, over a vertical band 1.1x the
+detergent length (`_belt_cylinder`, `SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's
+`slab_radius_nm`; the belt's `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm`
+beside it, so one protruding helix steps its own arc out instead of standing the whole belt off the bundle. A
 build with no stated membrane keeps a **sphere** (`SHAPE_SPHERE`) whose radius is `radius_nm` or the selected beads'
 extent about their centroid plus the clearance plus the detergent's length, whichever is larger: `radius_nm` is a
 floor there too, and `radius_source` records which number won -- only an empty micelle, with nothing to measure, has
