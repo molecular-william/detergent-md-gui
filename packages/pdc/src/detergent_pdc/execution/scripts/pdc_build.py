@@ -631,12 +631,22 @@ def build(stage: Path) -> int:
         beads, command, secondary = cg_protein(stage, protein_input)
         frame = micelle_frame.frame_from_pdb(protein_input)
     points = [list(bead['position']) for bead in beads]
+    # The body the gates and the belt measure: the run's own derived model when it has one (a mapping's beads, or a
+    # CG-only molecule's), and an explicit `None` for the centres-only build this stage stamps from just a template.
+    # The packaged template's all-atom file is never what a model build puts in the system.
+    body_profile = pdc_placement.detergent_profile_from_model(model, template) if model is not None else None
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
                                                initial_z_nm=settings['initial_z_nm'], frame=frame,
                                                conformations=library.conformations() if library is not None else None,
-                                               belt_gap_nm=settings.get('belt_gap_nm', 0.0))
+                                               belt_gap_nm=settings.get('belt_gap_nm', 0.0),
+                                               min_body_gap_nm=settings.get(
+                                                   'min_body_gap_nm', pdc_placement.DEFAULT_MIN_BODY_GAP_NM),
+                                               belt_axial_window_nm=settings.get(
+                                                   'belt_axial_window_nm',
+                                                   pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM),
+                                               body_profile=body_profile)
     report.update({
         'cg_command': command,
         'secondary_structure': secondary,

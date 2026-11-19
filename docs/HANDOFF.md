@@ -10,21 +10,31 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
-- **Protein-detergent belt: local surface, so one protruding helix no longer inflates the whole belt (2026-11-19).**
+- **Protein-detergent belt: local, height-aware surface and body-aware packing (2026-11-19).**
   The belt's surface was one global radius (the furthest in-slab atom) with the sphere's 3.0 nm default as a floor.
   On 2ydo that measured 3.72 nm because one helix at 160–175° reaches 3.72 nm while the rest of the slab is ~1.6 nm,
-  so the whole belt stood ~2 nm off the bundle. `_belt_cylinder` now measures a **local** surface per site: the
-  furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10°) of the site's heading, widened automatically when the
-  coarse-grained headings are sparse (so a four-bead cross-section cannot leave a site on zero radius). The surface
-  is `max(local + belt_gap_nm, belt_floor_nm)`, with `belt_floor_nm` 0 for a belt (`radius_nm` is the sphere's
-  radius and floor only); the old 3.0 nm floor is gone. The record keeps the global `slab_radius_nm` as before and
-  the belt's mean/min/max local surface (`radius_nm`, `radius_min_nm`, `radius_max_nm`), plus `gap_nm` and
-  `radius_floor_nm`. The existing head/body clearance gates remain the safety net: a site whose body still reaches
-  the protein is refused and redrawn on the next ladder pass. Measured on 2ydo with DDM: global 3.72 nm, local
-  surfaces 1.35–3.72 nm, mean 2.04 nm, all 150 placed. The preview card states the range when it varies.
-  Checks: pdc fast area 809 passed / 1 xfailed (new local-helix regression in `test_pdc_placement.py`); full fast
-  tier 3139 passed / 1 xfailed; full browser tier 423 passed (the preview card's range sentence included). The
-  running dashboard unit predates this change, so restart it with no run in flight.
+  so the whole belt stood ~2 nm off the bundle. `_belt_cylinder` now measures a **local, height-aware** surface per
+  site: the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10°) of the site's heading **and**
+  `belt_axial_window_nm` of its height (default 0.75 nm; nearest-height-slice fallback for sparse clouds). The
+  surface is `max(local + belt_gap_nm, belt_floor_nm)`, with `belt_floor_nm` 0 for a belt (`radius_nm` is the
+  sphere's radius and floor only); the old 3.0 nm floor is gone. A site above/below the helix therefore sees the
+  ~1.6 nm bundle and can sit under the protrusion.
+  Packing is a second change. `min_body_gap_nm` (default 0.3 nm, 0 disables) is a **body-body** gate: the run's own
+  stamped model body (the mapping's beads for a mapped run; an explicit `None` for a centres-only build, which is the
+  head-only gate) must keep that distance from every accepted detergent body, not just head sites. The selected
+  body profile now drives the body-vs-protein gate, this gate and the belt's stand-off length; the template's
+  all-atom file is only the fallback for a caller that supplies neither.
+  The draw keeps each golden-angle slot: one ladder pass, then bounded deterministic local trials in its own
+  neighbourhood — height ±0.2/0.4 nm, heading ±6/12°, then radial +0.35/0.7/1.05 nm — and a slot is left empty if no
+  trial clears. It is never relocated to the next ladder phase, so accepted sites keep even angular/height coverage.
+  The band record keeps the global `slab_radius_nm`, the mean/min/max local surface, `gap_nm`, `radius_floor_nm`,
+  `min_body_gap_nm` and `axial_window_nm`; the preview card states the range when it varies.
+  Measured on 2ydo with the real 11-bead DDM mapping, AN=150, seed 4: no body gate → 150 placed but 87 body pairs
+  <0.25 nm (minimum 0.079 nm); default 0.3 nm gate → 121 placed, minimum body pair 0.301 nm, count-gate refusal and
+  capacity ≈62. The 0.3 nm default is a genuine separation, not a template artefact: a 150-detergent 2ydo belt is
+  overpacked at that spacing, so lower the count or the gap to run it.
+  Checks: pdc fast area 815 passed / 1 xfailed; full fast tier 3145 passed / 1 xfailed; full browser tier 423 passed.
+  The running dashboard unit predates this change, so restart it with no run in flight.
 
 - **Protein-detergent New run: belt-protein gap and auto-generated run labels (2026-11-19).**
   `belt_gap_nm` is a new run setting (DEFAULTS 0.0, bounds 0–5 nm): the extra stand-off between the protein's

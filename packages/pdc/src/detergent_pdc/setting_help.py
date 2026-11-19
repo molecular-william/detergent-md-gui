@@ -67,6 +67,15 @@ _CONTACT = ("the distance within which two detergents' tail beads count as touch
 _BELT_GAP = ("the gap added between the measured transmembrane-cylinder surface and the detergents' bodies (dashboard "
              "text, not GROMACS), in nm: 0 keeps today's geometry, and a run placed as a sphere about the protein or "
              'settled by self-assembly ignores it')
+_MIN_BODY_GAP = ('the minimum distance between any bead of one detergent body and any bead of another (dashboard text, '
+                 'not GROMACS), in nm: the belt refuses a site whose molecule would come closer than this to an already '
+                 'placed one, so two detergents cannot interpenetrate. 0 disables the gate; the sphere and '
+                 'self-assembly paths do not read it')
+_BELT_AXIAL_WINDOW = ('the axial half-window used to measure a belt site\u2019s local protein surface (dashboard text, '
+                      'not GROMACS), in nm: only in-slab atoms within this distance of the site\u2019s height set its '
+                      'radius, so a helix at another height does not push the site outward; smaller is tighter, and a '
+                      'site above or below a protrusion can sit closer to the bundle. The sphere and self-assembly '
+                      'paths do not read it')
 _THRESHOLD = ('the fraction of detergents removed from outside the micelle above which the extension records the '
               'removal as above threshold (dashboard text, not GROMACS): it records how much the removal took, not '
               'the criterion -- that is the largest tail-bead contact cluster')
@@ -128,6 +137,8 @@ HELP = {
     'initial_z_nm': _INITIAL_Z,
     'contact_nm': _CONTACT,
     'belt_gap_nm': _BELT_GAP,
+    'min_body_gap_nm': _MIN_BODY_GAP,
+    'belt_axial_window_nm': _BELT_AXIAL_WINDOW,
     'selection_threshold_fraction': _THRESHOLD,
     'protein_vsite': _VSITE,
     'mdrun_gpu': CORE_HELP['mdrun_gpu'],

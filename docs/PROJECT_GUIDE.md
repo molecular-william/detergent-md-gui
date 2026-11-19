@@ -1060,11 +1060,16 @@ is postponed. A bartender-parameterized mapping therefore runs with stage 5 `ski
 
 A pdc belt is a **cylinder** about the membrane frame's normal when the protein states a membrane: its surface is
 measured **locally per site** -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10 deg) of that site's
-heading, plus `belt_gap_nm`, floored by `belt_floor_nm` (0) -- and each detergent is placed at its own closest point
-on that local surface with its head outward and its tail tilted 15 deg toward the axis, over a vertical band 1.1x the
-detergent length (`_belt_cylinder`, `SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's
-`slab_radius_nm`; the belt's `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm`
-beside it, so one protruding helix steps its own arc out instead of standing the whole belt off the bundle. A
+heading **and** `belt_axial_window_nm` of its height (default 0.75 nm), plus `belt_gap_nm`, floored by
+`belt_floor_nm` (0) -- and each detergent is placed at its own closest point on that local surface with its head
+outward and its tail tilted 15 deg toward the axis, over a vertical band 1.1x the detergent length (`_belt_cylinder`,
+`SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
+`radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm` beside it, so one protruding helix
+steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
+angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then
+radial) rather than relocating a rejected slot to another ladder phase. `min_body_gap_nm` (default 0.3 nm) is a
+**body-body** gate against the run's own stamped model body (an explicit centres-only build gets the head-only gate);
+`belt_gap_nm`, `min_body_gap_nm` and `belt_axial_window_nm` are belt-only settings. A
 build with no stated membrane keeps a **sphere** (`SHAPE_SPHERE`) whose radius is `radius_nm` or the selected beads'
 extent about their centroid plus the clearance plus the detergent's length, whichever is larger: `radius_nm` is a
 floor there too, and `radius_source` records which number won -- only an empty micelle, with nothing to measure, has

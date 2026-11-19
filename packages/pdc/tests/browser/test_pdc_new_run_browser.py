@@ -31,6 +31,7 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
+                 'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
@@ -61,6 +62,7 @@ STAGE_SETTING_NAMES = (
     'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
     'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
+    'min_body_gap_nm', 'belt_axial_window_nm',
     'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
 )
@@ -467,9 +469,9 @@ def test_the_empty_micelle_branch_works_in_both_styles(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_the_belt_gap_starts_at_zero_restores_it_and_only_shows_for_a_belt(dashboard, live_page):
-    """The gap is a belt setting: zero by default, restored by Default, hidden where the adapter ignores it, and it
-    travels in the preview query as the run's own setting."""
+def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_belt(dashboard, live_page):
+    """The gap, body-bead distance and axial window are belt settings: defaults, Default buttons, hidden in
+    self-assembly, and carried in the preview query as the run's own settings."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route(re.compile(r'/api/pdc/preview/placement'),
@@ -478,24 +480,36 @@ def test_the_belt_gap_starts_at_zero_restores_it_and_only_shows_for_a_belt(dashb
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
 
     gap = page.locator('[name=belt_gap_nm]')
+    body = page.locator('[name=min_body_gap_nm]')
+    axial = page.locator('[name=belt_axial_window_nm]')
     expect(gap).to_have_value('0')
+    expect(body).to_have_value('0.3')
+    expect(axial).to_have_value('0.75')
     gap.fill('0.8')
-    control_label(page, 'belt_gap_nm').locator('button.pdc-default').click()
+    body.fill('0.5')
+    axial.fill('1.2')
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm'):
+        control_label(page, name).locator('button.pdc-default').click()
     expect(gap).to_have_value('0')
+    expect(body).to_have_value('0.3')
+    expect(axial).to_have_value('0.75')
 
-    # The gap acts on a pre-assembled belt on a membrane-stating protein: self-assembly hides the control, lattice
-    # brings it back, and the value still posts either way (the adapter ignores it outside a belt).
-    label = control_label(page, 'belt_gap_nm')
-    expect(label).to_be_visible()
+    # They act on a pre-assembled belt: self-assembly hides them, lattice brings them back, and the values still post
+    # either way (the adapter ignores them outside a belt).
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm'):
+        expect(control_label(page, name)).to_be_visible()
     page.locator('#new-placement').select_option('self-assembly')
-    expect(label).to_be_hidden()
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm'):
+        expect(control_label(page, name)).to_be_hidden()
     page.locator('#new-placement').select_option('lattice')
-    expect(label).to_be_visible()
 
     gap.fill('0.5')
+    body.fill('0.4')
+    axial.fill('1.1')
     with page.expect_request(re.compile(r'/api/pdc/preview/placement')) as captured:
         page.locator('.new-pdc-preview-derive').click()
-    assert 'belt_gap_nm=0.5' in captured.value.url, captured.value.url
+    url = captured.value.url
+    assert 'belt_gap_nm=0.5' in url and 'min_body_gap_nm=0.4' in url and 'belt_axial_window_nm=1.1' in url, url
     assert errors == [], errors
 
 
@@ -652,6 +666,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
         'belt_gap_nm': 0.0,
+        'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
         'pdc_nvt_dt_fs': 10, 'pdc_npt_dt_fs': 10,

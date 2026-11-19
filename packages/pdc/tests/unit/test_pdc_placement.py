@@ -346,15 +346,17 @@ def test_the_cylinder_is_seeded_and_keeps_no_two_sites_closer_than_the_overlap_g
     assert separations.min() >= pdc_placement.MIN_DISTANCE_NM
 
 
-def test_the_cylinders_first_pass_is_the_ladders_own_golden_angle_sites(tmp_path):
-    """The shape changes; the arrangement does not. Where the protein leaves room, the sites are the ladder's own.
+def test_the_cylinders_sites_keep_the_ladders_own_slots_and_only_nudge_locally(tmp_path):
+    """The shape changes; the arrangement does not. Each site is one ladder slot, nudged at most locally.
 
-    A site the protein leaves no room for is refused and its replacement comes from the next pass -- the same ladder
-    with its phase advanced -- so the first pass's sites are the entries of `golden_angle_directions` for the seed
-    itself, in order, and the sites that had to come later are still entries of that same arrangement.
+    The ladder is drawn once for the seed. A slot whose first trial fails its gates tries the module's bounded local
+    offsets and is otherwise left empty -- the next ladder phase is never used, so the belt keeps the golden-angle
+    arrangement's even spacing instead of clustering wherever a later pass found room. Every placed site is therefore
+    within the documented trial bounds of a *distinct* ladder slot, and every slot is claimed at most once.
     """
+    seed = 20261013
     points = _ring(1.5, 0.3)
-    placed = pdc_placement.place_detergents(points, _template(tmp_path), 24, seed=20261013, frame=_frame(),
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 24, seed=seed, frame=_frame(),
                                             radius_nm=1.5)
     band = placed['band']
     axis = np.asarray(band['cylinder']['axis'])
@@ -364,19 +366,25 @@ def test_the_cylinders_first_pass_is_the_ladders_own_golden_angle_sites(tmp_path
     radial = relative - np.outer(heights, axis)
     outward = radial / np.linalg.norm(radial, axis=1)[:, None]
     across, up = pdc_placement._plane_basis(axis)
-    places = list(zip(np.arctan2(outward @ up, outward @ across), heights))
+    azimuths = np.arctan2(outward @ up, outward @ across)
 
-    assert len(places) == 24
-    known = []
-    for phase in range(band['passes']):
-        ladder = golden_angle_directions(24, 20261013 + phase)
-        known += [(float(np.arctan2(row[1], row[0])),
-                   float(np.sin(0.5 * np.pi * row[2]) * band['vertical_half_band_nm'])) for row in ladder]
+    slots = [(float(np.arctan2(row[1], row[0])),
+              float(np.sin(0.5 * np.pi * row[2]) * band['vertical_half_band_nm']))
+             for row in golden_angle_directions(24, seed)]
+    max_heading = np.deg2rad(max(abs(value) for value in pdc_placement.BELT_TRIAL_HEADING_DEG))
+    max_height = max(abs(value) for value in pdc_placement.BELT_TRIAL_HEIGHT_NM)
 
-    for azimuth, height in places:
-        assert any(abs((heading - azimuth + np.pi) % (2 * np.pi) - np.pi) < 1e-9
-                   and abs(value - height) < 1e-9 for heading, value in known), \
-            "every site is one of the ladder's own golden-angle entries"
+    assert placed['valid'], placed['issues']
+    assert len(placed['centers']) == 24 and band['passes'] == 1
+    claimed = set()
+    for azimuth, height in zip(azimuths, heights):
+        matches = [index for index, (heading, value) in enumerate(slots)
+                   if abs((heading - azimuth + np.pi) % (2 * np.pi) - np.pi) <= max_heading + 1e-9
+                   and abs(value - height) <= max_height + 1e-9]
+        assert matches, 'a site is not within the documented local offsets of any ladder slot'
+        assert not claimed.intersection(matches), 'two sites claim one ladder slot'
+        claimed.update(matches)
+    assert len(claimed) == 24, "every slot is the ladder's own, and none is a later phase's"
 
 
 def test_the_belt_covers_the_spread_vertical_band_and_wraps_the_cylinder(tmp_path):
@@ -413,15 +421,19 @@ def test_the_belt_covers_the_spread_vertical_band_and_wraps_the_cylinder(tmp_pat
 
 
 def test_a_request_the_cylinder_cannot_hold_fails_the_count_gate_rather_than_being_nudged(tmp_path):
-    """The refusal path is unchanged: what the shape cannot hold is reported, not quietly relocated."""
-    # A solid transmembrane cloud of radius 2.4 nm: the cylinder measures 2.4, every head stands at 2.8 -- 0.4 nm
-    # from the cloud's own shell -- so the clearance gate refuses every entry it offers.
+    """The refusal path: what the shape cannot hold is reported, and the slots that fail stay empty.
+
+    A solid transmembrane cloud of radius 2.4 nm, and a count of 600 over the vertical band a 0.4 nm molecule's
+    spread covers. The bounded local trials move a slot out and around, but they cannot manufacture room for a count
+    the ladder's own slots do not fit, so the draw ends with fewer sites than asked and the count gate says so.
+    """
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
-    placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=0.4), 12, seed=4, frame=_frame(),
-                                            radius_nm=2.4)
+    placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=0.4), 600, seed=4,
+                                            frame=_frame(), radius_nm=2.4, measure_capacity=False)
 
     assert not placed['valid']
     assert any(issue.startswith('aggregation count') for issue in placed['issues']), placed['issues']
+    assert len(placed['centers']) < 600, 'the slots the gates refused are left empty'
     assert placed['band']['rejected'] > 0, 'the entries the draw offered were refused'
 
 
@@ -1048,3 +1060,197 @@ def test_a_local_helix_steps_only_its_own_arc_out_and_the_rest_hugs_the_bundle(t
     assert band['radius_nm'] < band['cylinder']['radius_nm'] - 0.5, \
         'the mean local surface is not the global maximum'
     assert placed['protein_clearance_nm'] >= pdc_placement.MIN_CLEARANCE_NM
+
+
+# --- the belt's own packing: a height-aware local surface and a body-body gap --------------------------------
+
+#: A protrusion that is localized in **both** angle and height: two atoms at 3.0 nm at one axial side. An
+#: angular-only local surface stands every site in its sector off at 3.0; a height-aware one lets the sites above and
+#: below it see the 1.0 nm ring.
+PROTRUSION_ANGLES_DEG = (-10.0, 10.0)
+PROTRUSION_RADIUS_NM = 3.0
+PROTRUSION_HEIGHT_NM = 1.2
+
+
+def _axially_local_helix_protein():
+    """A 1.0 nm ring at the mid-plane plus the two-atom protrusion at +1.2 nm."""
+    points = _ring(1.0, 0.0, count=24)
+    points += [[PROTRUSION_RADIUS_NM * float(np.cos(np.deg2rad(angle))),
+                PROTRUSION_RADIUS_NM * float(np.sin(np.deg2rad(angle))),
+                PROTRUSION_HEIGHT_NM] for angle in PROTRUSION_ANGLES_DEG]
+    return points
+
+
+def _belt_geometry(placed):
+    """Each placed site's azimuth, height and radial distance from the cylinder the band records."""
+    band = placed['band']
+    axis = np.asarray(band['cylinder']['axis'], dtype=float)
+    origin = np.asarray(band['cylinder']['origin_nm'], dtype=float)
+    relative = np.asarray(placed['centers'], dtype=float) - origin
+    heights = relative @ axis
+    radial = relative - np.outer(heights, axis)
+    outward = radial / np.linalg.norm(radial, axis=1)[:, None]
+    across, up = pdc_placement._plane_basis(axis)
+    return np.arctan2(outward @ up, outward @ across), heights, np.linalg.norm(radial, axis=1)
+
+
+def _body_pair_gap(placed, profile):
+    """The closest two beads of two different placed detergents' own bodies come, in nm."""
+    beads = np.asarray([bead for site, direction in zip(placed['centers'], placed['directions'])
+                        for bead in pdc_placement.body_beads(np.asarray(site), np.asarray(direction), profile)])
+    distances = np.linalg.norm(beads[:, None, :] - beads[None, :, :], axis=2)
+    np.fill_diagonal(distances, np.inf)
+    return float(distances.min())
+
+
+def _belt_model(length_nm=MOLECULE_LENGTH_NM):
+    """A three-bead body model, the shape `detergent_cg.derive` states: a head and two `C`-type tail beads."""
+    return {'beads': [{'name': 'HEAD', 'type': 'SN6', 'position': [0.0, 0.0, 0.0]},
+                      {'name': 'TAIL1', 'type': 'C1', 'position': [0.5, 0.0, 0.0]},
+                      {'name': 'TAIL2', 'type': 'C1', 'position': [length_nm, 0.0, 0.0]}]}
+
+
+def _belt_with_protrusion(tmp_path, *, window=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
+                          body_gap=pdc_placement.DEFAULT_MIN_BODY_GAP_NM, count=40, seed=4):
+    """The protrusion fixture placed with a **model** body, which is what a mapping build actually stamps."""
+    template = _template(tmp_path)
+    profile = pdc_placement.detergent_profile_from_model(_belt_model(), template)
+    placed = pdc_placement.place_detergents(_axially_local_helix_protein(), template, count, seed=seed,
+                                            frame=_frame(half_thickness_nm=1.48),
+                                            belt_axial_window_nm=window, min_body_gap_nm=body_gap,
+                                            body_profile=profile)
+    return placed, profile
+
+
+def test_a_belt_body_keeps_the_minimum_body_gap_and_its_surface_is_height_aware(tmp_path):
+    """The measured 2ydo defect, pinned as one fixture: the body gate bites, and height sees the bundle.
+
+    The protein is a 1.0 nm ring with a two-atom protrusion at 3.0 nm on one axial side. On a real belt the
+    body-body distance was unenforced (638 pairs under 0.25 nm), and the angular-only local surface let one helix
+    push its whole sector's arc out. This belt's bodies must keep `min_body_gap_nm`; the sites *near the protrusion's
+    heading but above/below its axial window* must stand on the 1.0 nm bundle, not on the 3.0 nm protrusion; and a
+    feasible count must place completely with even angular and height coverage.
+    """
+    placed, profile = _belt_with_protrusion(tmp_path)
+    band = placed['band']
+    azimuths, heights, radial = _belt_geometry(placed)
+
+    # (c) a feasible count is placed, and the record carries the two settings it was drawn under.
+    assert placed['valid'], placed['issues']
+    assert len(placed['centers']) == 40
+    assert band['min_body_gap_nm'] == pdc_placement.DEFAULT_MIN_BODY_GAP_NM
+    assert band['axial_window_nm'] == pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM
+
+    # (a) no two placed bodies come closer than the minimum body-bead distance, and it is the model's body.
+    assert _body_pair_gap(placed, profile) >= pdc_placement.DEFAULT_MIN_BODY_GAP_NM
+    assert placed['body_profile']['source'] == 'model' and placed['body_profile']['bead_count'] == 3
+
+    # (b) at the protrusion's own heading, the sites outside its axial window see the bundle (their head sites stand
+    # `length` outside ~1.0 nm, not outside the 3.0 nm protrusion).
+    near = np.abs((azimuths + np.pi) % (2.0 * np.pi) - np.pi) <= np.deg2rad(12.0)
+    protrusion_window = np.abs(heights - PROTRUSION_HEIGHT_NM) > pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM
+    bundle_sites = radial[near & protrusion_window]
+    assert bundle_sites.size, 'the fixture must put sites above/below the protrusion at its own heading'
+    assert bundle_sites.min() < PROTRUSION_RADIUS_NM + MOLECULE_LENGTH_NM - 1.0, \
+        'a site above/below the protrusion still stands off the protrusion it is not level with'
+    assert radial[near].max() > PROTRUSION_RADIUS_NM + MOLECULE_LENGTH_NM - 0.5, \
+        'and a site level with the protrusion does stand off it'
+
+    # (d) coverage is the ladder's own: no angular sector and no quarter of the band is empty.
+    sectors = np.floor(((azimuths + 2.0 * np.pi) % (2.0 * np.pi)) / (2.0 * np.pi / 8.0)).astype(int).clip(0, 7)
+    assert np.bincount(sectors, minlength=8).min() >= 3, 'an empty sector is a cluster left by relocating sites'
+    quarters = np.floor((heights + band['vertical_half_band_nm'])
+                        / (2.0 * band['vertical_half_band_nm'] / 4.0)).astype(int).clip(0, 3)
+    assert np.bincount(quarters, minlength=4).min() >= 3, 'the heights still cover the whole band'
+
+
+def test_the_axial_window_sets_how_far_a_site_sees_a_neighbouring_slice(tmp_path):
+    """The window is the height-aware half-window: a wide one lets the protrusion inflate its whole sector again.
+
+    With the default window, the sites at the protrusion's heading but above or below it stand on the 1.0 nm bundle.
+    Widen the window to 5 nm and every one of those sites sees the protrusion, so the sector's surface is the
+    protrusion's and the belt's mean surface moves out. Nothing else in the request changes.
+    """
+    narrow, _ = _belt_with_protrusion(tmp_path)
+    wide, _ = _belt_with_protrusion(tmp_path, window=5.0)
+
+    narrow_azimuths, narrow_heights, narrow_radial = _belt_geometry(narrow)
+    wide_azimuths, wide_heights, wide_radial = _belt_geometry(wide)
+    near_narrow = np.abs((narrow_azimuths + np.pi) % (2.0 * np.pi) - np.pi) <= np.deg2rad(12.0)
+    near_wide = np.abs((wide_azimuths + np.pi) % (2.0 * np.pi) - np.pi) <= np.deg2rad(12.0)
+
+    assert narrow['band']['axial_window_nm'] == pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM
+    assert wide['band']['axial_window_nm'] == 5.0
+    assert narrow['valid'] and wide['valid'], (narrow['issues'], wide['issues'])
+    assert narrow_radial[near_narrow].min() < PROTRUSION_RADIUS_NM + MOLECULE_LENGTH_NM - 1.0, \
+        'the narrow window keeps some sites at the bundle'
+    assert wide_radial[near_wide].min() > PROTRUSION_RADIUS_NM + MOLECULE_LENGTH_NM - 1.0, \
+        'the wide window lets the protrusion stand every site in its sector off'
+    assert wide['band']['radius_nm'] > narrow['band']['radius_nm'], 'the mean surface follows the window'
+    assert wide_heights.size == narrow_heights.size == 40, 'the window moves the surface, not the ladder'
+
+
+def test_a_zero_body_gap_disables_the_belt_body_gate(tmp_path):
+    """`min_body_gap_nm: 0` is the old head-site-only packing, and the bodies then may overlap.
+
+    A tight 0.5 nm ring with a 2 nm molecule puts neighbouring bodies within the default gap. With the gate the
+    trials push every slot out until nothing is closer than 0.3 nm; with `0` the gate does not run at all, the same
+    slots are accepted where they were, and two bodies are measurably closer than the gate.
+    """
+    points = _ring(0.5, 0.0, count=24)
+    template = _template(tmp_path)
+    profile = pdc_placement.detergent_profile_from_model(_belt_model(), template)
+    gated = pdc_placement.place_detergents(points, template, 40, seed=4, frame=_frame(), body_profile=profile)
+    ungated = pdc_placement.place_detergents(points, template, 40, seed=4, frame=_frame(),
+                                             min_body_gap_nm=0.0, body_profile=profile)
+
+    assert gated['valid'] and ungated['valid'], (gated['issues'], ungated['issues'])
+    assert len(gated['centers']) == len(ungated['centers']) == 40
+    assert _body_pair_gap(gated, profile) >= pdc_placement.DEFAULT_MIN_BODY_GAP_NM
+    assert _body_pair_gap(ungated, profile) < pdc_placement.DEFAULT_MIN_BODY_GAP_NM, \
+        'the gate is what kept these bodies apart'
+    assert ungated['band']['min_body_gap_nm'] == 0.0
+    assert gated['centers'] != ungated['centers'], 'the gate changes where the sites could stand'
+
+
+def test_the_body_gate_measures_the_model_body_and_an_explicit_none_is_a_centres_only_head_gate(tmp_path):
+    """A mapping build's body is the model's beads, not the template's all-atom file; `None` is a bare centre.
+
+    `_UNSET` keeps the template fallback (today's direct callers); `detergent_profile_from_model` reads the beads
+    `detergent_cg.derive` writes, and its own length is the belt's stand-off -- so an 11-bead DDM is not stood off at
+    the 81-atom file's reach. An explicit `None` says the build stamps one centre per molecule: the record then carries
+    no body profile, says why, and reports no bead clearance because only the head site was gated.
+    """
+    template = _template(tmp_path)                      # two atoms, 2.0 nm apart
+    model = _belt_model(length_nm=3.0)                  # three beads, 3.0 nm of reach
+    profile = pdc_placement.detergent_profile_from_model(model, template)
+    points = _ring(1.0, 0.0, count=24)
+
+    modelled = pdc_placement.place_detergents(points, template, 40, seed=4, frame=_frame(), body_profile=profile)
+    centres = pdc_placement.place_detergents(points, template, 40, seed=4, frame=_frame(), body_profile=None)
+    fallback = pdc_placement.place_detergents(points, template, 40, seed=4, frame=_frame())
+
+    # The model's own profile, not the template's: three beads, its own length, and a head read from its types.
+    assert profile['bead_count'] == 3 and profile['source'] == 'model'
+    assert profile['length_nm'] == pytest.approx(3.0) and profile['head_source'] == 'types'
+    assert pdc_placement.detergent_profile_from_model(None, template)['source'] == 'coordinates'
+    assert pdc_placement.detergent_profile_from_model({'beads': []}, template)['source'] == 'coordinates'
+
+    # The model body is what the gate and the belt measured: its stand-off is 3.0, and its tail is what comes close.
+    assert modelled['valid'] and len(modelled['centers']) == 40, modelled['issues']
+    assert modelled['body_profile']['source'] == 'model' and modelled['body_profile']['bead_count'] == 3
+    assert modelled['body_profile_reason'] is None
+    assert modelled['band']['detergent_length_nm'] == 3.0
+    assert modelled['bead_clearance_nm'] < modelled['protein_clearance_nm'], \
+        'the model body reaches past its head site, and it is the body the protein is near'
+
+    # A centres-only build passes the explicit `None`: the head site is the gate, and the record says so.
+    assert centres['valid'] and len(centres['centers']) == 40, centres['issues']
+    assert centres['body_profile'] is None and centres['bead_clearance_nm'] is None
+    assert 'centre per molecule' in centres['body_profile_reason']
+    assert centres['band']['detergent_length_nm'] == MOLECULE_LENGTH_NM, 'the template still sizes a centre build'
+    assert centres['centers'] != modelled['centers'], 'the model body is what the sites stood off'
+
+    # `_UNSET` is the template fallback, byte-identical to a caller that never heard of a model.
+    assert fallback['body_profile'] == pdc_placement._profile_record(pdc_placement.detergent_profile(template))
+    assert fallback['body_profile']['source'] == 'coordinates'

@@ -173,6 +173,8 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     assert basis['box_nm'] and len(basis['box_nm']) == 3 and basis['clearance_nm'] is None
     assert basis['detergent_representation'] == 'the mapping\u2019s beads'
     assert basis['conformations'] is None, 'no library named is still the template\u2019s one rigid conformation'
+    # The placement was gated on the mapping's own bodies, not on the template's all-atom file.
+    assert basis['body_profile']['source'] == 'model' and basis['body_profile']['bead_count'] == 4
 
     assert body['cost']['cg_cached'] is False and body['cost']['coarse_graining_seconds'] == 0
     assert body['cost']['cg_bytes'] == 0 and body['cost']['cg_key'] is None
@@ -336,6 +338,75 @@ def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
     # The density the panel prints comes from the same volume, and the count is still the user's 20.
     assert part_basis['aggregation_number'] == 20 and part_basis['estimated_density_per_nm3'] > 0
     assert part_basis['capacity_aggregation'] is None, 'the count fits, so there is nothing to report'
+
+
+def axially_local_ring(radius_nm=1.0, protrusion_nm=3.0, half_thickness_nm=1.48):
+    """A 1.0 nm ring at the mid-plane and a two-atom protrusion at +1.2 nm, inside a stated membrane.
+
+    The protrusion is localized in angle *and* height, which is what makes the belt's axial window observable: a
+    narrow window lets the sites above and below it see the ring, a wide one lets the protrusion stand its whole
+    sector off.
+    """
+    records = []
+    for index in range(24):
+        angle = 2.0 * math.pi * index / 24
+        records.append(f'ATOM  {index + 1:5d}  CA  ALA A{index + 1:4d}    '
+                       f'{radius_nm * 10.0 * math.cos(angle):8.3f}'
+                       f'{radius_nm * 10.0 * math.sin(angle):8.3f}{0.0:8.3f}  1.00  0.00           C')
+    for index, degrees in enumerate((-10.0, 10.0), start=25):
+        angle = math.radians(degrees)
+        records.append(f'ATOM  {index:5d}  CA  ALA A{index:4d}    '
+                       f'{protrusion_nm * 10.0 * math.cos(angle):8.3f}'
+                       f'{protrusion_nm * 10.0 * math.sin(angle):8.3f}{12.0:8.3f}  1.00  0.00           C')
+    return (f'REMARK      1/2 of bilayer thickness:   {half_thickness_nm * 10.0:5.1f}\n'
+            + '\n'.join(records) + '\nEND\n')
+
+
+#: The ring's own atoms, in nanometres, as the stubbed coarse-graining answers with them.
+AXIALLY_LOCAL_RING = ([[1.0 * math.cos(2.0 * math.pi * index / 24), 1.0 * math.sin(2.0 * math.pi * index / 24), 0.0]
+                       for index in range(24)]
+                      + [[3.0 * math.cos(math.radians(degrees)), 3.0 * math.sin(math.radians(degrees)), 1.2]
+                         for degrees in (-10.0, 10.0)])
+
+
+def test_the_belt_packing_settings_travel_through_the_preview(dashboard, monkeypatch):
+    """`min_body_gap_nm` and `belt_axial_window_nm` reach the placement the route answers with.
+
+    The protein is the axially-local ring: the window is observable in the mean surface the belt reports, and both
+    settings are recorded in the basis. Each pair of requests differs only in the settings under test, and both are
+    accepted -- the route's answer is the builder's own, not a re-derivation.
+    """
+    from detergent_pdc.execution import pdc_preview as preview_module
+
+    def stub(cache_root, protein_path, chains, **kwargs):
+        beads = [{'residue_id': index + 1, 'residue': 'PRO', 'name': f'B{index + 1:03d}',
+                  'position': list(position)} for index, position in enumerate(AXIALLY_LOCAL_RING)]
+        return beads, {'cached': True, 'seconds': 0.0, 'key': 'stub', 'path': str(cache_root),
+                       'beads_bytes': 0, 'dropped_residues': [], 'protein_input': 'protein.pdb',
+                       'structure': str(protein_path), 'command': None}
+
+    monkeypatch.setattr(preview_module, 'coarse_grained', stub)
+    entry = import_protein(dashboard, monkeypatch, text=axially_local_ring(), pdbid='1axl')
+    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 40}
+
+    narrow = get(dashboard, **query)
+    wide = get(dashboard, **{**query, 'belt_axial_window_nm': 5.0})
+    ungated = get(dashboard, **{**query, 'min_body_gap_nm': 0.0})
+
+    assert narrow.status_code == wide.status_code == ungated.status_code == 200
+    plain, inflated, no_gate = narrow.get_json(), wide.get_json(), ungated.get_json()
+    assert plain['valid'] and inflated['valid'] and no_gate['valid'], \
+        (plain.get('reasons'), inflated.get('reasons'), no_gate.get('reasons'))
+    assert plain['basis']['placement_shape'] == inflated['basis']['placement_shape'] == 'belt-cylinder'
+    assert plain['basis']['axial_window_nm'] == 0.75 and plain['basis']['min_body_gap_nm'] == 0.3
+    assert inflated['basis']['axial_window_nm'] == 5.0, 'the wide window is the one the belt was drawn under'
+    assert inflated['basis']['band_radius_nm'] > plain['basis']['band_radius_nm'], \
+        'a wider axial window lets the protrusion stand more of its sector off'
+    assert no_gate['basis']['min_body_gap_nm'] == 0.0, '0 is the body gate switched off'
+    assert no_gate['basis']['axial_window_nm'] == 0.75, 'and the other setting is unchanged'
+    # No mapping on this form: the build stamps one centre per molecule, so the gate is the head site and says so.
+    assert plain['basis']['body_profile'] is None
+    assert 'centre per molecule' in plain['basis']['body_profile_reason']
 
 
 def test_the_belt_gap_moves_the_preview_belt_out_by_the_gap(dashboard, monkeypatch):

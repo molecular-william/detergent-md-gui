@@ -54,6 +54,11 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # The belt's extra stand-off from the protein's measured transmembrane-cylinder surface, in nm. 0 is
             # exactly the geometry every belt had before this setting existed, and the sphere never reads it.
             'belt_gap_nm': 0.0,
+            # The belt's own packing: the minimum distance between any bead of one detergent's body and any bead of
+            # another's (0 disables it), and the axial half-window over which a site's local protein surface is
+            # measured. Both are belt-only; the sphere and self-assembly never read them, and they mirror
+            # `pdc_placement`'s constants.
+            'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
             'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
             # The CG production legs' own numbers. They are written from `pdc-assessment-v1`/`pdc-extension-v1`,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
@@ -153,6 +158,10 @@ SETTING_SPECS = {
     # The belt's extra stand-off from the measured cylinder surface. Belt-only: a sphere placement never reads it,
     # so 0 keeps every previous geometry byte for byte.
     'belt_gap_nm': ('Belt-protein gap (nm)', 0.0, 5.0),
+    # The belt's own packing gates. 0 is today's head-site-only packing for the body gap; the axial window is the
+    # half-height over which one site's local protein surface is measured.
+    'min_body_gap_nm': ('Minimum body-bead distance (nm)', 0.0, 2.0),
+    'belt_axial_window_nm': ('Local surface axial window (nm)', 0.1, 5.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
     # equilibration and restart profiles keep their own values. The production neighbour list, temperature and

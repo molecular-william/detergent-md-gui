@@ -57,6 +57,26 @@ def test_the_belt_gap_is_advertised_as_a_bounded_setting():
             pdc.normalize_settings({'belt_gap_nm': outside})
 
 
+def test_the_belt_packing_settings_are_advertised_and_bounded():
+    """The two belt-only packing settings: defaulted, advertised, and range-checked like every other number."""
+    assert pdc.DEFAULTS['min_body_gap_nm'] == 0.3
+    assert pdc.SETTING_SPECS['min_body_gap_nm'] == ('Minimum body-bead distance (nm)', 0.0, 2.0)
+    assert pdc.DEFAULTS['belt_axial_window_nm'] == 0.75
+    assert pdc.SETTING_SPECS['belt_axial_window_nm'] == ('Local surface axial window (nm)', 0.1, 5.0)
+    assert pdc.normalize_settings({})['min_body_gap_nm'] == 0.3
+    assert pdc.normalize_settings({})['belt_axial_window_nm'] == 0.75
+    assert pdc.normalize_settings({'min_body_gap_nm': 0})['min_body_gap_nm'] == 0.0, '0 is the gate off'
+    assert pdc.normalize_settings({'min_body_gap_nm': 2})['min_body_gap_nm'] == 2.0
+    assert pdc.normalize_settings({'belt_axial_window_nm': 0.1})['belt_axial_window_nm'] == 0.1
+    assert pdc.normalize_settings({'belt_axial_window_nm': 5})['belt_axial_window_nm'] == 5.0
+    for outside in (-0.1, 2.1):
+        with pytest.raises(ValueError, match='min_body_gap_nm'):
+            pdc.normalize_settings({'min_body_gap_nm': outside})
+    for outside in (0.0, 5.5):
+        with pytest.raises(ValueError, match='belt_axial_window_nm'):
+            pdc.normalize_settings({'belt_axial_window_nm': outside})
+
+
 def test_the_generated_label_names_the_choices_it_was_built_from():
     """The panel's label field, filled from the same numbers the run is built with -- not a second vocabulary."""
     assert pdc.generated_label('DDM', {'aggregation_number': 192}) == 'DDM_micelle_192_1conf_1us'

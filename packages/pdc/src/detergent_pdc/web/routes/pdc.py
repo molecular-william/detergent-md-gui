@@ -665,6 +665,11 @@ def preview_choices(source):
     choices['box_margin_nm'] = number('box_margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
     choices['initial_z_nm'] = number('initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
     choices['belt_gap_nm'] = number('belt_gap_nm', float(pdc.DEFAULTS['belt_gap_nm']))
+    # The belt's packing and local-surface settings. Read with the adapter's defaults, like the gap: they are
+    # belt-only, so a preview of a sphere carries them and the placement never reads them.
+    choices['min_body_gap_nm'] = number('min_body_gap_nm', float(pdc.DEFAULTS['min_body_gap_nm']))
+    choices['belt_axial_window_nm'] = number('belt_axial_window_nm',
+                                             float(pdc.DEFAULTS['belt_axial_window_nm']))
     return choices
 
 
@@ -758,6 +763,7 @@ def pdc_preview_placement():
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
             belt_gap_nm=choices['belt_gap_nm'],
+            min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],
             prepare_protein=choices['prepare_protein'],
             # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
             # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.

@@ -14,8 +14,9 @@ Two modes, and a build states which one it used:
   frame's slab -- PCA over those atoms, not the frame normal -- signed to agree with the frame normal; its **radius**
   is the furthest of those atoms from that axis, and its **height** is their axial extent widened to the membrane
   thickness the frame states. Every detergent is placed at its own height and angle just outside the **local** surface
-  -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` of its heading, not the cylinder's single global maximum
-  -- so the belt follows the transmembrane bundle and steps out only over an arc a protruding helix occupies:
+  -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` of its heading and within `belt_axial_window_nm` of its
+  height, not the cylinder's single global maximum -- so the belt follows the transmembrane bundle and steps out only
+  over an arc a protruding helix occupies:
   its **head end stands outside the surface on the outward normal**, and its head-ward axis is that normal tilted by
   a small angle about the local tangent, so the tail end sits slightly closer to the axis than the head. The tilt is
   `TILT_DEGREES` and the belt's vertical half-height is `VERTICAL_SPREAD` times the torus's old half-height (the
@@ -30,16 +31,23 @@ Two modes, and a build states which one it used:
   each detergent's **orientation is drawn** from that same seed (uniform on the sphere) and then flipped so its head
   faces away from the protein -- not one radial for the whole cloud, which is what every molecule used to get.
 
-Three measurements the module makes rather than assumes, and records:
+The measurements and the packing rule the module owns, and records:
 
-* the **clearance is the detergent's own body**, not its head site alone: `detergent_profile` reads the molecule's
-  head end and every bead's offset from it out of the molecule's own coordinates, `body_beads` lays that body down at
-  a (site, direction) pair, and a draw is refused when any bead comes within `BEAD_CLEARANCE_NM` of a protein bead.
-  A template whose molecule states no coordinates keeps the head-only gate and says so.
+* the **clearance is the detergent's own body**, not its head site alone: `detergent_profile_from_model` reads the
+  beads a mapping-derived or CG-only model actually stamps (`source: model`), falling back to `detergent_profile`'s
+  reading of the template's molecule; `body_beads` lays that body down at a (site, direction) pair, and a draw is
+  refused when any bead comes within `BEAD_CLEARANCE_NM` of a protein bead. An explicit `body_profile=None` is a
+  centres-only build whose gate is the head site, and the record says which of the three it measured.
 * the **sphere's radius is measured** from the protein the placement is handed -- extent about the centroid plus the
   clearance plus the molecule's reach -- with `radius_nm` demoted to a floor, exactly the role it already plays under
   the belt's cylinder surface. A run that selects one subunit gets that subunit's shell, and `radius_source` says which of
   the two numbers decided.
+* the **local surface is height-aware and the belt is packed**: a site's surface is measured over the in-slab atoms
+  within the adaptive angular window *and* within `belt_axial_window_nm` of its own height, so a site above or below a
+  transmembrane helix sees the bundle rather than that helix's arc. Between detergents the gate is the bodies' own
+  separation (`min_body_gap_nm`); a slot that fails its gates tries a bounded, deterministic sequence of local offsets
+  -- height first, then heading, then radially outward -- and is left empty if none clears, so even coverage does not
+  depend on relocating a rejected site into the next lobby of the ladder.
 * the **capacity** is measured against those same gates when a count cannot be placed, so a refusal can say what the
   shape would hold. The requested number is never scaled (`capacity`).
 """
@@ -86,6 +94,22 @@ TILT_RADIANS = np.deg2rad(TILT_DEGREES)
 # narrower window would let a neighbouring site stand inside the same protrusion, and a wider one would spread one
 # helix's extra radius around a larger arc than it occupies.
 BELT_LOCAL_ANGLE_DEG = 10.0
+# The axial half-window of that local measurement, in nm: only in-slab atoms within this axial distance of the site's
+# own height set its surface. Without it a sector is one angular-only maximum, so a helix that reaches 3 nm at one
+# axial end stands every site in that sector off at 3 nm, including the sites above and below it. 0.75 nm is about the
+# membrane's headgroup region, so a site sees the bundle it is level with and not a protrusion a helix away.
+DEFAULT_BELT_AXIAL_WINDOW_NM = 0.75
+# The minimum distance between any bead of one placed detergent's body and any bead of another's, in nm. The builder's
+# `MIN_DISTANCE_NM` gate is between head *sites*; this is between the bodies the build stamps, which is what an
+# overlapping belt actually violates. 0 disables it; a sphere or self-assembled cloud never reads it.
+DEFAULT_MIN_BODY_GAP_NM = 0.3
+# A belt slot that fails its gates at its own ladder position retries a bounded, deterministic sequence of small local
+# offsets before the slot is left empty: heights first (both sides), then headings both ways, then outward radial
+# steps. The magnitude bounds are deliberately small -- a trial is a nudge inside the slot's own neighbourhood, not a
+# relocation -- and the radial steps are the only way out of a body that reaches a protrusion the angular window missed.
+BELT_TRIAL_HEIGHT_NM = (0.2, -0.2, 0.4, -0.4)
+BELT_TRIAL_HEADING_DEG = (-6.0, 6.0, -12.0, 12.0)
+BELT_TRIAL_RADIAL_NM = (0.35, 0.7, 1.05)
 # Which number decided a shape's radius: the protein's own measurement, or the setting used as a floor under it.
 RADIUS_MEASURED = 'measured'
 RADIUS_FLOOR = 'floor'
@@ -101,10 +125,6 @@ DEFAULT_INITIAL_Z_NM = 6.0
 # respect the same number, or it hands back a placement the builder's own gate then refuses; the belt's own draw
 # respects it as it draws, for the same reason.
 MIN_DISTANCE_NM = 0.25
-# How many entries of the ladder a belt's draw may consume per requested detergent. The bound is what turns "this
-# shape cannot hold that many" into the count gate's own sentence instead of an endless loop -- the same reason
-# `_self_assemble` draws a bounded number of times.
-DRAWS_PER_DETERGENT = 200
 # The tag that makes a conformation library's draw a stream of its own: `default_rng([seed, CONFORMATION_SEED])`.
 # Folding those draws into the generators' `default_rng(seed)` would move every site the moment a library was
 # selected, so a placement with no library had to stay the placement it has always been, draw for draw.
@@ -112,6 +132,12 @@ CONFORMATION_SEED = 0xC0FF
 
 PLACEMENT_MODES = ('lattice', 'self-assembly')
 DEFAULT_PLACEMENT_MODE = 'lattice'
+
+
+# The sentinel that says "the caller named no body profile": `place_detergents` then measures the template's own
+# molecule, which is what every direct caller predates the derived model expects. An explicit `None` is a different
+# claim -- a centres-only build, whose body is its head site -- and a profile dict is the body the build stamps.
+_UNSET = object()
 
 
 def canonical_mode(mode) -> str:
@@ -203,7 +229,39 @@ def detergent_profile(template) -> dict | None:
         labels, source = atoms, 'coordinates'
     if len(points) < 2 or not np.isfinite(points).all():
         return None
+    return _profile_from_points(points, labels, source, getattr(template, 'tail_direction', (0.0, 0.0, -1.0)))
 
+
+def detergent_profile_from_model(model, template=None) -> dict | None:
+    """The body **the build actually stamps**, read from a derived detergent model's own beads.
+
+    A mapping-derived model (`detergent_cg.derive` or `pdc_build._cg_draft`) states every bead's name, type and
+    position -- eleven beads for a DDM instead of the packaged template's 81 all-atom coordinates. Measuring the
+    gate against the template told a run that its bodies did not fit when the bodies it stamps would, and measured
+    an all-atom structure the system never contains.
+
+    Falls back to `detergent_profile(template)` when the model carries fewer than two beads or any bead without a
+    finite three-vector position: a bare centre is not a measured body, and the template is the only other shape the
+    caller has stated. `source` in the record is `model` when the model's beads were used, so a reader can tell which
+    body the gate measured.
+    """
+    beads = [bead for bead in ((model or {}).get('beads') or ()) if isinstance(bead, dict)]
+    if len(beads) >= 2:
+        stated = [bead.get('position') for bead in beads]
+        if all(isinstance(position, (list, tuple)) and len(position) == 3 for position in stated):
+            points = np.asarray([[float(value) for value in position] for position in stated], dtype=float)
+            if np.isfinite(points).all():
+                tail = getattr(template, 'tail_direction', (0.0, 0.0, -1.0)) if template is not None else None
+                return _profile_from_points(points, beads, 'model', tail)
+    return detergent_profile(template)
+
+
+def _profile_from_points(points, labels, source, tail_direction=None) -> dict | None:
+    """The head end, head-ward axis and every bead's offset from it, from bead positions and their labels.
+
+    Shared by the template's own molecule and a derived model's beads so the two cannot disagree about which end is
+    the head: the labelled/typed/polar rules below are applied to whichever set of beads the caller has.
+    """
     axis, head_source = None, None
     roles = [str(label.get('role') or '').strip().lower() for label in labels]
     types = [str(label.get('type') or '').strip() for label in labels]
@@ -227,7 +285,7 @@ def detergent_profile(template) -> dict | None:
         if span > 1e-9:
             axis = direction / span
     if axis is None:
-        axis = _principal_axis(points, getattr(template, 'tail_direction', (0.0, 0.0, -1.0)))
+        axis = _principal_axis(points, tail_direction)
         head_source = 'principal-axis'
         if axis is None:
             return None
@@ -434,7 +492,9 @@ def _profile_record(profile) -> dict | None:
 def place_detergents(protein_points, template, aggregation_number, seed, *, radius_nm=DEFAULT_RADIUS_NM,
                      min_clearance_nm=MIN_CLEARANCE_NM, mode=DEFAULT_PLACEMENT_MODE, margin_nm=DEFAULT_MARGIN_NM,
                      initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None,
-                     belt_gap_nm=0.0, belt_floor_nm=0.0):
+                     belt_gap_nm=0.0, belt_floor_nm=0.0,
+                     min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
+                     belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -455,11 +515,15 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     the placement is the sphere it has always been, and `belt_reason` says which of those it was.
 
     `radius_nm` is the sphere's radius and floor; the belt no longer uses it. A belt's surface is measured **locally**
-    at each site: the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` of the site's heading, plus
-    `belt_gap_nm`, floored by `belt_floor_nm` (0 by default). The record keeps the mean/min/max of the surfaces
-    actually used, the gap and the floor. `belt_gap_nm` is the run's extra stand-off between the protein's measured
-    surface and the detergent bodies and is recorded in the band (`gap_nm`); the vertical band is
-    `VERTICAL_SPREAD` times the detergent's own length either side of the cylinder's mid-plane. The sphere's shell is
+    at each site: the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` of the site's heading *and* within
+    `belt_axial_window_nm` of the site's own height (a site with no atom in that axial window falls back to the
+    nearest height slice in its angular sector), plus `belt_gap_nm`, floored by `belt_floor_nm` (0 by default). The
+    record keeps the mean/min/max of the surfaces actually used, the gap, the floor, the axial window and
+    `min_body_gap_nm`. `belt_gap_nm` is the run's extra stand-off between the protein's measured surface and the
+    detergent bodies and is recorded in the band (`gap_nm`); `min_body_gap_nm` is the distance any two placed
+    detergent bodies must keep from each other, and is a belt gate only (the sphere and self-assembly keep the
+    head-site gate). The vertical band is `VERTICAL_SPREAD` times the detergent's own length either side of the
+    cylinder's mid-plane. The sphere's shell is
     `max(radius_nm, extent about the centroid + min_clearance_nm + the molecule's own reach)`, so a shell follows the
     subunits the run actually includes instead of being the same 3 nm about the whole complex (`radius_source` says
     which of the two decided). A gap or floor never reaches the sphere: a protein that states no membrane keeps the
@@ -476,6 +540,12 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     the one `pdc_build.stamp` writes -- rather than the template's. The site generators keep every draw they had, so
     the sites are where they would have been without a library; `None` is every build that names no library, and its
     record carries `'conformations': None` and nothing else new.
+
+    `body_profile` is the body the clearance gates and the belt's stand-off measure. `_UNSET` (the default) measures
+    the template's own molecule, which is every caller before a model existed; an explicit `None` says the build
+    stamps one centre per molecule, so the gate is the head site; a profile dict -- `detergent_profile_from_model`
+    over a derived model -- measures the beads the build actually writes. A profile's own `length_nm` is the belt's
+    stand-off when one is given, so the belt never stands an 11-bead body off at an 81-atom file's reach.
     """
     if aggregation_number < 1:
         raise ValueError('a placement needs at least one detergent')
@@ -485,10 +555,29 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('the belt-protein gap cannot be negative')
     if belt_floor_nm < 0:
         raise ValueError('the belt radius floor cannot be negative')
+    if min_body_gap_nm < 0:
+        raise ValueError('the minimum body gap cannot be negative')
+    if belt_axial_window_nm <= 0:
+        raise ValueError('the belt axial window must be positive')
     belt_gap_nm = float(belt_gap_nm)
     belt_floor_nm = float(belt_floor_nm)
+    min_body_gap_nm = float(min_body_gap_nm)
+    belt_axial_window_nm = float(belt_axial_window_nm)
     mode = canonical_mode(mode)
-    profile = detergent_profile(template)
+    # The body the gates measure, and the belt's own stand-off. `_UNSET` keeps the template's molecule and its
+    # measured length (byte-identical to every caller before a derived model); an explicit profile measures the
+    # model's beads and uses their length; an explicit `None` is a centres-only build, whose belt still stands off by
+    # the template's measured length but whose gate sees only the head site.
+    template_length = detergent_length_nm(template)
+    if body_profile is _UNSET:
+        profile = detergent_profile(template)
+        belt_length_nm = template_length
+    elif body_profile is None:
+        profile = None
+        belt_length_nm = template_length
+    else:
+        profile = body_profile
+        belt_length_nm = float(profile['length_nm'])
     points = None
     unplaced = 0
     if protein_points is not None and len(protein_points):
@@ -511,7 +600,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     elif mode == 'lattice':
         if points is not None and frame is not None:
             band, belt_reason = _belt_cylinder(points, aggregation_number, seed, frame, min_clearance_nm,
-                                               belt_floor_nm, template, profile, belt_gap_nm)
+                                               belt_floor_nm, profile, belt_gap_nm,
+                                               min_body_gap_nm, belt_axial_window_nm, belt_length_nm)
         if band is None:
             shell = _sphere_shell(points, template, profile, radius_nm, min_clearance_nm)
             centers, directions = pack_micelle(points, template, aggregation_number, seed,
@@ -552,7 +642,9 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         capacity_aggregation = capacity(points, template, aggregation_number, mode=mode, radius_nm=radius_nm,
                                         min_clearance_nm=min_clearance_nm, margin_nm=margin_nm,
                                         initial_z_nm=initial_z_nm, frame=frame, belt_gap_nm=belt_gap_nm,
-                                        belt_floor_nm=belt_floor_nm)
+                                        belt_floor_nm=belt_floor_nm, min_body_gap_nm=min_body_gap_nm,
+                                        belt_axial_window_nm=belt_axial_window_nm,
+                                        body_profile=body_profile)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
 
@@ -595,8 +687,12 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
             # a measurement; `None` with a reason is the honest answer for a molecule that states no coordinates.
             'body_profile': _profile_record(profile),
             # A library's bodies were measured even when the template states none, so the head-only sentence would
-            # claim a check was skipped that the drawn profile ran.
-            'body_profile_reason': None if drawn is not None else _bead_gate_sentence(profile),
+            # claim a check was skipped that the drawn profile ran. An explicit `None` profile is a centres-only
+            # build and says that, rather than claiming the template's own molecule had no coordinates.
+            'body_profile_reason': None if drawn is not None
+            else ('the build stamps one centre per molecule, so the clearance is measured against the head site '
+                  'only and not against a body') if profile is None and body_profile is None
+            else _bead_gate_sentence(profile),
             # Which library was drawn, and the entry index and azimuth each site got: the build stamps these, so the
             # placement's own record is what a reader needs to reproduce the coordinates.
             'conformations': drawn,
@@ -674,7 +770,8 @@ def _capacity_sentence(measurement) -> str:
 def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius_nm=DEFAULT_RADIUS_NM,
              min_clearance_nm=MIN_CLEARANCE_NM, margin_nm=DEFAULT_MARGIN_NM,
              initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, seeds=(1, 2, 3), belt_gap_nm=0.0,
-             belt_floor_nm=0.0) -> dict:
+             belt_floor_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
+             belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET) -> dict:
     """The largest count every seed places validly, by bisection over the placer's own gate.
 
     A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
@@ -692,6 +789,10 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
         raise ValueError('the belt-protein gap cannot be negative')
     if belt_floor_nm < 0:
         raise ValueError('the belt radius floor cannot be negative')
+    if min_body_gap_nm < 0:
+        raise ValueError('the minimum body gap cannot be negative')
+    if belt_axial_window_nm <= 0:
+        raise ValueError('the belt axial window must be positive')
 
     def fits(count: int) -> bool:
         if count < 1:
@@ -699,7 +800,10 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
         return all(place_detergents(points, template, count, seed=seed, radius_nm=radius_nm,
                                     min_clearance_nm=min_clearance_nm, mode=mode, margin_nm=margin_nm,
                                     initial_z_nm=initial_z_nm, frame=frame, measure_capacity=False,
-                                    belt_gap_nm=belt_gap_nm, belt_floor_nm=belt_floor_nm)['valid']
+                                    belt_gap_nm=belt_gap_nm, belt_floor_nm=belt_floor_nm,
+                                    min_body_gap_nm=min_body_gap_nm,
+                                    belt_axial_window_nm=belt_axial_window_nm,
+                                    body_profile=body_profile)['valid']
                    for seed in seeds)
 
     if fits(requested):
@@ -714,8 +818,9 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
     return {'count': low, 'seeds': list(seeds), 'requested': requested}
 
 
-def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, template, profile=None,
-                   belt_gap_nm=0.0):
+def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, profile=None,
+                   belt_gap_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
+                   belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, belt_length_nm=_UNSET):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
     The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
@@ -726,14 +831,16 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
 
     Every site is a detergent's **head end**, standing `length` outside the **local** surface on the outward normal
     at that detergent's own height and angle. The local surface is the furthest in-slab atom within
-    `BELT_LOCAL_ANGLE_DEG` of the site's heading (plus `belt_gap_nm`, floored by `belt_floor_nm`), not the
-    cylinder's one global maximum: a belt therefore follows the transmembrane bundle and steps out only over the
-    angular sector a protruding helix occupies, instead of standing off the whole protein at the furthest point any
-    one atom reaches. Its head-ward direction is that normal tilted by `TILT_DEGREES` about the local tangent, with
-    the sign chosen so the head leans away from the cylinder's mid-plane; `pdc_build.stamp` then puts the head at
-    the site and hangs the body back along `-direction`, so the tail ends up slightly closer to the axis than the
-    head and slightly nearer the membrane's centre. The head/tail convention the build stamps is unchanged -- only
-    the sites and directions are.
+    `BELT_LOCAL_ANGLE_DEG` of the site's heading **and** within `belt_axial_window_nm` of the site's own height (plus
+    `belt_gap_nm`, floored by `belt_floor_nm`), not the cylinder's one global maximum: a belt therefore follows the
+    transmembrane bundle and steps out only over the angular sector a protruding helix occupies, and only at the
+    heights that helix actually reaches, instead of standing every site in that sector off at the furthest point any
+    one atom reaches. A site with no atom inside its axial window falls back to the nearest height slice in its own
+    angular sector, so a thin ring still gives every site a measured surface. Its head-ward direction is that normal
+    tilted by `TILT_DEGREES` about the local tangent, with the sign chosen so the head leans away from the cylinder's
+    mid-plane; `pdc_build.stamp` then puts the head at the site and hangs the body back along `-direction`, so the
+    tail ends up slightly closer to the axis than the head and slightly nearer the membrane's centre. The head/tail
+    convention the build stamps is unchanged -- only the sites and directions are.
 
     The vertical half-height is `VERTICAL_SPREAD` (1.1) times the old torus's half-height, the detergent's own
     length: the same count covers a little more than the old vertical extent, symmetric about the cylinder's
@@ -747,18 +854,18 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     keeps the sphere it had and `belt_reason` names the measurement that was missing.
 
     The record keeps the global cylinder measurement, the mean/min/max of the local surfaces actually used, the
-    run's gap and floor, and `radius_source`. A local surface above the floor is a measurement; one that is not is
-    the floor, so a reader can still tell a measured belt from one the setting lifted. The old single global radius
-    is in `cylinder['radius_nm']`; `radius_nm` itself is the mean local surface, because a belt whose surface varies
-    with angle has no one surface left to report.
+    run's gap and floor, the two packing settings (`min_body_gap_nm`, `axial_window_nm`) and `radius_source`. A local
+    surface above the floor is a measurement; one that is not is the floor, so a reader can still tell a measured belt
+    from one the setting lifted. The old single global radius is in `cylinder['radius_nm']`; `radius_nm` itself is the
+    mean local surface, because a belt whose surface varies with angle has no one surface left to report.
 
-    The gate is applied *while the sites are drawn*: an entry of the ladder whose site lands within the clearance of
-    the protein -- or within the overlap gate of an earlier site -- is refused and the ladder carries on to its next
-    entry. That is what "honour the requested count, the pairwise overlap gate and the 0.5 nm clearance gate" means
-    for a shape that overlaps the protein: a site the protein leaves no room for (a body that reaches in where the
-    local window's maximum did not cover it) is dropped, not nudged, and the count is the number the draw actually
-    kept. A draw that cannot reach the count places what it did and the count gate refuses it with the sentence it
-    has always used.
+    The gate is applied *while the sites are drawn*: every slot of the ladder keeps its own (heading, height), and a
+    site that lands within the clearance of the protein, within the overlap gate of an earlier site, within
+    `BEAD_CLEARANCE_NM` of a protein bead -- or whose own body is closer than `min_body_gap_nm` to an accepted body --
+    tries the module's bounded local offsets (`BELT_TRIAL_*`). A slot whose trials all fail is left empty, so the
+    count is the number the draw actually kept and the count gate refuses a count the shape could not cover. A slot
+    is never relocated to the next ladder phase: the offsets are small nudges inside its own neighbourhood, which is
+    what keeps the belt's angular and height coverage even instead of clustering sites wherever a pass found room.
     """
     frame_axis = np.asarray(unit_axis(frame.axis), dtype=float)
     bounds = _slab_bounds(frame)
@@ -768,7 +875,8 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     if not len(inside):
         return None, 'the membrane frame\'s slab holds no atom of the protein, so no cylinder can be measured'
     cylinder = _transmembrane_cylinder(inside, frame_axis, bounds)
-    length = detergent_length_nm(template)
+    # The stand-off: the given profile's own measured length when the caller named a body, the template's otherwise.
+    length = None if belt_length_nm is None else float(belt_length_nm)
     if length is None:
         return None, ('the detergent\'s own length cannot be measured from the molecule the build carries, so the '
                       'cylinder has no surface to stand off and the placement keeps the sphere')
@@ -793,15 +901,27 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         max_gap = 2.0 * np.pi
     angular_window = max(np.deg2rad(BELT_LOCAL_ANGLE_DEG), 0.6 * max_gap)
 
-    def surface_at(heading):
-        """The local surface for one heading: the furthest in-slab atom inside the sector, plus the run's gap."""
+    def surface_at(heading, height):
+        """The local surface for one (heading, height): the furthest in-slab atom in its sector and axial window."""
         delta = np.abs(np.angle(np.exp(1j * (headings - float(heading)))))
-        seen = radial[delta <= angular_window]
-        local = float(seen.max()) if seen.size else 0.0
+        sector = delta <= angular_window
+        if not sector.any():
+            local = 0.0
+        else:
+            axial_gap = np.abs(axial - float(height))
+            seen = sector & (axial_gap <= float(belt_axial_window_nm))
+            if seen.any():
+                local = float(radial[seen].max())
+            else:
+                # The nearest height slice in this sector: the protein a site level with no atom can still see, so a
+                # thin ring (every atom on one plane) gives every site a measured surface rather than zero.
+                nearest = float(axial_gap[sector].min())
+                local = float(radial[sector & (axial_gap <= nearest + 1e-9)].max())
         return max(local + float(belt_gap_nm), float(belt_floor_nm))
 
     centers, directions, drawn, rejected, passes = _cylinder_sites(
-        count, seed, cylinder, surface_at, length, half_band, points, min_clearance_nm, profile)
+        count, seed, cylinder, surface_at, length, half_band, points, min_clearance_nm, profile,
+        min_body_gap_nm)
     # The surface each placed head actually stood off. The head is `length` beyond its local surface along the
     # outward normal, so the radial distance of the head site minus that length is the surface it used.
     if len(centers):
@@ -847,6 +967,9 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         # The extra distance the run asked for between the measured surface and the belt, so the record states the
         # geometry that was actually built. It is the number the local surfaces above were computed with.
         'gap_nm': round(float(belt_gap_nm), 6),
+        # The two packing settings the geometry was drawn under, so a reader can reproduce a belt that looks unusual.
+        'min_body_gap_nm': round(float(min_body_gap_nm), 6),
+        'axial_window_nm': round(float(belt_axial_window_nm), 6),
         'radius_source': RADIUS_MEASURED if max_surface > float(belt_floor_nm) + 1e-12 else RADIUS_FLOOR,
         'detergent_length_nm': round(float(length), 6),
         'belt_reach_nm': round(belt_reach, 6),
@@ -919,72 +1042,105 @@ def _transmembrane_cylinder(inside, frame_axis, bounds):
     }
 
 
+def _belt_trials():
+    """The bounded local offsets one belt slot may try, in order: height first, then heading, then radially outward.
+
+    A trial is a small nudge inside the slot's own neighbourhood, never a move to another ladder position -- that is
+    what keeps a slot that fails its gates from clustering onto a neighbour's arc. Each trial's surface is recomputed
+    at its own (heading, height), so a height trial can step out of a protrusion's axial window and a radial trial can
+    clear a body the local window could not see.
+    """
+    yield 0.0, 0.0, 0.0
+    for offset in BELT_TRIAL_HEIGHT_NM:
+        yield 0.0, offset, 0.0
+    for offset in BELT_TRIAL_HEADING_DEG:
+        yield float(np.deg2rad(offset)), 0.0, 0.0
+    for offset in BELT_TRIAL_RADIAL_NM:
+        yield 0.0, 0.0, offset
+
+
 def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protein_points,
-                    min_clearance_nm, profile=None):
-    """`count` head sites outside the cylinder's **local** lateral surface, drawn from the golden-angle ladder.
+                    min_clearance_nm, profile=None, min_body_gap_nm=0.0):
+    """`count` head sites outside the cylinder's **local** lateral surface, one per golden-angle ladder slot.
 
     The ladder is `pack_micelle`'s (`golden_angle_directions`), so both lattice shapes are one arrangement: its
     azimuths become the belt's angles around the cylinder and its third coordinate the height inside the vertical
-    band, scaled by `half_band`. `surface_at` answers each heading's own surface radius (the furthest in-slab atom
-    within the local angular window, plus the run's gap and floor), and a site is that surface point plus `length`
-    along the outward normal -- so every head end is outside the protein near its own heading by the molecule's
-    reach, not by whatever the single furthest atom anywhere on the cylinder happened to reach.
+    band, scaled by `half_band`. `surface_at(heading, height)` answers the height-aware surface radius of the atom
+    field around (heading, height) (plus the run's gap and floor), and a site is that surface point plus `length`
+    along the outward normal -- so every head end is outside the protein near its own heading and height by the
+    molecule's reach, not by whatever the single furthest atom anywhere on the cylinder happened to reach.
 
     The direction is that outward normal tilted by `TILT_DEGREES` about the local tangent. The sign is chosen from
     the site's side of the cylinder's mid-plane: the head leans away from the mid-plane, so the tail -- which the
     build hangs back along `-direction` -- dips towards it, and its radial component is always smaller than the
     head's. Every site is its own angle, height and direction; no single heading is shared by the belt.
 
-    The ladder is drawn for the requested count. An entry the protein leaves no room for is refused -- the site it
-    names is where the protein is -- and its replacement comes from the *next pass*: the same ladder with its phase
-    advanced (`golden_angle_directions(count, seed + pass)`), which is the same arrangement turned about the axis and
-    therefore still the seed's own golden angles, still spread over the shape. So the sites are the ladder's own
-    sites wherever the protein allows them, plus the first pass on which each refused one found room elsewhere.
+    **Each slot keeps the ladder's own (heading, height).** A slot whose first trial fails a gate tries the module's
+    bounded local offsets (`_belt_trials`), recomputing the surface at every trial, and is left empty if none clears.
+    So the ladder is drawn exactly once -- the next pass's phase is never used to replace a refused slot -- and the
+    belt's coverage stays the ladder's own even spacing rather than clustering wherever a later pass found room.
 
-    The draw is bounded (`DRAWS_PER_DETERGENT` passes), so a shape that cannot hold the count returns what it could
-    place and the count gate says so -- rather than the generator looping forever on a request with no answer.
-
-    Two gates decide an entry: the **head site** must keep `min_clearance_nm` from every protein bead (the number
-    the placement reports), and the detergent's **own body**, expanded by `body_beads` along the direction, must keep
-    `BEAD_CLEARANCE_NM` from every one of them. A site whose local surface still leaves its body inside a protrusion
-    the angular window did not see is refused at the bead that reaches it, not only at the head that misses it.
-    Both refuse the draw rather than moving it.
+    Four gates decide a trial: the **head site** must keep `min_clearance_nm` from every protein bead (the number the
+    placement reports), no two head sites may be closer than `MIN_DISTANCE_NM`, the detergent's **own body**
+    (`body_beads` along the direction) must keep `BEAD_CLEARANCE_NM` from every protein bead, and -- when
+    `min_body_gap_nm` is positive -- no body bead may be closer than that to any bead of an already accepted body.
+    The last gate is what `MIN_DISTANCE_NM` alone cannot see: two bodies whose heads are legal can still overlap.
     """
     axis = np.asarray(cylinder['axis'], dtype=float)
     origin = np.asarray(cylinder['origin'], dtype=float)
     across, up = _plane_basis(axis)
     cosine, sine = float(np.cos(TILT_RADIANS)), float(np.sin(TILT_RADIANS))
+    reach = float(profile['reach_nm']) if profile is not None else 0.0
     kept: list[np.ndarray] = []
     kept_directions: list[np.ndarray] = []
-    drawn = rejected = passes = 0
-    while len(kept) < count and passes < DRAWS_PER_DETERGENT:
-        ladder = golden_angle_directions(count, seed + passes)
-        headings = np.arctan2(ladder[:, 1], ladder[:, 0])
-        # The ladder's third coordinate is the old torus's meridian fraction, so its axial part is sin(pi/2 * z):
-        # scaling that fraction by VERTICAL_SPREAD makes the measured head-height spread exactly 1.5x the old one.
-        heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
-        outward = np.cos(headings)[:, None] * across + np.sin(headings)[:, None] * up
-        lean = np.where(heights >= 0.0, 1.0, -1.0)
-        directions = cosine * outward + (lean * sine)[:, None] * axis
-        radii = np.asarray([surface_at(heading) for heading in headings], dtype=float)
-        surface = origin + radii[:, None] * outward + heights[:, None] * axis
-        candidates = surface + length * outward
-        for candidate, direction in zip(candidates, directions):
-            if len(kept) >= count:
-                break
-            drawn += 1
+    kept_beads = np.empty((0, 3), dtype=float)
+    drawn = rejected = 0
+    ladder = golden_angle_directions(count, seed)
+    base_headings = np.arctan2(ladder[:, 1], ladder[:, 0])
+    # The ladder's third coordinate is the old torus's meridian fraction, so its axial part is sin(pi/2 * z):
+    # scaling that fraction by VERTICAL_SPREAD makes the measured head-height spread exactly 1.5x the old one.
+    base_heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
+    for base_heading, base_height in zip(base_headings, base_heights):
+        if len(kept) >= count:
+            break
+        drawn += 1
+        accepted = False
+        for heading_offset, height_offset, radial_offset in _belt_trials():
+            height = float(np.clip(base_height + height_offset, -half_band, half_band))
+            heading = float(base_heading + heading_offset)
+            outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
+            radius = surface_at(heading, height) + float(radial_offset) + length
+            candidate = origin + radius * outward + height * axis
+            lean = 1.0 if height >= 0.0 else -1.0
+            direction = cosine * outward + lean * sine * axis
             if float(np.linalg.norm(candidate - protein_points, axis=1).min()) < min_clearance_nm:
-                rejected += 1
                 continue
             if kept and float(np.linalg.norm(candidate - np.asarray(kept), axis=1).min()) < MIN_DISTANCE_NM:
-                rejected += 1
                 continue
             if body_clearance(candidate, direction, profile, protein_points) < BEAD_CLEARANCE_NM:
-                rejected += 1
                 continue
+            beads = None
+            if min_body_gap_nm > 0 and kept_beads.size:
+                # Only a kept bead inside the gate plus the molecule's own reach can be within the gate of this
+                # body, so the comparison stays small even for a full belt of a many-atom molecule.
+                limit = float(min_body_gap_nm) + reach
+                offsets = kept_beads - candidate
+                near = kept_beads[np.einsum('ij,ij->i', offsets, offsets) <= limit * limit]
+                if near.size:
+                    beads = body_beads(candidate, direction, profile)
+                    gap = beads[:, None, :] - near[None, :, :]
+                    if float(np.sqrt((gap * gap).sum(axis=2)).min()) < float(min_body_gap_nm):
+                        continue
+            if beads is None:
+                beads = body_beads(candidate, direction, profile)
             kept.append(candidate)
             kept_directions.append(direction)
-        passes += 1
+            kept_beads = np.vstack([kept_beads, beads]) if kept_beads.size else beads
+            accepted = True
+            break
+        if not accepted:
+            rejected += 1
+    passes = 1 if count else 0
     if not kept:
         return np.empty((0, 3)), np.empty((0, 3)), drawn, rejected, passes
     return np.asarray(kept), np.asarray(kept_directions), drawn, rejected, passes

@@ -72,6 +72,18 @@
             <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
           </span>
         </label>
+        <label>Minimum body-bead distance <span class="hint">nm · between detergents</span>
+          <span class="setting-control">
+            <input name="min_body_gap_nm" type="number" min="0" max="2" step="0.05">
+            <button type="button" class="secondary pdc-default" data-field="min_body_gap_nm">Default</button>
+          </span>
+        </label>
+        <label>Local surface axial window <span class="hint">nm · per belt site</span>
+          <span class="setting-control">
+            <input name="belt_axial_window_nm" type="number" min="0.1" max="5" step="0.05">
+            <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
+          </span>
+        </label>
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
           {# The estimate states its number and folds its method into the dashboard's own info button: a real
              button, so it is focusable and announced, showing its tooltip on hover, keyboard focus or a tap

@@ -334,7 +334,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
-            prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0):
+            prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
+            min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
+            belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
@@ -375,7 +377,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
 
     `belt_gap_nm` is the run's extra stand-off between the protein's measured cylinder surface and the belt's
     detergent bodies, forwarded to the placement and to nothing else: a sphere placement never reads it, so an
-    unstated gap keeps the frame a build has always written and `0.0` is byte-identical to it.
+    unstated gap keeps the frame a build has always written and `0.0` is byte-identical to it. `min_body_gap_nm` and
+    `belt_axial_window_nm` are the belt's packing and local-surface settings, forwarded the same way and recorded in
+    `basis`; both reach only a belt, exactly as in the build.
 
     Raises `ValueError` for a question that cannot be asked at all -- a template or protein that is not a file, a
     chain the file does not name, a mapping that does not exist, a count below one, a preparation asked for with no
@@ -538,13 +542,34 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         basis['conformations'] = {'key': library.key, 'size': library.size, 'mode': spec['mode'],
                                   'sources': [entry['run_id'] for entry in library.sources]}
 
+    # The detergent model is derived **before** the placement: the clearance and packing gates and the belt's own
+    # stand-off measure the beads the build actually stamps, so gating on the template's all-atom file would refuse a
+    # belt whose stamped bodies fit. The library's branch above may already have derived it, and a build with no
+    # mapping has no model -- an explicit `None` body profile is its centres-only answer.
+    if model is None and mapping:
+        if mapping_path is None:
+            mapping_path = resolve_mapping(mapping, root)
+        if not mapping_path.is_file():
+            raise ValueError(f'the detergent mapping is not a file: {mapping_path}')
+        model, model_seconds = detergent_model(mapping_path, root / 'molecules', root)
+        # A mapping is a mapping *of* a molecule, and the picture is drawn from the mapping's own beads. A form that
+        # offers one detergent with another's mapping would draw the other molecule while saying this one, so the two
+        # have to agree before anything is derived.
+        if molecule_id and str(model['molecule_id']) != str(molecule_id):
+            raise ValueError(f'the mapping {mapping_path.name} is of {model["molecule_id"]}, not of {molecule_id}')
+        basis['mapping'] = mapping_path.name
+    body_profile = pdc_placement.detergent_profile_from_model(model, record) if model is not None else None
+
     # The membrane the belt is placed in is the protein file's own statement of it, read through `micelle.frame` --
     # the same reader the build uses, so the two cannot disagree about which shape this placement takes.
     points = [list(bead['position']) for bead in beads]
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
                                               margin_nm=margin, initial_z_nm=initial_z, frame=frame,
-                                              conformations=conformations, belt_gap_nm=float(belt_gap_nm))
+                                              conformations=conformations, belt_gap_nm=float(belt_gap_nm),
+                                              min_body_gap_nm=float(min_body_gap_nm),
+                                              belt_axial_window_nm=float(belt_axial_window_nm),
+                                              body_profile=body_profile)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the numbers it was derived from. A belt's surface follows the protein locally, so
     # `band_radius_nm` is the mean local surface and `band_radius_min_nm`/`band_radius_max_nm` are its range; the
@@ -567,6 +592,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   'cylinder': band.get('cylinder'),
                   'vertical_half_band_nm': band.get('vertical_half_band_nm'),
                   'tilt_deg': band.get('tilt_deg'),
+                  # The belt's two packing settings, as the placement measured under them. `None` for the sphere and
+                  # for a self-assembled cloud, which read neither.
+                  'min_body_gap_nm': band.get('min_body_gap_nm'),
+                  'axial_window_nm': band.get('axial_window_nm'),
                   # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
                   # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
                   # measures a smaller shell, and these two fields are where that shows.
@@ -594,21 +623,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     box = _box(points, placement, frame, margin, initial_z)
     basis['box_nm'] = list(box)
 
-    seconds = 0.0
-    if model is None and mapping:
-        mapping_path = resolve_mapping(mapping, root)
-        if not mapping_path.is_file():
-            raise ValueError(f'the detergent mapping is not a file: {mapping_path}')
-        model, seconds = detergent_model(mapping_path, root / 'molecules', root)
-        # A mapping is a mapping *of* a molecule, and the picture is drawn from the mapping's own beads. A form that
-        # offers one detergent with another's mapping would draw the other molecule while saying this one, so the two
-        # have to agree before anything is derived.
-        if molecule_id and str(model['molecule_id']) != str(molecule_id):
-            raise ValueError(f'the mapping {mapping_path.name} is of {model["molecule_id"]}, not of {molecule_id}')
-        basis['mapping'] = mapping_path.name
-    elif model is not None:
-        # The library's derive already derived it, to match the library against the run's own beads.
-        seconds = model_seconds
+    seconds = model_seconds
     cost['detergent_seconds'] = round(seconds, 3)
     # The molecule and residue the picture says it is drawn from. A derived model's own, because the catalogue's
     # template is DDM's skeleton for every detergent: an OG mapping written with the template's residue would be
