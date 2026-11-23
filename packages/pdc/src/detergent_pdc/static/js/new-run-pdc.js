@@ -1775,7 +1775,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const solventText = solvent
       ? ` · ${Number(solvent.W).toLocaleString()} water beads and ${Number(solvent.NA).toLocaleString()} Na+ / `
         + `${Number(solvent.CL).toLocaleString()} Cl− ions at low opacity (${Number(solvent.salt_molar).toFixed(2)} M)`
-      : (basis.solvent_reason ? ` · ${basis.solvent_reason}` : '');
+      // A refused frame's own sentence above already says why there is no solvent; repeating
+      // `basis.solvent_reason` here would say it twice. A valid frame whose solvent failed still names the cause.
+      : (valid && basis.solvent_reason ? ` · ${basis.solvent_reason}` : '');
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
       + (valid ? '· the dry build with the initial solvent the first leg adds'
