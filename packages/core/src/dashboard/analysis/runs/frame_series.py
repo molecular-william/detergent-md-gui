@@ -366,13 +366,22 @@ def _sample_indices(n_frames, first_ns, dt_ps, settings):
 
 
 def _written_atoms(universe, mode):
-    """The atoms the file holds: every one for a bead system, the named CA for an atomistic backbone."""
-    if mode != 'ca':
-        return np.arange(len(universe.atoms), dtype=int)
-    selected = universe.select_atoms('name CA')
-    if not len(selected):
-        raise ValueError("atoms 'ca' selected no atom named CA: this trajectory is coarse-grained or holds no backbone")
-    return np.asarray(selected.indices, dtype=int)
+    """The atoms the file holds: the solute, or the named CA for an atomistic backbone, and never water or ions.
+
+    `series_pdb` is called with `include_water=False`, so the solvent is dropped from every model. Counting it here
+    charged the whole system twice over against `MAX_BYTES`: a real 5.9 GB pdc trajectory (NG_2ydo_155, 2026-11-23)
+    held 54,278 atoms of which the file writes 1,821, and 51 models were refused as 332 MB against a 250 MB cap.
+    """
+    if mode == 'ca':
+        selected = universe.select_atoms('name CA')
+        if not len(selected):
+            raise ValueError("atoms 'ca' selected no atom named CA: this trajectory is coarse-grained or holds no backbone")
+        indices = np.asarray(selected.indices, dtype=int)
+    else:
+        indices = np.arange(len(universe.atoms), dtype=int)
+    names = universe.atoms.resnames
+    return np.asarray([index for index in indices
+                       if str(names[index]).upper() not in structures.WATER_RESIDUES], dtype=int)
 
 
 def _protein_atoms(universe, protein_topologies):

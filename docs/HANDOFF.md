@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-23)
 
+- **The frame-series estimate counts the file's atoms, not the system's (2026-11-23).**
+  A build of `NG_2ydo_155_libconf_500ns-3`'s 495-500 ns window (one model every 0.1 ns, `pbc: cluster`,
+  `fit: rot+trans` on the protein) failed the size cap: "51 models of 54278 atoms is about 332181360 bytes". The
+  system holds 51,242 water beads and 1,215 ions that `series_pdb(..., include_water=False)` never writes; the file
+  holds 1,821 protein/detergent beads. `frame_series._written_atoms` now drops `structures.WATER_RESIDUES`, so the
+  `MAX_BYTES` pre-flight and `frames.json`'s `atoms`/`fit.of` count the atoms the file publishes. Measured live:
+  51 models, 1,821 atoms each, 7,370,920 bytes, 4.2 s; the PDB's one `CONECT` block is after the last `ENDMDL`.
+  Checks: unit `test_frame_series.py` 94 passed (new `test_the_size_estimate_ignores_the_water_the_writer_drops`
+  refuses nothing at a 1,500-byte cap; the solute test now expects `of: 4` of the 4 written atoms), integration
+  `test_frame_series_analysis.py` 12 passed, ruff clean. The build was queued by a dashboard process older than
+  the fix: `code_version()` is cached for the process's life, so the attempt records the pre-fix commit while the
+  worker subprocess ran the fixed tree; the next restart makes a matching Build a new identity and rebuilds once.
+
 - **Detergent shape: a stored library is the default when one exists (2026-11-23).**
   The shape card opened on *One conformation* regardless of what the workspace held. After the per-residue stored
   library list answers, an untouched card selects **Stored library** and the first library for the detergent's

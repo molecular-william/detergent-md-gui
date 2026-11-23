@@ -377,9 +377,27 @@ def test_the_solute_group_is_what_the_writer_keeps_water_excluded(tmp_path):
     frame_series.run(work, _payload(fit='rot+trans', group='solute'))
 
     record = json.loads((work / 'frames.json').read_text())
-    assert record['fit']['atoms'] == 4 and record['fit']['of'] == 6, 'the solute fit counted water'
+    assert record['fit']['atoms'] == 4 and record['fit']['of'] == 4, 'the fit counted water the file does not hold'
+    assert record['atoms'] == 4, 'frames.json counted the water the writer drops'
     assert _models(work / 'run-frames.pdb').shape == (3, 4, 3), 'the writer stopped dropping water'
     assert 'the solute group' in (work / 'run-frames.pdb').read_text()
+
+
+def test_the_size_estimate_ignores_the_water_the_writer_drops(tmp_path, monkeypatch):
+    """The estimate is the file's atoms: a solvated system must not be refused for water it never writes."""
+    names = ('B01', 'B02', 'B03', 'B04', 'W1', 'W2')
+    positions = [np.vstack([_moved(3)[frame],
+                            np.array([[90.0, 90.0, 90.0], [92.0, 90.0, 90.0]])]) for frame in range(3)]
+    work = tmp_path / 'work'
+    _trajectory(work, positions, names=names, resindex=[0, 0, 0, 0, 1, 1],
+                resnames=['ALA', 'W'], resids=[1, 2])
+    # Three models of the 4 written atoms weigh 1,440 bytes; counting the 2 water atoms would weigh 2,160.
+    monkeypatch.setattr(frame_series, 'MAX_BYTES', 1_500)
+
+    result = frame_series.run(work, _payload())
+
+    assert result['atoms'] == 4
+    assert _models(work / 'run-frames.pdb').shape == (3, 4, 3)
 
 
 def _crossing(directory):
