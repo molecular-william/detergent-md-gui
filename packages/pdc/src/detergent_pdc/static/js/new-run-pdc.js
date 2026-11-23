@@ -373,6 +373,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // workspace. Both lists and every refusal sentence are the server's; the card only chooses between them and
   // hands the adapter the one setting it validates. Only the chosen mode's body is shown, and `single` has no body.
   let shapeRuns = [], shapeRunIds = new Set(), shapeRunsLoaded = false, shapeRunsError = '';
+  // A reader who has moved the mode keeps it: the availability default below only fills an untouched card.
+  let shapeChosen = false;
   let shapeLibraries = [], shapeLibraryKey = '', shapeLibrariesLoaded = false, shapeLibrariesError = '';
   const shapeMode = () => field('shape_source')?.value || 'single';
   // The template states the detergent's own residue; a library is stored per residue, so that is the list's filter.
@@ -544,7 +546,30 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       shapeLibrariesError = `The stored libraries could not be read: ${error.message}`;
     }
     renderShapeLibraries(); syncShape();
+    defaultShapeMode();
     if (shapeMode() === 'stored') refreshReadinessSoon();
+  }
+
+  // The card's mode, written without pretending the reader chose it: only the mode's body follows, and the
+  // availability default can still move it again when the detergent's library list changes.
+  function setShapeMode(mode) {
+    const radio = [...form.querySelectorAll('input[name="shape_source"]')]
+      .find(input => input.value === mode);
+    if (!radio || radio.checked) return;
+    radio.checked = true;
+    syncShape(); syncSummary(); store(); checkReadiness(); renderPreviewState();
+  }
+
+  // A library that is already available is the default: a stored library for this detergent's residue wins over the
+  // one rigid conformation. `Build from runs` stays an explicit choice -- building one reads a trajectory -- and a
+  // detergent with no stored library keeps the single conformation.
+  function defaultShapeMode() {
+    if (shapeChosen) return;
+    if (shapeLibraries.length) {
+      if (shapeMode() !== 'stored') setShapeMode('stored');
+    } else if (shapeMode() === 'stored') {
+      setShapeMode('single');
+    }
   }
 
   function syncShape() {
@@ -556,6 +581,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function shapeChanged() {
+    shapeChosen = true;
     // The label's conformation token follows the shape, so the suggestion moves with it.
     syncShape(); syncSummary(); store(); checkReadiness(); renderPreviewState();
   }

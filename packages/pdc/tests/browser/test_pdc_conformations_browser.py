@@ -122,10 +122,14 @@ def test_the_card_follows_run_configuration_and_shows_only_the_chosen_body(dashb
     expect(cards.nth(3)).to_have_class(re.compile(r'new-pdc-stages'))
     expect(cards.nth(4)).to_have_class(re.compile(r'new-pdc-shape'))
     expect(page.locator('.new-pdc-shape')).to_be_visible()
-    # `single` is the default and has no body; the other two are hidden until chosen.
+    # A stored library for this detergent is the default: its body is the one shown, and the other two wait. The
+    # availability default never overrides a reader who moves the mode.
+    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
+                           timeout=30000)
+    expect(page.locator('[data-shape-body="stored"]')).to_be_visible()
     expect(page.locator('[data-shape-body="single"]')).to_be_hidden()
     expect(page.locator('[data-shape-body="build"]')).to_be_hidden()
-    expect(page.locator('[data-shape-body="stored"]')).to_be_hidden()
+    expect(page.locator('.new-pdc-shape .stored-library input[type=radio]').first).to_be_checked()
 
     choose_shape(page, 'Build from runs')
     expect(page.locator('[data-shape-body="build"]')).to_be_visible()
@@ -143,30 +147,42 @@ def test_the_card_follows_run_configuration_and_shows_only_the_chosen_body(dashb
     assert page.locator('[name=conformations_seed]').input_value() == '0'
     expect(page.locator('.new-pdc-shape .shape-summary')).to_contain_text('stored once built')
 
+    choose_shape(page, 'One conformation')
+    for body in ('single', 'build', 'stored'):
+        expect(page.locator(f'[data-shape-body="{body}"]')).to_be_hidden()
     choose_shape(page, 'Stored library')
     expect(page.locator('[data-shape-body="stored"]')).to_be_visible()
     expect(page.locator('[data-shape-body="build"]')).to_be_hidden()
-    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
-                           timeout=30000)
     stored = page.locator('.new-pdc-shape .stored-library').first
     expect(stored).to_contain_text(KEY)
     expect(stored.locator('input[type=radio]')).to_be_checked()
     assert errors == [], errors
 
 
-def test_build_mode_sends_exactly_its_spec_and_single_sends_no_key(dashboard, live_page):
+def test_each_shape_mode_sends_exactly_its_own_spec(dashboard, live_page):
     page, errors = live_page
     posted = {}
     serve(page, posted=posted)
     open_panel(page, live_page.base_url)
 
-    # `single` first: it is the default, so the payload must not carry the setting at all.
+    # The default is the stored library, so the untouched form's payload carries its key and digest.
+    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
+                           timeout=30000)
+    expect(page.locator('#start-run')).to_be_enabled()
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert posted['conformation_library'] == {'key': KEY, 'sha256': SHA256}, posted
+
+    # `single` sends no setting at all.
+    posted.clear()
+    page.get_by_role('tab', name='New run', exact=True).click()
+    choose_shape(page, 'One conformation')
     expect(page.locator('#start-run')).to_be_enabled()
     page.locator('#start-run').click()
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert 'conformation_library' not in posted, posted
 
-    # The same form in build mode sends the two eligible runs and the footer's numbers, nested under one key.
+    # Build mode sends the two eligible runs and the footer's numbers, nested under one key.
     posted.clear()
     page.get_by_role('tab', name='New run', exact=True).click()
     choose_shape(page, 'Build from runs')
@@ -195,31 +211,32 @@ def test_stored_mode_sends_the_key_and_digest(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_the_preview_query_carries_the_spec_in_both_non_default_modes(dashboard, live_page):
+def test_the_preview_query_carries_the_chosen_spec(dashboard, live_page):
     page, errors = live_page
     previews = []
     serve(page, previews=previews)
     open_panel(page, live_page.base_url)
 
+    # The default is the stored library, so the untouched card's derive carries its spec.
+    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
+                           timeout=30000)
+    derive(page)
+    query = parse_qs(urlparse(previews[-1]).query)
+    assert json.loads(query['conformation_library'][0]) == {'key': KEY, 'sha256': SHA256}, previews[-1]
+
     # `single` sends no argument, just as it sends no payload key.
+    choose_shape(page, 'One conformation')
     derive(page)
     assert 'conformation_library' not in parse_qs(urlparse(previews[-1]).query), previews[-1]
 
+    # Build mode's JSON rides beside the preview's existing arguments rather than replacing them.
     choose_shape(page, 'Build from runs')
     derive(page)
     url = previews[-1]
     assert 'conformation_library=%7B' in url, url
     query = parse_qs(urlparse(url).query)
     assert json.loads(query['conformation_library'][0]) == {'runs': RUN_IDS, 'size': 2000, 'seed': 0}
-    # The shape rides beside the preview's existing arguments rather than replacing them.
     assert query['pdc_seed'] and query['placement_mode'], query
-
-    choose_shape(page, 'Stored library')
-    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
-                           timeout=30000)
-    derive(page)
-    query = parse_qs(urlparse(previews[-1]).query)
-    assert json.loads(query['conformation_library'][0]) == {'key': KEY, 'sha256': SHA256}
     assert errors == [], errors
 
 
@@ -277,6 +294,39 @@ def test_the_stored_list_is_read_on_mount_with_the_residue_and_again_after_a_sub
 
 
 SINGLE_LINE = "One rigid conformation. No library; the template's own coordinates are rotated onto every site."
+
+
+def test_no_stored_library_keeps_the_single_conformation_and_sends_no_key(dashboard, live_page):
+    """The availability default only fills what exists: with no stored library the card stays on `single`."""
+    page, errors = live_page
+    posted = {}
+    serve(page, libraries={'libraries': []}, posted=posted)
+    open_panel(page, live_page.base_url)
+
+    expect(page.locator('input[name=shape_source][value=single]')).to_be_checked()
+    expect(page.locator('[data-shape-body="stored"]')).to_be_hidden()
+    page.locator('#start-run').click()
+    expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
+    assert 'conformation_library' not in posted, posted
+    assert errors == [], errors
+
+
+def test_a_readers_shape_choice_is_not_overridden_by_a_later_library_load(dashboard, live_page):
+    """The default fills an untouched card; once the reader moves the mode, a per-residue reload leaves it alone."""
+    page, errors = live_page
+    serve(page)
+    open_panel(page, live_page.base_url)
+    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .stored-library').length === 1",
+                           timeout=30000)
+    choose_shape(page, 'One conformation')
+
+    # A detergent change re-reads the per-residue list (the stub answers the same library); the choice must stay.
+    with page.expect_response(lambda response: '/api/pdc/conformations/libraries' in response.url,
+                              timeout=30000):
+        page.select_option('#new-detergent', 'NG')
+    expect(page.locator('input[name=shape_source][value=single]')).to_be_checked()
+    expect(page.locator('[data-shape-body="stored"]')).to_be_hidden()
+    assert errors == [], errors
 
 
 def test_the_preview_line_names_the_resolved_library_key_and_size(dashboard, live_page):

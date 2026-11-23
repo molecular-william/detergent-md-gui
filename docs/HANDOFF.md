@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-23)
 
+- **Detergent shape: a stored library is the default when one exists (2026-11-23).**
+  The shape card opened on *One conformation* regardless of what the workspace held. After the per-residue stored
+  library list answers, an untouched card selects **Stored library** and the first library for the detergent's
+  residue (residue NG here: `e1ca152b0b1650ed`, 2,000 conformations); a detergent with no stored library keeps
+  `single`, and the label suggestion follows (`NG_micelle_150_libconf_1us` vs `DDM_micelle_150_1conf_1us`). A
+  reader's own mode choice is kept: the default only fills a card nobody has moved, including across a detergent
+  change and the re-read it triggers. *Build from runs* is never a default -- building one reads a trajectory.
+  The NG library's recorded `mapping_sha256` (`16d73da5...`) is the currently offered NG mapping's digest, so the
+  default's preview resolves it; a stored library for another mapping still refuses through the card's own match.
+  Checks: the shape-card browser module 12 passed (the default, no-library, reader-choice, payload and preview
+  query cases), plus the tiers below; live: DDM opens `single` with no stored rows, NG opens `stored` with the
+  library selected.
+
 - **The starting-box fields state the preview's box, three across (2026-11-23).**
   The form's initial x/y/z were a second, pre-belt box (x/y placeholders from the extent route, z a filled 6.0), so a
   reader comparing them with the preview's 18.22 x 18.22 x 12.13 saw two different cells. The three fields now sit in

@@ -649,8 +649,11 @@ initial box and is never widened. Both lines are hidden for an empty micelle, an
 protein, its chain ticks, the box margin or any initial box value changes.
 
 The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
-conformation (the default, and every run before 2026-11-02), a library built from micelle-only runs, or a stored
-library. *Build from runs* lists `GET /api/pdc/conformations/runs` (completed pdc runs newest first, each with its
+conformation, a library built from micelle-only runs, or a stored library. A **stored library for the selected
+detergent's residue is the default when one exists** (2026-11-23) -- the card selects it and the run's label says
+`libconf` -- because the coordinate library is what the workspace already has; a detergent with no stored library
+keeps one rigid conformation, and a reader who moves the mode keeps their choice across a detergent change. *Build
+from runs* stays explicit: building one reads a trajectory, so it is never a default. *Build from runs* lists `GET /api/pdc/conformations/runs` (completed pdc runs newest first, each with its
 verdict and the refusing sentence, never hidden) and carries a size and a seed; *Stored library* lists
 `GET /api/pdc/conformations/libraries?residue=` and selects one by key and digest. Each stored row also has a
 **Delete** button: the browser confirms, then `DELETE /api/pdc/conformations/libraries/<key>` with
