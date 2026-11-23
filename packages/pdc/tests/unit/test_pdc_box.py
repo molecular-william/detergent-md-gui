@@ -147,6 +147,19 @@ def test_the_membrane_box_widens_x_and_y_to_the_belts_radial_reach():
     assert new == [12.979604, 12.979604, 11.0804], 'x and y clear the belt, z still clears the furthest bead'
 
 
+def test_a_stated_initial_z_is_a_floor_under_the_written_box():
+    """The form's starting-box z is the cell height, like x and y: it can only widen, never cut the frame."""
+    placed = [[0.0, 0.0, 0.0], [0.0, 0.0, 4.0]]
+    assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0)[2] == 8.0
+    assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0, initial_z_nm=12.0)[2] == 12.0
+    assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0, initial_z_nm=4.0)[2] == 8.0
+
+    points = [[0.0, 0.0, -3.5402], [4.3517, 2.7817, 3.5402]]
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0)[2] == 11.0804
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, initial_z_nm=12.0)[2] == 12.0
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, initial_z_nm=8.0)[2] == 11.0804
+
+
 def test_a_belt_reach_inside_the_proteins_own_footprint_does_not_shrink_the_box():
     """The widened x/y is a maximum: a belt that sits inside the footprint keeps the footprint's own box."""
     points = [[0.0, 0.0, -0.2], [4.0, 2.0, 0.2]]

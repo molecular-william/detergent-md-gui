@@ -48,7 +48,9 @@ INPUTS_DIRECTORY = run_inputs.INPUTS_DIRECTORY
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
-            'initial_z_nm': 6.0, 'contact_nm': 0.6,
+            # No `initial_z_nm` entry: a blank starting-box z is "nothing stated" -- the build's insertion box keeps
+            # its reviewed 6.0 nm, and the box the stage writes derives its own z. A stated z is a floor.
+            'contact_nm': 0.6,
             # The belt's extra stand-off from the protein's measured transmembrane-cylinder surface, in nm. 0 is
             # exactly the geometry every belt had before this setting existed, and the sphere never reads it.
             'belt_gap_nm': 0.0,

@@ -964,11 +964,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   };
   let extentState = {kind: 'idle'}, extentRequest = 0, extentTimer, extentController;
 
-  // A derived dimension shown in a blank x/y field: the placeholder is the value a run would derive, never a value
-  // written into the field. A written number would post on the next submit, so a stale one would silently replace the
-  // derived box -- exactly the UI-only field this setting exists to avoid.
-  const placedBoxValue = value => (value != null && Number.isFinite(Number(value)) ? Number(value).toFixed(1) : '');
-
   function renderExtent() {
     const size = pdcNode('.new-pdc-protein-size'), box = pdcNode('.new-pdc-box-estimate');
     if (!size || !box) return;
@@ -976,19 +971,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     size.hidden = box.hidden = !hasProtein;
     if (!hasProtein) {
       setText(size, ''); setText(box, '');
-      for (const name of ['initial_x_nm', 'initial_y_nm']) {
-        if (field(name)) field(name).placeholder = '';
-      }
       return;
     }
     const state = extentState;
     if (state.kind === 'answer') {
       setText(size, `${state.dimensions} nm`);
       setText(box, `${state.rule === 'membrane' ? 'membrane box' : 'initial box'} ${state.box} nm`);
-      // The derived x/y stay visible while their fields are blank; a stated value hides the placeholder, and the
-      // box line above then states the cell the stated floor actually makes.
-      if (field('initial_x_nm')) field('initial_x_nm').placeholder = placedBoxValue(state.autoX);
-      if (field('initial_y_nm')) field('initial_y_nm').placeholder = placedBoxValue(state.autoY);
       return;
     }
     // A refusal is the route's own sentence; a request still in flight says so instead of leaving the lines blank.
@@ -996,9 +984,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : (state.kind === 'loading' ? 'Measuring the protein and the box it implies…'
         : ''));
     setText(box, '');
-    for (const name of ['initial_x_nm', 'initial_y_nm']) {
-      if (field(name)) field(name).placeholder = '';
-    }
   }
 
   async function loadExtent() {
@@ -1013,8 +998,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderExtent();
       return;
     }
-    const query = new URLSearchParams({margin_nm: field('box_margin_nm')?.value || '',
-                                       initial_z_nm: field('initial_z_nm')?.value || ''});
+    const query = new URLSearchParams();
+    if (field('box_margin_nm')?.value) query.set('margin_nm', field('box_margin_nm').value);
+    if (field('initial_z_nm')?.value) query.set('initial_z_nm', field('initial_z_nm').value);
     // A stated x/y is sent so the box line shows the floor a build would actually get; a blank one sends nothing, so
     // the route derives it and again the line matches the run.
     if (field('initial_x_nm')?.value) query.set('initial_x_nm', field('initial_x_nm').value);
@@ -1777,6 +1763,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
           : '');
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
       + 'writes, before equilibration changes it' + bandSentence);
+    // The starting box the form states *is* the box this picture draws: a blank field shows those three numbers as
+    // its placeholder, and a typed number is a floor under them (never a ceiling). One number, one meaning.
+    for (const [name, value] of [['initial_x_nm', box[0]], ['initial_y_nm', box[1]], ['initial_z_nm', box[2]]]) {
+      const input = field(name);
+      if (input && Number.isFinite(Number(value))) input.placeholder = Number(value).toFixed(2);
+    }
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-solvent', basis.solvent_reason || 'not drawn');
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
@@ -1830,6 +1822,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             + 'instead.' : '');
     }
     sayPreview('.new-pdc-preview-basis', 'No picture: the sentence above is the builder’s own, and nothing was drawn.');
+    for (const name of ['initial_x_nm', 'initial_y_nm', 'initial_z_nm']) {
+      const input = field(name);
+      if (input) input.placeholder = '';
+    }
     sayPreview('.new-pdc-preview-from', basis.template ? describeFrame(basis) : '—');
     sayPreview('.new-pdc-preview-beads', '—');
     sayPreview('.new-pdc-preview-box', '—');

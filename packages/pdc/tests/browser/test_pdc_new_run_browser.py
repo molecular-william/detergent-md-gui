@@ -30,7 +30,7 @@ CATALOG = {
     'proteins': [{'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
+                 'box_margin_nm': 2.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
                  'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread': 2.0,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
@@ -705,7 +705,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'prepare_protein': True,
         'aggregation_number': 220, 'pdc_nvt_ps': 100, 'pdc_npt_ps': 200,
         'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
-        'salt_molar': 0.15, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+        'salt_molar': 0.15, 'box_margin_nm': 2.0, 'contact_nm': 0.6,
         'belt_gap_nm': 0.0,
         'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread': 2.0,
         'selection_threshold_fraction': 0.1,
@@ -1078,6 +1078,33 @@ def test_every_stage_setting_carries_an_info_button_with_the_servers_sentence(da
     assert errors == [], errors
 
 
+def test_the_starting_box_fields_mirror_the_preview_box_as_placeholders(dashboard, live_page):
+    """The starting box a reader states is the box the preview draws: blank fields show its numbers, three across."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    page.route(re.compile(r'/api/pdc/preview/placement'), lambda route: route.fulfill(json={
+        'valid': True, 'reasons': [], 'pdb': '',
+        'basis': {'box_nm': [18.22, 18.22, 12.13], 'beads': 1500, 'protein_residues': 0,
+                  'placement_mode': 'lattice', 'aggregation_number': 150, 'seed': 20261123,
+                  'template': 'micelle_template.json', 'solvent_reason': 'not drawn'},
+        'cost': {}}))
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+    page.locator('[name=aggregation_number]').fill('150')
+    page.locator('.new-pdc-preview-derive').click()
+
+    expect(page.locator('.new-pdc-preview-box')).to_contain_text('18.22 × 18.22 × 12.13 nm')
+    for name, value in (('initial_x_nm', '18.22'), ('initial_y_nm', '18.22'), ('initial_z_nm', '12.13')):
+        field_ = page.locator(f'[name={name}]')
+        expect(field_).to_have_value('')
+        expect(field_).to_have_attribute('placeholder', value)
+    # Three dimensions share the first row, the margin sits below it: every row of box inputs is three across.
+    columns = page.locator('.new-pdc-box-grid').evaluate(
+        'el => getComputedStyle(el).gridTemplateColumns.split(" ").filter(Boolean).length')
+    assert columns == 3, columns
+    assert errors == [], errors
+
+
 AUTO_EXTENT = {**EXTENT, 'auto_initial_x_nm': 7.2, 'auto_initial_y_nm': 8.8, 'auto_initial_z_nm': 10.4}
 
 
@@ -1085,8 +1112,9 @@ def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_n
     """One Auto for the starting cell: the extent route's suggested x, y and z fill all three fields.
 
     It is a measurement, not a default -- the stated 6 nm z and blank x/y are replaced -- and an empty micelle has no
-    structure to measure, so the button says so by being disabled. The x/y fields stay blank until Auto is pressed;
-    their placeholders show the derived value without posting it.
+    structure to measure, so the button says so by being disabled. The three fields stay blank until Auto is
+    pressed -- their placeholders belong to the preview's box, not to this protein-footprint measurement -- and Auto
+    writes the measured numbers into them, where they act as floors.
     """
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
@@ -1097,12 +1125,9 @@ def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_n
     expect(page.locator('.pdc-auto-box')).to_be_disabled()
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
     expect(page.locator('.pdc-auto-box')).to_be_enabled()
-    expect(page.locator('[name=initial_z_nm]')).to_have_value('6')
-    expect(page.locator('[name=initial_x_nm]')).to_have_value('')
-    expect(page.locator('[name=initial_y_nm]')).to_have_value('')
-    # The derived value is shown as a placeholder, not written into the field: a written number would post.
-    expect(page.locator('[name=initial_x_nm]')).to_have_attribute('placeholder', '7.2')
-    expect(page.locator('[name=initial_y_nm]')).to_have_attribute('placeholder', '8.8')
+    for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
+        expect(page.locator(f'[name={name}]')).to_have_value('')
+        expect(page.locator(f'[name={name}]')).not_to_have_attribute('placeholder', re.compile(r'\d'))
     page.locator('.pdc-auto-box').click()
     expect(page.locator('[name=initial_x_nm]')).to_have_value('7.2')
     expect(page.locator('[name=initial_y_nm]')).to_have_value('8.8')

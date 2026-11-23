@@ -20,7 +20,7 @@ CATALOG = {
     'proteins': [{'id': 'molecules/1qj8/1qj8.pdb', 'name': '1qj8', 'path': 'molecules/1qj8/1qj8.pdb',
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+                 'box_margin_nm': 2.0, 'contact_nm': 0.6,
                  'selection_threshold_fraction': 0.1},
 }
 

@@ -1,6 +1,6 @@
 """The protein card's size and initial-box lines, from the extent route that measures them.
 
-The panel asks `GET /api/pdc/proteins/<entry>/extent?margin_nm=…&initial_z_nm=…` (plus `chains=` for a selection)
+The panel asks `GET /api/pdc/proteins/<entry>/extent?margin_nm=…` (plus `initial_z_nm=` when stated and `chains=` for a selection)
 and renders the route's own `dimensions_nm` and `initial_box_nm`, naming the box rule it answered with, or its
 refusal sentence as text. Nothing is measured here: the route is stubbed, because the live workspace's protein list
 is not the fixture's, and what these tests pin is the panel's contract with the answer. An empty micelle has no
@@ -23,7 +23,7 @@ CATALOG = {
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [PROTEIN],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0},
+                 'box_margin_nm': 2.0},
 }
 ANSWER = {'protein': {'name': '1qj8'}, 'dimensions_nm': {'x': 5.2, 'y': 4.8, 'z': 6.0},
           'initial_box_nm': [9.2, 8.8, 6.0], 'rule': 'membrane'}
@@ -62,7 +62,8 @@ def test_the_card_renders_the_size_and_the_box_with_the_rule_the_route_names(das
     assert asked, 'the panel never asked the extent route'
     query = asked_queries(asked[-1])
     assert query['margin_nm'] == ['2'], query
-    assert query['initial_z_nm'] == ['6'], query
+    # The starting-box z is blank by default now, so the query does not send one; the route's own 6.0 still answers.
+    assert 'initial_z_nm' not in query, query
     assert query['chains'] == ['A,B,C'], query
     # The entry id travels with its leading slash stripped, exactly as the encapsulation estimate reads it.
     path = unquote(urlsplit(asked[-1]).path)

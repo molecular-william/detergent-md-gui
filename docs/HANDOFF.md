@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-23)
 
+- **The starting-box fields state the preview's box, three across (2026-11-23).**
+  The form's initial x/y/z were a second, pre-belt box (x/y placeholders from the extent route, z a filled 6.0), so a
+  reader comparing them with the preview's 18.22 x 18.22 x 12.13 saw two different cells. The three fields now sit in
+  one 3-across row (the margin below), stay blank by default, and after every derive show the preview's own
+  `box_nm` as their placeholders -- one number, one meaning. A stated x/y/z is a **floor** under the written box:
+  `pdc_box.membrane_box`/`extended_box` now take a stated z too (`z = max(measured, stated)`), so typing a larger
+  value widens the cell and a smaller one cannot shrink it. `initial_z_nm` left `pdc.DEFAULTS`: blank means nothing
+  stated (the insertion box keeps its reviewed 6.0 nm and the written box derives its own z), and the catalogue's
+  defaults no longer carry it. Live on 2ydo+NG the fields read 14.92 / 14.92 / 11.41 while blank and the preview box
+  is 14.92 x 14.92 x 11.41; x=25 widens it to 25.00 x 14.92 x 11.41, x=5 leaves it at the derived box. Checks:
+  box unit 21, pdc+integration 168/1 xfail and 17 (catalogue defaults), browser new-run/extent/pairing/preview 61,
+  ruff clean; dashboard restarted.
+
 - **The preview is the dry system: no water or ions (2026-11-23; supersedes the 2026-11-20 initial-cell preview).**
   The user's decision after using it: the preview draws only the protein (with its ribbon), the detergents' full
   bodies and the unit cell. The run's solvation is its first equilibration leg's, and drawing 10,000-40,000 Insane

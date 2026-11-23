@@ -635,10 +635,14 @@ would start from, read by `GET /api/pdc/proteins/<entry>/extent?margin_nm=&initi
 the heavy atoms with the same reader and chain selection the belt estimate uses, and calls `pdc_box`'s own
 `initial_box`/`membrane_box` rule (belt reach zero: this is the box before placement and solvent), so the number on
 the card is the number the build makes rather than a second estimate. The **Run configuration** card states the
-starting cell: `box_margin_nm` (per face) and `initial_x_nm`/`initial_y_nm`/`initial_z_nm` (dimensions). A stated
-x/y is a **floor**, never a ceiling -- `max(stated, footprint + 2 x margin)` -- so a value below the protein's own
-footprint cannot shrink the box through it; a blank x/y is the derived value (there is no `DEFAULTS` entry), and
-one **Auto** fills all three from one extent call. A membrane belt additionally widens x/y to its radial reach
+starting cell in **one row of three**: `initial_x_nm`, `initial_y_nm` and `initial_z_nm` (dimensions), with
+`box_margin_nm` (per face) below them. A stated x/y/z is a **floor**, never a ceiling -- `max(stated, derived)` --
+so a value below the derived box cannot cut the protein or the belt; a blank field is the derived value exactly and
+shows the box the **preview** draws as its placeholder, so the starting box the form states and the box the picture
+shows are one number (the extent route's own line remains the protein-footprint measurement). A blank z keeps the
+insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- and a stated z floors the written box's z.
+One **Auto** fills all three from one extent call (the protein-footprint box; a membrane belt's reach can only widen
+it). A membrane belt widens x/y to its radial reach
 (`max(footprint, 2 x (radius_max_nm + detergent_length_nm)) + 2 x margin`, `pdc_box.membrane_box`'s
 `belt_radius_nm`), and `pdc_build` records the growth as `box_widening_nm`; self-assembly samples inside its own
 initial box and is never widened. Both lines are hidden for an empty micelle, and the panel re-asks when the

@@ -645,7 +645,7 @@ def build(stage: Path) -> int:
         'placement_mode': mode,
         'radius_nm': settings['radius_nm'],
         'box_margin_nm': settings['box_margin_nm'],
-        'initial_z_nm': settings['initial_z_nm'],
+        'initial_z_nm': settings.get('initial_z_nm'),
         # The stated x/y floors, or `None` when the run left them blank and the box derives its footprint. Recorded so
         # a reader can tell a stated starting cell from a derived one.
         'initial_x_nm': settings.get('initial_x_nm'),
@@ -701,10 +701,14 @@ def build(stage: Path) -> int:
     # CG-only molecule's), and an explicit `None` for the centres-only build this stage stamps from just a template.
     # The packaged template's all-atom file is never what a model build puts in the system.
     body_profile = pdc_placement.detergent_profile_from_model(model, template) if model is not None else None
+    # A blank starting-box z states nothing: the insertion box keeps the reviewed 6.0 nm, and only a *stated* z is
+    # a floor under the box the stage writes (the form's blank field posts no key).
+    stated_z = settings.get('initial_z_nm')
+    insertion_z = float(stated_z) if stated_z is not None else pdc_placement.DEFAULT_INITIAL_Z_NM
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
-                                               initial_z_nm=settings['initial_z_nm'], frame=frame,
+                                               initial_z_nm=insertion_z, frame=frame,
                                                conformations=library.conformations() if library is not None else None,
                                                belt_gap_nm=settings.get('belt_gap_nm', 0.0),
                                                min_body_gap_nm=settings.get(
@@ -751,7 +755,7 @@ def build(stage: Path) -> int:
     # the placed detergents, because a box around no coordinates is not a box. It is computed here rather than
     # before the placement so that a failed placement is reported as a placement failure and not as a box error.
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
-                                  initial_z_nm=settings['initial_z_nm'],
+                                  initial_z_nm=insertion_z,
                                   initial_x_nm=settings.get('initial_x_nm'),
                                   initial_y_nm=settings.get('initial_y_nm'))
     report['box_nm_initial'] = initial
@@ -769,14 +773,15 @@ def build(stage: Path) -> int:
     if frame is not None and placement['band'] is not None:
         band = placement['band']
         box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
-                                   margin_nm=settings['box_margin_nm'], initial_z_nm=settings['initial_z_nm'],
+                                   margin_nm=settings['box_margin_nm'], initial_z_nm=stated_z,
                                    belt_reach_nm=band.get('belt_reach_nm') or 0.0,
                                    belt_radius_nm=(band.get('radius_max_nm') or 0.0)
                                    + (band.get('detergent_length_nm') or 0.0),
                                    initial_x_nm=settings.get('initial_x_nm'),
                                    initial_y_nm=settings.get('initial_y_nm'))
     else:
-        box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
+        box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'],
+                                   initial_z_nm=stated_z)
     # The x/y growth over the box the placement was built for, recorded beside the two boxes it relates. A belt's
     # density is its torus volume, so this widening leaves the measured density unchanged; a self-assembly cloud's
     # density was measured inside the initial box and no widening is made (`[0.0, 0.0]`).

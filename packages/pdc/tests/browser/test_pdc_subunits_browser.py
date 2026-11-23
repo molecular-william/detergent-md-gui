@@ -32,7 +32,7 @@ CATALOG = {
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [TRIMER],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+                 'box_margin_nm': 2.0, 'contact_nm': 0.6,
                  'selection_threshold_fraction': 0.1},
 }
 MAPPING_FILE = 'mapping_candidate_fixture.json'

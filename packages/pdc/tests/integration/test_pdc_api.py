@@ -46,7 +46,11 @@ def test_the_catalogue_carries_the_decided_defaults(dashboard):
     assert defaults['salt_molar'] == 0.15
     assert defaults['assessment_ns'] == 100 and defaults['extension_ns'] == 900
     assert defaults['selection_threshold_fraction'] == 0.10 and defaults['attempts_max'] == 3
-    assert defaults['box_margin_nm'] == 2.0 and defaults['initial_z_nm'] == 6.0 and defaults['contact_nm'] == 0.6
+    assert defaults['box_margin_nm'] == 2.0 and defaults['contact_nm'] == 0.6
+    # The starting box has no catalogue default any more: a blank field is the derive's own box, and a stated value
+    # is a floor. 6.0 is still the *insertion* box's z when nothing is stated, but that is the build's rule, not a
+    # number the form fills in.
+    assert 'initial_z_nm' not in defaults and 'initial_x_nm' not in defaults
 
 
 def test_the_catalogue_carries_the_stage_settings_help(dashboard):

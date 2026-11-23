@@ -561,12 +561,14 @@ def pdc_extent(entry):
     holds no atoms) is a 400 carrying that refusal's own sentence.
     """
     from detergent_pdc.analysis.runs import encapsulation
+    from detergent_pdc.execution.adapters import pdc_placement
 
     root = coordinator().ROOT
     protein = catalogue_protein(root, entry)
     try:
         margin_nm = requested_extent_number(request, 'margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
-        initial_z_nm = requested_extent_number(request, 'initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+        initial_z_nm = requested_extent_number(request, 'initial_z_nm',
+                                       float(pdc_placement.DEFAULT_INITIAL_Z_NM))
         initial_x_nm = requested_optional_extent_number(request, 'initial_x_nm')
         initial_y_nm = requested_optional_extent_number(request, 'initial_y_nm')
     except ValueError as error:
@@ -713,7 +715,7 @@ def preview_choices(source):
                 'protein_chains': requested_chains(source)}
     choices = pdc.validate_payload(supplied)
     choices['box_margin_nm'] = number('box_margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
-    choices['initial_z_nm'] = number('initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+    choices['initial_z_nm'] = number('initial_z_nm', None)
     choices['initial_x_nm'] = box_side('initial_x_nm')
     choices['initial_y_nm'] = box_side('initial_y_nm')
     choices['belt_gap_nm'] = number('belt_gap_nm', float(pdc.DEFAULTS['belt_gap_nm']))

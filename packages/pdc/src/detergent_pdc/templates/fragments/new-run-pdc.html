@@ -156,9 +156,11 @@
           </span>
         </label>
       </div>
-      <p class="hint">The initial box the system starts from. Auto measures the selected protein once and fills all
-        three: x and y are its footprint plus the box margin, z is the clearance its furthest atom needs. A stated x
-        or y below the footprint does not shrink the box -- the protein's own size is the floor.</p>
+      <p class="hint">The starting box. A blank field shows the box the preview draws as its placeholder, and a
+        stated number is a floor under that box -- never a ceiling -- so a value below the derived size cannot cut the
+        protein or the belt. Auto measures the selected protein and fills the protein-footprint box (x and y are its
+        footprint plus the margin, z the clearance its furthest atom needs); a membrane belt's own reach can only
+        widen the box the picture shows.</p>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
         <table class="new-pdc-estimate"><tbody>
           <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>

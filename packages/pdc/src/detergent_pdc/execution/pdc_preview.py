@@ -354,10 +354,12 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
     length). Everything else -- a protein-free build, a protein that states no membrane, a stated membrane holding
     none of the protein's atoms -- is `extended_box` over the box the placement was built for.
 
-    A stated initial x/y is passed through to both rules as a floor (`max(stated, derived)`), exactly as the build
-    passes it: the preview's basis box and the cell the stage writes are then the same number.
+    A stated initial x/y/z is passed through to both rules as a floor (`max(stated, derived)`), exactly as the
+    build passes it: the preview's basis box and the cell the stage writes are then the same number. `None` is the
+    derived value exactly; the insertion box's own z keeps the reviewed default when nothing is stated.
     """
-    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+    insertion_z = 6.0 if initial_z_nm is None else initial_z_nm
+    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=insertion_z,
                                   initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     if frame is not None and placement['band'] is not None:
         band = placement['band']
@@ -367,7 +369,8 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
                                     belt_radius_nm=(band.get('radius_max_nm') or 0.0)
                                     + (band.get('detergent_length_nm') or 0.0),
                                     initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
-    return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm)
+    return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm,
+                                initial_z_nm=initial_z_nm)
 
 
 def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergent_residue,
@@ -508,7 +511,7 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
 
 def preview(*, project_root, cache_root, template, seed, protein=None, chains=None, mapping=None,
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
-            box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
+            box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=None,
             initial_x_nm=None, initial_y_nm=None,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
             prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
@@ -560,10 +563,12 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     `belt_axial_window_nm` are the belt's packing and local-surface settings, forwarded the same way and recorded in
     `basis`; both reach only a belt, exactly as in the build.
 
-    `initial_x_nm`/`initial_y_nm` are the run's stated starting cell in those axes, passed to the same box rule the
-    build uses (`pdc_box.initial_box`/`membrane_box`). Each is a floor, never a ceiling: `None` (the form's blank
-    field, and every caller before the setting existed) is the derived footprint exactly, and a stated number below
-    the derived value cannot shrink the box through the protein or the belt.
+    `initial_x_nm`/`initial_y_nm`/`initial_z_nm` are the run's stated starting cell, passed to the same box rule the
+    build uses (`pdc_box.initial_box`/`membrane_box`/`extended_box`). Each is a floor, never a ceiling: `None` (the
+    form's blank field, and every caller before the settings existed) is the derived box exactly, and a stated
+    number below the derived value cannot shrink the box through the protein or the belt. The form's blank fields
+    show this derive's own `box_nm` as their placeholders, so the starting box it states is the box the picture
+    shows; a statement is the insertion box's z for the placement and a floor under the written box.
 
     The picture is the dry system the stage writes: the protein (and the ribbon it was coarse-grained from), the
     detergents' full bodies and the cell. No water and no ions are placed or drawn -- the run's solvation is the
@@ -577,7 +582,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     seed = int(seed)
     aggregation_number = int(aggregation_number)
     margin = float(box_margin_nm)
-    initial_z = float(initial_z_nm)
+    stated_z = None if initial_z_nm is None else float(initial_z_nm)
+    insertion_z = stated_z if stated_z is not None else pdc_placement.DEFAULT_INITIAL_Z_NM
     initial_x = None if initial_x_nm is None else float(initial_x_nm)
     initial_y = None if initial_y_nm is None else float(initial_y_nm)
     radius = float(radius_nm)
@@ -758,7 +764,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     points = [list(bead['position']) for bead in beads]
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
-                                              margin_nm=margin, initial_z_nm=initial_z, frame=frame,
+                                              margin_nm=margin, initial_z_nm=insertion_z, frame=frame,
                                               conformations=conformations, belt_gap_nm=float(belt_gap_nm),
                                               min_body_gap_nm=float(min_body_gap_nm),
                                               belt_axial_window_nm=float(belt_axial_window_nm),
@@ -818,7 +824,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         # not a gate -- and a refusal with no centres (a template, a preparation, an unplaced protein) keeps the
         # text-only answer.
         if placement['centers']:
-            box = _box(points, placement, frame, margin, initial_z, initial_x, initial_y)
+            box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
             basis['box_nm'] = list(box)
             basis['belt_offset_nm'] = float(belt_offset_nm)
             basis['detergents_placed'] = len(placement['centers'])
@@ -838,7 +844,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         cost['seconds'] = time.perf_counter() - started
         return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')
 
-    box = _box(points, placement, frame, margin, initial_z, initial_x, initial_y)
+    box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
     basis['box_nm'] = list(box)
     basis['belt_offset_nm'] = float(belt_offset_nm)
     pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,

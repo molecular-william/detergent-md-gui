@@ -19,7 +19,7 @@ CATALOG = {
                    'limitations': ['skeleton placeholder template, not a fitted detergent model']}],
     'proteins': [],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
-                 'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'contact_nm': 0.6,
+                 'box_margin_nm': 2.0, 'contact_nm': 0.6,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'nstlist': 40, 'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,

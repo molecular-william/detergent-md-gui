@@ -90,24 +90,33 @@ def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
     return round(2 * (reach + margin_nm), 6)
 
 
-def extended_box(xy, placed_points, margin_nm=2.0):
+def extended_box(xy, placed_points, margin_nm=2.0, initial_z_nm=None):
     """The box after placement: z grows so every face is at least `margin_nm` from the placed system.
 
-    `z = 2 x margin + (max_z - min_z)` of the placed coordinates. The x and y extents are passed through unchanged
-    from the box the placement was built for: a self-assembly cloud is sampled uniformly inside exactly that box
-    (`pdc_placement._self_assemble`), so resizing it afterwards would leave the placement describing a different
-    region than the one the detergents came from. A belt is widened by `membrane_box` instead, because a belt's
-    density is its torus's own volume and does not depend on the cell around it.
+    `z = 2 x margin + (max_z - min_z)` of the placed coordinates, floored by a stated `initial_z_nm`: the form's
+    starting-box z is the height the reader asked the cell to have, and a value below the placed extent cannot cut
+    the system it contains. `None` (the panel's blank field) is today's derived z exactly.
+
+    The x and y extents are passed through unchanged from the box the placement was built for: a self-assembly cloud
+    is sampled uniformly inside exactly that box (`pdc_placement._self_assemble`), so resizing it afterwards would
+    leave the placement describing a different region than the one the detergents came from. A belt is widened by
+    `membrane_box` instead, because a belt's density is its torus's own volume and does not depend on the cell around
+    it.
     """
     if not placed_points:
         raise ValueError('a box needs at least one placed coordinate')
     if margin_nm <= 0:
         raise ValueError('the box margin must be positive')
+    if initial_z_nm is not None and initial_z_nm <= 0:
+        raise ValueError('box extents must be positive')
     zs = [float(point[2]) for point in placed_points]
-    return [round(float(xy[0]), 6), round(float(xy[1]), 6), round(max(zs) - min(zs) + 2 * margin_nm, 6)]
+    z = max(zs) - min(zs) + 2 * margin_nm
+    if initial_z_nm is not None:
+        z = max(z, float(initial_z_nm))
+    return [round(float(xy[0]), 6), round(float(xy[1]), 6), round(z, 6)]
 
 
-def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=6.0, belt_reach_nm=0.0,
+def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=None, belt_reach_nm=0.0,
                  belt_radius_nm=0.0, initial_x_nm=None, initial_y_nm=None):
     """The box for a protein that states its own membrane: z clears the protein, the slab *and* the belt.
 
@@ -141,21 +150,30 @@ def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=6.0, bel
     the cell around that shape, not the volume the shape was sampled in. Self-assembly is never this rule: its
     generator samples inside the initial box and its cell goes through `extended_box` unchanged.
 
+    A stated `initial_z_nm` is a **floor, never a ceiling** for z, like x and y: `z = max(the measured membrane
+    box, stated)`, so the form's starting-box height can widen the cell but cannot cut the belt or the protein.
+    `None` (the panel's blank field) is the measured box exactly.
+
     A protein that states no membrane passes `half_thickness_nm=None` and gets today's box exactly: there is no frame
     to be centred on and no slab to clear. A protein-free build never reaches this rule at all.
     """
     if half_thickness_nm is None:
-        return initial_box(points, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+        return initial_box(points, margin_nm=margin_nm,
+                           initial_z_nm=6.0 if initial_z_nm is None else initial_z_nm,
                            initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     if not points:
         raise ValueError('a box needs at least one coordinate')
-    if margin_nm <= 0:
+    if margin_nm <= 0 or (initial_z_nm is not None and initial_z_nm <= 0):
         raise ValueError('box extents must be positive')
-    initial = initial_box(points, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+    initial = initial_box(points, margin_nm=margin_nm,
+                          initial_z_nm=6.0 if initial_z_nm is None else initial_z_nm,
                           initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     furthest = max(abs(float(point[2])) for point in points)
     reach = max(furthest, abs(float(half_thickness_nm)), abs(float(belt_reach_nm or 0.0)))
     radial = abs(float(belt_radius_nm or 0.0))
+    z = 2 * (reach + margin_nm)
+    if initial_z_nm is not None:
+        z = max(z, float(initial_z_nm))
     return [round(max(initial[0], 2 * radial + 2 * margin_nm), 6),
             round(max(initial[1], 2 * radial + 2 * margin_nm), 6),
-            round(2 * (reach + margin_nm), 6)]
+            round(z, 6)]
