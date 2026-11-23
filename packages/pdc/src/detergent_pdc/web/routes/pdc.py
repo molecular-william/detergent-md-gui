@@ -481,7 +481,7 @@ def pdc_encapsulation(entry):
                     'caveat': encapsulation.ESTIMATE_CAVEAT})
 
 
-def extent_and_box(protein, positions_nm, *, margin_nm, initial_z_nm):
+def extent_and_box(protein, positions_nm, *, margin_nm, initial_z_nm, initial_x_nm=None, initial_y_nm=None):
     """One protein's dimensions and the initial box its build starts from.
 
     The box is the build's own rule, `pdc_box`'s -- called here rather than restated, so the number the panel shows
@@ -489,15 +489,20 @@ def extent_and_box(protein, positions_nm, *, margin_nm, initial_z_nm):
     gets the membrane rule (centred on its slab, belt reach zero: this is the box before the belt and solvent), and
     one that states none gets the plain protein-extent box. `positions_nm` are the heavy atoms actually read, so a
     chain selection narrows both the dimensions and the box to the object that will be simulated.
+
+    `initial_x_nm`/`initial_y_nm` are the stated starting cell, forwarded to the same rule as a floor: a value below
+    the derived footprint cannot shrink the box through the protein, and `None` is today's derived value exactly.
     """
     axes = list(zip(*positions_nm))
     dimensions = {name: round(max(values) - min(values), 3) for name, values in zip('xyz', axes)}
     half_thickness = protein.get('half_thickness_nm')
     if half_thickness is None:
-        return dimensions, pdc_box.initial_box(positions_nm, margin_nm=margin_nm, initial_z_nm=initial_z_nm), 'initial'
+        return dimensions, pdc_box.initial_box(positions_nm, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+                                               initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm), 'initial'
     return (dimensions,
             pdc_box.membrane_box(positions_nm, half_thickness_nm=half_thickness, margin_nm=margin_nm,
-                                 initial_z_nm=initial_z_nm),
+                                 initial_z_nm=initial_z_nm, initial_x_nm=initial_x_nm,
+                                 initial_y_nm=initial_y_nm),
             'membrane')
 
 
@@ -520,6 +525,18 @@ def requested_extent_number(source, name, default):
     return value
 
 
+def requested_optional_extent_number(source, name):
+    """An extent query's optional number: absent is `None` (the derived value), present is validated like a stated one.
+
+    The stated initial x/y are floors, and a blank field means today's derived footprint rather than zero -- so the
+    query's absence is a real answer and must not become a default. A present value that cannot be a box dimension is
+    refused naming its parameter, exactly as `margin_nm` and `initial_z_nm` are.
+    """
+    if not (source.args.get(name) or '').strip():
+        return None
+    return requested_extent_number(source, name, None)
+
+
 @blueprint.get('/api/pdc/proteins/<path:entry>/extent')
 def pdc_extent(entry):
     """The protein's own x/y/z dimensions and the initial box the build starts from, in nanometres.
@@ -533,6 +550,11 @@ def pdc_extent(entry):
     `auto_initial_z_nm` is the same measurement's z, which is what the form's Auto button fills in: the box the build
     would get with no stated z, from `pdc_box.auto_initial_z`, rounded to 3 decimals and clamped to the range the form
     offers. It is answered for both rules and is independent of the `initial_z_nm` the caller sent.
+    `auto_initial_x_nm`/`auto_initial_y_nm` are the same measurement's footprint-plus-margin x/y
+    (`pdc_box.auto_initial_xy`), clamped to their own advertised ranges and likewise independent of the stated
+    `initial_x_nm`/`initial_y_nm`: the Auto button fills all three from this one measurement, so none of its answers
+    can depend on a value it is about to replace. The stated x/y still reach `initial_box_nm` as floors, so the box
+    line shows the cell a build would actually get.
 
     A malformed request -- a non-numeric or non-positive margin or z, a chain the file does not name -- is a 400 with
     the reason; an entry the catalogue does not hold is a 404. A structure the reader refuses (including one that
@@ -545,6 +567,8 @@ def pdc_extent(entry):
     try:
         margin_nm = requested_extent_number(request, 'margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
         initial_z_nm = requested_extent_number(request, 'initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+        initial_x_nm = requested_optional_extent_number(request, 'initial_x_nm')
+        initial_y_nm = requested_optional_extent_number(request, 'initial_y_nm')
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
     chains = requested_chains(request)
@@ -564,17 +588,24 @@ def pdc_extent(entry):
                                      f'{available}'}), 400
     try:
         dimensions, box, rule = extent_and_box(protein, atoms['positions_nm'], margin_nm=margin_nm,
-                                               initial_z_nm=initial_z_nm)
+                                               initial_z_nm=initial_z_nm, initial_x_nm=initial_x_nm,
+                                               initial_y_nm=initial_y_nm)
     except ValueError as error:
         return jsonify({'error': f'{protein["name"]}: {error}'}), 400
-    # What the form's Auto button asks for: the z the build would measure, not the z the caller typed -- the same
-    # answer for both rules, clamped to the range the form offers. It deliberately ignores `initial_z_nm`, so pressing
-    # Auto cannot depend on the value it replaces.
+    # What the form's Auto button asks for: the numbers the build would measure, not the ones the caller typed -- the
+    # same answer for both rules, clamped to the range the form offers. It deliberately ignores the stated x/y/z, so
+    # pressing Auto cannot depend on a value it replaces.
     low, high = pdc.SETTING_SPECS['initial_z_nm'][1], pdc.SETTING_SPECS['initial_z_nm'][2]
     auto_z = pdc_box.auto_initial_z(atoms['positions_nm'], half_thickness_nm=protein.get('half_thickness_nm'),
                                     margin_nm=margin_nm)
     auto_z = round(min(max(auto_z, low), high), 3)
+    auto_x, auto_y = pdc_box.auto_initial_xy(atoms['positions_nm'], margin_nm=margin_nm)
+    x_low, x_high = pdc.SETTING_SPECS['initial_x_nm'][1], pdc.SETTING_SPECS['initial_x_nm'][2]
+    y_low, y_high = pdc.SETTING_SPECS['initial_y_nm'][1], pdc.SETTING_SPECS['initial_y_nm'][2]
+    auto_x = round(min(max(auto_x, x_low), x_high), 3)
+    auto_y = round(min(max(auto_y, y_low), y_high), 3)
     return jsonify({'protein': protein['name'], 'dimensions_nm': dimensions, 'initial_box_nm': box,
+                    'auto_initial_x_nm': auto_x, 'auto_initial_y_nm': auto_y,
                     'auto_initial_z_nm': auto_z, 'rule': rule,
                     'half_thickness_nm': protein.get('half_thickness_nm'), 'chains': chains})
 
@@ -655,6 +686,25 @@ def preview_choices(source):
         except ValueError:
             raise ValueError(f'{name} must be a number, not {raw!r}') from None
 
+    def box_side(name):
+        """A stated initial x/y, absent -> `None`, present validated against the adapter's own advertised bounds.
+
+        The blank field is what makes the run derive its footprint, so absence is a real value here and cannot fall
+        back to a default: there is no `DEFAULTS` entry for either axis. A stated value the adapter would refuse must
+        be refused by the preview in the same terms, or a frame could be drawn for a run that cannot be queued.
+        """
+        raw = (source.args.get(name) or '').strip()
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except ValueError:
+            raise ValueError(f'{name} must be a number, not {raw!r}') from None
+        low, high = pdc.SETTING_SPECS[name][1], pdc.SETTING_SPECS[name][2]
+        if not math.isfinite(value) or value < low or value > high:
+            raise ValueError(f'{name} must be between {low} and {high}')
+        return value
+
     supplied = {'seed': whole('pdc_seed'),
                 'aggregation_number': whole('aggregation_number', pdc.DEFAULTS['aggregation_number']),
                 'placement_mode': (source.args.get('placement_mode') or '').strip()
@@ -664,6 +714,8 @@ def preview_choices(source):
     choices = pdc.validate_payload(supplied)
     choices['box_margin_nm'] = number('box_margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
     choices['initial_z_nm'] = number('initial_z_nm', float(pdc.DEFAULTS['initial_z_nm']))
+    choices['initial_x_nm'] = box_side('initial_x_nm')
+    choices['initial_y_nm'] = box_side('initial_y_nm')
     choices['belt_gap_nm'] = number('belt_gap_nm', float(pdc.DEFAULTS['belt_gap_nm']))
     # The belt's packing and local-surface settings. Read with the adapter's defaults, like the gap: they are
     # belt-only, so a preview of a sphere carries them and the placement never reads them.
@@ -732,8 +784,10 @@ def pdc_preview_placement():
     a run starts from -- Insane's water and salt at low opacity, with `basis.box_nm` drawing the unit cell.
 
     **A refusal is an answer, not a bad request.** A template the builder's validator refuses, and a placement that
-    fails the clearance gate, come back as `200` with `valid: false` and the builder's own sentences -- the panel
-    renders them instead of inventing a message, and draws nothing. A *malformed* request (an unknown protein, a chain
+    fails the clearance gate, come back as `200` with `valid: false` and the builder's own sentences. A placement that
+    still produced centres also carries its dry frame and `basis.problems` (the red marks the card draws); a refusal
+    with nothing to draw -- no centres, a template, a preparation, a model -- carries no `pdb`. The panel renders the
+    sentences instead of inventing a message. A *malformed* request (an unknown protein, a chain
     the file does not name, a seed that is not a whole number, a template that is not a file) is a 400 with `{error}`,
     exactly as `pdc_encapsulation` refuses.
 
@@ -767,6 +821,7 @@ def pdc_preview_placement():
             molecule_id=(request.args.get('molecule_id') or '').strip() or None,
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
+            initial_x_nm=choices['initial_x_nm'], initial_y_nm=choices['initial_y_nm'],
             salt_molar=choices['salt_molar'],
             belt_gap_nm=choices['belt_gap_nm'],
             min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],

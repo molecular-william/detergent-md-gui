@@ -26,7 +26,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const saved = () => storage.get('pdc-form', {}) || {};
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
-                   'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
+                   'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
                    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
@@ -330,7 +330,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
 
   function syncChains() {
-    // The z-box's Auto button measures a protein, so it follows the same selection this block does.
+    // The starting box's Auto button measures a protein, so it follows the same selection this block does.
     syncAutoButton();
     const block = pdcNode('.new-pdc-subunits'), list = pdcNode('.new-pdc-chain-list');
     if (!block || !list) return;
@@ -352,16 +352,18 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     describeChains();
   }
 
-  // The initial-z Auto is a measurement of the chosen protein. An empty micelle has no structure to measure, so the
-  // button says why by being disabled rather than answering a number about nothing.
+  // The initial box's one Auto is a measurement of the chosen protein. An empty micelle has no structure to measure,
+  // so the button says why by being disabled rather than answering a number about nothing. It fills all three axes
+  // (x, y, z): x/y the derived footprint plus the margin, z the route's measured clearance. It is one behaviour, not
+  // a z button and an xy button that could disagree.
   function syncAutoButton() {
-    const button = pdcNode('.pdc-auto-z');
+    const button = pdcNode('.pdc-auto-box');
     if (!button) return;
     const hasProtein = !!field('protein').value;
     button.disabled = !hasProtein;
     button.title = hasProtein
-      ? 'Measure the selected protein and size the z box from it'
-      : 'Choose a protein: an empty micelle has no structure to measure a z box from.';
+      ? 'Measure the selected protein and fill the initial x, y and z boxes from it'
+      : 'Choose a protein: an empty micelle has no structure to measure a box from.';
   }
 
   // The detergent shape ------------------------------------------------------------------------------------------
@@ -962,16 +964,31 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   };
   let extentState = {kind: 'idle'}, extentRequest = 0, extentTimer, extentController;
 
+  // A derived dimension shown in a blank x/y field: the placeholder is the value a run would derive, never a value
+  // written into the field. A written number would post on the next submit, so a stale one would silently replace the
+  // derived box -- exactly the UI-only field this setting exists to avoid.
+  const placedBoxValue = value => (value != null && Number.isFinite(Number(value)) ? Number(value).toFixed(1) : '');
+
   function renderExtent() {
     const size = pdcNode('.new-pdc-protein-size'), box = pdcNode('.new-pdc-box-estimate');
     if (!size || !box) return;
     const hasProtein = !!field('protein').value;
     size.hidden = box.hidden = !hasProtein;
-    if (!hasProtein) { setText(size, ''); setText(box, ''); return; }
+    if (!hasProtein) {
+      setText(size, ''); setText(box, '');
+      for (const name of ['initial_x_nm', 'initial_y_nm']) {
+        if (field(name)) field(name).placeholder = '';
+      }
+      return;
+    }
     const state = extentState;
     if (state.kind === 'answer') {
       setText(size, `${state.dimensions} nm`);
       setText(box, `${state.rule === 'membrane' ? 'membrane box' : 'initial box'} ${state.box} nm`);
+      // The derived x/y stay visible while their fields are blank; a stated value hides the placeholder, and the
+      // box line above then states the cell the stated floor actually makes.
+      if (field('initial_x_nm')) field('initial_x_nm').placeholder = placedBoxValue(state.autoX);
+      if (field('initial_y_nm')) field('initial_y_nm').placeholder = placedBoxValue(state.autoY);
       return;
     }
     // A refusal is the route's own sentence; a request still in flight says so instead of leaving the lines blank.
@@ -979,6 +996,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : (state.kind === 'loading' ? 'Measuring the protein and the box it implies…'
         : ''));
     setText(box, '');
+    for (const name of ['initial_x_nm', 'initial_y_nm']) {
+      if (field(name)) field(name).placeholder = '';
+    }
   }
 
   async function loadExtent() {
@@ -995,6 +1015,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
     const query = new URLSearchParams({margin_nm: field('box_margin_nm')?.value || '',
                                        initial_z_nm: field('initial_z_nm')?.value || ''});
+    // A stated x/y is sent so the box line shows the floor a build would actually get; a blank one sends nothing, so
+    // the route derives it and again the line matches the run.
+    if (field('initial_x_nm')?.value) query.set('initial_x_nm', field('initial_x_nm').value);
+    if (field('initial_y_nm')?.value) query.set('initial_y_nm', field('initial_y_nm').value);
     // Only a selection that exists is sent; an entry with no ticks is the whole structure, as the estimate reads it.
     const chains = selectedChains();
     if (chains.length) query.set('chains', chains.join(','));
@@ -1023,9 +1047,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderExtent();
       return;
     }
-    // The route's own suggested z box, when it answers one: the Auto button writes this number into the field.
+    // The route's own suggested box dimensions, when it answers them: the one Auto button writes all three numbers
+    // into their fields. x/y are the derived footprint plus the margin -- the value a blank field would get -- and do
+    // not depend on the stated x/y, exactly as z does not depend on the stated z.
     const autoZ = Number(body.auto_initial_z_nm);
+    const autoX = Number(body.auto_initial_x_nm);
+    const autoY = Number(body.auto_initial_y_nm);
     extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial',
+                   autoX: Number.isFinite(autoX) ? autoX : undefined,
+                   autoY: Number.isFinite(autoY) ? autoY : undefined,
                    autoZ: Number.isFinite(autoZ) ? autoZ : undefined};
     renderExtent();
   }
@@ -1170,6 +1200,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   //: them at 0.3, which is 0.792 / 0.690 / 0.573 A for an R, S and T bead. The radii themselves are the table's, so
   //: a multiplier here is the one number a reader would have to be told about to read a bead's size.
   const PREVIEW_BEAD_SCALE = 0.3;
+  //: The viewer's label for a frame with nothing to refuse. A refused placement replaces it with the counts its
+  //: marks carry, so the picture can be read without colour.
+  const PREVIEW_VIEWER_LABEL = 'Detergent beads in their polarity families, over the all-atom protein ribbon, '
+    + 'inside the simulation box';
+  //: `#d62828`, the red the reasons and the marks share. NGL's shape API takes RGB in 0..1 and positions in
+  //: Angstrom, so the server's nanometres are multiplied by ten where a mark is drawn.
+  const PREVIEW_PROBLEM_COLOUR = [0.84, 0.157, 0.157];
+  const PREVIEW_PROBLEM_RING_SEGMENTS = 32;
+  const PREVIEW_PROBLEM_RING_THICKNESS = 0.35;
+  const PREVIEW_PROBLEM_BEAD_SCALE = 1.4;
   const previewNode = selector => pdcNode(`.new-pdc-preview ${selector}`);
   const sayPreview = (selector, text) => { const target = previewNode(selector); if (target) setText(target, text); };
   //: The line that says the ribbon could not be loaded. Its own element rather than `.new-pdc-preview-basis`, which
@@ -1219,6 +1259,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             axialWindow: field('belt_axial_window_nm').value || '',
             verticalSpread: field('belt_vertical_spread').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
+            initial_x: field('initial_x_nm').value || '', initial_y: field('initial_y_nm').value || '',
             salt: field('salt_molar').value || '', offset: field('belt_offset_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
@@ -1228,6 +1269,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
+                                  inputs.initial_x, inputs.initial_y,
                                   inputs.salt, inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
                                   inputs.template].join('|');
 
@@ -1324,7 +1366,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         ? staleSentence(previewInputs(), 'refusal')
         : (previewFrame.unreadable
             ? 'No answer came back to read; the sentence above says so.'
-            : 'The build refuses these inputs; the sentence above is its own.');
+            : (previewFrame.body?.pdb
+                ? 'The run would refuse this placement: the picture is what these inputs produced, not a frame a run '
+                  + 'may start from.'
+                : 'The build refuses these inputs; the sentence above is its own.'));
       return;
     }
     state.textContent = stale
@@ -1349,6 +1394,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.mapping) query.set('mapping_candidate', inputs.mapping);
     if (inputs.margin) query.set('box_margin_nm', inputs.margin);
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
+    if (inputs.initial_x) query.set('initial_x_nm', inputs.initial_x);
+    if (inputs.initial_y) query.set('initial_y_nm', inputs.initial_y);
     if (inputs.salt) query.set('salt_molar', inputs.salt);
     if (inputs.offset) query.set('belt_offset_nm', inputs.offset);
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
@@ -1474,6 +1521,72 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return box;
   }
 
+  // The refused placement's marks -------------------------------------------------------------------------------
+  //
+  // One `NGL.Shape` component, held on the host as `previewProblems` and replaced per draw, so a re-derive never
+  // stacks an older placement's marks on a newer frame. An empty-slot mark is a ring around the slot's own site in
+  // the plane its `normal_nm` states, at the gate distance the placement failed; a bead mark is a solid sphere at
+  // the offending bead. Every number here is the server's; this file only turns nanometres into NGL's Angstroms.
+  function previewProblemRing(normal, centre, radius) {
+    const [nx, ny, nz] = normal.map(Number);
+    const length = Math.hypot(nx, ny, nz);
+    if (!Number.isFinite(length) || length === 0) return null;
+    const unit = [nx / length, ny / length, nz / length];
+    const helper = Math.abs(unit[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    let u = [unit[1] * helper[2] - unit[2] * helper[1],
+             unit[2] * helper[0] - unit[0] * helper[2],
+             unit[0] * helper[1] - unit[1] * helper[0]];
+    const ulength = Math.hypot(...u);
+    if (!Number.isFinite(ulength) || ulength === 0) return null;
+    u = u.map(value => value / ulength);
+    const v = [unit[1] * u[2] - unit[2] * u[1],
+               unit[2] * u[0] - unit[0] * u[2],
+               unit[0] * u[1] - unit[1] * u[0]];
+    const points = [];
+    for (let index = 0; index < PREVIEW_PROBLEM_RING_SEGMENTS; index += 1) {
+      const angle = (index / PREVIEW_PROBLEM_RING_SEGMENTS) * 2 * Math.PI;
+      points.push(centre.map((value, axis) => value + radius * (Math.cos(angle) * u[axis]
+        + Math.sin(angle) * v[axis])));
+    }
+    return points;
+  }
+
+  function drawPreviewProblems(stage, basis) {
+    const host = previewNode('.new-pdc-preview-viewer');
+    if (!host) return null;
+    host.previewProblems = null;
+    const marks = Array.isArray(basis?.problems) ? basis.problems : [];
+    if (!marks.length) return null;
+    const shape = new NGL.Shape('placement problems');
+    let drawn = 0;
+    for (const mark of marks) {
+      const position = (mark.position_nm || []).map(Number);
+      if (position.length !== 3 || position.some(value => !Number.isFinite(value))) continue;
+      const centre = position.map(value => value * 10);
+      if (mark.kind === 'empty-slot') {
+        const normal = (mark.normal_nm || []).map(Number);
+        const radius = Number(mark.radius_nm) * 10;
+        if (normal.length !== 3 || !Number.isFinite(radius) || radius <= 0) continue;
+        const points = previewProblemRing(normal, centre, radius);
+        if (!points) continue;
+        for (let index = 0; index < points.length; index += 1) {
+          shape.addCylinder(points[index], points[(index + 1) % points.length],
+                            PREVIEW_PROBLEM_COLOUR, PREVIEW_PROBLEM_RING_THICKNESS);
+        }
+        drawn += 1;
+      } else {
+        const radius = Math.max(1, (Number(mark.radius_nm) || 0.3) * 10) * PREVIEW_PROBLEM_BEAD_SCALE;
+        shape.addSphere(centre, PREVIEW_PROBLEM_COLOUR, radius);
+        drawn += 1;
+      }
+    }
+    if (!drawn) return null;
+    const component = stage.addComponentFromObject(shape);
+    component.addRepresentation('buffer');
+    host.previewProblems = component;
+    return component;
+  }
+
   async function showPreviewFrame(pdb, proteinResidues, structure, basis) {
     const host = previewNode('.new-pdc-preview-viewer');
     if (!host) return;
@@ -1489,6 +1602,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     stage.removeAllComponents();
     host.previewComponent = null;
     host.previewRibbon = null;
+    host.previewProblems = null;
     host.previewProteinResidues = Number(proteinResidues) || 0;
     host.previewBox = Array.isArray(basis?.box_nm) ? basis.box_nm : null;
     host.previewBoxOrigin = Array.isArray(basis?.box_origin_nm) ? basis.box_origin_nm : null;
@@ -1536,6 +1650,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         // the colour its type family gives it.
         drawPreviewRepresentations();
         addPreviewBox(stage, host.previewBox, host.previewBoxOrigin);
+        drawPreviewProblems(stage, basis);
         stage.autoView();
         stage.handleResize();
       }).catch(error => sayPreview('.new-pdc-preview-basis',
@@ -1602,11 +1717,59 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
   }
 
+  // A refused placement with a frame: the builder's own reasons, the count it placed, and the mark legend, all
+  // above the picture. The reasons are the server's sentences verbatim; the count is the placement's own.
+  function renderPreviewProblems(body) {
+    const basis = body.basis || {};
+    const refused = body.valid === false;
+    const banner = previewNode('.new-pdc-preview-problems');
+    const legend = previewNode('.new-pdc-preview-problem-legend');
+    if (banner) {
+      banner.hidden = !refused;
+      if (refused) {
+        const reasons = (Array.isArray(body.reasons) ? body.reasons : []).filter(Boolean);
+        const list = previewNode('.new-pdc-preview-problems-reasons');
+        if (list) {
+          list.replaceChildren(...reasons.map(reason => {
+            const item = document.createElement('li');
+            item.textContent = String(reason);
+            return item;
+          }));
+        }
+        const placed = Number(basis.detergents_placed), requested = Number(basis.detergents_requested);
+        const counts = Number.isFinite(placed) && Number.isFinite(requested)
+          ? `${placed} of ${requested} detergents placed.` : '';
+        const marks = Array.isArray(basis.problems) ? basis.problems.length : 0;
+        sayPreview('.new-pdc-preview-problems-summary',
+          `${counts}${counts ? ' ' : ''}The picture is the placement these inputs produced, with ${marks} `
+          + `${marks === 1 ? 'mark' : 'marks'} in red.`);
+      }
+    }
+    if (legend) legend.hidden = !refused;
+  }
+
+  // The viewer's label for a refused frame names what the colour marks, so the picture can be read without it.
+  function previewProblemLabel(basis) {
+    const marks = Array.isArray(basis?.problems) ? basis.problems : [];
+    const rings = marks.filter(mark => mark.kind === 'empty-slot').length;
+    const beads = marks.length - rings;
+    const placed = Number(basis?.detergents_placed), requested = Number(basis?.detergents_requested);
+    const counts = Number.isFinite(placed) && Number.isFinite(requested)
+      ? `, ${placed} of ${requested} detergents placed` : '';
+    return `${PREVIEW_VIEWER_LABEL}${counts}; ${rings} empty ${rings === 1 ? 'slot' : 'slots'} ringed in red `
+      + `and ${beads} ${beads === 1 ? 'bead' : 'beads'} marked in red`;
+  }
+
   function renderPreviewFrame(body) {
     const basis = body.basis || {}, cost = body.cost || {}, box = basis.box_nm || [];
+    const valid = body.valid !== false;
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
     if (refusal) { refusal.hidden = true; refusal.textContent = ''; }
-    if (viewer) viewer.hidden = false;
+    renderPreviewProblems(body);
+    if (viewer) {
+      viewer.hidden = false;
+      viewer.setAttribute('aria-label', valid ? PREVIEW_VIEWER_LABEL : previewProblemLabel(basis));
+    }
     showPreviewFrame(body.pdb || '', basis.protein_residues, basis.protein_structure, basis);
     const solvent = basis.solvent || null;
     const solventText = solvent
@@ -1615,7 +1778,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       : (basis.solvent_reason ? ` · ${basis.solvent_reason}` : '');
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
-      + '· the dry build with the initial solvent the first leg adds' + solventText
+      + (valid ? '· the dry build with the initial solvent the first leg adds'
+               : '· the dry frame the gates measured; no solvent is drawn for a refused placement')
+      + solventText
       + (basis.clearance_nm != null ? ` · clearance from the protein ${Number(basis.clearance_nm).toFixed(3)} nm` : ''));
     sayPreview('.new-pdc-preview-from', describeFrame(basis));
     sayPreview('.new-pdc-preview-beads', `${Number(basis.beads).toLocaleString()} beads `
@@ -1670,7 +1835,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // draw token makes it drop its component instead of drawing a frame beside a refusal.
     previewDraw += 1;
     const host = previewNode('.new-pdc-preview-viewer');
-    if (host) { host.previewComponent = null; host.previewRibbon = null; host.previewProteinResidues = 0; }
+    if (host) { host.previewComponent = null; host.previewRibbon = null; host.previewProblems = null; host.previewProteinResidues = 0; }
+    const problems = previewNode('.new-pdc-preview-problems');
+    const legend = previewNode('.new-pdc-preview-problem-legend');
+    if (problems) problems.hidden = true;
+    if (legend) legend.hidden = true;
     ribbonNote('');
     if (viewer) viewer.hidden = true;
     if (refusal) {
@@ -1744,7 +1913,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
     // The body is kept, not only its verdict: the preview's shape line reads `basis.conformations` from it.
     previewFrame = {inputs, refused: !body.valid, body};
-    if (body.valid) renderPreviewFrame(body);
+    // Any answer that is valid, or that carries a frame, is drawn: a refused placement with a geometry is the
+    // picture these inputs produced, and its reasons sit above it. The text-only refusal is for an invalid answer
+    // with no frame at all.
+    if (body.valid || body.pdb) renderPreviewFrame(body);
     else renderPreviewRefusal((body.reasons || []).join(' ') || reasonlessRefusal(body), body);
   }
 
@@ -1825,7 +1997,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   let presets = [], appliedPreset = null, presetsGeneration = 0, applyingPreset = false;
   // Read live rather than listed by hand: a control added to the fieldset is a preset setting without a second
   // edit, and a control with no `name` (the derived step count) is never captured -- it is never submitted either.
-  const PDC_PRESET_FIELDS = () => [...(pdcNode('fieldset.new-pdc-stages')?.querySelectorAll('[name]') || [])];
+  // The starting box moved to the Run configuration card, but a preset written before that move still carries
+  // `box_margin_nm` and `initial_z_nm`, so those controls are read beside the fieldset: an old preset restores the
+  // same numbers, and a new one captures them (plus the stated x/y) in the same place.
+  const PDC_PRESET_EXTRAS = ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm'];
+  const PDC_PRESET_FIELDS = () => [
+    ...(pdcNode('fieldset.new-pdc-stages')?.querySelectorAll('[name]') || []),
+    ...PDC_PRESET_EXTRAS.map(name => field(name)).filter(Boolean)];
   function presetSettings() {
     const settings = {};
     for (const control of PDC_PRESET_FIELDS()) {
@@ -2026,27 +2204,33 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // the cache -- the coarse-grained protein is not rebuilt -- which is why these move and the three expensive ones
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
-  for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'belt_gap_nm', 'min_body_gap_nm',
-                      'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
-  // The box's own two inputs also move the estimate of the initial box, which is measured from them.
-  for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
-  // Auto is the extent route's own suggested z box, written into the field as a reader typing it would: the box
-  // line, the preview's staleness, the summary and the gate then follow the same `input`/`change` events.
-  pdcNode('.pdc-auto-z')?.addEventListener('click', async () => {
+  for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'belt_gap_nm',
+                      'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
+  // The box's own four inputs also move the estimate of the initial box, which is measured from them.
+  for (const name of ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm']) field(name)?.addEventListener('input', scheduleExtent);
+  // One Auto for the starting box: the extent route's own suggested x, y and z, written into their fields as a reader
+  // typing them would -- the box line, the preview's staleness, the summary and the gate then follow the same
+  // `input`/`change` events. x/y are the derived footprint plus the margin, so pressing Auto never shrinks a box.
+  pdcNode('.pdc-auto-box')?.addEventListener('click', async () => {
     if (!field('protein').value) {
-      notice('Choose a protein: an empty micelle has no structure to measure a z box from.');
+      notice('Choose a protein: an empty micelle has no structure to measure a box from.');
       return;
     }
-    const button = pdcNode('.pdc-auto-z');
+    const button = pdcNode('.pdc-auto-box');
     if (button) button.disabled = true;
     try {
       await loadExtent();
-      if (extentState.kind === 'answer' && Number.isFinite(extentState.autoZ)) {
-        const input = field('initial_z_nm');
-        if (!input) return;
-        input.value = String(extentState.autoZ);
-        input.dispatchEvent(new Event('input', {bubbles: true}));
-        input.dispatchEvent(new Event('change', {bubbles: true}));
+      if (extentState.kind === 'answer') {
+        for (const [name, value] of Object.entries({initial_x_nm: extentState.autoX,
+                                                    initial_y_nm: extentState.autoY,
+                                                    initial_z_nm: extentState.autoZ})) {
+          if (!Number.isFinite(value)) continue;
+          const input = field(name);
+          if (!input) continue;
+          input.value = String(value);
+          input.dispatchEvent(new Event('input', {bubbles: true}));
+          input.dispatchEvent(new Event('change', {bubbles: true}));
+        }
       } else if (extentState.kind === 'refused') {
         notice(extentState.reason);
       }

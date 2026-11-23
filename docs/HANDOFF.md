@@ -8,7 +8,36 @@ Per-slice history is not repeated here. Every landed slice is its own commit, wi
 message, and this file's earlier revisions are in git (`git log -p -- docs/HANDOFF.md`). What stays here is the
 state, what is next, what is open, and the measurements and incidents a reader has to know.
 
-## Current state (2026-11-16)
+## Current state (2026-11-23)
+
+- **Placement fallback, problem marks, and the refused-placement preview (2026-11-23).**
+  A belt slot that fails a gate now tries its bounded local offsets first (the base position is the first trial) and
+  is left empty only when no trial clears; every rejected slot keeps its base point, outward normal, heading, height
+  and failed gate in `band.rejected_slots`, and `place_detergents` returns `problems`/`problems_truncated` as display
+  marks: an empty-slot ring at the failed gate's distance, head/body-clearance beads with the offending protein bead,
+  and two marks per overlapping pair. `validate_positions` adds `minimum_pair`/`overlap_pairs` and keeps its four keys.
+  Measured on the existing cylinder fixture: 229 of 600 placed, all 229 moved by a bounded trial (the old code
+  rejected every base), 371 slots empty. The preview draws a gate-refused placement that still has centres:
+  `valid: false` with `reasons` verbatim, the dry frame (no solvent), `basis.problems` translated into the written
+  frame (centring plus each molecule's own wrap; an out-of-box mark is dropped into `problems_truncated`), and
+  `detergents_placed`/`detergents_requested`; a refusal with nothing to draw keeps `pdb: None`. The card draws red
+  rings at empty slots and red beads on violations, a red reasons banner and the "N of M" line. Live on 1AT9, seed
+  20261123: AN=300 -> `valid:false`, 276/300 placed, 24 empty-slot marks, 416 KB PDB, 3.2 s, dry frame; AN=40 ->
+  valid, 1.47 MB PDB, solvent, 1.9 s. Checks: placement unit 65, validation 3, preview unit+integration 61/1 xfail,
+  pdc fast area 841/1 xfail, preview/new-run browser 52, full fast tier 3,179/1 xfail, full browser tier 430, ruff
+  clean; dashboard restarted 10:20.
+- **Membrane box x/y widens to the belt's reach; the starting box is stated in Run configuration (2026-11-23).**
+  `pdc_box.membrane_box` gains `belt_radius_nm`: x/y = `max(footprint, 2 x (radius_max_nm + detergent_length_nm)) +
+  2 x margin`. Measured on 1AT9 chain A with a DDM belt: 8.3517 x 6.7817 -> 12.979604 x 12.979604 nm (z 11.0804
+  unchanged), and `pdc_build` records the growth as `box_widening_nm` beside the two boxes. A lattice belt's density
+  is its torus volume, so the widening does not move it; self-assembly samples inside its own initial box and is never
+  widened; no-membrane and protein-free builds are byte-identical to before. `initial_x_nm`/`initial_y_nm` are
+  advertised (bounds 1-50, deliberately no `DEFAULTS` entry) and a stated value is a floor, never a ceiling:
+  `max(stated, footprint + 2 x margin)`. One **Auto** fills all three initial box values from one extent call, and the
+  four box controls moved from *Salt, seed and box* into the **Run configuration** card. Live: 1AT9 extent with
+  x=y=14 gives 14 x 14; x=y=3 is floored to the 10.4 footprint; auto x/y stay 10.4; a stated-box preview and build
+  agree at 14.0 x 14.0 x 11.945664. Checks: box/build 75, build-band 11, controls unit 132, integration 27/1 xfail,
+  pdc fast area 838, form/pairing/presets browser 42, ruff clean.
 
 - **Belt vertical offset in New run (2026-11-20).** `belt_offset_nm` (`DEFAULTS` 0.0, bounds −2…2 nm) translates
   every placed belt site together along the membrane-normal axis after the site gate; the final head/body clearance
@@ -732,30 +761,6 @@ three (`ff_interactions.publish`), so a Recompute says something true about this
 
 ## Open items
 
-**PDC placement fallback, membrane-box width and box controls (hand-off 2026-11-23).**
-Plan: `docs/plans/2026-11-23-pdc-placement-and-box-controls.md`. Four linked changes, in order: (1) when a belt
-site's base coordinate is too close to the protein, sample adjacent coordinates before rejecting the slot—today
-`_cylinder_sites` rejects a base head that fails `min_clearance_nm` immediately, while `_belt_trials` only runs for
-a base that already clears the head; keep the seed deterministic and the existing head/body/spacing gates authoritative;
-(2) widen `pdc_box.membrane_box`'s x/y beyond the protein footprint plus margin so the belt and its solvent are not
-against the face, measuring against 1AT9 and stating whether the placement volume is widened too; (3) move
-`box_margin_nm` and `initial_z_nm` out of the **Stage settings → Salt, seed and box** group into the **Run
-configuration** card; and (4) add explicit initial x/y/z box values there, wired through `pdc.DEFAULTS`,
-`SETTING_SPECS`, preview choices/preview/basis/query, `pdc_build`/`pdc_box`, `PDC_GROUPS`, the New-run template/JS
-and tests. The plan has the acceptance list; start with the placement test, then the box rule.
-
-**PDC preview: a refused placement is still drawn, with its problems in red (hand-off 2026-11-23).**
-The user's decision (2026-11-23): when the system has issues, the preview is still generated, with the problematic
-beads and locations marked in red -- and the run still refuses. Four answers were taken: only refusals that have a
-geometry draw (the placement gates; template/preparation/coarse-graining/model/library stay text-only); marks are a
-red ring at each belt slot that could not be filled plus a red bead at each bead inside a gate (both members of a
-pair); a short belt draws what fits (N of M) with rings where it does not; the preview card only. Plan:
-`docs/plans/2026-11-23-pdc-preview-problem-markers.md`; draft:
-`docs/design/drafts/2026-11-23-pdc-preview-problems.html`. Today `pdc_preview.preview` answers a placement refusal
-with `_refusal` and `pdb: None`, so the card hides the viewer. The change adds `placement['problems']` geometry --
-the rings read item 1's rejected-slot records, so build this **after** item 1 and before items 2-4 -- draws a
-`valid: false` answer's frame through the valid path (no solvent), and keeps the valid path byte-identical.
-
 **Sugar comparison subpanel (deferred, hand-off 2026-11-10).** A validation subpanel comparing the three-bead ring
 triangles and bead compositions of the published Martini 3 sugar entries with the sugars mapped and parameterized
 here. Sources: `dashboard.models.sugars.reference` (`entries`, `signature`, `run_topology`, already 15% COG scaled)
@@ -773,8 +778,6 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 | --- | --- | --- |
 | LINCS warning diagnostics | minimal implementation landed 2026-11-20 (see Current state): a section in the Runs row's Diagnostics block, a shared frame dialog, parser + endpoint + tests. Draft: `docs/design/drafts/2026-11-20-lincs-warnings-card.html` (+ `.png`). Not every warning gets a written frame (768,662/768,688/768,691 did not), and the card offers no nearest-trajectory-frame fallback yet. | decide the no-frame fallback, whether the 0.5/0.25 nm thresholds become controls, and whether the summary count should be filled before the block is opened |
 | Sugar comparison subpanel | not started; hand-off 2026-11-10 | build the validation panel described above |
-| PDC placement fallback + wider membrane box + initial x/y/z controls | hand-off 2026-11-23; plan `docs/plans/2026-11-23-pdc-placement-and-box-controls.md` | implement the four changes in the order the plan states |
-| PDC preview of a refused placement | hand-off 2026-11-23; plan `docs/plans/2026-11-23-pdc-preview-problem-markers.md`; decisions taken (placement gates only; rings at empty slots + red beads at violations; N of M; card only) | after item 1 of the box plan, before items 2-4: collect `problems` geometry, draw a `valid: false` frame, tests |
 | Cross-run AA vs CG comparison | asked 2026-11-16 after run `0c5f5738089c`: the AA-vs-CG panels are single-run (they read `1_AA-reference/` + `2_mapping/` + `4_CG_sim/` inside one run), so a CG-only reference run can only be put *beside* an AA run, never compared with it | build it as a new kind: the AA run named in the request (its `stages/07_reference/lig.{gro,xtc}`), this run's `4_CG_sim/prod/lig_CG.{gro,xtc}`, and the bead-atom correspondence from the sugar package's own candidate; needs a payload/UI "compare this run with run X" and one science decision (which mapping the published entry is compared through) |
 | `dbc366ae772b` AA reference lacks `07_reference/run.sh` | `reference.json` records its digest, so `files.verify` refuses the DDM mapping `10c318949` with `Cannot reuse changed or missing artifact`; the other six revisions verify | decide whether to re-publish that reference (a new record over the files it has) or leave it refused |
 | Workspace store cleanup | applied 2026-11-16: 474 MB removed (fit scratch, orphaned preview, stale logs and pre-sqlite files) and the job database VACUUMED 85.7 -> 3.5 MB; what remains is evidence | decide whether to prune the derived analyses (225 MB) and console logs (415 MB), or archive the 21.7 GB of pdc outputs |

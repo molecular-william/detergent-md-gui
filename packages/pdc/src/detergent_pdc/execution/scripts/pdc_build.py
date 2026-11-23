@@ -122,8 +122,9 @@ def centre_shift(points, detergent_positions, box):
     micelle has no protein to straddle the cell, so its anchor is the mean of the detergent's initial atom positions
     -- the centre of mass of the placed detergent cloud, not of one molecule.
 
-    The box is not resized: its dimensions are the placement's own (the volume its density was measured in), and the
-    whole system is translated together so the relative geometry, the belt, and the stamped bodies are unchanged.
+    The centring does not resize the box: its dimensions were decided before this shift (`membrane_box` for a belt,
+    `extended_box` otherwise), and the whole system is translated together so the relative geometry, the belt, and
+    the stamped bodies are unchanged.
     """
     if points:
         columns = list(zip(*points))
@@ -645,6 +646,10 @@ def build(stage: Path) -> int:
         'radius_nm': settings['radius_nm'],
         'box_margin_nm': settings['box_margin_nm'],
         'initial_z_nm': settings['initial_z_nm'],
+        # The stated x/y floors, or `None` when the run left them blank and the box derives its footprint. Recorded so
+        # a reader can tell a stated starting cell from a derived one.
+        'initial_x_nm': settings.get('initial_x_nm'),
+        'initial_y_nm': settings.get('initial_y_nm'),
         'template_issues': template_issues,
         'detergent_representation': 'one centre per molecule',
         'limitations': list(LIMITATIONS),
@@ -746,21 +751,37 @@ def build(stage: Path) -> int:
     # the placed detergents, because a box around no coordinates is not a box. It is computed here rather than
     # before the placement so that a failed placement is reported as a placement failure and not as a box error.
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
-                                  initial_z_nm=settings['initial_z_nm'])
+                                  initial_z_nm=settings['initial_z_nm'],
+                                  initial_x_nm=settings.get('initial_x_nm'),
+                                  initial_y_nm=settings.get('initial_y_nm'))
     report['box_nm_initial'] = initial
 
     # A tube is the one case where the box is built in the membrane frame: z clears the protein, the slab it sits in
     # and the belt itself, so the margin is the protein's rather than the belt's -- and since the correction the belt
     # reaches the detergent's own length either side of the membrane centre, which on a 1.48 nm slab is further than
-    # the slab by itself. `extended_box` stays the rule everywhere else: a protein-free build, a protein that states
-    # no membrane, and a stated membrane holding none of the protein's atoms (both of those are the sphere, and the
-    # sphere is what the old rule clears).
+    # the slab by itself. x and y are widened to the belt's radial reach for the same reason: the band's furthest
+    # local surface plus the detergent's length is what the belt occupies, and the box then gives it the margin.
+    # `extended_box` stays the rule everywhere else: a protein-free build, a protein that states no membrane, and a
+    # stated membrane holding none of the protein's atoms (both of those are the sphere, and the sphere is what the
+    # old rule clears). Self-assembly samples inside the initial box, so its cell must not be widened here. A stated
+    # initial x/y is a floor in both calls: `initial_box` and `membrane_box` take the larger of it and the derived
+    # value, so a stated number can never put a face through the protein or the belt.
     if frame is not None and placement['band'] is not None:
+        band = placement['band']
         box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
                                    margin_nm=settings['box_margin_nm'], initial_z_nm=settings['initial_z_nm'],
-                                   belt_reach_nm=placement['band'].get('belt_reach_nm') or 0.0)
+                                   belt_reach_nm=band.get('belt_reach_nm') or 0.0,
+                                   belt_radius_nm=(band.get('radius_max_nm') or 0.0)
+                                   + (band.get('detergent_length_nm') or 0.0),
+                                   initial_x_nm=settings.get('initial_x_nm'),
+                                   initial_y_nm=settings.get('initial_y_nm'))
     else:
         box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'])
+    # The x/y growth over the box the placement was built for, recorded beside the two boxes it relates. A belt's
+    # density is its torus volume, so this widening leaves the measured density unchanged; a self-assembly cloud's
+    # density was measured inside the initial box and no widening is made (`[0.0, 0.0]`).
+    report['box_widening_nm'] = [round(float(box[0]) - float(initial[0]), 6),
+                                 round(float(box[1]) - float(initial[1]), 6)]
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
               'position': bead['position']} for bead in beads]
     if model is None:

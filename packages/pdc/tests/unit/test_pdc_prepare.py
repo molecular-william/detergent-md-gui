@@ -135,9 +135,18 @@ def test_the_settings_carry_the_decisions_the_run_recorded(tmp_path):
 
     assert settings['seed'] == 20260930 and settings['aggregation_number'] == 8
     assert (settings['box_margin_nm'], settings['initial_z_nm']) == (2.0, 6.0)
+    assert 'initial_x_nm' not in settings and 'initial_y_nm' not in settings, \
+        'a blank x/y records no number at all, so the build derives the footprint instead of reading a zero'
     assert settings['radius_nm'] > 0, 'the placement radius is a number, never a missing key'
     assert settings['protein'] == PROTEIN and settings['template'] == TEMPLATE_PATH
     assert Path(settings['project_root']) == tmp_path
+
+
+def test_a_stated_initial_xy_reaches_the_runs_settings_record(tmp_path):
+    """A stated x/y is the run's own number, recorded under the adapter's advertised names."""
+    settings = settings_of(prepared(tmp_path, settings={'initial_x_nm': 12.0, 'initial_y_nm': 13.0}))
+
+    assert (settings['initial_x_nm'], settings['initial_y_nm']) == (12.0, 13.0)
 
 
 def test_prepare_writes_its_generated_data_into_a_recorded_inputs_tree(tmp_path):

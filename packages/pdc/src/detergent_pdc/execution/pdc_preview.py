@@ -24,9 +24,11 @@ Two things this module exists to state rather than to hide:
   `preview/cg/` directory, keyed by exactly those three things plus the protocol's own constants. Nothing a run reads
   is written here, and no run is created: a frame is derived per request and not kept at all.
 * **a refusal is an answer, not a failure.** The template's own validator and the placement's clearance gate are the
-  builder's gates, and their sentences are handed back as `reasons` -- with the `step` they belong to, and never with
-  coordinates -- so a panel can say which gate refused even when the gate had no sentence of its own. Never a picture
-  of a system the build would refuse, and never a blank.
+  builder's gates, and their sentences are handed back as `reasons` -- with the `step` they belong to -- so a panel can
+  say which gate refused even when the gate had no sentence of its own. A gate that refused a placement which still
+  has centres is drawn: the same frame a valid derive writes, with the placement's own `problems` marked in
+  `basis['problems']` and no solvent (the dry frame is what the gates measured). A refusal with nothing to draw --
+  no centres, a template, a preparation, a model -- keeps `pdb: None` and its sentence.
 
 What it deliberately does not do: draw anything the build's own functions did not produce. The solvent is Insane's
 placement, not a hand-drawn grid, and a placement that cannot run leaves the dry frame and a reason rather than a
@@ -410,46 +412,219 @@ def _solvent(atoms, box, salt_molar, cache_root):
 
 
 def _wrap(atoms, origin, box):
-    """Put every molecule in the primary cell the box edges draw, whole.
+    """Put every molecule in the primary cell the box edges draw, whole, and answer each molecule's own shift.
 
     Insane writes a solvated frame without wrapping its solute/solvent into the cell -- the stage lets GROMACS do
     that when it reads the structure -- but the preview's PDB has no periodic machinery, so a bead outside the drawn
     cell would look like a second, broken system. Wrapping each atom alone would cut a detergent molecule in half
     across a face; the molecule's centre decides the translation and every bead of it moves together. Wrapping is
     display-only: the run's own structure is not changed.
+
+    The shifts are keyed by the same `(residue, residue_id)` molecule key the grouping used. A refused placement's
+    marks are translated by these when they belong to a molecule, so a red bead lands on the bead the viewer has:
+    the placement's coordinates are its own frame, and the written frame has moved every molecule by its own shift.
     """
     lengths = [float(value) for value in box[:3]]
     molecules = {}
     for atom in atoms:
         molecules.setdefault((str(atom['residue']), int(atom['residue_id'])), []).append(atom)
-    for beads in molecules.values():
+    shifts = {}
+    for key, beads in molecules.items():
         centre = [sum(float(bead['position'][axis]) for bead in beads) / len(beads) for axis in range(3)]
         shift = [round(float(origin[axis])
                        + (centre[axis] - float(origin[axis])) % lengths[axis] - centre[axis], 5)
                  for axis in range(3)]
+        shifts[key] = shift
         for bead in beads:
             bead['position'] = [round(float(bead['position'][axis]) + shift[axis], 5) for axis in range(3)]
-    return atoms
+    return atoms, shifts
 
 
-def _box(points, placement, frame, margin_nm, initial_z_nm):
+def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, initial_y_nm=None):
     """The box the build writes, by the build's own rule (`pdc_build.build`), and no second rule here.
 
-    A band is the one case where the box is built in the membrane frame: z clears the protein and the slab it sits in.
-    Everything else -- a protein-free build, a protein that states no membrane, a stated membrane holding none of the
-    protein's atoms -- is `extended_box` over the box the placement was built for.
+    A band is the one case where the box is built in the membrane frame: z clears the protein and the slab it sits
+    in, and x/y are widened to the belt's radial reach (its band's furthest local surface plus the detergent's own
+    length). Everything else -- a protein-free build, a protein that states no membrane, a stated membrane holding
+    none of the protein's atoms -- is `extended_box` over the box the placement was built for.
+
+    A stated initial x/y is passed through to both rules as a floor (`max(stated, derived)`), exactly as the build
+    passes it: the preview's basis box and the cell the stage writes are then the same number.
     """
-    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=initial_z_nm)
+    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+                                  initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     if frame is not None and placement['band'] is not None:
-        belt_reach_nm = placement['band'].get('belt_reach_nm') or 0.0
+        band = placement['band']
         return pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm, margin_nm=margin_nm,
-                                    initial_z_nm=initial_z_nm, belt_reach_nm=belt_reach_nm)
+                                    initial_z_nm=initial_z_nm,
+                                    belt_reach_nm=band.get('belt_reach_nm') or 0.0,
+                                    belt_radius_nm=(band.get('radius_max_nm') or 0.0)
+                                    + (band.get('detergent_length_nm') or 0.0),
+                                    initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm)
+
+
+def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergent_residue,
+                         detergent_residue_offset, box):
+    """The placement's marks in the frame that is written: centred, wrapped with their molecule, and in the box.
+
+    The placement's coordinates are its own frame; the PDB is that frame after `pdc_build.translate_atoms` moved every
+    atom by `centring.shift_nm` and `_wrap` moved each molecule into the cell. A mark is a position in the same
+    original frame, so it is moved by the same centring shift -- and, when it names a molecule, by that molecule's own
+    wrap shift, looked up by the residue key `_wrap` grouped it under. Guessing a single shift for every molecule
+    would put a ring or a bead where the viewer does not have it.
+
+    A mark whose centre is outside the box after those moves is dropped rather than drawn through a face; the count
+    travels back in `problems_truncated`, beside the cap's own count.
+    """
+    marks, dropped = [], 0
+    for mark in problems or ():
+        position = [float(value) for value in mark.get('position_nm') or ()]
+        if len(position) != 3:
+            dropped += 1
+            continue
+        moved = [round(value + float(delta), 5) for value, delta in zip(position, shift_nm)]
+        molecule = mark.get('molecule')
+        if molecule is not None:
+            key = (detergent_residue, detergent_residue_offset + int(molecule))
+            wrap = wrap_shifts.get(key)
+            if wrap is not None:
+                moved = [round(value + delta, 5) for value, delta in zip(moved, wrap)]
+        if not all(-1e-6 <= value <= float(box[axis]) + 1e-6 for axis, value in enumerate(moved)):
+            dropped += 1
+            continue
+        # The protein beads a mark names are in the same original frame; the box is built around the protein, so
+        # centring is the only move they get (their own molecules are not wrapped across a face).
+        protein_beads = [[round(float(value) + float(delta), 5) for value, delta in zip(bead, shift_nm)]
+                         for bead in mark.get('protein_beads') or ()]
+        marks.append({**mark, 'position_nm': moved, 'protein_beads': protein_beads})
+    return marks, int(truncated) + dropped
+
+
+def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, started, model_seconds,
+           salt_molar, cache_root, solvent, title, problems=None, problems_truncated=0):
+    """The dry system written as a PDB, with the solvent context when `solvent` is set.
+
+    The valid derive and a refused placement that still has centres go through this one build: the same `stamp`, the
+    same system centring, the same wrap and the same `pdc_view.system_pdb` writer. What differs is the title (the
+    caller's), whether the solvent is placed, and whether the placement's marks are translated into this frame. A
+    valid derive passes `problems=None` and writes no such key; a refused one passes the placement's own marks.
+
+    Answers `(pdb, None)`, or `(None, sentence)` when `stamp` refuses the detergent model -- that refusal belongs to
+    the caller, which has the subject to name.
+    """
+    cost['detergent_seconds'] = round(model_seconds, 3)
+    # The molecule and residue the picture says it is drawn from. A derived model's own, because the catalogue's
+    # template is DDM's skeleton for every detergent: an OG mapping written with the template's residue would be
+    # classified as protein by `system_pdb`, with no CONECT bonds and no family code. A centres-only build has no
+    # model and keeps the template's residue.
+    if model is not None:
+        basis['detergent'] = str(model['molecule_id'])
+        basis['residue'] = model['residue']
+    detergent_residue = basis['residue']
+
+    atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
+              'position': bead['position']} for bead in beads]
+    topology = None
+    detergent_residue_offset = 0
+    if model is None:
+        # A build whose detergent is a bare centre: what the placement produced, one point per molecule, and no
+        # bonds to draw because nothing here has declared any (`pdc_build` records the same limitation and writes no
+        # topology for it). The picture says so in its own REMARK rather than leaving a viewer to guess. Each centre
+        # is its own residue, which is the writer's own rule -- one residue per molecule, or a viewer is told the
+        # system holds one molecule.
+        atoms += [{'residue_id': index + 1, 'name': f'{record.residue[:2]}{index + 1:03d}',
+                   'residue': record.residue, 'position': centre}
+                  for index, centre in enumerate(placement['centers'])]
+        basis['detergent_representation'] = 'one centre per molecule'
+    else:
+        # The bodies the placement drew, read back as geometry: the placement's record carries the entry index and
+        # the azimuth each site got, and the library carries the head-anchored bodies. Stamping those same numbers
+        # is what makes the picture the build's own frame rather than one template repeated.
+        entries = twists = None
+        if library is not None:
+            offsets = library.offsets()
+            entries = [offsets[index] for index in placement['conformations']['entries']]
+            twists = placement['conformations']['twists']
+        detergent_residue_offset = max([bead['residue_id'] for bead in beads], default=0) + 1
+        try:
+            atoms += pdc_build.stamp(model, placement['centers'], placement['directions'],
+                                     first_residue=detergent_residue_offset,
+                                     entries=entries, twists=twists)
+        except SystemExit as error:
+            cost['seconds'] = time.perf_counter() - started
+            return None, str(error)
+        topology = pdc_view.read_moleculetype_text(model['topology'], source=DETERGENT_TOPOLOGY)
+        basis['detergent_representation'] = 'the mapping\u2019s beads'
+        # The card says these bonds are the model's own, so it also says *which* model's: the sentence the run's own
+        # record carries, the count of the topology drawn, and -- when the mapping was fitted -- the revision it came
+        # from. A fitted run and a derived one are different systems, and this is the only place a reader is told.
+        basis['detergent_terms'] = {'source': model['source'], 'terms': model['terms'],
+                                    'revision': (model.get('parameterization') or {}).get('revision')}
+
+    # The build centres the system before it writes it: protein extents for a protein build, the detergent cloud's
+    # mean for an empty micelle. The preview must show the same cell, so the same helper and box are used here, not a
+    # second rule. The all-atom ribbon is shifted by this vector in the browser, because its cached file is in the
+    # coordinates martinize2 read.
+    # The system's centre -- protein and detergents together -- is the preview's anchor. The build's own centring
+    # helper is for the dry artifact; the preview is a solvated-cell picture, so the whole system's centroid decides
+    # where the cell sits.
+    anchor_nm = [round(sum(float(atom['position'][axis]) for atom in atoms) / len(atoms), 6)
+                 for axis in range(3)]
+    dry_shift = [round(float(box[axis]) / 2 - anchor_nm[axis], 6) for axis in range(3)]
+    pdc_build.translate_atoms(atoms, dry_shift)
+    basis['centring'] = {'anchor': 'system centre', 'anchor_nm': anchor_nm, 'shift_nm': dry_shift}
+
+    basis['beads'] = len(atoms)
+    if beads:
+        # The distinct protein residue keys the frame's leading atoms hold. `system_pdb` numbers molecules by that
+        # key in this order, so the detergent's first residue is `protein_residues + 1`.
+        basis['protein_residues'] = len({(str(bead['residue']).upper(), int(bead['residue_id'])) for bead in beads})
+        # The all-atom protein the beads stand for, named by the entry that holds it and the route that serves it:
+        # the card draws it as a ribbon under the beads, so what was coarse-grained and what it became are in one
+        # picture. A derive whose coarse-graining was answered by something other than a cache entry names none,
+        # and so does an entry that holds neither a prepared nor a selected structure.
+        basis['protein_structure'] = protein_structure_basis(cg.get('key'), cg.get('path'))
+    # The dry frame is what the build writes; the solvent is the next leg's opening act. Show both, but keep them
+    # distinguishable: the solvent comes from the same Insane placement a run uses, cached by this dry system's
+    # bytes and the salt concentration. A refused placement is drawn dry: the gates measured this frame, and one
+    # Insane call per keystroke is cost the reader does not need.
+    solvated = None
+    if solvent:
+        solvation_started = time.perf_counter()
+        try:
+            solvated = _solvent(atoms, box, salt_molar, cache_root)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            # A solvent that cannot be placed is not a refusal of the *placement*: the dry frame is still the build's
+            # own, and the sentence travels beside it so the card can say why the context layer is missing.
+            basis['solvent_reason'] = f'the initial solvent could not be placed: {error}'
+        cost['solvation_seconds'] = round(time.perf_counter() - solvation_started, 3)
+    else:
+        basis['solvent_reason'] = ('not drawn for a refused placement: the dry frame is what the gates measured')
+    basis['salt_molar'] = salt_molar
+    if solvated is not None:
+        basis['water_residues'] = solvated['water_residues']
+        basis['ion_residues'] = solvated['ion_residues']
+        basis['solvent'] = {**solvated['molecules'], 'salt_molar': salt_molar,
+                            'cached': bool(solvated.get('cached'))}
+        atoms += solvated['water'] + solvated['ions']
+    basis['box_origin_nm'] = [0.0, 0.0, 0.0]
+    _, wrap_shifts = _wrap(atoms, basis['box_origin_nm'], box)
+    if problems is not None:
+        basis['problems'], basis['problems_truncated'] = _translated_problems(
+            problems, problems_truncated, shift_nm=dry_shift, wrap_shifts=wrap_shifts,
+            detergent_residue=detergent_residue, detergent_residue_offset=detergent_residue_offset, box=box)
+    cost['seconds'] = time.perf_counter() - started
+    pdb = pdc_view.system_pdb(atoms, detergent_residue=detergent_residue, topology=topology,
+                              include_water=bool(solvated), title=title)
+    return pdb, None
+
 
 
 def preview(*, project_root, cache_root, template, seed, protein=None, chains=None, mapping=None,
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=pdc_placement.DEFAULT_INITIAL_Z_NM,
+            initial_x_nm=None, initial_y_nm=None,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
             prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
@@ -501,6 +676,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     `belt_axial_window_nm` are the belt's packing and local-surface settings, forwarded the same way and recorded in
     `basis`; both reach only a belt, exactly as in the build.
 
+    `initial_x_nm`/`initial_y_nm` are the run's stated starting cell in those axes, passed to the same box rule the
+    build uses (`pdc_box.initial_box`/`membrane_box`). Each is a floor, never a ceiling: `None` (the form's blank
+    field, and every caller before the setting existed) is the derived footprint exactly, and a stated number below
+    the derived value cannot shrink the box through the protein or the belt.
+
     `salt_molar` is the run's salt setting; the initial water and ions are Insane's placement at that concentration,
     cached under `cache_root` and named in `basis['solvent']` (`W`, `NA`, `CL`, `salt_molar`, `cached`) with the
     residue ranges the card uses to draw them. A solvent placement that cannot run leaves `basis['solvent']` None and
@@ -515,6 +695,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     aggregation_number = int(aggregation_number)
     margin = float(box_margin_nm)
     initial_z = float(initial_z_nm)
+    initial_x = None if initial_x_nm is None else float(initial_x_nm)
+    initial_y = None if initial_y_nm is None else float(initial_y_nm)
     radius = float(radius_nm)
     salt_molar = float(salt_molar)
     if salt_molar < 0:
@@ -752,108 +934,41 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   'volume_nm3': shape_record.get('volume_nm3'),
                   'capacity_aggregation': placement.get('capacity_aggregation')})
     if not placement['valid']:
+        # A placement the gates refused is still drawn when it produced a geometry: its own frame, built by the same
+        # machinery a valid derive uses, with the marks the gates recorded. The run still refuses -- the preview is
+        # not a gate -- and a refusal with no centres (a template, a preparation, an unplaced protein) keeps the
+        # text-only answer.
+        if placement['centers']:
+            box = _box(points, placement, frame, margin, initial_z, initial_x, initial_y)
+            basis['box_nm'] = list(box)
+            basis['belt_offset_nm'] = float(belt_offset_nm)
+            basis['detergents_placed'] = len(placement['centers'])
+            basis['detergents_requested'] = aggregation_number
+            pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model,
+                                      library=library, record=record, cg=cg, basis=basis, cost=cost,
+                                      started=started, model_seconds=model_seconds, salt_molar=salt_molar,
+                                      cache_root=cache_root, solvent=False,
+                                      title=f'refused placement preview ({record.name}, '
+                                            f'AN={aggregation_number}, mode={mode}, seed={seed})',
+                                      problems=placement.get('problems') or [],
+                                      problems_truncated=placement.get('problems_truncated') or 0)
+            if pdb is not None:
+                return {'valid': False, 'step': 'placement', 'reasons': list(placement['issues']),
+                        'pdb': pdb, 'basis': basis, 'cost': cost}
+            if stamp_error is not None:
+                return _refusal('detergent model', [stamp_error], basis, cost, subject=mapping_path)
         cost['seconds'] = time.perf_counter() - started
         return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')
 
-    box = _box(points, placement, frame, margin, initial_z)
+    box = _box(points, placement, frame, margin, initial_z, initial_x, initial_y)
     basis['box_nm'] = list(box)
     basis['belt_offset_nm'] = float(belt_offset_nm)
-
-    seconds = model_seconds
-    cost['detergent_seconds'] = round(seconds, 3)
-    # The molecule and residue the picture says it is drawn from. A derived model's own, because the catalogue's
-    # template is DDM's skeleton for every detergent: an OG mapping written with the template's residue would be
-    # classified as protein by `system_pdb`, with no CONECT bonds and no family code. A centres-only build has no
-    # model and keeps the template's residue.
-    if model is not None:
-        basis['detergent'] = str(model['molecule_id'])
-        basis['residue'] = model['residue']
-    detergent_residue = basis['residue']
-
-    atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
-              'position': bead['position']} for bead in beads]
-    topology = None
-    if model is None:
-        # A build whose detergent is a bare centre: what the placement produced, one point per molecule, and no
-        # bonds to draw because nothing here has declared any (`pdc_build` records the same limitation and writes no
-        # topology for it). The picture says so in its own REMARK rather than leaving a viewer to guess. Each centre
-        # is its own residue, which is the writer's own rule -- one residue per molecule, or a viewer is told the
-        # system holds one molecule.
-        atoms += [{'residue_id': index + 1, 'name': f'{record.residue[:2]}{index + 1:03d}',
-                   'residue': record.residue, 'position': centre}
-                  for index, centre in enumerate(placement['centers'])]
-        basis['detergent_representation'] = 'one centre per molecule'
-    else:
-        # The bodies the placement drew, read back as geometry: the placement's record carries the entry index and
-        # the azimuth each site got, and the library carries the head-anchored bodies. Stamping those same numbers
-        # is what makes the picture the build's own frame rather than one template repeated.
-        entries = twists = None
-        if library is not None:
-            offsets = library.offsets()
-            entries = [offsets[index] for index in placement['conformations']['entries']]
-            twists = placement['conformations']['twists']
-        try:
-            atoms += pdc_build.stamp(model, placement['centers'], placement['directions'],
-                                     first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1,
-                                     entries=entries, twists=twists)
-        except SystemExit as error:
-            cost['seconds'] = time.perf_counter() - started
-            return _refusal('detergent model', [str(error)], basis, cost, subject=mapping_path)
-        topology = pdc_view.read_moleculetype_text(model['topology'], source=DETERGENT_TOPOLOGY)
-        basis['detergent_representation'] = 'the mapping\u2019s beads'
-        # The card says these bonds are the model's own, so it also says *which* model's: the sentence the run's own
-        # record carries, the count of the topology drawn, and -- when the mapping was fitted -- the revision it came
-        # from. A fitted run and a derived one are different systems, and this is the only place a reader is told.
-        basis['detergent_terms'] = {'source': model['source'], 'terms': model['terms'],
-                                    'revision': (model.get('parameterization') or {}).get('revision')}
-
-    # The build centres the system before it writes it: protein extents for a protein build, the detergent cloud's
-    # mean for an empty micelle. The preview must show the same cell, so the same helper and box are used here, not a
-    # second rule. The all-atom ribbon is shifted by this vector in the browser, because its cached file is in the
-    # coordinates martinize2 read.
-    # The system's centre -- protein and detergents together -- is the preview's anchor. The build's own centring
-    # helper is for the dry artifact; the preview is a solvated-cell picture, so the whole system's centroid decides
-    # where the cell sits.
-    anchor_nm = [round(sum(float(atom['position'][axis]) for atom in atoms) / len(atoms), 6)
-                 for axis in range(3)]
-    dry_shift = [round(float(box[axis]) / 2 - anchor_nm[axis], 6) for axis in range(3)]
-    pdc_build.translate_atoms(atoms, dry_shift)
-    basis['centring'] = {'anchor': 'system centre', 'anchor_nm': anchor_nm, 'shift_nm': dry_shift}
-
-    basis['beads'] = len(atoms)
-    if beads:
-        # The distinct protein residue keys the frame's leading atoms hold. `system_pdb` numbers molecules by that
-        # key in this order, so the detergent's first residue is `protein_residues + 1`.
-        basis['protein_residues'] = len({(str(bead['residue']).upper(), int(bead['residue_id'])) for bead in beads})
-        # The all-atom protein the beads stand for, named by the entry that holds it and the route that serves it:
-        # the card draws it as a ribbon under the beads, so what was coarse-grained and what it became are in one
-        # picture. A derive whose coarse-graining was answered by something other than a cache entry names none,
-        # and so does an entry that holds neither a prepared nor a selected structure.
-        basis['protein_structure'] = protein_structure_basis(cg.get('key'), cg.get('path'))
-    # The dry frame is what the build writes; the solvent is the next leg's opening act. Show both, but keep them
-    # distinguishable: the solvent comes from the same Insane placement a run uses, cached by this dry system's
-    # bytes and the salt concentration.
-    solvation_started = time.perf_counter()
-    solvated = None
-    try:
-        solvated = _solvent(atoms, box, salt_molar, cache_root)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        # A solvent that cannot be placed is not a refusal of the *placement*: the dry frame is still the build's own,
-        # and the sentence travels beside it so the card can say why the context layer is missing.
-        basis['solvent_reason'] = f'the initial solvent could not be placed: {error}'
-    cost['solvation_seconds'] = round(time.perf_counter() - solvation_started, 3)
-    basis['salt_molar'] = salt_molar
-    if solvated is not None:
-        basis['water_residues'] = solvated['water_residues']
-        basis['ion_residues'] = solvated['ion_residues']
-        basis['solvent'] = {**solvated['molecules'], 'salt_molar': salt_molar,
-                            'cached': bool(solvated.get('cached'))}
-        atoms += solvated['water'] + solvated['ions']
-    basis['box_origin_nm'] = [0.0, 0.0, 0.0]
-    _wrap(atoms, basis['box_origin_nm'], box)
-    cost['seconds'] = time.perf_counter() - started
-    pdb = pdc_view.system_pdb(atoms, detergent_residue=detergent_residue, topology=topology,
-                              include_water=bool(solvated),
+    pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,
+                              record=record, cg=cg, basis=basis, cost=cost, started=started,
+                              model_seconds=model_seconds, salt_molar=salt_molar, cache_root=cache_root,
+                              solvent=True,
                               title=f'placement preview ({record.name}, AN={aggregation_number}, mode={mode}, '
                                     f'seed={seed})')
+    if stamp_error is not None:
+        return _refusal('detergent model', [stamp_error], basis, cost, subject=mapping_path)
     return {'valid': True, 'step': None, 'reasons': [], 'pdb': pdb, 'basis': basis, 'cost': cost}

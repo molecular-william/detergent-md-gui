@@ -63,8 +63,14 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   fabricated pass.
 - A pdc belt is a **cylinder** about the membrane normal: its surface is measured locally per site
   (`BELT_LOCAL_ANGLE_DEG` 10 deg, axial `belt_axial_window_nm`, plus `belt_gap_nm`); `min_body_gap_nm` gates body
-  against body, and a rejected site tries bounded offsets before being left empty. No membrane keeps a sphere,
-  where `radius_nm` is radius and floor (`pdc_placement._belt_cylinder`; `PROJECT_GUIDE.md` *Shapes, stages and series*).
+  against body, and every slot that fails a gate tries its bounded local offsets, recording its base if still empty.
+  No membrane keeps a sphere, `radius_nm` being radius and floor (`pdc_placement._belt_cylinder`; GUIDE *Shapes*).
+- A placement the gates refuse is still previewed when it produced centres: `valid: false` with the dry frame and
+  `basis.problems` (the red rings/beads), never the valid path's key; a refusal with nothing to draw has no `pdb`,
+  and the run still refuses (`pdc_preview.preview`).
+- A stated initial x/y box is a floor (`max(stated, footprint + 2 margin)`); a membrane belt widens x/y to
+  `2 x (radius_max_nm + detergent_length_nm)` and `box_widening_nm` records it, while self-assembly is never widened
+  (`pdc_box.membrane_box`, `pdc_build.build`).
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
 - Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and

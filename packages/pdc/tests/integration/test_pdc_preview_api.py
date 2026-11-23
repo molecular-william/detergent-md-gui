@@ -137,6 +137,66 @@ def test_a_coarse_grained_bead_with_no_position_refuses_with_a_reason_the_panel_
     assert 'NaN' not in response.get_data(as_text=True), 'a body a browser refuses to parse is a body it cannot read'
 
 
+def test_a_gate_refusal_with_geometry_answers_a_drawable_frame(dashboard, monkeypatch, tmp_path):
+    """A placement the gates refuse but which still has centres is a 200 with a frame, marks and no `NaN`.
+
+    The sentence stays the builder's, and the run still refuses (`valid: false`); what changes is that the answer
+    carries the frame the placement produced and the marks it recorded, so the panel can draw both. The body is read
+    at a browser's strictness because a mark translated into the written frame is still a number a browser must
+    parse.
+
+    The template states no molecule length, so the sphere keeps the `radius_nm` floor (3.0 nm) and a 3.2 nm protein
+    shell puts every head inside the clearance gate -- the refusal the unit fixture measures, asked here through
+    the route.
+    """
+    from detergent_pdc.execution import pdc_preview as preview_module
+
+    directory = tmp_path / 'template'
+    directory.mkdir()
+    (directory / 'beads.pdb').write_text('HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n')
+    (directory / 'beads.itp').write_text('[ moleculetype ]\nDDM 1\n')
+    skeleton = directory / 'micelle_template.json'
+    skeleton.write_text(json.dumps({'name': 'DDM', 'residue': 'DDM', 'coordinates': 'beads.pdb',
+                                    'topology': 'beads.itp',
+                                    'beads': [{'name': 'TAIL1', 'type': 'C1', 'role': 'tail'},
+                                              {'name': 'TAIL2', 'type': 'C1', 'role': 'tail'},
+                                              {'name': 'HEAD', 'type': 'SN6', 'role': 'head'}]}))
+    count = 60
+    shell = []
+    for index in range(400):
+        z = 1.0 - 2.0 * (index + 0.5) / 400
+        angle = math.pi * (3.0 - math.sqrt(5.0)) * (index + 0.5)
+        shell.append([3.2 * math.sqrt(1.0 - z * z) * math.cos(angle),
+                      3.2 * math.sqrt(1.0 - z * z) * math.sin(angle), 3.2 * z])
+    beads = [{'residue_id': 1, 'residue': 'PRO', 'name': f'B{index:04d}', 'position': position}
+             for index, position in enumerate(shell, start=1)]
+    monkeypatch.setattr(preview_module, 'coarse_grained',
+                        lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.5, 'key': 'stub',
+                                                         'path': str(tmp_path), 'beads_bytes': 0,
+                                                         'dropped_residues': [], 'protein_input': 'protein.pdb',
+                                                         'command': None}))
+    entry = import_protein(dashboard, monkeypatch)
+
+    response = get(dashboard, template=str(skeleton), protein=entry['name'], pdc_seed=20261013,
+                   aggregation_number=count)
+
+    assert response.status_code == 200, 'a gate refusal with geometry is an answer, not a bad request'
+    text = response.get_data(as_text=True)
+    body = strict_loads(text)
+    assert body['valid'] is False and body['step'] == 'placement'
+    assert body['pdb'], 'the refused placement with centres carries the frame it produced'
+    assert 'REFUSED PLACEMENT PREVIEW' in body['pdb']
+    assert body['reasons'] and 'detergent too close to the protein' in body['reasons'][0]
+    basis = body['basis']
+    assert basis['problems'], 'the gate recorded the heads it refused'
+    assert basis['detergents_placed'] == count and basis['detergents_requested'] == count
+    assert basis['box_nm'] and basis['solvent'] is None
+    for mark in basis['problems']:
+        for axis, value in enumerate(mark['position_nm']):
+            assert -1e-6 <= value <= basis['box_nm'][axis] + 1e-6, (mark, basis['box_nm'])
+    assert 'NaN' not in text, 'a browser must be able to parse the frame and its marks'
+
+
 def test_every_answer_this_route_sends_is_json_a_browser_can_parse(dashboard, monkeypatch):
     """No answer may carry `NaN`: the panel can only render what a browser is able to read.
 
@@ -153,6 +213,30 @@ def test_every_answer_this_route_sends_is_json_a_browser_can_parse(dashboard, mo
     malformed = get(dashboard, template=TEMPLATE, pdc_seed=20261013, aggregation_number=0)
     assert malformed.status_code == 400
     assert strict_loads(malformed.get_data(as_text=True)).get('error')
+
+
+def test_a_stated_initial_xy_reaches_the_preview_box_and_is_bounded_like_the_adapter(dashboard):
+    """The preview query carries the stated x/y to the same box rule the build uses, and refuses out-of-range values.
+
+    A blank field is the derived footprint; a stated 20 x 21 is wider than the placed micelle's own derived box, so it
+    is the cell the preview draws. The adapter's advertised bounds are applied here too (1..50 nm): a preview must
+    refuse exactly what a queued run would, in the same terms, or the picture could describe a run that cannot exist.
+    """
+    mapping_candidate(dashboard)
+
+    body = get(dashboard, template=TEMPLATE, molecule_id='DDM', mapping_candidate='mapping_candidate_fixture.json',
+               aggregation_number=40, placement_mode='lattice', pdc_seed=20261013,
+               initial_x_nm=20.0, initial_y_nm=21.0).get_json()
+
+    assert body['valid'] is True, body['reasons']
+    assert body['basis']['box_nm'][:2] == [20.0, 21.0]
+
+    for name, bad in (('initial_x_nm', '0.5'), ('initial_y_nm', '50.5'), ('initial_x_nm', 'lots')):
+        response = get(dashboard, template=TEMPLATE, molecule_id='DDM',
+                       mapping_candidate='mapping_candidate_fixture.json', aggregation_number=40,
+                       pdc_seed=20261013, **{name: bad})
+        assert response.status_code == 400, (name, bad)
+        assert name in response.get_json()['error'], (name, bad)
 
 
 def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_paid(dashboard):

@@ -277,12 +277,6 @@ def refuses_at_coarse_graining(tmp_path, monkeypatch):
     return preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
 
 
-def refuses_at_placement(tmp_path, monkeypatch):
-    """The clearance gate's own sentence: a 3.2 nm shell no 3.0 nm sphere can clear."""
-    monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2)))
-    return preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
-
-
 def refuses_at_detergent_model(tmp_path, monkeypatch):
     """`stamp`'s own sentence: a mapping whose beads state no hydrophobic core cannot be oriented."""
     path = tmp_path / 'heads_only.json'
@@ -298,14 +292,14 @@ def refuses_at_detergent_model(tmp_path, monkeypatch):
 @pytest.mark.parametrize('at, expected_step', [(refuses_at_template_load, 'template'),
                                                (refuses_at_template_validation, 'template'),
                                                (refuses_at_coarse_graining, 'coarse-graining'),
-                                               (refuses_at_placement, 'placement'),
                                                (refuses_at_detergent_model, 'detergent model')])
 def test_a_refusal_carries_a_reason_and_names_the_step_that_refused(tmp_path, monkeypatch, at, expected_step):
-    """Every gate a preview can be stopped by answers with a sentence and the step it belongs to.
+    """Every gate with nothing to draw answers with a sentence and the step it belongs to.
 
     The sentence is the builder's own -- never one this service wrote for it -- and the step is what lets the panel
     say *where* the refusal came from when the sentence is all a reader gets. A refusal with neither is the state
-    this file exists to make unreachable.
+    this file exists to make unreachable. A placement refusal that still has centres is not in this list: it draws
+    the placement's own frame, below.
     """
     answer = at(tmp_path, monkeypatch)
 
@@ -394,27 +388,110 @@ def test_a_template_whose_file_is_missing_is_refused_with_the_loaders_sentence(t
     assert answer['reasons'] == ['missing template topology'], answer['reasons']
 
 
-def test_a_placement_the_clearance_gate_refuses_returns_the_gates_own_sentence(tmp_path, monkeypatch):
-    """The one refusal that reaches the panel with a real protein: the builder's clearance sentence, and no picture.
+def test_a_placement_the_clearance_gate_refuses_is_still_drawn_with_its_marks(tmp_path, monkeypatch):
+    """A gate refusal that produced a geometry is drawn: its own frame, its own sentences, its marks in red.
 
     The CG step is stubbed, because what is under test is the gate and what the service does with its answer. The
     protein is a 3.2 nm shell and the file states no membrane, so the placement is the sphere of the fixed 3.0 nm
     radius about the centroid -- the geometry that makes 1AT9's own file refuse at 0.174 nm when it carries no frame.
+    Every site was placed but every head is inside the clearance gate, so the answer carries a frame *and* the
+    marks; the run still refuses, which is what `valid: false` and the unchanged sentences say.
     """
     monkeypatch.setattr(pdc_preview, 'coarse_grained',
                         lambda *args, **kwargs: (shell(3.2), {'cached': False, 'seconds': 0.5, 'key': 'stub',
                                                               'path': str(tmp_path / 'entry'), 'beads_bytes': 0,
                                                               'dropped_residues': [], 'protein_input': 'protein.pdb',
                                                               'command': None}))
+    captured = {}
+    real_place = pdc_placement.place_detergents
+
+    def capture(*args, **kwargs):
+        captured['placement'] = real_place(*args, **kwargs)
+        return captured['placement']
+
+    monkeypatch.setattr(pdc_placement, 'place_detergents', capture)
 
     answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
 
-    assert answer['valid'] is False and answer['pdb'] is None
+    placement = captured['placement']
+    assert answer['valid'] is False
+    assert answer['pdb'], 'a gate refusal with centres is a picture of the placement these inputs produced'
+    assert 'REFUSED PLACEMENT PREVIEW' in answer['pdb']
+    assert answer['step'] == 'placement'
+    assert answer['reasons'] == placement['issues'], 'the builder\'s sentences are handed back unchanged'
     sentence = answer['reasons'][0]
     assert sentence.startswith('detergent too close to the protein:'), sentence
     assert sentence.endswith(f'< {pdc_placement.MIN_CLEARANCE_NM} nm'), sentence
-    assert answer['basis']['clearance_nm'] is not None, 'the refusal carries the number it was refused for'
-    assert answer['basis']['box_nm'] is None
+
+    basis = answer['basis']
+    assert basis['box_nm'] and len(basis['box_nm']) == 3
+    assert basis['detergents_placed'] == len(placement['centers']) == 60
+    assert basis['detergents_requested'] == 60
+    assert basis['problems'], 'the gate recorded the heads it refused'
+    assert basis['problems_truncated'] == placement['problems_truncated']
+    shift = basis['centring']['shift_nm']
+    # A known mark is the placement's own coordinate moved by the same centring shift every atom got.
+    known, drawn = placement['problems'][0], basis['problems'][0]
+    assert drawn['position_nm'] == [round(value + delta, 5) for value, delta in zip(known['position_nm'], shift)]
+    assert drawn['protein_beads'] == [[round(value + delta, 5) for value, delta in zip(bead, shift)]
+                                      for bead in known['protein_beads']]
+    assert drawn['kind'] == known['kind'] and drawn['molecule'] == known['molecule']
+    # Every mark is inside the cell the PDB is written in; the frame's dry system is not solvated.
+    for mark in basis['problems']:
+        for axis, value in enumerate(mark['position_nm']):
+            assert -1e-6 <= value <= basis['box_nm'][axis] + 1e-6, (mark, basis['box_nm'])
+    assert basis['solvent'] is None
+    assert basis['solvent_reason'] and 'refused placement' in basis['solvent_reason']
+    assert 'WATER AND IONS INCLUDED' not in answer['pdb']
+
+
+def test_a_mark_takes_its_own_molecules_wrap_shift_and_leaves_a_dropped_mark_counted():
+    """The translation is centring plus that mark's molecule shift, and a mark outside the box is dropped, counted.
+
+    The placement's marks are in its own frame; the frame on screen is centred and each molecule wrapped by its own
+    shift. A single guessed shift would put a ring or a bead where the viewer does not have it, so the molecule key
+    decides -- here a molecule whose wrap moved it ten nanometres in x.
+    """
+    problems = [{'kind': 'head-clearance', 'detail': 'sentence', 'molecule': 2,
+                 'position_nm': [1.0, 2.0, 3.0], 'normal_nm': None, 'radius_nm': 0.3,
+                 'protein_beads': [[0.0, 1.0, 0.0]]},
+                {'kind': 'empty-slot', 'detail': 'sentence', 'molecule': None,
+                 'position_nm': [99.0, 0.0, 0.0], 'normal_nm': [0.0, 0.0, 1.0], 'radius_nm': 0.5,
+                 'protein_beads': []}]
+
+    marks, truncated = pdc_preview._translated_problems(
+        problems, 3, shift_nm=[1.0, 1.0, 1.0], wrap_shifts={('DDM', 5): [10.0, 0.0, 0.0]},
+        detergent_residue='DDM', detergent_residue_offset=3, box=[20.0, 20.0, 20.0])
+
+    assert truncated == 4, 'the cap\'s three and the one mark outside the box'
+    assert len(marks) == 1, 'the mark outside the box is not drawn through a face'
+    assert marks[0]['position_nm'] == [12.0, 3.0, 4.0], 'centred, then the second molecule\'s own wrap'
+    assert marks[0]['protein_beads'] == [[1.0, 2.0, 1.0]], 'the protein bead is centred, and not the mark\'s wrap'
+
+
+def test_a_preparation_refusal_has_no_geometry_so_it_stays_text_only(tmp_path, monkeypatch):
+    """pdb2pqr's refusal is about a file that was never placed: there is no system to draw, so no `pdb`."""
+    def refused(*args, **kwargs):
+        raise pdc_preparation.PreparationRefused('the preparation could not protonate the structure')
+
+    monkeypatch.setattr(pdc_preview, 'coarse_grained', refused)
+
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12,
+                     prepare_protein=True)
+
+    assert answer['valid'] is False and answer['pdb'] is None
+    assert answer['step'] == 'protein preparation', answer
+    assert answer['reasons'] == ['the preparation could not protonate the structure']
+
+
+def test_a_valid_derive_carries_no_problem_marks_and_no_refused_title(tmp_path):
+    """The valid path is unchanged: no marks, no refusal counts, and the ordinary title on its frame."""
+    answer = preview(tmp_path, mapping=None, aggregation_number=40)
+
+    assert answer['valid'], answer['reasons']
+    assert 'problems' not in answer['basis'] and 'problems_truncated' not in answer['basis']
+    assert 'detergents_placed' not in answer['basis'] and 'detergents_requested' not in answer['basis']
+    assert 'REFUSED PLACEMENT PREVIEW' not in answer['pdb']
 
 
 def test_a_chain_the_protein_does_not_name_is_refused_before_anything_is_coarse_grained(tmp_path, monkeypatch):
@@ -604,6 +681,23 @@ def test_the_box_is_the_one_the_build_measures(tmp_path):
     assert answer['basis']['box_nm'][1] < answer['basis']['box_nm'][2], 'the box is not a cube by accident'
 
 
+def test_a_stated_initial_xy_is_a_floor_the_preview_and_the_build_share(tmp_path):
+    """The preview's basis box passes a stated x/y to the same rule, so it cannot be wider or narrower than the build.
+
+    A blank x/y is the derived footprint (the pin for every preview before this setting existed); a stated value
+    below it leaves the derived box, and one above it is the cell the preview draws.
+    """
+    derived = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0)
+    floor = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0,
+                    initial_x_nm=1.0, initial_y_nm=1.0)
+    stated = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0,
+                     initial_x_nm=30.0, initial_y_nm=31.0)
+
+    assert floor['basis']['box_nm'] == derived['basis']['box_nm']
+    assert stated['basis']['box_nm'][:2] == [30.0, 31.0]
+    assert stated['basis']['box_nm'][2] == derived['basis']['box_nm'][2], 'stated x/y never change z'
+
+
 def test_the_preview_says_which_tool_it_would_have_to_run(tmp_path, monkeypatch):
     """Nothing is coarse-grained without a resolved tool: the service is handed one, and the cache key carries it."""
     calls = []
@@ -677,13 +771,13 @@ def test_two_chains_that_share_a_residue_key_are_one_number(tmp_path, monkeypatc
     assert numbers == [1, 2, 1], numbers
 
 
-def test_a_refusal_counts_no_protein_residues_because_it_draws_nothing(tmp_path, monkeypatch):
-    """A refusal draws nothing, so it states no protein numbering for a picture that does not exist."""
+def test_a_refused_placement_still_counts_the_protein_residues_it_draws(tmp_path, monkeypatch):
+    """A drawn refusal holds the protein's beads, so the numbering a viewer reads is counted the same way."""
     monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2)))
     answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
 
-    assert answer['valid'] is False and answer['pdb'] is None
-    assert answer['basis']['protein_residues'] == 0
+    assert answer['valid'] is False and answer['pdb']
+    assert answer['basis']['protein_residues'] == 1, 'the shell is one residue key'
 
 
 def test_a_build_with_no_protein_numbers_no_protein_residues(tmp_path):
@@ -755,12 +849,12 @@ def test_an_empty_micelle_names_no_structure_because_it_coarse_grained_none(tmp_
     assert answer['cost']['cg_key'] is None
 
 
-def test_a_refusal_names_no_structure_because_it_draws_nothing(tmp_path, monkeypatch):
-    """A refusal is a sentence and no picture: it has no ribbon to put under coordinates it did not produce."""
+def test_a_refused_placement_names_no_structure_when_the_entry_holds_none(tmp_path, monkeypatch):
+    """The drawn refusal's ribbon follows the same rule as a valid one: only an entry holding a file is named."""
     monkeypatch.setattr(pdc_preview, 'coarse_grained', stubbed_cg(shell(3.2)))
     answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=60)
 
-    assert answer['valid'] is False and answer['pdb'] is None
+    assert answer['valid'] is False and answer['pdb']
     assert answer['basis']['protein_structure'] is None
 
 

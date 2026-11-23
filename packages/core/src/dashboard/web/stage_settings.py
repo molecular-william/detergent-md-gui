@@ -66,7 +66,8 @@ OSMOTIC_SEGMENTS = (('Osmotic series', 'Osmotic series', 'production'),)
 PDC_GROUPS = (
     ('System and inputs', 'System and inputs',
      ('template', 'protein', 'protein_chains', 'protein_vsite', 'force_field', 'prepare_protein', 'backmap',
-      'detergent_model', 'conformation_library', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'project_root')),
+      'detergent_model', 'conformation_library', 'salt_molar', 'box_margin_nm', 'initial_z_nm',
+      'initial_x_nm', 'initial_y_nm', 'project_root')),
     ('Placement and belt', 'Placement and belt',
      ('placement_mode', 'aggregation_number', 'seed', 'radius_nm', 'belt_gap_nm', 'min_body_gap_nm',
       'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm', 'contact_nm')),

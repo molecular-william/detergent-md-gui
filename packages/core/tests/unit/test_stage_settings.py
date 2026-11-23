@@ -95,6 +95,7 @@ def test_another_run_type_has_one_group_from_its_adapters_vocabulary(monkeypatch
 PDC_SETTINGS = {
     'template': 'molecules/DM/v1/micelle_template.json', 'protein': 'molecules/2ydo/v1/2ydo.pdb',
     'prepare_protein': True, 'force_field': 'martini3', 'salt_molar': 0.15,
+    'box_margin_nm': 2.0, 'initial_z_nm': 6.0, 'initial_x_nm': 11.0, 'initial_y_nm': 12.0,
     'placement_mode': 'lattice', 'aggregation_number': 144, 'seed': 20261119,
     'belt_gap_nm': 0.0, 'min_body_gap_nm': 0.3,
     'minimisation_steps': 200000, 'pdc_minimisation_emtol': 100.0,
@@ -112,7 +113,8 @@ def test_pdc_groups_fill_the_four_column_grid_and_keep_every_recorded_value():
     assert [group['label'] for group in groups] == \
            ['System and inputs', 'Placement and belt', 'Energy minimisation', 'NVT equilibration',
             'NPT equilibration', 'CG production', 'Removal and assessment', 'Execution', 'Run settings']
-    assert keys(groups[0]) == ['template', 'protein', 'force_field', 'prepare_protein', 'salt_molar']
+    assert keys(groups[0]) == ['template', 'protein', 'force_field', 'prepare_protein', 'salt_molar',
+                               'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm']
     assert keys(groups[1]) == ['placement_mode', 'aggregation_number', 'seed', 'belt_gap_nm', 'min_body_gap_nm']
     assert keys(groups[2]) == ['minimisation_steps', 'pdc_minimisation_emtol']
     assert keys(groups[5]) == ['assessment_ns', 'extension_ns', 'nstlog', 'rlist']

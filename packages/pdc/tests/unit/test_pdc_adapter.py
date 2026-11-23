@@ -45,6 +45,25 @@ def test_the_settings_carry_every_protocol_number_with_bounds():
         assert label and low < high, (key, label, low, high)
 
 
+def test_a_stated_initial_xy_is_advertised_bounded_and_has_no_default():
+    """Advertised like the dt settings: a supplied value survives the route's filter, an absent one is not invented.
+
+    The label states that the number is a dimension, not a margin, and a value outside the form's range is refused
+    here exactly as a run would refuse it. No `DEFAULTS` entry is what makes a blank field mean the derived footprint
+    rather than zero.
+    """
+    for key in ('initial_x_nm', 'initial_y_nm'):
+        label, low, high = pdc.SETTING_SPECS[key]
+        assert 'dimension' in label and (low, high) == (1.0, 50.0), (key, label, low, high)
+        assert key not in pdc.DEFAULTS, f'{key} must stay absent from DEFAULTS: a blank field derives, it does not use 0'
+        assert key not in pdc.normalize_settings({}), 'an absent x/y records no value at all'
+        assert pdc.normalize_settings({key: 12.5})[key] == 12.5
+        with pytest.raises(ValueError, match=key):
+            pdc.normalize_settings({key: 0.5})
+        with pytest.raises(ValueError, match=key):
+            pdc.normalize_settings({key: 50.5})
+
+
 def test_the_belt_gap_is_advertised_as_a_bounded_setting():
     """The belt's extra stand-off is a run setting like the radius: defaulted to today's geometry and bounded."""
     assert pdc.DEFAULTS['belt_gap_nm'] == 0.0

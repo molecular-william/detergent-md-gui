@@ -1,6 +1,8 @@
 # PDC placement fallback, wider membrane boxes, and box controls in Run configuration
 
-Status: hand-off for the next agent (2026-11-23). No code changed for this hand-off.
+Status: **landed 2026-11-23** as one round (items 1-4; item 5 is the companion plan). The per-slice
+measurements and checks are in `docs/HANDOFF.md`'s Current state; this file stays as the design record and
+acceptance list.
 
 Companion item (same session, user's decision 2026-11-23): `docs/plans/2026-11-23-pdc-preview-problem-markers.md`
 -- a refused placement is still drawn, with its problems marked in red. It reads this plan's item 1 rejected-slot

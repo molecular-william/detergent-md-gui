@@ -128,6 +128,37 @@
 
         </div>
       </div>
+      {# The starting cell, stated here rather than derived invisibly. x and y are dimensions and a stated value is a
+         floor, never a ceiling: a blank field is the protein's own footprint plus the margin, so clearing one can
+         never put a face through the protein. z is a dimension; the margin is per face. The grid is its own class,
+         not a `.new-pdc-pair`, which the pairing test measures as exactly one row of two cells. #}
+      <div class="new-pdc-box-grid">
+        <label>Initial x box (nm - dimension) <span class="hint">blank: protein footprint + margin</span>
+          <span class="setting-control">
+            <input name="initial_x_nm" type="number" min="1" max="50" step="0.1">
+          </span>
+        </label>
+        <label>Initial y box (nm - dimension) <span class="hint">blank: protein footprint + margin</span>
+          <span class="setting-control">
+            <input name="initial_y_nm" type="number" min="1" max="50" step="0.1">
+          </span>
+        </label>
+        <label>Initial z box (nm - dimension)
+          <span class="setting-control">
+            <input name="initial_z_nm" type="number" min="1" max="50" step="0.1">
+            <button type="button" class="secondary pdc-auto-box" title="Measure the selected protein and fill the initial x, y and z boxes from it">Auto</button>
+          </span>
+        </label>
+        <label>Box margin (nm - each face)
+          <span class="setting-control">
+            <input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button>
+          </span>
+        </label>
+      </div>
+      <p class="hint">The initial box the system starts from. Auto measures the selected protein once and fills all
+        three: x and y are its footprint plus the box margin, z is the clearance its furthest atom needs. A stated x
+        or y below the footprint does not shrink the box -- the protein's own size is the floor.</p>
       <div class="new-pdc-empty-block" id="new-empty-block" hidden>
         <table class="new-pdc-estimate"><tbody>
           <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>
@@ -336,8 +367,8 @@
          They are sections of this same fieldset now, in the validation panel's shape (a titled group over a grid),
          because they are stage settings like the stages above them. Every control here that names a reviewed profile
          value carries a Default button (`pdc-default`), like the stage editors above; the seed is generated rather
-         than restored and keeps only its Generate button, and the initial z box gets Auto instead, because it
-         measures the chosen protein rather than restoring a profile number. #}
+         than restored and keeps only its Generate button, and the starting box lives in the Run configuration card
+         above, where one Auto measures x, y and z from the chosen protein. #}
       <section class="new-option-group">
         <h4 class="new-option-title">Output cadence</h4>
         <div class="settings-grid">
@@ -373,8 +404,6 @@
           <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"><button type="button" class="secondary pdc-default" data-field="salt_molar">Default</button></span></label>
           <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required>
             <button type="button" class="secondary pdc-generate-seed">Generate</button></span></label>
-          <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"><button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button></span></label>
-          <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"><button type="button" class="secondary pdc-auto-z" title="Measure the selected protein and size the z box from it">Auto</button></span></label>
           <label>Micelle contact distance (nm)<span class="setting-control"><input name="contact_nm" type="number" min="0.1" max="2" step="0.1"><button type="button" class="secondary pdc-default" data-field="contact_nm">Default</button></span></label>
           <label>Removal threshold (fraction)<span class="setting-control"><input name="selection_threshold_fraction" type="number" min="0" max="1" step="0.01"><button type="button" class="secondary pdc-default" data-field="selection_threshold_fraction">Default</button></span></label>
         </div>
@@ -458,6 +487,19 @@
     <section class="card new-pdc-preview" aria-labelledby="new-preview-title">
       <span class="eyebrow">SYSTEM PREVIEW</span>
       <h3 id="new-preview-title">What these inputs would build</h3>
+
+      {# A refused placement that still has a geometry is drawn: the builder's own sentences and the placed/requested
+         count sit in a red banner over the picture, and the legend names the two mark shapes. Classes only, because
+         `test_dom_ids.py` requires an id a module names in a selector to be rendered on the single-molecule page too. #}
+      <div class="new-pdc-preview-problems" role="status" hidden>
+        <p class="new-pdc-preview-problems-title"><strong>The run would refuse these inputs.</strong> Its own reasons are:</p>
+        <ol class="new-pdc-preview-problems-reasons"></ol>
+        <p class="new-pdc-preview-problems-summary"></p>
+      </div>
+      <div class="new-pdc-preview-problem-legend" hidden>
+        <span><i class="swatch-ring"></i> red ring = slot the placement could not fill</span>
+        <span><i class="swatch-bead"></i> red bead = a bead inside a gate</span>
+      </div>
 
       <div class="new-pdc-preview-viewer" role="img"
            aria-label="Detergent beads in their polarity families, over the all-atom protein ribbon, inside the simulation box"></div>

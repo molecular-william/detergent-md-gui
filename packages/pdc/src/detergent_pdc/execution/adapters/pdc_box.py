@@ -6,26 +6,64 @@ periodic image or silently changes the density a placement was built for.
 
 `initial_box` is the box a protein is inserted into, `extended_box` the one it gets once the detergents are placed,
 `membrane_box` the one a protein that states its own membrane gets: centred on that membrane's plane, with z
-clearing the protein rather than the belt the placement put inside the slab. `auto_initial_z` is the z those two
-insertion rules measure when the caller states none, which is what the form's Auto button asks for.
+clearing the protein and the belt, and x/y widened to the belt's radial reach. `auto_initial_z`/`auto_initial_xy`
+are the numbers those insertion rules measure when the caller states none, which is what the form's Auto button asks
+for.
+
+A stated initial x or y is a **floor, never a ceiling**: `max(stated, footprint + 2 x margin)`. A number below the
+protein's own footprint therefore cannot put a box face through the protein, and a number above it gives the run the
+larger cell it asked for. A blank axis is the derived value exactly, never zero.
+
+The density a placement was built at is its shape's, not its cell's: a lattice belt's volume is the torus's own
+(measured from the band, not from the box), a sphere's is the ball's, so widening the box after the placement
+leaves the recorded density where it was. Self-assembly is the one generator that samples inside the box it is
+given, so its box is the placement's own and this module does not widen it.
 """
 
 
-def initial_box(points, margin_nm=2.0, initial_z_nm=6.0):
+def auto_initial_xy(points, margin_nm=2.0):
+    """The x/y a box should have when nobody states one, from the protein's own coordinates.
+
+    The protein's footprint plus `margin_nm` at each face -- exactly what `initial_box` uses when no x or y is stated.
+    The form's Auto button fills these numbers, and the panel shows them as the derived value while its x/y fields are
+    blank; a blank field posts nothing, so the run derives the same number the panel displayed. The value is rounded
+    like its neighbours' boxes.
+    """
+    if not points:
+        raise ValueError('a box needs at least one coordinate')
+    if margin_nm <= 0:
+        raise ValueError('box extents must be positive')
+    xs = [float(point[0]) for point in points]
+    ys = [float(point[1]) for point in points]
+    return [round(max(xs) - min(xs) + 2 * margin_nm, 6),
+            round(max(ys) - min(ys) + 2 * margin_nm, 6)]
+
+
+def initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=None, initial_y_nm=None):
     """The box a protein is inserted into: its own extent plus the margin in x and y, and a stated z.
 
     z is its own number rather than a second margin -- the request asks for 20 A in x and y and 60 A in z -- so the
     caller passes it explicitly and GROMACS is given the box rather than asked to derive one.
+
+    A stated x or y is a **floor, never a ceiling**: the answer is `max(stated, footprint + 2 x margin)`, the same rule
+    as `membrane_box`'s belt widening. A value below the derived footprint therefore cannot shrink the box through the
+    protein; a value above it is the caller's larger box. `None` (the panel's blank field) is today's derived value
+    exactly, byte for byte.
     """
     if not points:
         raise ValueError('a box needs at least one coordinate')
     if margin_nm <= 0 or initial_z_nm <= 0:
         raise ValueError('box extents must be positive')
-    xs = [float(point[0]) for point in points]
-    ys = [float(point[1]) for point in points]
-    return [round(max(xs) - min(xs) + 2 * margin_nm, 6),
-            round(max(ys) - min(ys) + 2 * margin_nm, 6),
-            round(float(initial_z_nm), 6)]
+    x, y = auto_initial_xy(points, margin_nm=margin_nm)
+    if initial_x_nm is not None:
+        if initial_x_nm <= 0:
+            raise ValueError('box extents must be positive')
+        x = round(max(x, float(initial_x_nm)), 6)
+    if initial_y_nm is not None:
+        if initial_y_nm <= 0:
+            raise ValueError('box extents must be positive')
+        y = round(max(y, float(initial_y_nm)), 6)
+    return [x, y, round(float(initial_z_nm), 6)]
 
 
 def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
@@ -56,8 +94,10 @@ def extended_box(xy, placed_points, margin_nm=2.0):
     """The box after placement: z grows so every face is at least `margin_nm` from the placed system.
 
     `z = 2 x margin + (max_z - min_z)` of the placed coordinates. The x and y extents are passed through unchanged
-    from the box the placement was built for, because widening them would change the volume the detergents were
-    placed into and quietly alter the density the build was designed at.
+    from the box the placement was built for: a self-assembly cloud is sampled uniformly inside exactly that box
+    (`pdc_placement._self_assemble`), so resizing it afterwards would leave the placement describing a different
+    region than the one the detergents came from. A belt is widened by `membrane_box` instead, because a belt's
+    density is its torus's own volume and does not depend on the cell around it.
     """
     if not placed_points:
         raise ValueError('a box needs at least one placed coordinate')
@@ -67,7 +107,8 @@ def extended_box(xy, placed_points, margin_nm=2.0):
     return [round(float(xy[0]), 6), round(float(xy[1]), 6), round(max(zs) - min(zs) + 2 * margin_nm, 6)]
 
 
-def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=6.0, belt_reach_nm=0.0):
+def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=6.0, belt_reach_nm=0.0,
+                 belt_radius_nm=0.0, initial_x_nm=None, initial_y_nm=None):
     """The box for a protein that states its own membrane: z clears the protein, the slab *and* the belt.
 
     `z = 2 x (max(the furthest atom's distance from the membrane plane, the half-thickness, the belt's own reach)
@@ -84,23 +125,37 @@ def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=6.0, bel
     margin the run asked for: measured on 1AT9 chain A, a 6.94 nm box against the protein's own 6.033 nm z span,
     0.45 nm per face where 2.0 was asked.
 
-    x and y are `initial_box`'s rule -- the protein's own footprint plus the margin -- because widening them beyond
-    the box the placement was built for would change the volume the detergents were placed into and quietly alter
-    the density the build was designed at.
+    x and y are the protein's own footprint plus the margin, widened when a belt is present to
+    `2 x (max(the protein's half-extent along that axis, belt_radius_nm) + margin)`. `belt_radius_nm` is the belt's
+    radial reach -- the band's `radius_max_nm` plus its `detergent_length_nm`, the local surface the heads stand
+    off plus the detergent's own length -- which `pdc_build` and the preview read out of the band's own record. The
+    default of zero is a caller with no belt to state, and then x and y are `initial_box`'s rule byte for byte.
+
+    A stated `initial_x_nm`/`initial_y_nm` composes with item 2's belt rule as a **floor, never a ceiling**:
+    `x = max(initial_box's x, 2 x belt_radius_nm + 2 x margin)`, and the same for y. `initial_box`'s x already includes
+    `max(stated, footprint + 2 x margin)`, so the stated value can neither shrink the box through the protein nor
+    shrink the belt's own widening. `None` is today's derived value exactly.
+
+    Widening x and y after the placement does not change the density the placement was built at. A lattice belt's
+    volume is the torus's own, measured from the band's radius and height, and a sphere's is the ball's; the box is
+    the cell around that shape, not the volume the shape was sampled in. Self-assembly is never this rule: its
+    generator samples inside the initial box and its cell goes through `extended_box` unchanged.
 
     A protein that states no membrane passes `half_thickness_nm=None` and gets today's box exactly: there is no frame
     to be centred on and no slab to clear. A protein-free build never reaches this rule at all.
     """
     if half_thickness_nm is None:
-        return initial_box(points, margin_nm=margin_nm, initial_z_nm=initial_z_nm)
+        return initial_box(points, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+                           initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     if not points:
         raise ValueError('a box needs at least one coordinate')
     if margin_nm <= 0:
         raise ValueError('box extents must be positive')
-    xs = [float(point[0]) for point in points]
-    ys = [float(point[1]) for point in points]
+    initial = initial_box(points, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+                          initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     furthest = max(abs(float(point[2])) for point in points)
     reach = max(furthest, abs(float(half_thickness_nm)), abs(float(belt_reach_nm or 0.0)))
-    return [round(max(xs) - min(xs) + 2 * margin_nm, 6),
-            round(max(ys) - min(ys) + 2 * margin_nm, 6),
+    radial = abs(float(belt_radius_nm or 0.0))
+    return [round(max(initial[0], 2 * radial + 2 * margin_nm), 6),
+            round(max(initial[1], 2 * radial + 2 * margin_nm), 6),
             round(2 * (reach + margin_nm), 6)]

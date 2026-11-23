@@ -578,8 +578,11 @@ not resolvable). `GET /api/pdc/preview/placement` derives a live **system previe
 would write (protein + detergent in the box), then adds Insane's initial water and salt at the form's
 concentration and draws the unit cell from `basis.box_nm`; the dry frame comes from the build's own functions and
 the solvent from the same `insane_solvate.place` call the stage makes, both cached under the workspace's `preview/`.
-A gate that refuses is returned as a reason, never as a drawn picture; a solvent failure leaves the dry frame and
-`basis.solvent_reason`. The dry system's whole-system centroid is aligned to the cell centre before
+A gate that refuses comes back as `valid: false` with its sentences -- and, when the placement still produced
+centres, the same dry frame plus `basis.problems` (the red rings and beads the card draws, with
+`basis.problems_truncated` when the 200-mark cap or an out-of-box mark dropped some) and no solvent; a refusal
+with nothing to draw (no centres, a template, a preparation, a model) carries no `pdb`. A solvent failure leaves
+the dry frame and `basis.solvent_reason`. The dry system's whole-system centroid is aligned to the cell centre before
 solvation; Insane's own translation is undone on the solvent, the frame is wrapped molecule-by-molecule into the
 0..`box_nm` cell, and the cached ribbon is moved by that one `basis.centring.shift_nm`; the box is drawn at the origin,
 so the system is at the cell middle and the solvent stays inside the edges. Its `basis` carries the protein's **secondary structure** — the DSSP letters
@@ -628,11 +631,18 @@ with one default the form applies on mount; the store answers the adapter's cano
 translates them back to its own on load.
 
 The **Membrane protein** card also shows the chosen protein's own x × y × z dimensions and the initial box the build
-would start from, read by `GET /api/pdc/proteins/<entry>/extent?margin_nm=&initial_z_nm=&chains=`. The route reads
+would start from, read by `GET /api/pdc/proteins/<entry>/extent?margin_nm=&initial_z_nm=&initial_x_nm=&initial_y_nm=&chains=`. The route reads
 the heavy atoms with the same reader and chain selection the belt estimate uses, and calls `pdc_box`'s own
 `initial_box`/`membrane_box` rule (belt reach zero: this is the box before placement and solvent), so the number on
-the card is the number the build makes rather than a second estimate. Both lines are hidden for an empty micelle,
-and the panel re-asks when the protein, its chain ticks, the box margin or the initial z change.
+the card is the number the build makes rather than a second estimate. The **Run configuration** card states the
+starting cell: `box_margin_nm` (per face) and `initial_x_nm`/`initial_y_nm`/`initial_z_nm` (dimensions). A stated
+x/y is a **floor**, never a ceiling -- `max(stated, footprint + 2 x margin)` -- so a value below the protein's own
+footprint cannot shrink the box through it; a blank x/y is the derived value (there is no `DEFAULTS` entry), and
+one **Auto** fills all three from one extent call. A membrane belt additionally widens x/y to its radial reach
+(`max(footprint, 2 x (radius_max_nm + detergent_length_nm)) + 2 x margin`, `pdc_box.membrane_box`'s
+`belt_radius_nm`), and `pdc_build` records the growth as `box_widening_nm`; self-assembly samples inside its own
+initial box and is never widened. Both lines are hidden for an empty micelle, and the panel re-asks when the
+protein, its chain ticks, the box margin or any initial box value changes.
 
 The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
 conformation (the default, and every run before 2026-11-02), a library built from micelle-only runs, or a stored
@@ -1063,8 +1073,11 @@ length (default 2.0, old 1.1) (`_belt_cylinder`,
 `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm` beside it, so one protruding helix
 steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
 angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then
-radial) rather than relocating a rejected slot to another ladder phase; a slot whose own region the protein
-penetrates (base head or body inside it) is left empty, not nudged. `min_body_gap_nm` (default 0.3 nm) is a
+radial) rather than relocating a rejected slot to another ladder phase. **Every** slot that fails a gate tries
+that ladder -- the base position is its first trial -- and is left empty only when no trial clears; a rejected
+slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,
+which the preview's red rings and a refusal's count read. The placement's `problems` list is the same
+measurements as display marks (empty slot, head/body clearance, overlap; 200-mark cap, `problems_truncated`). `min_body_gap_nm` (default 0.3 nm) is a
 **body-body** gate against the run's own stamped model body (an explicit centres-only build gets the head-only gate);
 `belt_gap_nm`, `min_body_gap_nm`, `belt_axial_window_nm` and `belt_offset_nm` are belt-only settings;
 `belt_offset_nm` translates every placed site together along the membrane normal after the site gate, and the final

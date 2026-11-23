@@ -58,11 +58,12 @@
 #run-form .new-pdc-limitation{color:#7a4b00}
 /* The fields that read as a pair share one row, so the card uses its width instead of stacking one per line.
    T10's proof is geometric (equal y inside the column), not visual -- see the browser test. */
-#run-form .new-pdc-pair,#run-form .new-pdc-belt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;align-items:start;margin:12px 0}
+#run-form .new-pdc-pair,#run-form .new-pdc-belt-grid,#run-form .new-pdc-box-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;align-items:start;margin:12px 0}
 /* Normalise the cell margins: the shared `label{margin:12px 0}` would push a label cell 12 px below a div cell in
    the same grid row. The row's own margin sits on the pair instead. The belt's four settings use the same two-column
-   grid as a pair, but as two rows of two -- one grid, so the children are its four cells. */
-#run-form .new-pdc-pair > *,#run-form .new-pdc-belt-grid > *{margin-top:0}
+   grid as a pair, but as two rows of two -- one grid, so the children are its four cells. The starting box's four
+   controls use that same grid shape, in the Run configuration card. */
+#run-form .new-pdc-pair > *,#run-form .new-pdc-belt-grid > *,#run-form .new-pdc-box-grid > *{margin-top:0}
 /* The caption sits above the row; the row is the three controls -- the OPM id, its button and the chain ticks -- and
    the browser tier measures it: the controls share a line (their vertical centres agree, since a 13 px checkbox and a
    43 px text field cannot share a top), and none reaches past the left column. */
@@ -98,12 +99,30 @@
 /* The refusal is the builder's own sentence, in the danger colour the estimate's own refusal uses -- with its own
    class rather than that one, because a selector two cards share is a selector neither of them owns. */
 #run-form .new-pdc-preview-refusal{margin:0;font-weight:600;color:var(--danger)}
+/* A gate refusal that still has a geometry: the builder's own sentences and the placed/requested count in a red
+   banner over the picture, and the two mark shapes named beneath it. The `[hidden]` rules are explicit because a
+   `display:flex` would otherwise paint an element the module has hidden. */
+#run-form .new-pdc-preview-problems{margin:0 0 10px;border:1px solid #e6a9a9;border-left:4px solid var(--danger);
+  border-radius:8px;background:#fff5f5;padding:10px 12px;font-size:13px;line-height:1.55}
+#run-form .new-pdc-preview-problems[hidden]{display:none}
+#run-form .new-pdc-preview-problems p{margin:0}
+#run-form .new-pdc-preview-problems strong{color:var(--danger)}
+#run-form .new-pdc-preview-problems ol{margin:6px 0 0 18px;padding:0}
+#run-form .new-pdc-preview-problems li{margin:3px 0}
+#run-form .new-pdc-preview-problem-legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 10px;font-size:12px;
+  color:var(--muted)}
+#run-form .new-pdc-preview-problem-legend[hidden]{display:none}
+#run-form .new-pdc-preview-problem-legend span{display:inline-flex;align-items:center;gap:6px}
+#run-form .new-pdc-preview-problem-legend .swatch-ring{width:14px;height:14px;border-radius:50%;
+  border:2px solid var(--danger);display:inline-block}
+#run-form .new-pdc-preview-problem-legend .swatch-bead{width:12px;height:12px;border-radius:50%;
+  background:var(--danger);box-shadow:0 0 0 3px rgba(214,40,40,.25);display:inline-block}
 #run-form .new-pdc-preview-facts{margin:12px 0 0}
 /* Two sticky cards in one column overlap, and this card is taller than a viewport: `position:sticky` was tried and
    measured out. A 1280 px card stuck at `top:18px` covers everything after it in the column -- including the review's
    own Start run button, which two existing browser tests then could not click -- so the preview scrolls with the
    column and the review keeps the sticky position it had. The plan's decision 3 is reversed on that measurement. */
-@media(max-width:700px){#run-form .new-pdc-pair,#run-form .new-pdc-belt-grid{grid-template-columns:1fr}}
+@media(max-width:700px){#run-form .new-pdc-pair,#run-form .new-pdc-belt-grid,#run-form .new-pdc-box-grid{grid-template-columns:1fr}}
 /* The six groups that used to be the Other run options fold are sections of the Stage settings fieldset now. The
    shared `new-run.css` already styles `new-option-group`/`new-option-title`; what is left here is the pdc panel's own
    note and the empty GPU status line. */

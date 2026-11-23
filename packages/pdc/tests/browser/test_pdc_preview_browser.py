@@ -141,15 +141,20 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            capacity: dict | None = None, protein_residues: int = 2,
            structure: dict | None = None, solvent: dict | None = None,
            water_residues: list | None = None, ion_residues: list | None = None,
-           centring: dict | None = None):
-    """A response shaped as the route answers, with the fields the card renders."""
+           centring: dict | None = None, problems: list | None = None,
+           detergents_placed: int | None = None, detergents_requested: int | None = None):
+    """A response shaped as the route answers, with the fields the card renders.
+
+    A refused answer may carry a `pdb`: the placement gates that produced a geometry are drawn, and this fixture
+    keeps that distinction explicit rather than inferring a frame from `valid`.
+    """
     return {
-        'valid': valid, 'reasons': list(reasons), 'pdb': pdb if valid else None,
+        'valid': valid, 'reasons': list(reasons), 'pdb': pdb if (valid or pdb) else None,
         'basis': {'protein': protein, 'chains': list(chains), 'template': 'micelle_template.json',
                   'detergent': 'DDM', 'residue': 'DDM', 'mapping': MAPPING_FILE,
                   'aggregation_number': aggregation, 'placement_mode': mode, 'seed': seed,
                   'beads': beads, 'protein_beads': protein_beads,
-                  'box_nm': [8.3517, 6.7817, 11.0804] if valid else None,
+                  'box_nm': [8.3517, 6.7817, 11.0804] if (valid or pdb) else None,
                   'clearance_nm': clearance,
                   'placement_shape': placement_shape,
                   'band_radius_nm': band, 'band_radius_min_nm': band_min, 'band_radius_max_nm': band_max,
@@ -161,6 +166,10 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'body_profile': body_profile, 'body_profile_reason': body_profile_reason,
                   'bead_clearance_nm': bead_clearance, 'estimated_density_per_nm3': density,
                   'capacity_aggregation': capacity,
+                  # A refused placement's marks, in the frame that is written, and the count it placed -- the
+                  # card's red banner, legend and "N of M" sentence read these and nothing else.
+                  'problems': problems,
+                  'detergents_placed': detergents_placed, 'detergents_requested': detergents_requested,
                   # How many protein residues the frame holds, 0 for an empty micelle: the writer numbers the
                   # protein's beads 1..N before the detergent's molecules, so the preview draws the frame minus them.
                   'protein_residues': protein_residues,
@@ -294,6 +303,8 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('already cached')
     expect(page.locator('.new-pdc-preview-kept')).to_contain_text('preview/cg/0423f94ce62e7698')
     expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
+    expect(page.locator('.new-pdc-preview-problems')).to_be_hidden()
+    expect(page.locator('.new-pdc-preview-problem-legend')).to_be_hidden()
     assert errors == [], errors
 
 
@@ -332,6 +343,51 @@ def test_a_refusal_shows_the_builders_reason_and_no_picture(dashboard, live_page
     expect(page.locator('.new-pdc-preview-cost')).to_contain_text('martinize2 6.7 s')
     expect(page.locator('.new-pdc-preview-state')).to_have_text(
         'The build refuses these inputs; the sentence above is its own.')
+    assert errors == [], errors
+
+
+def test_a_gate_refused_answer_with_a_frame_is_drawn_with_its_marks(dashboard, live_page):
+    """A gate refusal that produced a geometry is a picture: the viewer draws it and the marks sit in one component.
+
+    The reasons stay the builder's and the state line says the run would refuse; the picture is what these inputs
+    produced. The marks are the server's, split into one `NGL.Shape` on the host (`previewProblems`) so a re-derive
+    replaces them rather than stacking two placements' reds.
+    """
+    page, errors = live_page
+    marks = [
+        {'kind': 'empty-slot', 'detail': REFUSAL, 'molecule': None, 'position_nm': [2.0, 2.0, 3.0],
+         'normal_nm': [0.0, 0.0, 1.0], 'radius_nm': 0.5, 'protein_beads': []},
+        {'kind': 'head-clearance', 'detail': REFUSAL, 'molecule': 1, 'position_nm': [3.0, 2.0, 2.0],
+         'normal_nm': None, 'radius_nm': 0.3, 'protein_beads': [[3.1, 2.0, 2.0]]},
+    ]
+    serve(page, answer(placement_pdb(), valid=False, reasons=[REFUSAL], placement_shape='sphere', band=None,
+                       clearance=0.174, problems=marks, detergents_placed=72, detergents_requested=150))
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    page.wait_for_function("() => !!document.querySelector('.new-pdc-preview-viewer')"
+                           ".previewProblems", timeout=30000)
+    expect(page.locator('.new-pdc-preview-viewer')).to_be_visible()
+    expect(page.locator('.new-pdc-preview-refusal')).to_be_hidden()
+    loaded_atoms(page, 2 + MOLECULES * len(DDM_BEADS))
+    banner = page.locator('.new-pdc-preview-problems')
+    expect(banner).to_be_visible()
+    expect(banner).to_contain_text(REFUSAL)
+    expect(banner).to_contain_text('72 of 150 detergents placed')
+    expect(banner).to_contain_text('with 2 marks in red')
+    expect(page.locator('.new-pdc-preview-problem-legend')).to_be_visible()
+    expect(page.locator('.new-pdc-preview-problem-legend')).to_contain_text('red ring = slot the placement could not fill')
+    expect(page.locator('.new-pdc-preview-problem-legend')).to_contain_text('red bead = a bead inside a gate')
+    expect(page.locator('.new-pdc-preview-viewer')).to_have_attribute('aria-label', re.compile('72 of 150 detergents'))
+    problem = page.evaluate("() => { const host = document.querySelector('.new-pdc-preview-viewer');"
+                            "return {present: !!host.previewProblems,"
+                            " onStage: host.previewStage.compList.includes(host.previewProblems),"
+                            " buffers: host.previewProblems?.object?.getBufferList?.().length || 0}; }")
+    assert problem['present'] and problem['onStage'], problem
+    assert problem['buffers'] >= 2, 'the ring and the bead mark are both drawn'
+    expect(page.locator('.new-pdc-preview-state')).to_have_text(
+        'The run would refuse this placement: the picture is what these inputs produced, not a frame a run may '
+        'start from.')
     assert errors == [], errors
 
 

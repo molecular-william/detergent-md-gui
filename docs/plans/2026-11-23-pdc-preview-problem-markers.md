@@ -1,6 +1,7 @@
 # PDC preview: draw a refused placement and mark the problems in red
 
-Status: hand-off for the next agent (2026-11-23). Decisions taken by the user; no code changed yet.
+Status: **landed 2026-11-23** (a gate-refused placement is drawn dry, with its `problems` marked in red).
+Measurements and checks are in `docs/HANDOFF.md`'s Current state.
 Draft: `docs/design/drafts/2026-11-23-pdc-preview-problems.html`.
 Companion plan: `docs/plans/2026-11-23-pdc-placement-and-box-controls.md`.
 
@@ -49,8 +50,14 @@ sentences are collected, in the same order, with no second placement and no reco
   nearest protein bead.
 - `body-clearance`: one entry per site whose drawn body reaches inside `BEAD_CLEARANCE_NM`; `placed_bead_clearance`
   returns the offending (bead, point) pair as well as its minimum so the mark has a position.
-- `overlap`: one entry per offending pair, deduplicated, each molecule's centre. The pair's identity comes from
-  `validate_positions`, which today returns only the minimum distance; return the pair.
+- `overlap`: one entry per offending pair member (two marks per pair), each at that member's own centre and carrying
+  the partner's centre in `protein_beads`, so both molecules are marked as the user's decision asks. The pair's
+  identity comes from `validate_positions`' additive `overlap_pairs`; the four existing keys stay unchanged.
+- Empty-slot marks sit at the slot's own base point with the failed gate's distance as `radius_nm` and the slot's
+  outward normal; the per-slot reason is in the band's `rejected_slots` and the mark's `detail` is the matching
+  `aggregation count` sentence, verbatim. The belt's `belt_offset_nm` is already applied to those positions, so the
+  preview must not apply it again. `body-clearance` marks appear only where the drawn-body issue sentence exists
+  (the conformation-library path).
 - **Determinism.** Same seed -> byte-identical `problems`; coordinates rounded to six decimals; no `nan` (`nan`
   marks are dropped and the issue sentence carries the count instead, as the unplaced-bead path already does).
 - **Cap.** `MAX_PROBLEMS = 200` marks in deterministic order (empty slots first, then molecules by index); beyond

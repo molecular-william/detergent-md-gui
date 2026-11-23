@@ -144,6 +144,17 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     # There is no separate fold any more: every one of these controls is inside the Stage settings fieldset.
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
     assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 5
+    # The starting box moved to the Run configuration card; the Salt, seed and box group keeps salt, seed, contact and
+    # the removal threshold, and states the four box controls nowhere.
+    config = page.locator('#run-form .card[aria-labelledby=new-config-title]')
+    for name in ('box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm'):
+        assert config.locator(f'[name={name}]').count() == 1, f'{name} is not in the Run configuration card'
+        assert page.locator(f'#run-form fieldset.new-pdc-stages [name={name}]').count() == 0, \
+            f'{name} is still a Stage settings control'
+    assert config.locator('label', has_text='Initial x box (nm - dimension)').count() == 1
+    assert config.locator('label', has_text='Initial y box (nm - dimension)').count() == 1
+    assert config.locator('label', has_text='Initial z box (nm - dimension)').count() == 1
+    assert config.locator('label', has_text='Box margin (nm - each face)').count() == 1
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
@@ -311,7 +322,7 @@ def test_the_five_groups_are_sections_inside_the_stage_settings(dashboard, live_
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
     groups = fieldset.locator(':scope > section.new-option-group')
     assert groups.count() == 5, 'the five remaining option groups are not sections of the fieldset'
-    assert page.locator('#run-form .new-option-group [name]').count() == 22, 'a control was lost with the fold'
+    assert page.locator('#run-form .new-option-group [name]').count() == 20, 'a control was lost with the fold'
     for index in range(5):
         group = groups.nth(index)
         expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
@@ -600,11 +611,19 @@ def test_the_panel_sends_the_initialisation_style_it_shows(dashboard, live_page)
     open_panel(page, live_page.base_url)
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
     page.locator('#new-placement').select_option('self-assembly')
+    # A stated starting cell travels under the adapter's advertised names; a blank pair (below, in the big payload
+    # test) records no key at all, so the run derives its footprint rather than reading a zero.
+    page.locator('[name=initial_x_nm]').fill('11.5')
+    page.locator('[name=initial_y_nm]').fill('12.5')
+    # Leaving the field settles the readiness check the input events scheduled; clicking while one is pending hits a
+    # disabled button, as the big payload test also notes.
+    page.locator('[name=initial_y_nm]').press('Tab')
     expect(page.locator('#start-run')).to_be_enabled()
     page.locator('#start-run').click()
 
     expect(page.locator('#notice')).to_contain_text('Run queued.', timeout=30000)
     assert posted['pdc_placement_mode'] == 'self-assembly', posted
+    assert (posted['initial_x_nm'], posted['initial_y_nm']) == (11.5, 12.5), posted
     assert errors == [], errors
 
 
@@ -713,6 +732,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         # The device the run will use, as an ordinary setting: `mdrun_gpu` is the CUDA ordinal the panel selected.
         'mdrun_gpu': 0,
     }, posted
+    # A blank x/y is not a zero and not a number: the run derives the footprint exactly as it did before the fields
+    # existed. `test_the_panel_sends_the_initialisation_style_it_shows` pins the stated pair.
+    assert 'initial_x_nm' not in posted and 'initial_y_nm' not in posted, posted
     assert errors == [], errors
 
 
@@ -1056,22 +1078,33 @@ def test_every_stage_setting_carries_an_info_button_with_the_servers_sentence(da
     assert errors == [], errors
 
 
-AUTO_EXTENT = {**EXTENT, 'auto_initial_z_nm': 10.4}
+AUTO_EXTENT = {**EXTENT, 'auto_initial_x_nm': 7.2, 'auto_initial_y_nm': 8.8, 'auto_initial_z_nm': 10.4}
 
 
-def test_the_initial_z_auto_button_measures_the_protein_and_writes_the_answered_number(dashboard, live_page):
-    """Auto is a measurement, not a default: the extent route's auto z replaces the stated 6 nm, and an empty micelle
-    has no structure to measure, so the button says so by being disabled."""
+def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_numbers(dashboard, live_page):
+    """One Auto for the starting cell: the extent route's suggested x, y and z fill all three fields.
+
+    It is a measurement, not a default -- the stated 6 nm z and blank x/y are replaced -- and an empty micelle has no
+    structure to measure, so the button says so by being disabled. The x/y fields stay blank until Auto is pressed;
+    their placeholders show the derived value without posting it.
+    """
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     serve_devices(page, {})
     page.route(re.compile(r'/extent'), lambda route: route.fulfill(json=AUTO_EXTENT))
     open_panel(page, live_page.base_url)
 
-    expect(page.locator('.pdc-auto-z')).to_be_disabled()
+    expect(page.locator('.pdc-auto-box')).to_be_disabled()
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
-    expect(page.locator('.pdc-auto-z')).to_be_enabled()
+    expect(page.locator('.pdc-auto-box')).to_be_enabled()
     expect(page.locator('[name=initial_z_nm]')).to_have_value('6')
-    page.locator('.pdc-auto-z').click()
+    expect(page.locator('[name=initial_x_nm]')).to_have_value('')
+    expect(page.locator('[name=initial_y_nm]')).to_have_value('')
+    # The derived value is shown as a placeholder, not written into the field: a written number would post.
+    expect(page.locator('[name=initial_x_nm]')).to_have_attribute('placeholder', '7.2')
+    expect(page.locator('[name=initial_y_nm]')).to_have_attribute('placeholder', '8.8')
+    page.locator('.pdc-auto-box').click()
+    expect(page.locator('[name=initial_x_nm]')).to_have_value('7.2')
+    expect(page.locator('[name=initial_y_nm]')).to_have_value('8.8')
     expect(page.locator('[name=initial_z_nm]')).to_have_value('10.4')
     assert errors == [], errors

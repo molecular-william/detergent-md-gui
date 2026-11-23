@@ -157,6 +157,11 @@ SETTING_SPECS = {
     'salt_molar': ('Salt concentration (M)', 0.0, 5.0),
     'box_margin_nm': ('Box margin (nm)', 0.5, 10.0),
     'initial_z_nm': ('Initial z box (nm)', 1.0, 50.0),
+    # A stated starting box in x/y, as a floor rather than a ceiling: a number below the protein's own footprint plus
+    # the margin does not shrink the box (`pdc_box.initial_box`). Deliberately no `DEFAULTS` entry, like the per-leg
+    # timesteps: a blank field is the derived footprint, never zero, and a missing key was every run before this one.
+    'initial_x_nm': ('Initial x box (nm - dimension)', 1.0, 50.0),
+    'initial_y_nm': ('Initial y box (nm - dimension)', 1.0, 50.0),
     'contact_nm': ('Micelle contact distance (nm)', 0.1, 2.0),
     # The belt's extra stand-off from the measured cylinder surface. Belt-only: a sphere placement never reads it,
     # so 0 keeps every previous geometry byte for byte.

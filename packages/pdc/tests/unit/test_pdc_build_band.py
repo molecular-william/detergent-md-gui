@@ -16,9 +16,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 from dashboard.analysis.runs import structures as pdc_view
-from detergent_pdc.execution.adapters import pdc, pdc_placement
+from detergent_pdc.execution import pdc_preview
+from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_placement
 from detergent_pdc.execution.adapters.pdc_placement import MIN_CLEARANCE_NM
 from detergent_pdc.execution.scripts import pdc_build
+from micelle.registry import load_template
 
 from tests.harness.pdc_fixtures import TEMPLATE, system_stage, write_cg_pdb
 
@@ -64,13 +66,14 @@ def molecule_tree(tmp_path: Path, *, remark: bool = True) -> Path:
     return tmp_path
 
 
-def prepared(tmp_path: Path, *, remark: bool = True):
+def prepared(tmp_path: Path, *, remark: bool = True, settings: dict | None = None):
     """A prepared run whose stage 1 is ready to run: the molecule tree, the settings, and nothing else."""
     root = molecule_tree(tmp_path, remark=remark)
     run = tmp_path / 'run'
     run.mkdir()
     pdc.prepare(run, protein=PROTEIN, template=TEMPLATE_PATH,
-                settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0},
+                settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0}
+                | (settings or {}),
                 project_root=root)
     return run
 
@@ -210,6 +213,118 @@ def test_the_box_contains_the_belt_that_reaches_past_the_slab(tmp_path):
         'every placed centre is inside the box'
 
 
+def test_the_build_widens_the_belt_box_in_x_and_y_and_records_the_growth(tmp_path):
+    """Item 2 in the stage's own report: x/y clear the belt's radial surface plus the detergent's length.
+
+    The band is measured before the box, and a belt's volume is its torus's own (`radius_nm` plus the detergent's
+    length through the band's height), so the widening does not change the recorded density. The report states both
+    boxes and the growth between them, so a reader sees the widening rather than having to subtract two fields.
+    """
+    stage = stage_directory(prepared(tmp_path))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+    code = pdc_build.build(stage)
+    report = report_of(stage)
+
+    assert code == 3
+    band = report['placement_band']
+    belt_radius = band['radius_max_nm'] + band['detergent_length_nm']
+    initial = report['box_nm_initial']
+    expected = [round(max(initial[0], 2 * belt_radius) + 2 * 2.0, 6),
+                round(max(initial[1], 2 * belt_radius) + 2 * 2.0, 6), report['box_nm'][2]]
+    assert report['box_nm'] == expected, 'x and y carry the belt reach; z still clears the protein and the belt'
+    old = pdc_box.membrane_box([list(bead[3]) for bead in CG_BEADS], half_thickness_nm=HALF_THICKNESS_NM,
+                               margin_nm=2.0, initial_z_nm=6.0, belt_reach_nm=band['belt_reach_nm'])
+    assert report['box_nm'][:2] > old[:2], 'and they are wider than the footprint-plus-margin rule item 2 replaces'
+    assert report['box_widening_nm'] == [round(report['box_nm'][index] - initial[index], 6) for index in (0, 1)]
+    assert report['box_widening_nm'][0] > 0
+
+
+def test_a_self_assembled_build_keeps_the_box_its_generator_sampled_in(tmp_path):
+    """Self-assembly samples inside the initial box, so its placement and its cell must not be widened.
+
+    The cloud is compared with a fresh self-assembly placement over the same beads and settings, and the box's x/y
+    with the initial box: this is the path the density policy leaves byte-identical.
+    """
+    stage = stage_directory(prepared(tmp_path, settings={'placement_mode': 'self-assembly'}))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+    code = pdc_build.build(stage)
+    report = report_of(stage)
+
+    assert code == 3 and report['placement_mode'] == 'self-assembly'
+    assert report['placement_band'] is None
+    assert report['box_nm'][:2] == report['box_nm_initial'][:2], 'the cell x/y is the one the cloud was sampled in'
+    assert report['box_widening_nm'] == [0.0, 0.0]
+    settings = json.loads((stage / pdc.SETTINGS_NAME).read_text())
+    points = [list(bead[3]) for bead in CG_BEADS]
+    placement = pdc_placement.place_detergents(points, load_template(tmp_path / 'molecules' / 'DDM'
+                                                                     / 'micelle_template.json'),
+                                               settings['aggregation_number'], settings['seed'],
+                                               radius_nm=settings['radius_nm'], mode='self-assembly',
+                                               margin_nm=settings['box_margin_nm'],
+                                               initial_z_nm=settings['initial_z_nm'], body_profile=None)
+    centres = detergent_centres(stage) - np.asarray(report['centring']['shift_nm'])
+    assert np.allclose(centres, np.asarray(placement['centers']), atol=1e-3), \
+        'the built cloud is the generator\'s own, unchanged by the box work'
+
+
+def test_a_stated_initial_xy_that_is_below_the_footprint_does_not_shrink_the_box(tmp_path):
+    """The box rule's floor, measured through the stage's own record: stated x/y cannot put a face through the protein.
+
+    The CG beads span 2 x 2 nm, so with a 2 nm margin the derived x/y are 6 nm. A stated 1 nm is below that and the
+    build writes 6 nm (and its initial box, which the widening is measured from, is that same derived value); a stated
+    8 x 9 is the caller's wider cell. No membrane here, so the sphere path passes `initial_box`'s x/y straight through.
+    """
+    root = molecule_tree(tmp_path, remark=False)
+    for name, stated, expected in (('floor', (1.0, 1.0), [6.0, 6.0]),
+                                   ('stated', (8.0, 9.0), [8.0, 9.0])):
+        run = tmp_path / name
+        run.mkdir()
+        pdc.prepare(run, protein=PROTEIN, template=TEMPLATE_PATH,
+                    settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0,
+                              'initial_z_nm': 6.0, 'initial_x_nm': stated[0], 'initial_y_nm': stated[1]},
+                    project_root=root)
+        stage = system_stage(run)
+        write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+        assert pdc_build.build(stage) == 3
+        report = report_of(stage)
+        assert report['initial_x_nm'] == stated[0] and report['initial_y_nm'] == stated[1]
+        assert report['box_nm_initial'][:2] == expected, f'{name}: the stated floor was read as a ceiling'
+        assert report['box_nm'][:2] == expected, f'{name}: the sphere cell passes the initial x/y through'
+        assert report['box_widening_nm'] == [0.0, 0.0], 'a sphere path is never widened by the belt rule'
+
+
+def test_the_preview_and_the_build_agree_on_a_belts_box(tmp_path, monkeypatch):
+    """One rule, two callers: the preview's `basis['box_nm']` is the box the same placement makes the stage write.
+
+    The stated initial x/y travel through both callers as floors, so the agreement holds for a run that states its
+    starting cell as well as for one that leaves it blank.
+    """
+    run = prepared(tmp_path, settings={'initial_x_nm': 11.0, 'initial_y_nm': 12.0})
+    stage = system_stage(run)
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+    code = pdc_build.build(stage)
+    report = report_of(stage)
+    assert code == 3
+
+    beads = [{'residue_id': residue_id, 'residue': residue, 'name': name, 'position': list(position)}
+             for residue_id, residue, name, position in CG_BEADS]
+    monkeypatch.setattr(pdc_preview, 'coarse_grained',
+                        lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.0, 'key': 'stub',
+                                                         'path': '', 'beads_bytes': 0}))
+    monkeypatch.setattr(pdc_preview, '_solvent', lambda *args, **kwargs: None)
+
+    answer = pdc_preview.preview(project_root=tmp_path, cache_root=tmp_path / 'cache', template=TEMPLATE_PATH,
+                                 seed=20260930, protein=PROTEIN, chains=['A'], mapping=None,
+                                 aggregation_number=8, box_margin_nm=2.0, initial_z_nm=6.0,
+                                 initial_x_nm=11.0, initial_y_nm=12.0)
+
+    assert answer['valid'], answer['reasons']
+    assert answer['basis']['box_nm'] == report['box_nm']
+
+
 def test_a_protein_that_states_no_membrane_builds_the_sphere_it_always_did(tmp_path):
     stage = stage_directory(prepared(tmp_path, remark=False))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
@@ -220,6 +335,8 @@ def test_a_protein_that_states_no_membrane_builds_the_sphere_it_always_did(tmp_p
     assert code == 3
     assert report['membrane_frame'] is None, 'a thickness nobody states is not a frame'
     assert report['placement_shape'] == 'sphere' and report['placement_band'] is None
+    assert report['box_nm'][:2] == report['box_nm_initial'][:2]
+    assert report['box_widening_nm'] == [0.0, 0.0], 'no belt, no widening: today\'s box exactly'
 
 
 def test_an_empty_micelle_build_states_no_membrane_and_places_the_sphere(tmp_path):
@@ -239,6 +356,8 @@ def test_an_empty_micelle_build_states_no_membrane_and_places_the_sphere(tmp_pat
     assert report['protein_free'] is True and report['placed_detergents'] == 6
     assert report['membrane_frame'] is None and report['placement_band'] is None
     assert report['placement_shape'] == 'sphere'
+    assert report['box_nm'][:2] == report['box_nm_initial'][:2], 'a protein-free build is the sphere path, unchanged'
+    assert report['box_widening_nm'] == [0.0, 0.0]
     assert np.allclose(centres.mean(axis=0), np.asarray(report['box_nm']) / 2, atol=1e-3), \
         'the box is centred on the detergent cloud the build placed'
     original = centres - np.asarray(report['centring']['shift_nm'])
