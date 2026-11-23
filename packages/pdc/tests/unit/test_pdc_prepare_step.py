@@ -484,8 +484,11 @@ def test_the_preview_runs_the_preparer_only_when_the_form_asks_for_it(tmp_path, 
 
     molecule_tree(tmp_path)
     martinize_calls = []
+    real_run = subprocess.run
 
     def fake_martinize(command, **kwargs):
+        if 'martinize2' not in str(command[0]):
+            return real_run(command, **kwargs)
         martinize_calls.append([str(part) for part in command])
         structure = Path(command[command.index('-x') + 1])
         structure.parent.mkdir(parents=True, exist_ok=True)

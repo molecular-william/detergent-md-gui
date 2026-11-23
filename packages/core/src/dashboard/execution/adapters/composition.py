@@ -27,7 +27,7 @@ from ... import martini3, paths
 from ...models import compositions
 from ...models.compositions import parameterizations as composition_parameterizations
 from .. import devices, nonbonded, protocol, run_inputs, tools
-from ..environment import ROOT, environment, recorded_environment
+from ..environment import environment, recorded_environment
 from ..mdp import write_mdp
 from ..settings import normalize
 from ..stages import Stage, stage_tables
@@ -258,7 +258,7 @@ def prepare(run_dir, metadata):
     (sim / 'system_EMPTY.top').write_text(
         martini3.system_topology(sim, names['final_itp'], names['residue_name'],
                                  f'{names["residue_name"]} composition in Martini water',
-                                 force_field=cg.MARTINI_FF, solvents=cg.MARTINI_SOLVENTS))
+                                 force_field=cg.MARTINI_FF, solvents=cg.MARTINI_SOLVENTS, ions=cg.MARTINI_IONS))
     write_mdp('cg-minimization-v1', sim / 'inputs/minimization.mdp',
               cg.mdp_values(settings, 'cg-minimization-v1'))
     write_mdp('cg-equilibration-v1', sim / 'inputs/eq.mdp', cg.mdp_values(settings, 'cg-equilibration-v1'))
@@ -269,8 +269,6 @@ def prepare(run_dir, metadata):
                              label='Martini 3 force field (martini_v3.0.0.itp)'),
         run_inputs.installed('martini_solvents', martini3.path(cg.MARTINI_SOLVENTS),
                              label='Martini 3 solvents (martini_v3.0.0_solvents_v1.itp)'),
-        run_inputs.published('martini_water', cg.WATER_BOX.relative_to(ROOT),
-                             label='Martini 3 water box (water.gro)'),
         *_artifact_entries(record, artifacts),
     ]
     profile = _profile(metadata.get('profile'))

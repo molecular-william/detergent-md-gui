@@ -85,11 +85,40 @@ def test_another_run_type_has_one_group_from_its_adapters_vocabulary(monkeypatch
             return {}
 
     monkeypatch.setattr(stage_settings.protocol, 'adapter_for', lambda run_type: Stub())
-    groups = stage_settings.groups({'run_type': 'pdc', 'settings': {'protein': '/p.pdb', 'ions': 150}}, {})
+    groups = stage_settings.groups({'run_type': 'osmotic', 'settings': {'protein': '/p.pdb', 'ions': 150}}, {})
 
     assert len(groups) == 1 and groups[0]['label'] == 'Run settings'
     assert [(field['key'], field['label']) for field in groups[0]['fields']] == \
            [('protein', 'Protein structure'), ('ions', 'Ions')]
+
+
+PDC_SETTINGS = {
+    'template': 'molecules/DM/v1/micelle_template.json', 'protein': 'molecules/2ydo/v1/2ydo.pdb',
+    'prepare_protein': True, 'force_field': 'martini3', 'salt_molar': 0.15,
+    'placement_mode': 'lattice', 'aggregation_number': 144, 'seed': 20261119,
+    'belt_gap_nm': 0.0, 'min_body_gap_nm': 0.3,
+    'minimisation_steps': 200000, 'pdc_minimisation_emtol': 100.0,
+    'nvt_ps': 500, 'pdc_nvt_dt_fs': 5, 'pdc_nvt_nstlist': 40,
+    'npt_ps': 4500, 'pdc_npt_tau_p': 4.0,
+    'assessment_ns': 100, 'extension_ns': 900, 'nstlog': 2000, 'rlist': 1.35,
+    'remove_out_of_micelle': True, 'tail_beads': ['TAIL1', 'TAIL2'],
+    'mdrun_gpu': 0, 'mdrun_ntomp': 16, 'an_unlisted_key': 1,
+}
+
+
+def test_pdc_groups_fill_the_four_column_grid_and_keep_every_recorded_value():
+    groups = stage_settings.groups({'run_type': 'pdc', 'settings': PDC_SETTINGS}, {})
+
+    assert [group['label'] for group in groups] == \
+           ['System and inputs', 'Placement and belt', 'Energy minimisation', 'NVT equilibration',
+            'NPT equilibration', 'CG production', 'Removal and assessment', 'Execution', 'Run settings']
+    assert keys(groups[0]) == ['template', 'protein', 'force_field', 'prepare_protein', 'salt_molar']
+    assert keys(groups[1]) == ['placement_mode', 'aggregation_number', 'seed', 'belt_gap_nm', 'min_body_gap_nm']
+    assert keys(groups[2]) == ['minimisation_steps', 'pdc_minimisation_emtol']
+    assert keys(groups[5]) == ['assessment_ns', 'extension_ns', 'nstlog', 'rlist']
+    assert keys(groups[8]) == ['an_unlisted_key']
+    flattened = [key for group in groups for key in keys(group)]
+    assert sorted(flattened) == sorted(PDC_SETTINGS), 'every recorded key appears once, and nothing else'
 
 
 def test_a_run_type_with_no_adapter_still_answers(monkeypatch):

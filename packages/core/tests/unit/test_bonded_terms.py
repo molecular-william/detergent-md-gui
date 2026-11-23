@@ -52,12 +52,6 @@ def test_an_invalid_atom_index_is_refused_rather_than_skipped():
         bonded_terms.read_terms('[ bonds ]\nzero 2 1 0.3 900\n')
 
 
-def test_proper_dihedrals_join_the_dihedral_set():
-    sets = bonded_terms.term_sets(bonded_terms.read_terms(TOPOLOGY))
-    assert sets['dihedrals'] == {(0, 1, 2, 3), (1, 0, 2, 3)}
-    assert sets['bonds'] == {(0, 1)}
-
-
 def test_a_distance_is_measured_in_nanometres():
     positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 10.0]])
     assert np.isclose(bonded_terms.distance_nm(positions, (0, 1)), 1.0)

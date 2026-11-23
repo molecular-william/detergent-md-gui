@@ -1,22 +1,8 @@
 import json
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from dashboard.models import compositions
 from dashboard.models.molecules import evidence
-from dashboard.models.molecules import registry as model_registry
-
-
-def test_reference_hash_matches_the_recorded_source():
-    with tempfile.TemporaryDirectory() as tmp:
-        root=Path(tmp); source=root/'x.itp'; source.write_text('model')
-        first={'id':'a'*16, 'source_path':str(source), 'sha256':model_registry.files.sha256(source)}
-        with patch.object(model_registry, 'storage_root', return_value=root/'registry'):
-            assert model_registry.check_reference(first)['ok']
-            source.write_text('changed')
-            assert not model_registry.check_reference(first)['ok']
 
 
 def test_composition_is_immutable_and_its_linkage_is_checked():

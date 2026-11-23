@@ -80,6 +80,22 @@ def pair_rows(page):
     }""")
 
 
+def belt_rows(page):
+    """The belt's four settings as one grid: each cell's box, and the column they must sit inside."""
+    return page.evaluate("""() => {
+      const column = document.querySelector('.new-run-inputs').getBoundingClientRect();
+      const grid = document.querySelector('#new-belt-block .new-pdc-belt-grid');
+      if (!grid) return null;
+      return {
+        kids: Array.from(grid.children).map(child => {
+          const r = child.getBoundingClientRect();
+          return {name: child.querySelector('input')?.name, x: r.x, y: r.y, width: r.width, height: r.height};
+        }),
+        column: {x: column.x, y: column.y, width: column.width, height: column.height},
+      };
+    }""")
+
+
 def download_row(page):
     """The Download-from-OPM row: the id, the button and the chain ticks, each with its box and vertical centre.
 
@@ -123,6 +139,36 @@ def test_every_pair_shares_a_row_inside_the_column(dashboard, live_page):
         # And the two named controls really are in this pair's cells, so the row measured is the row claimed.
         for selector in (first, second):
             assert page.locator(f'#new .{cls} {selector}').count() == 1, f'{selector} is not inside .{cls}'
+
+    assert errors == [], errors
+
+
+def test_the_belt_settings_are_two_rows_of_two(dashboard, live_page):
+    """The four belt numbers share one two-column grid: gap · body-bead distance, then axial window · vertical spread.
+
+    A grid that fell back to one column still renders all four controls, so this measures the row geometry: each
+    pair's tops agree within the same tolerance as the card's own pairs, and the second pair starts a new row.
+    """
+    page, errors = live_page
+    serve(page)
+    open_panel(page, live_page.base_url)
+    expect(page.locator('#new-belt-block')).to_be_visible()
+
+    rows = belt_rows(page)
+    assert rows is not None, 'the belt settings are not rendered as a grid'
+    kids = rows['kids']
+    assert [kid['name'] for kid in kids] == ['belt_gap_nm', 'min_body_gap_nm',
+                                             'belt_axial_window_nm', 'belt_vertical_spread'], kids
+    for first, second in ((kids[0], kids[1]), (kids[2], kids[3])):
+        delta = abs(first['y'] - second['y'])
+        assert delta <= TOLERANCE_PX, \
+            f'{first["name"]} and {second["name"]} are stacked, not paired: y {first["y"]} vs {second["y"]} (Δ{delta})'
+    assert kids[2]['y'] > kids[0]['y'] + TOLERANCE_PX, f'the second belt row is not below the first: {kids}'
+    column = rows['column']
+    for kid in kids:
+        assert kid['x'] >= column['x'] - 1, f'{kid["name"]} leaves the column on the left: {kid} vs {column}'
+        assert kid['x'] + kid['width'] <= column['x'] + column['width'] + 1, \
+            f'{kid["name"]} leaves the column on the right: {kid} vs {column}'
 
     assert errors == [], errors
 

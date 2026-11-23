@@ -21,6 +21,7 @@ dependencies = [
   "plotly",
   "rdkit",
   "numpy>=2",
+  "insane==1.2.0",
 ]
 
 [project.scripts]

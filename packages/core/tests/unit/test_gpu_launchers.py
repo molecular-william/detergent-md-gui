@@ -15,7 +15,7 @@ from pathlib import Path
 import detergent_pdc
 import detergent_validation
 
-from tests.harness.pdc_fixtures import run_script
+from tests.harness.pdc_fixtures import run_script, write_gro
 from tests.harness.support import PACKAGE
 
 SCRIPTS = PACKAGE / 'execution/scripts'
@@ -79,6 +79,9 @@ def cg_workspace(tmp_path):
     (tmp_path / '3_initial_CG' / 'lig.itp').write_text('#include "martini.itp"\n')
     (tmp_path / '2_mapping').mkdir()
     (tmp_path / '2_mapping' / 'mapped.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')
+    # `editconf` is the GROMACS stand-in and writes nothing, so the boxed structure the solvation helper reads is
+    # provided here. Insane is real: it places W and appends the row to the empty topology.
+    write_gro(stage / 'boxed.gro', [(1, 'DDM', 'B01', (1.0, 1.0, 1.0))], box=(5.0, 5.0, 5.0))
     (stage / 'system_EMPTY.top').write_text('[ molecules ]\n')
     return stage
 

@@ -10,7 +10,3 @@ def pack_micelle(protein,template,aggregation_number,seed,radius=3.):
  if len(p): center=p.mean(0); dirs=dirs[np.argsort([min(np.linalg.norm(center+radius*d-p,axis=1)) for d in dirs])]
  centers=(p.mean(0) if len(p) else np.zeros(3))+radius*dirs
  return centers,dirs
-def minimum_distance(points):
- if len(points)<2:return float('inf')
- d=points[:,None,:]-points[None,:,:]; d[np.arange(len(points)),np.arange(len(points))]=np.inf
- return float(np.sqrt((d*d).sum(2)).min())

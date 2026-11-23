@@ -1,0 +1,190 @@
+{
+  "tool": "dashboard.cli.migrate_molecule_versions",
+  "version": 1,
+  "created_at": "2026-11-16T11:50:51.526402+00:00",
+  "molecules": [
+    {
+      "id": "DDM",
+      "version": "v1",
+      "entries": [
+        "BEAD_REFERENCE.md",
+        "README.md",
+        "identity.json",
+        "mapping_candidate.ndx",
+        "metadata.json",
+        "micelle_template.json",
+        "results"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"DDM\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"parameterization_version\": \"unrecorded\",\n  \"caveats\": [\n    \"Parameterised by SwissParam, which does not record the CGenFF version its parameters derive from, so running this solute under a CHARMM36 tree assumes CGenFF 4.x compatibility rather than demonstrating it. The reference protocol this project reproduces obtained the same solute from the CHARMM-GUI.\"\n  ],\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "DM",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": false,
+        "had_version": false,
+        "version": null
+      }
+    },
+    {
+      "id": "Glucose",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "metadata.json",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"Glucose\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "LMNG",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "metadata.json",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"LMNG\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "Lactose",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "metadata.json",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"Lactose\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "Maltose",
+      "version": "v1",
+      "entries": [
+        "metadata.json",
+        "results"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"Maltose\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "NG",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": false,
+        "had_version": false,
+        "version": null
+      }
+    },
+    {
+      "id": "OG",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": false,
+        "had_version": false,
+        "version": null
+      }
+    },
+    {
+      "id": "OGNG",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": false,
+        "had_version": false,
+        "version": null
+      }
+    },
+    {
+      "id": "Sucrose",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "metadata.json",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"Sucrose\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"parameterization_version\": \"unrecorded\",\n  \"caveats\": [\n    \"Parameterised by SwissParam, which does not record the CGenFF version its parameters derive from, so running this solute under a CHARMM36 tree assumes CGenFF 4.x compatibility rather than demonstrating it. The reference protocol this project reproduces obtained the same solute from the CHARMM-GUI.\"\n  ],\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "Trehalose",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "metadata.json",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": true,
+        "had_version": false,
+        "version": null,
+        "original": "{\n  \"name\": \"Trehalose\",\n  \"molecule_type\": \"LIG1\",\n  \"net_charge\": 0,\n  \"force_field\": \"charmm36-jul2022.ff\",\n  \"water_model\": \"tip3p\",\n  \"generated\": true,\n  \"parameterization\": \"SwissParam\",\n  \"provenance\": \"Identity and charge read from ITP. SwissParam detected; CHARMM36 July 2022 / TIP3P selected for the supported adapter. GROMACS preprocessing must resolve parameters; scientific validation is not established.\"\n}"
+      }
+    },
+    {
+      "id": "UDM",
+      "version": "v1",
+      "entries": [
+        "MATCH",
+        "MMFF",
+        "tautomers.smi"
+      ],
+      "metadata": {
+        "existed": false,
+        "had_version": false,
+        "version": null
+      }
+    }
+  ]
+}

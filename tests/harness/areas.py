@@ -21,7 +21,7 @@ AREAS = {
         'unit/test_pdc_*', 'integration/test_pdc_*', 'browser/test_pdc_*',
         # Back-mapping's fragment generator is pdc's own conversion science, named for the tool it feeds.
         'unit/test_cg2at_fragment.py',
-        # The micelle builder is pdc's placement science; a change there is a change to a protein build.
+        # The micelle frame reader is pdc's placement science; a change there is a change to a protein build.
         'unit/test_micelle_*', 'unit/test_conformations_*',
         # pdc-structure's readers are the shared analysis readers it now imports.
         'unit/test_structure_readers.py',
@@ -106,9 +106,12 @@ AREAS = {
         'integration/test_continue_in_place.py',
         'integration/test_readiness_*.py', 'integration/test_run_*.py',
         'unit/test_cg_adapter_molecule_scoped.py', 'unit/test_cg_run_type_staging.py', 'unit/test_cg_inputs.py',
+        'unit/test_insane_solvate.py',
         'integration/test_cg_prepare_contract.py',
         'browser/test_runs_table_browser.py', 'browser/test_run_resume_controls_browser.py',
-        'browser/test_runs_adopt_browser.py',
+        'browser/test_runs_adopt_browser.py', 'browser/test_runs_lincs_browser.py',
+        # The LINCS warning reader and its endpoint: a run diagnostic in the Runs panel's Diagnostics block.
+        'unit/test_lincs_*', 'integration/test_run_lincs_api.py',
         'browser/test_run_view_*', 'browser/test_new_run_*',
     ),
     'infra': (

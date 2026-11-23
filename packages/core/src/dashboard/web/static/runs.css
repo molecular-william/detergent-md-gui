@@ -72,11 +72,11 @@
 .job-progress-seg.unknown { background:linear-gradient(90deg,#cfe3d8 0%, var(--segment-color) 50%, #cfe3d8 100%); background-size:200% 100%; animation:job-progress-sweep 1.4s linear infinite; }
 .job-progress-seg.skipped { background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 3px,#d4dae2 3px,#d4dae2 6px); }
 /* Stage settings: the read-only values a run recorded, grouped by the stage that recorded them. */
-/* Stage settings are groups of small tables, so the disclosure is a four-column grid at desk width: the run
-   row is already the full table width, and one column per stage wastes it. Narrower windows fall to two, then one. */
+/* Stage settings are groups of small tables, so the disclosure is a four-column grid: the run row is already the
+   full table width, and the groups are narrow enough that two would waste it even on a smaller window. Only the
+   phone falls to one. */
 .stage-settings-host { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px 18px; align-items:start; }
 .stage-settings-group { min-width:0; }
-@media (max-width:1200px) { .stage-settings-host { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 @media (max-width:760px) { .stage-settings-host { grid-template-columns:1fr; } }
 .stage-settings-host h4 { margin:10px 0 4px; font-size:12px; color:var(--ink); }
 .stage-settings-host .stage-settings-group:first-child h4 { margin-top:0; }
@@ -138,3 +138,44 @@
 .adopt-list .adopt-sub { font-size:12px; color:var(--muted); }
 .adopt-list .adopt-sub.failed { color:var(--danger); }
 
+
+/* --- LINCS warnings, inside a run row's Diagnostics disclosure -----------------------------------------------
+   The tables are the diagnostic. The 3D picture is an illustration of the selected warning, so it opens in one
+   shared dialog and the row never carries a canvas. */
+.run-lincs { margin: 0 0 14px; }
+.run-lincs h4 { margin: 0 0 4px; font-size: 13px; }
+.run-lincs h5 { margin: 12px 0 2px; font-size: 12px; }
+.run-lincs h6 { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); }
+.run-lincs .hint { display: block; margin: 2px 0 6px; }
+.run-lincs-verdict { margin: 0 0 8px; color: var(--danger); font-weight: 600; font-size: 13px; }
+.lincs-warnings, .lincs-table { width: 100%; border-collapse: collapse; font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.lincs-warnings th, .lincs-table th { text-align: left; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); padding: 5px 8px 5px 0; border-bottom: 1px solid var(--line);
+  white-space: nowrap; }
+.lincs-warnings td, .lincs-table td { padding: 4px 8px 4px 0; border-bottom: 1px solid #edf0f3; vertical-align: top; }
+.lincs-warnings tbody tr[aria-selected="true"] { background: #eef4ff; }
+.lincs-warnings tbody tr.worst, .lincs-table tbody tr.worst { background: #fff5f2; }
+.lincs-warnings tbody td, .lincs-table tbody td { overflow-wrap: anywhere; }
+.frame-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; border-radius: 999px; padding: 1px 7px; border: 1px solid var(--line);
+  white-space: nowrap; }
+.frame-tag.yes { color: #1c6b45; border-color: #a9d3bb; background: #f1faf5; }
+.frame-tag.no { color: var(--muted); background: #f7f8fa; }
+.lincs-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.lincs-dialog { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px;
+  border: 1px solid var(--line); border-radius: 12px; }
+.lincs-dialog::backdrop { background: rgba(20, 32, 44, .35); }
+.lincs-dialog h3 { margin: 0 0 8px; font-size: 15px; }
+.lincs-frame-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 8px; }
+.lincs-frame-bar form { margin-left: auto; }
+.lincs-frame-bar button { padding: 4px 10px; font-size: 12px; }
+.lincs-frame-bar button[aria-pressed="true"] { border-color: var(--accent); background: #eef4ff; font-weight: 700; }
+.lincs-viewer { height: min(62vh, 560px); min-height: 320px; border: 1px solid var(--line); border-radius: 8px;
+  background: #f7f9fc; display: grid; place-items: center; overflow: hidden; }
+.lincs-viewer:empty::after { content: "Open a warning frame to draw it."; color: var(--muted); font-size: 13px; }
+/* The LINCS tables show six data rows and scroll beyond that; the cap is measured from the seventh row's own top, so
+   a wrapped row cannot make a short table scroll. The header stays in view while the body scrolls. */
+.lincs-scroll.has-more { overflow-y: auto; overflow-x: auto; }
+.lincs-scroll.has-more thead th { position: sticky; top: 0; z-index: 1; background: #fff; }

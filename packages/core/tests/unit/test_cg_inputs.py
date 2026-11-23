@@ -49,7 +49,6 @@ NOT_COPIED = ('3_initial_CG/martini_v3.0.0.itp',
               '4_CG_sim/inputs/martini_v3.0.0.itp',
               '4_CG_sim/inputs/martini_v3.0.0_solvents_v1.itp',
               '4_CG_sim/inputs/martini_v3.0.0_ions_v1.itp',
-              '4_CG_sim/inputs/water.gro',
               '6_SASA/AA/vdwradii.dat')
 
 
@@ -111,13 +110,13 @@ def test_the_manifest_is_the_reference_record_and_the_run_has_no_copies(fitted_r
     assert manifest['layout_version'] == 4 and 'input_snapshot_sha256' not in manifest
     installed = {'martini_force_field', 'martini_solvents', 'martini_ions',
                  'sugar_reference', 'sugar_reference_provenance'}
-    assert installed | {'martini_water', 'sasa_radii_aa'} <= roles(manifest, 'published')
+    assert installed | {'sasa_radii_aa'} <= roles(manifest, 'published')
     # The Martini files come from the workspace's install (or absolutely when a test points the install elsewhere);
     # the water box and the radii are repository fixtures and are still published from the checkout.
     assert all(entry['kind'] == 'published' and entry['root'] in ('workspace', 'absolute')
                for entry in manifest['inputs'] if entry['role'] in installed)
     assert all(entry['kind'] == 'published' and entry['root'] == 'repo'
-               for entry in manifest['inputs'] if entry['role'] in ('martini_water', 'sasa_radii_aa'))
+               for entry in manifest['inputs'] if entry['role'] == 'sasa_radii_aa')
     for relative in NOT_COPIED:
         assert not (run / 'stages' / relative).exists(), f'staged a copy: {relative}'
         assert not (run / 'inputs' / relative).exists(), f'mirrored a copy: {relative}'
@@ -165,10 +164,9 @@ def test_the_generated_topologies_name_the_installed_files_relative_to_themselve
     # The model's own topology is beside this one (`cg_simulation.sh` copies it next to the system topology), so it
     # stays a bare name.
     assert '#include "DDM.itp"' in system
-    # The water box is read where it lives: `cg_simulation.sh` names it through `$PROJECT_ROOT` and nothing is linked
-    # into the stage.
+    # The solvent is placed by Insane on the system's own grid; no water-box template is read.
     script = (PACKAGE / 'execution/scripts/cg_simulation.sh').read_text()
-    assert 'resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro' in script
+    assert 'insane_solvate' in script and 'water.gro' not in script
     # `relative` keeps the stage's legacy entry-point name; the recorded `script` is the repository file the
     # executor runs.
     assert dict(manifest_stages(run))['CG simulation'] == '4_CG_sim/cg_simulation_run.sh'

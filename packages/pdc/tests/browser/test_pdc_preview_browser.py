@@ -32,6 +32,7 @@ The route is served as a fixture, so nothing here reads the developer's workspac
 import json
 import re
 import time
+from urllib.parse import parse_qs, urlparse
 
 from dashboard.analysis.runs import structures as pdc_view
 from playwright.sync_api import expect
@@ -76,7 +77,7 @@ STALE = 'The protein, the subunits or the mapping have changed since this frame 
 DERIVED = 'Derived for the inputs on this form.'
 
 
-def placement_pdb(molecules=MOLECULES):
+def placement_pdb(molecules=MOLECULES, *, water=0, sodium=0, chloride=0):
     """A placement frame written by the writer a run's own snapshot goes through.
 
     Two protein beads and `molecules` DDM molecules, three nanometres apart so no two beads of different molecules are
@@ -90,8 +91,18 @@ def placement_pdb(molecules=MOLECULES):
         for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
             atoms.append({'residue_id': 3 + molecule, 'residue': 'DDM', 'name': name,
                           'position': [xyz[0] + molecule * 3.0, xyz[1], xyz[2]]})
+    next_id = 3 + molecules
+    for _ in range(water):
+        atoms.append({'residue_id': next_id, 'residue': 'W', 'name': 'W',
+                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
+    for _ in range(sodium):
+        atoms.append({'residue_id': next_id, 'residue': 'NA', 'name': 'NA',
+                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
+    for _ in range(chloride):
+        atoms.append({'residue_id': next_id, 'residue': 'CL', 'name': 'CL',
+                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
     model = pdc_view.read_moleculetype_text(ddm_moleculetype(), source='detergent_CG.itp')
-    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model,
+    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model, include_water=bool(water or sodium or chloride),
                                title='placement preview (DDM, AN=2, mode=lattice, seed=20261013)')
 
 
@@ -128,7 +139,9 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
            capacity: dict | None = None, protein_residues: int = 2,
-           structure: dict | None = None):
+           structure: dict | None = None, solvent: dict | None = None,
+           water_residues: list | None = None, ion_residues: list | None = None,
+           centring: dict | None = None):
     """A response shaped as the route answers, with the fields the card renders."""
     return {
         'valid': valid, 'reasons': list(reasons), 'pdb': pdb if valid else None,
@@ -154,7 +167,9 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   # The all-atom structure the beads were coarse-grained from -- a cache key and the URL that serves
                   # it, exactly as `pdc_preview.protein_structure_basis` writes one -- or `None` for a build with no
                   # protein, exactly as the service writes that.
-                  'protein_structure': structure},
+                  'protein_structure': structure, 'solvent': solvent,
+                  'water_residues': water_residues, 'ion_residues': ion_residues,
+                  'centring': centring},
         'cost': cost or {'cg_cached': True, 'coarse_graining_seconds': 0.001, 'detergent_seconds': 0.074,
                          'placement_seconds': 0.005, 'seconds': 0.1017, 'cg_bytes': 50768,
                          'cg_key': '0423f94ce62e7698'},
@@ -270,7 +285,7 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('1qj8 chains A+B')
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('box 8.35 × 6.78 × 11.08 nm')
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('clearance from the protein 0.544 nm')
-    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('no solvent')
+    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('the dry build with the initial solvent')
     expect(page.locator('.new-pdc-preview-from')).to_have_text(
         '1qj8 chains A+B · pre-assembled micelle · 150 detergents · seed 20261013')
     expect(page.locator('.new-pdc-preview-beads')).to_contain_text('1,024 beads')
@@ -974,7 +989,7 @@ PEPTIDE_ATOMS = 4 * 4
 #: protein or as the beads rather than by the order it happens to have been added in.
 MEASURE_LAYERS = """
 (el) => {
-  return el.previewStage.compList.map(component => {
+  return el.previewStage.compList.filter(component => component.structure?.atomCount > 0).map(component => {
     const atomnames = new Set(), resnames = new Set();
     for (let index = 0; index < component.structure.atomCount; index += 1) {
       const atom = component.structure.getAtomProxy(index);
@@ -1000,8 +1015,8 @@ def layers(page, count, atoms):
     page.wait_for_function(
         """([count, atoms]) => {
           const stage = document.querySelector('.new-pdc-preview-viewer').previewStage;
-          return !!stage && stage.compList.length === count
-            && stage.compList[stage.compList.length - 1].structure.atomCount === atoms;
+          const drawn = stage ? stage.compList.filter(component => component.structure?.atomCount > 0) : [];
+          return drawn.length === count && drawn[drawn.length - 1].structure.atomCount === atoms;
         }""", arg=[count, atoms], timeout=30000)
     return page.locator('.new-pdc-preview-viewer').evaluate(MEASURE_LAYERS)
 
@@ -1119,4 +1134,71 @@ def test_a_protein_free_frame_asks_for_no_structure_and_draws_one_component(dash
     assert not any('/preview/protein' in url for url in requests), requests
     expect(page.locator('.new-pdc-preview-ribbon-note')).to_be_hidden()
     assert page.locator('.new-pdc-preview-ribbon input').is_checked(), 'the control is present and on by default'
+    assert errors == [], errors
+
+
+def test_the_initial_cell_is_drawn_with_translucent_water_salt_and_a_box(dashboard, live_page):
+    """The preview shows the cell the build writes and the solvent the first leg adds, not only the dry beads.
+
+    Water and ions are the server's Insane placement: they arrive in the same PDB as the frame and are drawn at low
+    opacity, and the unit cell is a separate buffer layer so it can be around them without becoming a bead.
+    """
+    page, errors = live_page
+    pdb = placement_pdb(water=6, sodium=1, chloride=1)
+    requests = []
+    serve(page, answer(pdb, solvent={'W': 6, 'NA': 1, 'CL': 1, 'salt_molar': 0.15, 'cached': False},
+                       water_residues=[5, 10], ion_residues=[11, 12]), requests)
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    measured = layers(page, 1, 2 + 2 * len(DDM_BEADS) + 8)
+    reps = measured[0]['reps']
+    assert [rep['type'] for rep in reps] == ['ball+stick', 'ball+stick', 'spacefill'], reps
+    assert reps[0]['sele'] == 'not (1-2) and not (5-10) and not (11-12)', reps[0]
+    assert reps[1]['sele'] == '5-10' and reps[1]['opacity'] == 0.08, reps[1]
+    assert reps[2]['sele'] == '11-12' and reps[2]['opacity'] == 0.25, reps[2]
+    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('6 water beads')
+    expect(page.locator('.new-pdc-preview-solvent')).to_contain_text('0.15 M NaCl')
+    box = page.evaluate("""() => {
+      const stage = document.querySelector('.new-pdc-preview-viewer').previewStage;
+      return !!stage && stage.compList.some(component =>
+        !(component.structure?.atomCount) && component.reprList.some(rep => rep.repr.type === 'buffer'));
+    }""")
+    assert box, 'the unit cell is drawn as its own buffer layer'
+    assert errors == [], errors
+
+
+def test_the_ribbon_moves_with_the_centred_beads(dashboard, live_page):
+    """The all-atom cache is in martinize2's coordinates; the frame is centred, so the ribbon is translated with it."""
+    page, errors = live_page
+    requests = []
+    serve(page, answer(protein_frame(), protein_beads=len(PROTEIN_RESIDUES) * 2,
+                       protein_residues=len(PROTEIN_RESIDUES), beads=FRAME_ATOMS, clearance=0.51,
+                       structure=STRUCTURE, centring={'anchor': 'protein extents', 'anchor_nm': [0, 0, 0],
+                                                     'shift_nm': [1.0, 2.0, 3.0]}), requests, structure=PEPTIDE)
+    open_panel(page, live_page.base_url)
+    derive(page)
+    layers(page, 2, FRAME_ATOMS)
+
+    position = page.evaluate("""() => {
+      const stage = document.querySelector('.new-pdc-preview-viewer').previewStage;
+      const ribbon = stage.compList.find(component => component.structure?.atomCount > 0);
+      return ribbon.position.toArray();
+    }""")
+    assert position == [10.0, 20.0, 30.0], position
+    assert errors == [], errors
+
+
+def test_the_belt_offset_is_sent_with_the_preview(dashboard, live_page):
+    """The new field is an input to the derive, not a label: its value travels in the placement query."""
+    page, errors = live_page
+    requests = []
+    serve(page, answer(placement_pdb()), requests)
+    open_panel(page, live_page.base_url)
+    page.fill('[name=belt_offset_nm]', '0.5')
+    derive(page)
+
+    assert len(requests) == 1, requests
+    query = urlparse(requests[0]).query
+    assert parse_qs(query).get('belt_offset_nm') == ['0.5'], requests[0]
     assert errors == [], errors

@@ -88,6 +88,22 @@ def test_a_placement_refuses_impossible_input(tmp_path):
         pdc_placement.place_detergents(None, _template(tmp_path), 4, seed=1, radius_nm=0)
 
 
+def test_the_aliphatic_tail_is_every_carbon_family_bead_that_is_not_a_virtual_site():
+    """Martini 3 spells a small or tiny apolar bead with the same C family as a regular one.
+
+    `SC1`-`SC6` and `TC1`-`TC6` are the small/tiny spellings (`structures.bead_family` is the engine's one reader),
+    so a detergent whose tail is drawn with them must still have a forward end and a hydrophobic core. A ring
+    interaction site is a virtual `TC4`, whose family letter is C but which sits at the sugar head -- treating it as
+    the tail would turn the whole molecule around.
+    """
+    assert pdc_placement.tail_bead({'name': 'T1', 'type': 'C1'})
+    assert pdc_placement.tail_bead({'name': 'T2', 'type': 'SC3'})
+    assert pdc_placement.tail_bead({'name': 'T3', 'type': 'TC2'})
+    assert not pdc_placement.tail_bead({'name': 'S1VS', 'type': 'TC4', 'virtual_site': {'function': 1}})
+    assert not pdc_placement.tail_bead({'name': 'H1', 'type': 'SP1r'})
+    assert not pdc_placement.tail_bead({'name': 'H2', 'type': 'SN6'})
+
+
 def test_the_placement_direction_is_outward_from_the_micelle_centre(tmp_path):
     """The one convention `stamp` has to orient against, pinned so it cannot be flipped in the wrong place.
 
@@ -1283,3 +1299,17 @@ def test_a_slot_whose_base_head_is_inside_the_protein_is_skipped_not_nudged():
 
     assert len(blocked[0]) == 0, 'the penetrated slot is left empty'
     assert len(clear[0]) == 1, 'the same slot is placeable when the protein is not there'
+
+
+def test_the_whole_belt_can_be_lifted_along_the_membrane_normal(tmp_path):
+    """A belt offset moves every site together, higher along the frame's axis; 0 is the unchanged placement."""
+    points = _asymmetric_protein()
+    level = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame())
+    lifted = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
+                                            belt_offset_nm=0.2)
+
+    assert level['valid'] and lifted['valid'], (level['issues'], lifted['issues'])
+    assert lifted['band']['belt_offset_nm'] == 0.2
+    axis = np.asarray(level['band']['cylinder']['axis'])
+    assert len(lifted['centers']) == len(level['centers'])
+    assert np.allclose(np.asarray(lifted['centers']) - 0.2 * axis, level['centers'])

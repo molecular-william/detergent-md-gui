@@ -246,11 +246,12 @@ def test_a_structure_is_read_in_nanometres_with_a_radius_per_atom(tmp_path):
 
 # --- where the head bead's size class comes from: the mapping and the force field -------------------------------
 
-def test_head_beads_are_the_physical_beads_that_are_not_the_aliphatic_carbon_series():
-    """The same rule the placement uses to orient a molecule (pdc_build.py): C-type beads are the tail, the rest
-    are the head. A ring virtual site is not a bead with a size, so it is not a head either."""
+def test_head_beads_are_the_physical_beads_that_are_not_the_aliphatic_carbon_family():
+    """The same rule the placement uses to orient a molecule (pdc_build.py): C, SC and TC beads are the tail, the
+    rest are the head. A ring virtual site is not a bead with a size, so it is not a head either."""
     mapping = {'beads': [
         {'name': 'TAIL1', 'type': 'C1', 'size': 'R'},
+        {'name': 'TAIL2', 'type': 'SC2', 'size': 'S'},
         {'name': 'S1A', 'type': 'SP1r', 'size': 'S'},
         {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'virtual_site': {'function': 1, 'parents': ['TAIL1', 'S1A']}},
         {'name': 'S1C', 'type': 'SN6', 'size': 'S'},

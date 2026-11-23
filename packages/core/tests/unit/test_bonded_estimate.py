@@ -37,8 +37,6 @@ def test_a_zero_spread_is_refused_rather_than_answered_with_an_infinity():
 def test_one_frame_is_refused_because_a_spread_needs_two():
     with pytest.raises(ValueError, match='two frames'):
         bonded_estimate.estimate_bond([0.27], 303.15)
-    with pytest.raises(ValueError, match='two frames'):
-        bonded_estimate.estimate_angle([145.0], 303.15)
 
 
 def test_a_bond_reports_its_length_its_spread_and_its_constant():
@@ -89,13 +87,13 @@ def test_an_angle_crossing_the_period_is_averaged_around_the_circle():
     reports a wildly stretched term for a molecule that never moved."""
     angles = [179.0, -179.0, 178.0, -178.0, 180.0, -180.0]
 
-    estimate = bonded_estimate.estimate_angle(angles, 303.15)
+    value, spread = bonded_estimate.circular_mean_and_spread(angles)
 
-    assert abs(estimate['value']) == pytest.approx(180.0, abs=1.0)
-    assert estimate['sigma'] < 5.0, estimate
+    assert abs(value) == pytest.approx(180.0, abs=1.0)
+    assert spread < 5.0, spread
     # And the force constant is the soft one a nearly rigid geometry implies, not the stiff one a 180-degree spread
     # would give.
-    assert estimate['force_constant'] > 1000.0
+    assert bonded_estimate.force_constant(spread, 303.15, kind='angle') > 1000.0
 
 
 def test_the_circular_spread_matches_the_arithmetic_one_when_nothing_is_wrapped():

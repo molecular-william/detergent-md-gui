@@ -672,6 +672,8 @@ def preview_choices(source):
                                              float(pdc.DEFAULTS['belt_axial_window_nm']))
     choices['belt_vertical_spread'] = number('belt_vertical_spread',
                                              float(pdc.DEFAULTS['belt_vertical_spread']))
+    choices['salt_molar'] = number('salt_molar', float(pdc.DEFAULTS['salt_molar']))
+    choices['belt_offset_nm'] = number('belt_offset_nm', float(pdc.DEFAULTS['belt_offset_nm']))
     return choices
 
 
@@ -726,7 +728,8 @@ def pdc_preview_placement():
 
     A GET, because it is a derived read-only answer about the inputs -- the same shape as
     `GET /api/pdc/proteins/<entry>/encapsulation` beside it. The picture is `structures.system_pdb`'s own output: one
-    residue per molecule, the mapping's beads, and the model's own bonds as `CONECT` records.
+    residue per molecule, the mapping's beads, the model's own bonds as `CONECT` records, and -- for the initial cell
+    a run starts from -- Insane's water and salt at low opacity, with `basis.box_nm` drawing the unit cell.
 
     **A refusal is an answer, not a bad request.** A template the builder's validator refuses, and a placement that
     fails the clearance gate, come back as `200` with `valid: false` and the builder's own sentences -- the panel
@@ -764,9 +767,10 @@ def pdc_preview_placement():
             molecule_id=(request.args.get('molecule_id') or '').strip() or None,
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
+            salt_molar=choices['salt_molar'],
             belt_gap_nm=choices['belt_gap_nm'],
             min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],
-            belt_vertical_spread=choices['belt_vertical_spread'],
+            belt_vertical_spread=choices['belt_vertical_spread'], belt_offset_nm=choices['belt_offset_nm'],
             prepare_protein=choices['prepare_protein'],
             # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
             # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.

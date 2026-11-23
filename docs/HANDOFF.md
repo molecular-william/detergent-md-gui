@@ -10,6 +10,150 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-16)
 
+- **Belt vertical offset in New run (2026-11-20).** `belt_offset_nm` (`DEFAULTS` 0.0, bounds −2…2 nm) translates
+  every placed belt site together along the membrane-normal axis after the site gate; the final head/body clearance
+  checks run against the shifted sites, so a belt raised into the protein is refused. The form field sits below the
+  two-by-two belt grid, its value travels to the preview (`belt_offset_nm` query, `basis.belt_offset_nm`) and to the
+  build (`pdc_build` passes it to `place_detergents`). The 2×2 grid's pairing test is unchanged; the new field is
+  outside it. Tests: `test_pdc_placement.py::test_the_whole_belt_can_be_lifted_along_the_membrane_normal`.
+
+- **The protein-detergent preview shows the initial cell: box edges, water, and salt (2026-11-20).**
+  `GET /api/pdc/preview/placement` now returns the dry placement plus the first leg's solvent context. The water
+  and ions come from the same `insane_solvate.place` call a stage uses (`-box`, `-pbc keep`, the form's
+  `salt_molar`), are cached under `preview/cg/solvent/` keyed by the dry `.gro` and the salt concentration, and
+  travel in the same PDB as the beads; `basis.solvent` carries `{W, NA, CL, salt_molar, cached}` and
+  `basis.water_residues`/`ion_residues`, while `basis.box_nm` draws twelve box edges as an NGL `Shape` buffer.
+  `system_pdb(include_water=True)` now names water `W` and ions `NA`/`CL` instead of writing them as protein, and
+  its REMARK says they are included. The card draws water at 0.08 opacity and ions at 0.25, keeps the detergent
+  solid, and prints the water/ion counts and concentration. The dry system's whole-system centroid is aligned to the cell centre
+  before solvation; Insane's own translation is undone on the solvent, the frame is wrapped molecule-by-molecule into
+  0..`box_nm` (a per-atom wrap cut detergent bodies across a face), and the ribbon is moved by that one system-centre
+  shift in NGL. The box is drawn at the origin, so the system is at the cell middle and every bead is inside it. A solvent placement that fails leaves the dry frame
+  and `basis.solvent_reason` rather than refusing the placement. Tests: the backend solvent/cache test, the route
+  API family/atom counts filtered to `DET`, the browser layer test (box buffer plus water/ion representations), and
+  the preview-browser fixture's pass-through Insane so a martinize2 stub does not stand in for every tool.
+
+- **CG and pdc solvation now use Insane, not a replicated water box (2026-11-20).**
+  `gmx solvate` reused a checked-in `water.gro` and only kept its own `-radius` from the solute; a live pdc system
+  measured water-to-OG-head contacts at 0.315 nm, inside the two Martini bead radii. `insane==1.2.0` is now a declared
+  dependency (`config/tools.json` key `insane`, resolved through `tools.tool_path`) and
+  `dashboard/execution/scripts/insane_solvate.py` runs it with the system's own box (`-box`, `-pbc keep`), rewrites
+  Insane's `NA+`/`CL-` to the M3 `NA`/`CL` names, and appends the `W` row to the existing `[ molecules ]`.
+  `cg_simulation.sh` calls the module; `pdc_solvate.py` calls it before its existing `grompp`/`genion` step, which
+  still owns the salt and records `solvation.json` with `solvator: insane` and the commands. The CG and pdc runs no longer record or read a `martini_water`/`water.gro` input; the old
+  water box is gone from `shared_inputs`, `composition`, and the pdc stage inputs and copies.
+  Tests: real Insane on a tiny gro (`test_insane_solvate.py`), the pdc helper's command order/piping with a fake
+  Insane (`test_pdc_assessment_stage.py`), the CG launcher (a pre-boxed structure the GROMACS stand-in would not
+  write), and the CG input record. The live dashboard predates this Python change (a run was active); restart it.
+
+- **Conformation library "Build from runs": a layout-4 mapping is a name, not a digest (2026-11-20).**
+  Both completed micelle runs (NG, OG) were listed as ineligible with "records no mapping input: its detergent has no
+  bead model to shape". They do record one: layout 4 names the mapping by `root`/`path` and carries no `sha256`, while
+  `conformations/sources.py` still demanded one. `sources._mapping_digest` now resolves the named input through
+  `run_inputs.verify_entry` and hashes the mapping file; a record that does state a `sha256` keeps it, so older
+  records and the fixture construction still answer for themselves. Verified directly on the live workspace: NG
+  (7 beads, mapping `16d73da5…`) and OG (6 beads, `6d7868e7…`) are eligible.
+  The shape card also selected **every** eligible run by default, so two different detergents could be ticked into one
+  library (which `_agree` then refuses). `shapeResidue` now uses the selected detergent's `molecule_id`, not the
+  template's residue -- the shipped template is the DDM skeleton for every detergent -- and a run of another residue
+  is listed with "different detergent (OG)" and disabled. The list reloads when the detergent or template changes.
+  Tests: `test_conformations_sources.py` (layout-4 resolution and a missing file), the route test for a layout-4
+  manifest, and the shape-card browser test for another residue. The running dashboard predates the Python change
+  (a run was active at the time), so restart it before the card can offer the runs.
+
+- **Protein-detergent build: the written system is centred in its unit cell (2026-11-20).**
+  The box was sized around the protein (and the belt), but the atoms were written at their OPM origin: on the failed
+  DM run the protein's extents midpoint was (-1.33, -0.01, -0.09) nm in a box whose centre was (5.79, 4.01, 5.70).
+  `pdc_build.centre_shift`/`translate_atoms` now translate the whole built system, after placement and box
+  measurement, so a protein build centres the midpoint of the protein beads' extents and an empty micelle centres
+  the mean of the placed detergents' initial atom positions; the box dimensions are unchanged, and the report records
+  `centring: {anchor, anchor_nm, shift_nm}`. `pdc_build.shift_report` moves the membrane-frame planes, the belt
+  cylinder origin and the band's plane coordinates into the written frame, so the record and `system.gro` agree.
+  Existing runs are unchanged; a new build (or a restart from stage 2) gets the centred system. The preview still
+  draws its frame in the placement's own coordinates (its camera centres the picture, and its ribbon is not
+  translated); align it if the preview/run comparison is needed.
+  Checks: pdc fast area 804 passed / 1 xfailed; full fast tier green; ruff clean.
+
+- **The paused native micelle builder is gone; dead-code audit removals landed (2026-11-20).**
+  `micelle/` is now only the shared geometry the pdc pipeline reads: `frame.py`, `packing.py`, `registry.py`,
+  `validation.py`, `output.py`, and `model.DetergentTemplate`. Deleted `micelle/cli.py`, `__main__.py`, `geometry.py`,
+  `gromacs.py`, `orientation.py`, `protein.py`, `repack.py`, `solvation.py`, `topology.py`, the `BuildConfig`/
+  `BuildManifest` types, `packing.minimum_distance`, and their three test modules; the package `__init__` no longer
+  imports the CLI. The same audit removed the orphan `models/molecules/registry.py`,
+  `consistency.aa_samples`/`aa_bead_means`, `mappings.representation_modes`, `bonded_terms.term_sets`,
+  `bonded_estimate.estimate_angle`, and `bartender_fit.ensemble_distances`; `run_scripts.recorded_path` stays because
+  its only callers are the tests that assert production resolution. README, `PROJECT_GUIDE.md`
+  (*Membrane-protein workflow*), `DDM_CALIBRATION.md` and the open-items table lose their builder text. Checks: fast
+  tier 3,138 passed / 1 xfailed; ruff clean on every touched path. Still open: the migration-helper consolidations,
+  the `files.py` atomic-writer helper, the shared size-radii table, and the measured start-up optimizations.
+
+- **Runs Stage settings: four columns at every table width, and pdc runs grouped by stage (2026-11-20).**
+  The `stage-settings-host` grid keeps four columns down to the phone breakpoint; the `max-width:1200px` fallback to
+  two columns is removed. The one-column complaint was not only CSS: `stage_settings.groups` gave every run type
+  other than AA/CG **one** `Run settings` group, so a pdc row had one child in a four-track grid. pdc now has
+  `stage_settings.PDC_GROUPS`: System and inputs, Placement and belt, Energy minimisation, NVT, NPT, CG production,
+  Removal and assessment, Execution (plus Run settings for any unlisted key), in the plan's order; eight groups fill
+  two four-column rows. The pdc adapter's labels still come from `_labels`, so no label is restated in the table.
+  Measured on the DM run: 8 groups, 71 keys, none dropped. Tests: `test_stage_settings.py` pins the group order and
+  that every recorded pdc key appears once; the Runs browser test pins four tracks at 1000 px and one on the phone.
+
+- **Runs Diagnostics: LINCS warnings read from the stage log and the frames mdrun wrote (2026-11-20).**
+  A run row's **Diagnostics** block now opens with a **LINCS warnings** section: the warning table (step, time, max
+  relative deviation, atom pair, `b + c` frame badge), the constrained-bond table mapped to residue/bead names, and
+  the neighbourhood of the max-deviation pair in the *initial* frame (cutoff 0.5 nm, nonbonded contacts below 0.25 nm
+  marked short). **Show initial frame / Show after constraining** open one shared `<dialog>` with the NGL canvas,
+  created only while open and disposed on close; the tables remain the text alternative. It works for a running or
+  failed run (unlike the equilibration traces), reads only, and never calls a trajectory frame "the warning frame":
+  a warning with no `stepN[b|c].pdb` keeps its exact bond table and reports no coordinates. The three tables
+  (warnings, bonds, neighbours) show six data rows and scroll vertically beyond; the cut is measured from the
+  seventh row's own top (a wrapped short table does not scroll) and re-measured when a disclosure is reopened
+  after the answer arrived while it was closed.
+  Sources: `analysis/runs/lincs.py` (pure reader), `GET /api/jobs/<jid>/lincs-warnings` in `web/routes/runs.py`
+  (maps each stage log and stage directory inside the run, refuses paths/symlinks outside it, serves the frames via
+  the artifact route), `static/js/runs-lincs.js`, `runs.css`, and the `job-diagnostics` summary/host in
+  `dashboard.html`. Measured on the failed `DM_2ydo_144_1conf_1us`: 5 warning blocks, fatal count 1,556, selected
+  step 768,689; the initial frame puts BB 364 (PHE163) and BB 370 (ASP165) 0.216 nm apart.
+  Checks: LINCS unit 3 passed, route integration 4 passed, Runs browser 1 passed; full browser tier green on rerun
+  (three unrelated flakes passed alone); fast tier green (3,155 passed / 1 xfailed); ruff clean. The running
+  dashboard unit predates this change (Python route), so restart it before reading a row's Diagnostics.
+
+- **Protein-detergent Random seed: Generate only (2026-11-20).**
+  The **Salt, seed and box** group's Random seed control no longer has a Default button. It has no reviewed catalogue
+  number to restore -- it is drawn by **Generate** (`1..YYYYMMDD`) or filled with today's date on mount -- so the
+  `.pdc-default` loop no longer special-cases `pdc_seed`. `test_pdc_new_run_browser.py` asserts the seed label carries
+  no Default button and still carries Generate. Checks: pdc new-run browser 28 passed; ruff clean.
+
+- **New run: a Suggest button on the protein-detergent label, and no jump to Runs after queue (2026-11-20).**
+  The pdc panel's label already followed its inputs until edited (`[detergent]_micelle_[count]_[1conf|libconf]_[time]`,
+  or `[detergent]_[pdb]_[count]_[1conf|libconf]_[time]` with a protein); it now carries the engine form's **Suggest**
+  button beside the input (`new-pdc-suggest-label`), which regenerates after an edit without claiming the value as the
+  reader's own. Queuing a run no longer switches the sub-tab to **Runs** in either the pdc or the engine New run panel:
+  the form stays open and `refreshJobs` updates the table in the background. Tests: `test_pdc_new_run_browser.py` pins
+  the button's position and regenerated value and both panels' `tab-new`/`#new` state after queue.
+
+- **Protein-detergent detergent model: the tail is the whole aliphatic carbon family (2026-11-19).**
+  The head/tail reading treated only `C*` bead types as the aliphatic tail (`startswith('C')` in the build and the
+  body profile, `C[1-5]` in the assessment), so a model whose tail is drawn with Martini 3's small apolar `SC1`-`SC6`
+  (or tiny `TC1`-`TC6`) was refused by the build ("marks no hydrophobic core") or mis-oriented by the placement, and
+  the assessment recorded no tail beads for it. The family is now read once, through the engine's
+  `structures.bead_family`, in `pdc_placement.tail_bead`, and used by `pdc_build.stamp`, the body profile, the
+  assessment's `tail_beads` and the encapsulation head estimate. A virtual site is never a tail: a ring interaction
+  site is `TC4` and stays on the sugar head, so the packaged DDM/OG models keep their exact geometry. Measured on the
+  in-flight `DM_2ydo_144_1conf_1us` (queued before this change, its tail beads `C1`/`SC1`/`SC1`): `prepare` recorded
+  `tail_beads: ["TAIL1"]` only -- that run must be cancelled and re-queued after the dashboard unit is restarted.
+  Checks: pdc fast area 818 passed / 1 xfailed; ruff clean.
+
+- **Protein-detergent New run: the belt settings are two rows; the log interval's scope is stated (2026-11-19).**
+  The four Run configuration belt numbers (`belt_gap_nm`, `min_body_gap_nm`, `belt_axial_window_nm`,
+  `belt_vertical_spread`) are one two-column grid -- two rows of two; the separate `belt_offset_nm` sits below it -- and fall to one column below 700 px like the
+  card's other pairs. `test_pdc_pairing_browser.py` measures the row geometry (the existing pair count is unchanged:
+  the belt grid has its own class). The **Output cadence** and **Neighbour search and cutoffs** groups now say what
+  they reach: `nstlog`, `nstenergy`, `nstxtcout`, `xtc_precision`, `nstcomm` and the cut-offs are the two **CG
+  production** legs' numbers; the minimisation and NVT/NPT profiles keep their reviewed cadence (100 and 1000 steps)
+  and their reviewed cut-offs. This was checked against the queued 2ydo run: its `inputs/assessment.mdp` and
+  assessment `run.log` both carried `nstlog = 2000`, while the minimisation log was 100. No behaviour change. Checks:
+  pdc fast area green; pdc mdps 22 passed; new-run browser 28 passed; pairing browser 5 passed; ruff clean.
+
 - **Protein-detergent belt: local, height-aware surface and body-aware packing (2026-11-19).**
   The belt's surface was one global radius (the furthest in-slab atom) with the sphere's 3.0 nm default as a floor.
   On 2ydo that measured 3.72 nm because one helix at 160–175° reaches 3.72 nm while the rest of the slab is ~1.6 nm,
@@ -588,6 +732,30 @@ three (`ff_interactions.publish`), so a Recompute says something true about this
 
 ## Open items
 
+**PDC placement fallback, membrane-box width and box controls (hand-off 2026-11-23).**
+Plan: `docs/plans/2026-11-23-pdc-placement-and-box-controls.md`. Four linked changes, in order: (1) when a belt
+site's base coordinate is too close to the protein, sample adjacent coordinates before rejecting the slot—today
+`_cylinder_sites` rejects a base head that fails `min_clearance_nm` immediately, while `_belt_trials` only runs for
+a base that already clears the head; keep the seed deterministic and the existing head/body/spacing gates authoritative;
+(2) widen `pdc_box.membrane_box`'s x/y beyond the protein footprint plus margin so the belt and its solvent are not
+against the face, measuring against 1AT9 and stating whether the placement volume is widened too; (3) move
+`box_margin_nm` and `initial_z_nm` out of the **Stage settings → Salt, seed and box** group into the **Run
+configuration** card; and (4) add explicit initial x/y/z box values there, wired through `pdc.DEFAULTS`,
+`SETTING_SPECS`, preview choices/preview/basis/query, `pdc_build`/`pdc_box`, `PDC_GROUPS`, the New-run template/JS
+and tests. The plan has the acceptance list; start with the placement test, then the box rule.
+
+**PDC preview: a refused placement is still drawn, with its problems in red (hand-off 2026-11-23).**
+The user's decision (2026-11-23): when the system has issues, the preview is still generated, with the problematic
+beads and locations marked in red -- and the run still refuses. Four answers were taken: only refusals that have a
+geometry draw (the placement gates; template/preparation/coarse-graining/model/library stay text-only); marks are a
+red ring at each belt slot that could not be filled plus a red bead at each bead inside a gate (both members of a
+pair); a short belt draws what fits (N of M) with rings where it does not; the preview card only. Plan:
+`docs/plans/2026-11-23-pdc-preview-problem-markers.md`; draft:
+`docs/design/drafts/2026-11-23-pdc-preview-problems.html`. Today `pdc_preview.preview` answers a placement refusal
+with `_refusal` and `pdb: None`, so the card hides the viewer. The change adds `placement['problems']` geometry --
+the rings read item 1's rejected-slot records, so build this **after** item 1 and before items 2-4 -- draws a
+`valid: false` answer's frame through the valid path (no solvent), and keeps the valid path byte-identical.
+
 **Sugar comparison subpanel (deferred, hand-off 2026-11-10).** A validation subpanel comparing the three-bead ring
 triangles and bead compositions of the published Martini 3 sugar entries with the sugars mapped and parameterized
 here. Sources: `dashboard.models.sugars.reference` (`entries`, `signature`, `run_topology`, already 15% COG scaled)
@@ -603,7 +771,10 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 
 | item | state | next |
 | --- | --- | --- |
+| LINCS warning diagnostics | minimal implementation landed 2026-11-20 (see Current state): a section in the Runs row's Diagnostics block, a shared frame dialog, parser + endpoint + tests. Draft: `docs/design/drafts/2026-11-20-lincs-warnings-card.html` (+ `.png`). Not every warning gets a written frame (768,662/768,688/768,691 did not), and the card offers no nearest-trajectory-frame fallback yet. | decide the no-frame fallback, whether the 0.5/0.25 nm thresholds become controls, and whether the summary count should be filled before the block is opened |
 | Sugar comparison subpanel | not started; hand-off 2026-11-10 | build the validation panel described above |
+| PDC placement fallback + wider membrane box + initial x/y/z controls | hand-off 2026-11-23; plan `docs/plans/2026-11-23-pdc-placement-and-box-controls.md` | implement the four changes in the order the plan states |
+| PDC preview of a refused placement | hand-off 2026-11-23; plan `docs/plans/2026-11-23-pdc-preview-problem-markers.md`; decisions taken (placement gates only; rings at empty slots + red beads at violations; N of M; card only) | after item 1 of the box plan, before items 2-4: collect `problems` geometry, draw a `valid: false` frame, tests |
 | Cross-run AA vs CG comparison | asked 2026-11-16 after run `0c5f5738089c`: the AA-vs-CG panels are single-run (they read `1_AA-reference/` + `2_mapping/` + `4_CG_sim/` inside one run), so a CG-only reference run can only be put *beside* an AA run, never compared with it | build it as a new kind: the AA run named in the request (its `stages/07_reference/lig.{gro,xtc}`), this run's `4_CG_sim/prod/lig_CG.{gro,xtc}`, and the bead-atom correspondence from the sugar package's own candidate; needs a payload/UI "compare this run with run X" and one science decision (which mapping the published entry is compared through) |
 | `dbc366ae772b` AA reference lacks `07_reference/run.sh` | `reference.json` records its digest, so `files.verify` refuses the DDM mapping `10c318949` with `Cannot reuse changed or missing artifact`; the other six revisions verify | decide whether to re-publish that reference (a new record over the files it has) or leave it refused |
 | Workspace store cleanup | applied 2026-11-16: 474 MB removed (fit scratch, orphaned preview, stale logs and pre-sqlite files) and the job database VACUUMED 85.7 -> 3.5 MB; what remains is evidence | decide whether to prune the derived analyses (225 MB) and console logs (415 MB), or archive the 21.7 GB of pdc outputs |
@@ -627,7 +798,6 @@ layout match as another molecule's model. Measured 2026-11-10 on the scaled valu
 | known test flake | `test_pdc_preview.py::test_the_cached_step_is_not_run_again...` failed in one full fast run and passed alone | capture a failing order with `-p no:cacheprovider` |
 | checkpoint resume before a stage's last mdrun | Resume is hidden there (no checkpoint for the final mdrun) and Restart re-runs the stage | decide whether the pdc extension should continue a death in `eq`/`ramp` instead of re-entering the stage from its inputs |
 | Phase 4 sucrose/maltose | deferred; targets remain `availability: metadata_only` | separate decision |
-| native micelle builder | paused; `micelle/` is a partial, unvalidated skeleton | do not present it as a model |
 
 ## Incidents and measurements worth keeping
 

@@ -32,9 +32,10 @@ import math
 import re
 from pathlib import Path
 
-from dashboard import features
+from dashboard import features, files
 from dashboard.analysis.runs import layout
 from dashboard.analysis.runs import segments as engine
+from dashboard.execution import run_inputs
 from detergent_pdc import segments as pdc_segments
 
 MANIFEST = 'manifest.json'
@@ -93,16 +94,37 @@ def _record(workspace, run_id, index):
                          'a protein-contacted micelle is a different ensemble')
     mapping = next((entry for entry in manifest.get('inputs') or ()
                     if isinstance(entry, dict) and entry.get('role') == 'mapping'), None)
-    if mapping is None or not str(mapping.get('sha256') or '').strip():
+    if mapping is None:
         raise ValueError(f'run {run_id} records no mapping input: its detergent has no bead model to shape')
+    mapping_sha256 = _mapping_digest(mapping, run, workspace, run_id)
     residue, beads = _geometry(run / 'inputs' / GEOMETRY, run_id)
     bonds = _connectivity(run / 'inputs' / TOPOLOGY, run_id, len(beads))
     stage_root = layout.stage_root(run)
     segment, trajectory_path, structure_path = _production(run_id, stage_root)
-    return {'index': index, 'run_id': run_id, 'detergent': residue, 'mapping_sha256': str(mapping['sha256']).strip(),
+    return {'index': index, 'run_id': run_id, 'detergent': residue, 'mapping_sha256': mapping_sha256,
             'beads': beads, 'bonds': bonds, 'stage_root': stage_root, 'structure': segment['structure'],
             'trajectory': segment['trajectory'], 'trajectory_identity': engine.identity(trajectory_path),
             'structure_path': structure_path, 'trajectory_path': trajectory_path}
+
+
+def _mapping_digest(entry, run, workspace, run_id):
+    """The mapping's own digest: stated by an older record, read from the file layout 4 names.
+
+    A run prepared under layout 4 records the mapping by root and path and carries no digest -- its inputs are names,
+    not copies. Resolving that name and hashing the file is what lets a micelle run offer its bead model to a
+    conformation library. A record that does state a `sha256` keeps it: that is the identity an older record was
+    written against, and a fixture or a migrated record without the file beside it still answers for itself.
+    """
+    stated = str(entry.get('sha256') or '').strip()
+    if stated:
+        return stated
+    try:
+        path = run_inputs.verify_entry(entry, run_dir=run, workspace_root=workspace)
+    except (KeyError, ValueError) as error:
+        raise ValueError(f'run {run_id} records a mapping input that cannot be resolved: {error}') from error
+    if not path.is_file():
+        raise ValueError(f'run {run_id} records a mapping input that is not a file: {path}')
+    return files.sha256(path)
 
 
 def _json(path, run_id):

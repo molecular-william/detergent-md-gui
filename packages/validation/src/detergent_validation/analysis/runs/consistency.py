@@ -202,7 +202,7 @@ def aa_measure(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
     recognizer changes. The trailer counts are checked, because a mapping whose beads index atoms the
     trajectory does not have would otherwise be reported as a geometry difference.
 
-    Returns the two records `aa_samples` and `aa_bead_means` return under `samples` and `means`. The dilation
+    Returns the `samples` and `means` records. The dilation
     the generated constraints carry is applied here too, so a mean bead position and a generated constraint
     length are the same kind of number and can be read in one table.
     """
@@ -245,24 +245,6 @@ def aa_measure(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
         'samples': {'run': str(aa_run_dir), 'molecule': molecule, 'frames': frames, 'beads': currency,
                     'pairs': pairs, 'samples': sampled, 'first': first or {}},
         'means': {'run': str(aa_run_dir), 'beads': currency, 'frames': frames, 'mean': totals / frames}}
-
-
-def aa_samples(aa_run_dir, mapping, molecule='Sucrose', stride=1, limit=None):
-    """Per-pair samples over an atomistic reference, measured through a mapping the caller supplies.
-
-    The samples half of `aa_measure`, for a caller that wants nothing else.
-    """
-    return aa_measure(aa_run_dir, mapping, molecule, stride, limit)['samples']
-
-
-def aa_bead_means(aa_run_dir, mapping, stride=1, limit=None):
-    """Mean bead centres over an atomistic run, through the same assignment, in nanometres.
-
-    The dilation the generated constraints carry is applied here too, so a mean bead position and a generated
-    constraint length are the same kind of number and can be read in one table. The means are the other half of
-    `aa_measure`'s one pass.
-    """
-    return aa_measure(aa_run_dir, mapping, stride=stride, limit=limit)['means']
 
 
 def displacement(aa, cg, physical=None):

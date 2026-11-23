@@ -5,5 +5,6 @@
   "fast_forward_commit": "61e407e60ffa0153fb2b5a028b065383619c2586",
   "bartender": "tools/bartender/m3_bartender/bartender",
   "xtb": "tools/bartender/m3_bartender/xtb-6.4.1/bin/xtb",
-  "plumed": "/mnt/data/wee/miniconda/envs/plumed/bin/plumed"
+  "plumed": "/mnt/data/wee/miniconda/envs/plumed/bin/plumed",
+  "insane": "insane"
 }

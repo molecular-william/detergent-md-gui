@@ -60,6 +60,34 @@ PDC_SEGMENTS = (
 )
 OSMOTIC_SEGMENTS = (('Osmotic series', 'Osmotic series', 'production'),)
 
+#: The recorded values of a pdc run, grouped by the part of the workflow that consumes them. The keys are the
+#: adapter's canonical spelling (the run records `nvt_ps`, not the panel's `pdc_nvt_ps`), and every group is a full
+#: column of the Runs panel's Stage settings grid; a recorded key no group names still lands in Run settings.
+PDC_GROUPS = (
+    ('System and inputs', 'System and inputs',
+     ('template', 'protein', 'protein_chains', 'protein_vsite', 'force_field', 'prepare_protein', 'backmap',
+      'detergent_model', 'conformation_library', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'project_root')),
+    ('Placement and belt', 'Placement and belt',
+     ('placement_mode', 'aggregation_number', 'seed', 'radius_nm', 'belt_gap_nm', 'min_body_gap_nm',
+      'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm', 'contact_nm')),
+    ('Energy minimisation', 'Energy minimisation',
+     ('minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep', 'pdc_posres_min')),
+    ('NVT equilibration', 'NVT equilibration',
+     ('nvt_ps', 'pdc_nvt_dt_fs', 'pdc_nvt_nstlist', 'pdc_nvt_ref_t', 'pdc_nvt_tau_t', 'pdc_posres_nvt')),
+    ('NPT equilibration', 'NPT equilibration',
+     ('npt_ps', 'pdc_npt_dt_fs', 'pdc_npt_nstlist', 'pdc_npt_ref_t', 'pdc_npt_tau_t', 'pdc_posres_npt',
+      'pdc_npt_pcoupl', 'pdc_npt_pcoupltype', 'pdc_npt_ref_p', 'pdc_npt_tau_p', 'pdc_npt_compressibility')),
+    ('CG production', 'CG production',
+     ('assessment_ns', 'extension_ns', 'attempts_max', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
+      'pdc_production_nstlist', 'pdc_production_ref_t', 'pdc_production_tau_t', 'pdc_production_tau_p',
+      'pdc_production_ref_p', 'pdc_production_compressibility', 'nstlog', 'nstenergy', 'nstxtcout',
+      'xtc_precision', 'nstcomm', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw')),
+    ('Removal and assessment', 'Removal and assessment',
+     ('remove_out_of_micelle', 'selection_threshold_fraction', 'tail_beads', 'tail_beads_source')),
+    ('Execution', 'Execution',
+     ('mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update', 'gpu_sharing')),
+)
+
 #: The shared Nonbonded and constraints section's keys, in the form's order. They are read back as one group because
 #: the run applied one set to every dynamics leg: repeating them under each stage would invent a per-leg value.
 SHARED_KEYS = tuple(dict.fromkeys(nonbonded.AA_FIELDS + nonbonded.CG_FIELDS))
@@ -84,6 +112,9 @@ def groups(job, manifest):
         claimed = _aa_groups(settings)
     elif run_type == 'cg':
         claimed = _cg_groups(settings)
+    elif run_type == 'pdc':
+        claimed = [(stage, label, [key for key in keys if key in settings])
+                   for stage, label, keys in PDC_GROUPS]
     else:
         claimed = [('Run settings', 'Run settings', list(settings))]
     groups = [{'stage': stage, 'label': label, 'fields': _fields(keys, settings, labels)}
@@ -92,7 +123,7 @@ def groups(job, manifest):
     # a value the run recorded must not disappear from the panel because a group table did not know it.
     claimed_keys = {key for _, _, keys in claimed for key in keys}
     remaining = [key for key in settings if key not in claimed_keys]
-    if remaining and run_type in ('aa_only', 'cg'):
+    if remaining and run_type in ('aa_only', 'cg', 'pdc'):
         groups.append({'stage': 'Run settings', 'label': 'Run settings',
                        'fields': _fields(remaining, settings, labels)})
     return [group for group in groups if group['fields']]

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from dashboard.execution.mdp import PROFILES
+from dashboard.execution.scripts import insane_solvate
 from detergent_pdc.execution.adapters import pdc, pdc_solvation
 from detergent_pdc.execution.scripts import pdc_solvate
 
@@ -112,34 +113,47 @@ def test_the_back_map_stage_now_has_a_tool_and_an_invocation():
 
 
 class FakeRun:
-    """A stand-in for `subprocess.run` that records what a stage would have executed."""
+    """A stand-in for `subprocess.run`: records the stage's commands and writes Insane's water."""
 
     def __init__(self):
         self.calls = []
 
     def __call__(self, command, **kwargs):
         self.calls.append((command, kwargs))
+        if Path(command[0]).name == 'insane':
+            source = Path(command[command.index('-f') + 1])
+            output = Path(command[command.index('-o') + 1])
+            lines = source.read_text().splitlines()
+            atoms = lines[2:-1]
+            atoms.append(f'{len(atoms) + 1:5d}{"W":<5s}{"W":>5s}{len(atoms) + 1:5d}'
+                         f'{1.0:8.3f}{1.0:8.3f}{1.0:8.3f}')
+            output.write_text('\n'.join([lines[0], f'{len(atoms):5d}', *atoms, lines[-1]]) + '\n')
         return None
 
 
 def test_the_solvation_helper_runs_the_builders_commands_and_pipes_its_group(tmp_path, monkeypatch):
     stage = stage_dir(prepared_run(tmp_path), ASSESSMENT)
+    (stage / 'system.gro').write_text('solute\n    1\n    1DDM     B01    1   1.000   1.000   1.000\n'
+                                      '   5.00000   5.00000   5.00000\n')
     (stage / 'system.top').write_text('[ molecules ]\nDDM  8\nW  500\nNA  12\nCL  12\n')
     fake = FakeRun()
     monkeypatch.setattr(pdc_solvate.subprocess, 'run', fake)
 
     assert pdc_solvate.main(['--stage', str(stage), '--salt-molar', '0.15']) == 0
 
-    expected = pdc_solvation.solvation_commands(str(stage / 'system.top'), str(stage / 'system.gro'),
-                                                'system.tpr', salt_molar=0.15)
+    insane = insane_solvate.command(stage / 'system.gro', stage / 'solvated.gro',
+                                    stage / 'solvated.insane.top')
+    expected = [insane] + pdc_solvation.solvation_commands(
+        str(stage / 'system.top'), str(stage / 'system.gro'), 'system.tpr', salt_molar=0.15)
     assert [call[0] for call in fake.calls] == expected
     piped = [call for call in fake.calls if call[0][1] == 'genion']
     assert len(piped) == 1 and piped[0][1]['input'] == pdc_solvation.ion_group_selection()
-    assert all(call[1]['input'] is None for call in fake.calls if call[0][1] != 'genion')
+    assert all(call[1].get('input') is None for call in fake.calls if call[0][1] != 'genion')
 
     record = json.loads((stage / pdc_solvate.OUTPUT_NAME).read_text())
-    assert record['molecules'] == {'DDM': 8, 'W': 500, 'NA': 12, 'CL': 12}
+    assert record['molecules'] == {'DDM': 8, 'W': 1}
     assert record['salt_molar'] == 0.15 and record['commands'] == expected
+    assert record['solvator'] == 'insane'
 
 
 def test_a_topology_without_a_molecules_section_records_no_counts(tmp_path):

@@ -27,7 +27,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
-                   'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread',
+                   'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -174,6 +174,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (suggestion) labelInput.value = suggestion;
   }
   labelInput?.addEventListener('input', () => { labelEdited = true; store(); });
+  // The button the engine's form also carries: regenerate on demand after the reader has typed. An untouched label
+  // already follows every input change, so this mostly brings the suggestion back after an edit; it does not claim
+  // the value as the reader's own, so later input changes keep the suggestion current.
+  pdcNode('.new-pdc-suggest-label')?.addEventListener('click', () => {
+    labelEdited = false;
+    updateSuggestedLabel();
+    store();
+  });
 
   function store() {
     const values = Object.fromEntries([...form.elements].filter(el => el.name).map(el => [el.name, el.value]));
@@ -366,7 +374,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   let shapeLibraries = [], shapeLibraryKey = '', shapeLibrariesLoaded = false, shapeLibrariesError = '';
   const shapeMode = () => field('shape_source')?.value || 'single';
   // The template states the detergent's own residue; a library is stored per residue, so that is the list's filter.
-  const shapeResidue = () => templateEntry()?.residue || '';
+  // The residue a library belongs to is the detergent's own: the template is often the DDM skeleton for every
+  // detergent (its `residue` is DDM), while the mapping's molecule -- the select's value -- is NG, OG, DDM, ...
+  const shapeResidue = () => String(field('molecule_id')?.value || '').trim() || templateEntry()?.residue || '';
 
   function durationNs(value) {
     const number = Number(value);
@@ -374,7 +384,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
   const shapeSize = () => Number(field('conformations_size')?.value);
   const shapeSeed = () => Number(field('conformations_seed')?.value);
-  const selectedRunIds = () => shapeRuns.filter(run => run.eligible && shapeRunIds.has(run.id)).map(run => run.id);
+  // A library belongs to one detergent. The route lists every completed micelle run and says why each is or is not
+  // usable; a run of another residue is listed too, but it cannot enter this detergent's library.
+  const runMatchesShape = run => !shapeResidue() || run.residue === shapeResidue();
+  const usableRun = run => !!run.eligible && runMatchesShape(run);
+  const selectedRunIds = () => shapeRuns.filter(run => usableRun(run) && shapeRunIds.has(run.id)).map(run => run.id);
 
   function shapeSpec() {
     if (shapeMode() === 'build') {
@@ -397,21 +411,27 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       label.className = 'eligible-run';
       const box = document.createElement('input');
       box.type = 'checkbox'; box.value = run.id;
-      box.checked = !!run.eligible && shapeRunIds.has(run.id);
-      // An ineligible run is shown with its own sentence rather than hidden, and it cannot be selected.
-      box.disabled = !run.eligible;
-      if (!run.eligible) label.title = run.reason || 'not eligible';
+      box.checked = usableRun(run) && shapeRunIds.has(run.id);
+      // An ineligible run is shown with its own sentence rather than hidden, and it cannot be selected. A run of
+      // another detergent is the same kind of refusal for this card, and says which detergent it belongs to.
+      box.disabled = !usableRun(run);
+      if (!usableRun(run)) label.title = run.reason || (runMatchesShape(run) ? 'not eligible'
+        : `different detergent (${run.residue || 'not recorded'})`);
       const id = document.createElement('code'); id.textContent = run.id;
       const where = document.createElement('span'); where.className = 'where';
       // The flexible column carries the run's description, or the server's sentence for a run that cannot be used --
       // a long refusal in the narrow `auto` column beside the tag would wrap the row into an unreadable stack.
-      where.textContent = run.eligible
-        ? `${run.residue || 'detergent'} empty micelle · ${durationNs(run.duration_ns)}`
-        : (run.reason || 'not eligible');
+      where.textContent = !runMatchesShape(run)
+        ? `different detergent (${run.residue || 'not recorded'})`
+        : (run.eligible
+            ? `${run.residue || 'detergent'} empty micelle · ${durationNs(run.duration_ns)}`
+            : (run.reason || 'not eligible'));
       const meta = document.createElement('span'); meta.className = 'meta';
-      meta.textContent = run.eligible ? (run.label || '') : (run.protein ? 'has a protein' : 'not eligible');
-      const tag = document.createElement('span'); tag.className = `tag${run.eligible ? '' : ' warn'}`;
-      tag.textContent = run.eligible ? 'eligible' : 'not eligible';
+      meta.textContent = usableRun(run) ? (run.label || '')
+        : (run.protein ? 'has a protein' : (runMatchesShape(run) ? 'not eligible'
+          : `this run is ${run.residue || 'another detergent'}`));
+      const tag = document.createElement('span'); tag.className = `tag${usableRun(run) ? '' : ' warn'}`;
+      tag.textContent = usableRun(run) ? 'eligible' : 'not eligible';
       label.append(box, id, where, meta, tag);
       return label;
     }));
@@ -494,7 +514,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     try {
       const body = await api('/api/pdc/conformations/runs');
       shapeRuns = Array.isArray(body.runs) ? body.runs : [];
-      const available = new Set(shapeRuns.filter(run => run.eligible).map(run => run.id));
+      const available = new Set(shapeRuns.filter(usableRun).map(run => run.id));
       // A first answer selects every eligible run; a later one keeps what the reader ticked and drops what is gone.
       shapeRunIds = shapeRunsLoaded ? new Set([...shapeRunIds].filter(id => available.has(id))) : available;
       shapeRunsLoaded = true; shapeRunsError = '';
@@ -742,7 +762,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // from a random start, so they are hidden there. Hidden, not disabled: the values still travel, and the adapter
   // ignores them outside a belt.
   function syncBeltGap() {
-    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread']) {
+    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread',
+                        'belt_offset_nm']) {
       const label = form.querySelector(`[name=${name}]`)?.closest('label');
       if (label) label.hidden = placementMode() === 'self-assembly';
     }
@@ -1198,6 +1219,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             axialWindow: field('belt_axial_window_nm').value || '',
             verticalSpread: field('belt_vertical_spread').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
+            salt: field('salt_molar').value || '', offset: field('belt_offset_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
   // What would be coarse-grained, or drawn from another mapping: a change to one of these is a different question,
@@ -1206,7 +1228,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
-                                  inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
+                                  inputs.salt, inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
                                   inputs.template].join('|');
 
   function seconds(value) {
@@ -1238,10 +1260,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
           ? ` (${basis.prepare.heavy_atoms_added} heavy atoms)`
           : '')
       : '';
-    if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}`;
+    const solvent = cost.solvation_seconds ? ` · solvent ${seconds(cost.solvation_seconds)}` : '';
+    if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}${solvent}`;
     return cost.cg_cached
-      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}${prepare}`
-      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}${prepare}`;
+      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}${prepare}${solvent}`
+      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}${prepare}${solvent}`;
   }
 
   function keptSentence(cost, basis) {
@@ -1326,6 +1349,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.mapping) query.set('mapping_candidate', inputs.mapping);
     if (inputs.margin) query.set('box_margin_nm', inputs.margin);
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
+    if (inputs.salt) query.set('salt_molar', inputs.salt);
+    if (inputs.offset) query.set('belt_offset_nm', inputs.offset);
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
     if (inputs.axialWindow) query.set('belt_axial_window_nm', inputs.axialWindow);
@@ -1348,8 +1373,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The selection is NGL's own grammar on residue numbers: measured in the page, `resname PRO` is a parse error and
   // `:PRO` is read as a chain, while bare `1-4` is the residue range this build parses. The b-factor column already
   // means the family, so the frame is drawn as it is rather than rewritten.
-  const detergentSelection = proteinResidues => (proteinResidues ? `not (1-${proteinResidues})` : '*');
-
   // The protein as the structure it was coarse-grained from ------------------------------------------------------
   //
   // The beads are a coarse-grained model *of* a structure, and the two are one picture here: the server names the
@@ -1408,11 +1431,50 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (!component) return;
     for (const representation of [...component.reprList]) component.removeRepresentation(representation);
     const beads = {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS};
-    component.addRepresentation('ball+stick', {sele: detergentSelection(Number(host.previewProteinResidues) || 0),
-                                                ...beads});
+    const water = host.previewWater, ions = host.previewIons;
+    const excluded = [water, ions].filter(Boolean).map(([first, last]) => `not (${first}-${last})`);
+    const proteinResidues = Number(host.previewProteinResidues) || 0;
+    const detergent = [proteinResidues ? `not (1-${proteinResidues})` : '', ...excluded]
+      .filter(Boolean).join(' and ') || '*';
+    component.addRepresentation('ball+stick', {sele: detergent, ...beads});
+    // The solvent is context, not the subject: a low-opacity cloud behind the detergent, and the salt slightly firmer
+    // so the ions can be seen at all. Both are the Insane placement the run's first leg would make, cached by the
+    // dry frame; neither is drawn over the protein/detergent representation.
+    if (water) component.addRepresentation('ball+stick', {sele: `${water[0]}-${water[1]}`, colorScheme: 'uniform',
+                                                          colorValue: '#7fa8c9', opacity: 0.08,
+                                                          radiusScale: 0.55, depthWrite: false});
+    if (ions) component.addRepresentation('spacefill', {sele: `${ions[0]}-${ions[1]}`, colorScheme: 'element',
+                                                        opacity: 0.25, radiusScale: 0.8});
   }
 
-  async function showPreviewFrame(pdb, proteinResidues, structure) {
+  // The box the build writes, as twelve lines. NGL's own `unitcell` representation needs a file-level cell record;
+  // this is the span the preview already states numerically, drawn around the frame on screen. Box lengths are nm,
+  // NGL's coordinates are Angstrom, so the edges are the nm length times ten.
+  function addPreviewBox(stage, boxNm, originNm) {
+    const lengths = (boxNm || []).slice(0, 3).map(Number);
+    const origin = (originNm || [0, 0, 0]).slice(0, 3).map(Number);
+    if (lengths.length !== 3 || lengths.some(value => !Number.isFinite(value) || value <= 0)) return null;
+    // The system is wrapped into the cell after centring, so the cell is always 0..length. The origin is kept
+    // explicit for the case a future placement writes a cell elsewhere; it is zero today.
+    const lo = origin.map(value => value * 10);
+    const hi = lengths.map((value, axis) => (origin[axis] + value) * 10);
+    const corners = [];
+    for (const z of [lo[2], hi[2]]) for (const y of [lo[1], hi[1]]) for (const x of [lo[0], hi[0]]) {
+      corners.push([x, y, z]);
+    }
+    // A corner's index is `x + 2y + 4z`; the twelve edges vary one bit.
+    const shape = new NGL.Shape('unit cell');
+    const colour = [0.34, 0.37, 0.42];
+    for (let first = 0; first < 8; first += 1) for (let bit = 0; bit < 3; bit += 1) {
+      const second = first | (1 << bit);
+      if (second !== first) shape.addCylinder(corners[first], corners[second], colour, 0.25);
+    }
+    const box = stage.addComponentFromObject(shape);
+    box.addRepresentation('buffer');
+    return box;
+  }
+
+  async function showPreviewFrame(pdb, proteinResidues, structure, basis) {
     const host = previewNode('.new-pdc-preview-viewer');
     if (!host) return;
     // The shell no longer carries NGL: it is 1.28 MB and only a 3D stage needs it, so the bundle arrives with the
@@ -1428,6 +1490,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     host.previewComponent = null;
     host.previewRibbon = null;
     host.previewProteinResidues = Number(proteinResidues) || 0;
+    host.previewBox = Array.isArray(basis?.box_nm) ? basis.box_nm : null;
+    host.previewBoxOrigin = Array.isArray(basis?.box_origin_nm) ? basis.box_origin_nm : null;
+    host.previewWater = Array.isArray(basis?.water_residues) ? basis.water_residues : null;
+    host.previewIons = Array.isArray(basis?.ion_residues) ? basis.ion_residues : null;
     ribbonNote('');
     // Which draw this is. NGL resolves a `loadFile` whenever the file arrives, so a derive pressed while an earlier
     // frame is still loading would otherwise add the older picture on top of the newer one: a draw that is no longer
@@ -1442,6 +1508,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? stage.loadFile(structure.url, {ext: 'pdb', defaultRepresentation: false}).then(component => {
           if (superseded()) { stage.removeComponent(component); return null; }
           host.previewRibbon = component;
+          const shift = basis?.centring?.shift_nm;
+          if (Array.isArray(shift) && shift.length === 3) component.setPosition(shift.map(value => Number(value) * 10));
           drawPreviewRibbon();
           return component;
         }).catch(error => {
@@ -1467,7 +1535,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         // Both of the module's answers go on the representation: the radius each bead's own size class gives it, and
         // the colour its type family gives it.
         drawPreviewRepresentations();
-        component.autoView();
+        addPreviewBox(stage, host.previewBox, host.previewBoxOrigin);
+        stage.autoView();
         stage.handleResize();
       }).catch(error => sayPreview('.new-pdc-preview-basis',
                                    `The frame the server sent could not be drawn: ${error.message || error}`));
@@ -1538,10 +1607,15 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const viewer = previewNode('.new-pdc-preview-viewer'), refusal = previewNode('.new-pdc-preview-refusal');
     if (refusal) { refusal.hidden = true; refusal.textContent = ''; }
     if (viewer) viewer.hidden = false;
-    showPreviewFrame(body.pdb || '', basis.protein_residues, basis.protein_structure);
+    showPreviewFrame(body.pdb || '', basis.protein_residues, basis.protein_structure, basis);
+    const solvent = basis.solvent || null;
+    const solventText = solvent
+      ? ` · ${Number(solvent.W).toLocaleString()} water beads and ${Number(solvent.NA).toLocaleString()} Na+ / `
+        + `${Number(solvent.CL).toLocaleString()} Cl− ions at low opacity (${Number(solvent.salt_molar).toFixed(2)} M)`
+      : (basis.solvent_reason ? ` · ${basis.solvent_reason}` : '');
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
-      + '· before any dynamics, so no solvent and no ions'
+      + '· the dry build with the initial solvent the first leg adds' + solventText
       + (basis.clearance_nm != null ? ` · clearance from the protein ${Number(basis.clearance_nm).toFixed(3)} nm` : ''));
     sayPreview('.new-pdc-preview-from', describeFrame(basis));
     sayPreview('.new-pdc-preview-beads', `${Number(basis.beads).toLocaleString()} beads `
@@ -1558,6 +1632,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
       + 'writes, before equilibration changes it' + bandSentence);
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
+    sayPreview('.new-pdc-preview-solvent', solvent
+      ? `${Number(solvent.W).toLocaleString()} water beads · ${Number(solvent.NA).toLocaleString()} Na+ · `
+        + `${Number(solvent.CL).toLocaleString()} Cl− · ${Number(solvent.salt_molar).toFixed(2)} M NaCl`
+        + (solvent.cached ? ' · cached placement' : '')
+      : (basis.solvent_reason || 'not placed'));
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
     renderPreviewPlacement(basis);
     renderPreviewState();
@@ -1609,6 +1688,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     sayPreview('.new-pdc-preview-beads', '—');
     sayPreview('.new-pdc-preview-box', '—');
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
+    sayPreview('.new-pdc-preview-solvent', '—');
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
     renderPreviewPlacement(basis);
     renderPreviewState();
@@ -1680,11 +1760,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('molecule_id').addEventListener('change', () => {
     describeDetergent(); store(); renderPreviewState();
     loadMappings().then(() => { syncSummary(); loadEstimate(); return checkReadiness(); }).catch(error => say('.new-pdc-detergent', error.message));
-    // A library is stored per residue, so the list follows the detergent and not only the first mount.
+    // A library is stored per residue, so both lists follow the detergent and not only the first mount.
     loadShapeLibraries();
+    loadShapeRuns();
   });
   field('template').addEventListener('change', () => {
     describeTemplate(); store(); syncSummary(); checkReadiness(); previewMoved(); loadShapeLibraries();
+    loadShapeRuns();
   });
   field('protein').addEventListener('change', () => { syncChains(); store(); syncSummary(); loadEstimate(); scheduleExtent(); checkReadiness(); renderPreviewState(); });
   // The subunit ticks are rebuilt whenever the chosen entry changes, so the listener sits on the group that holds
@@ -1879,17 +1961,16 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
 
   // The Default buttons. The engine's `.use-default` loop reads `/api/defaults`, which answers 400 for a pdc
   // payload because it describes the one-molecule run; this panel reads the catalogue it already fetched, under its
-  // own class, so the two handlers can never both fire on one button.
+  // own class, so the two handlers can never both fire on one button. The seed carries none: it has no reviewed
+  // catalogue default, and its Generate button draws one instead.
   const CATALOGUE_KEY = Object.fromEntries(Object.entries(DEFAULT_ALIASES).map(([key, name]) => [name, key]));
   for (const button of form.querySelectorAll('.pdc-default')) {
     button.addEventListener('click', () => {
       const name = button.dataset.field;
       const input = field(name);
       if (!input) return;
-      // The seed's default is the project's own: today's date. It is no catalogue number, so it is written here.
-      if (name === 'pdc_seed') input.value = String(todaySeed());
       // A per-stage timestep has no catalogue default: blank is the reviewed profile's own dt, so Default clears it.
-      else if (DT_FIELDS.has(name)) input.value = '';
+      if (DT_FIELDS.has(name)) input.value = '';
       else {
         const value = (catalogue?.defaults || {})[CATALOGUE_KEY[name] || name];
         if (value === undefined) return;
@@ -1946,7 +2027,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'belt_gap_nm', 'min_body_gap_nm',
-                      'belt_axial_window_nm', 'belt_vertical_spread']) field(name)?.addEventListener('input', previewMoved);
+                      'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own two inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm']) field(name)?.addEventListener('input', scheduleExtent);
   // Auto is the extent route's own suggested z box, written into the field as a reader typing it would: the box
@@ -2054,9 +2135,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       await post('/', payload);
       notice('Run queued.');
       // A build from runs writes its library into the store, so the stored list is read again and the new library
-      // is selectable without a reload. This is not awaited: the notice and the runs tab do not wait for it.
+      // is selectable without a reload. This is not awaited: the notice does not wait for it. The form stays on
+      // screen -- a queued run is not a reason to take the reader's inputs away -- and the runs table is refreshed
+      // in the background for when they open it.
       loadShapeLibraries();
-      selectTab(panelIds().runs);
       if (refreshJobs) await refreshJobs();
     } catch (error) {
       notice(error.message);

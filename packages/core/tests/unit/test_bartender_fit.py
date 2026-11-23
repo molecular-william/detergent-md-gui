@@ -132,32 +132,15 @@ def test_the_invocation_fits_from_the_runs_own_trajectory(tmp_path):
     assert command[-2:] == ['solute_heavy.gro', bartender_fit.INPUT_FILE], 'geometry then input file'
 
 
-def write_frames(path, frames):
-    """A .gro and an .xtc of the same beads, so the ensemble is measured the way the analysis measures it."""
-    universe = mda.Universe.empty(3, trajectory=True)
-    universe.add_TopologyAttr('name', ['A', 'B', 'C'])
-    universe.add_TopologyAttr('resname', ['LIG'])
-    universe.add_TopologyAttr('resid', [1])
-    gro = path / 'lig.gro'
-    universe.atoms.positions = frames[0]
-    universe.atoms.write(str(gro))
-    universe.trajectory = mda.coordinates.memory.MemoryReader(frames, order='fac')
-    with mda.Writer(str(path / 'lig.xtc'), n_atoms=3) as writer:
-        for _ in universe.trajectory:
-            writer.write(universe.atoms)
-    return gro, path / 'lig.xtc'
-
-
 def test_the_target_is_the_ensemble_and_not_one_frame(tmp_path):
     import numpy as np
 
     frames = np.array([[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
                        [[0.0, 0.0, 0.0], [3.2, 0.0, 0.0], [3.0, 3.0, 0.0]],
                        [[0.0, 0.0, 0.0], [2.8, 0.0, 0.0], [3.0, 3.0, 0.0]]], dtype=np.float32)
-    structure, trajectory = write_frames(tmp_path, frames)
     beads = [{'name': 'A', 'atoms': [1]}, {'name': 'B', 'atoms': [2]}, {'name': 'C', 'atoms': [3]}]
 
-    ensemble = bartender_fit.ensemble_distances(structure, trajectory, beads)
+    ensemble = bartender_fit._ensemble((frame for frame in frames), len(frames[0]), beads)
 
     assert ensemble['A-B']['frames'] == 3
     assert ensemble['A-B']['mean_nm'] == pytest.approx(0.30, abs=0.005), 'the mean, not the first frame'

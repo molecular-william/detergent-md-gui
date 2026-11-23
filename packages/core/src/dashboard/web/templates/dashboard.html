@@ -122,6 +122,20 @@
   <div class="run-table-scroll" tabindex="0" aria-label="Run table; scroll horizontally on smaller screens">
     <table id="jobs" class="run-table"><caption class="sr-only">Simulation runs and their resources</caption><colgroup><col class="col-identity"><col class="col-status"><col class="col-molecule"><col class="col-method"><col class="col-created"><col class="col-duration"><col class="col-actions"></colgroup><thead><tr><th scope="col">Run / progress</th><th scope="col">Status</th><th scope="col">Molecule</th><th scope="col">Method</th><th scope="col">Created</th><th scope="col">Duration</th><th scope="col">Actions</th></tr></thead><tbody id="empty-jobs"><tr><td colspan="7">Loading runs…</td></tr></tbody></table>
   </div>
+  {# The LINCS warning frame. One dialog for the whole table: the card fills its title, frame buttons and caption,
+     and the viewer is created only while it is open. The tables in the row remain the text alternative to the 3D
+     picture, so the dialog is never the only place a warning can be read. #}
+  <dialog id="lincs-frame-dialog" class="lincs-dialog" aria-labelledby="lincs-frame-title">
+    <h3 id="lincs-frame-title">LINCS warning frame</h3>
+    <div class="lincs-frame-bar">
+      <button type="button" class="secondary" data-lincs-frame="initial" aria-pressed="true">Initial (b)</button>
+      <button type="button" class="secondary" data-lincs-frame="constrained" aria-pressed="false">After constraining (c)</button>
+      <form method="dialog"><button class="secondary">Close</button></form>
+    </div>
+    <div id="lincs-frame-viewer" class="lincs-viewer" role="img"
+         aria-label="The warning's initial and constrained coordinates"></div>
+    <p class="hint" id="lincs-frame-caption" role="status"></p>
+  </dialog>
   <dialog id="adopt-runs-dialog" class="adopt-dialog" aria-label="Register copied runs">
     <form id="adopt-runs-form">
       <h3>Register copied runs</h3>
@@ -790,9 +804,10 @@
         {# The values this run actually recorded, grouped by stage. Read-only: the run is the record, and a queued
            run's row shows what it will consume from the record the queue route normalized. #}
         <details class="job-stage-settings"><summary>Stage settings</summary><div class="resource-content"><div class="stage-settings-host" aria-live="polite"><p class="hint">Open to read the values this run recorded.</p></div></div></details>
-        {# The energy diagnostics a completed run can draw from its equilibration legs' own .edr files. Its renderer
-           loads the published record only when the disclosure opens. #}
-        <details class="job-diagnostics"><summary>Diagnostics</summary><div class="resource-content"><div class="run-equilibration-host" aria-live="polite"><p class="hint">Open to plot this run's equilibration legs.</p></div></div></details>
+        {# The energy diagnostics a completed run can draw from its equilibration legs' own .edr files, and the LINCS
+           warnings the stage logs recorded. Each renderer loads its own record only when the disclosure opens; the
+           LINCS section works for a running or failed run, which is when warnings matter. #}
+        <details class="job-diagnostics"><summary>Diagnostics <span class="lincs-count hint" hidden></span></summary><div class="resource-content"><div class="run-lincs-host" aria-live="polite"></div><div class="run-equilibration-host" aria-live="polite"><p class="hint">Open to plot this run's equilibration legs.</p></div></div></details>
       </div>
     </td></tr>
   </tbody>

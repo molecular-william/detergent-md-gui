@@ -10,7 +10,7 @@ single name import this package, and callers that need one concern import the
 sub-module that owns it.
 """
 from ..molecules.packaged import ROOT, SOURCE, bead_types, molecule
-from ..sugars.validation import derive_representation, representation_modes, validate_representation
+from ..sugars.validation import derive_representation, validate_representation
 from .exports import export_files
 from .graph import require_usable, validate
 from .identity import candidate_identity, canonical_sha256, content_identity, legacy_candidate_identity, legacy_content_identity
@@ -33,7 +33,7 @@ __all__ = [
     'SIZES', 'LABELS',
     'candidate_identity', 'content_identity', 'canonical_sha256', 'legacy_candidate_identity',
     'legacy_content_identity', 'check_schema',
-    'derive_representation', 'validate_representation', 'representation_modes',
+    'derive_representation', 'validate_representation',
     'validate', 'require_usable',
     'storage_root', 'candidate_paths', 'get', 'list_candidates',
     'save_draft', 'DuplicateMapping', 'delete_draft',

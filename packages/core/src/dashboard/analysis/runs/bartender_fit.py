@@ -256,18 +256,6 @@ def _ensemble(blocks, heavy_count: int, beads: list[dict]) -> dict:
                              'frames': len(values)} for pair, values in collected.items()}
 
 
-def ensemble_distances(structure: Path, trajectory: Path, beads: list[dict]) -> dict:
-    """The AA ensemble's own mean and spread for every ring pair, which is what a fit is checked against.
-
-    A fit's caller already holds this trajectory open (`run`), and `run` keeps the frames it reads for the second
-    pass instead of opening it again; this is the reader for a path pair on its own.
-    """
-    universe = mda.Universe(str(structure), str(trajectory))
-    heavy = [atom.index for atom in universe.atoms if not atom.name.startswith('H')]
-    blocks = (universe.atoms.positions[heavy] for _ in universe.trajectory)
-    return _ensemble(blocks, len(heavy), beads)
-
-
 def bartender_command(bartender, cpus, *, geometry='solute_heavy.gro', trajectory=TRAJECTORY,
                       inputs=INPUT_FILE) -> list[str]:
     """The invocation, in one place so what it asks for is readable and pinned.

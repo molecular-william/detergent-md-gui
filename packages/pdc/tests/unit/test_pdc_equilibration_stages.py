@@ -215,6 +215,9 @@ def test_the_minimisation_leg_reads_the_auto_bracket_and_the_others_read_the_run
     serves all three legs, so the leg's own directory is what chooses which bracket it reads."""
     run = prepared(tmp_path)
     minimisation = stage_dir(run, 'Energy minimisation')
+    record = json.loads((inputs_dir(run) / '03_minimisation.json').read_text())
+    record['solvate'] = False
+    (inputs_dir(run) / '03_minimisation.json').write_text(json.dumps(record))
     previous = run / pdc.STAGES_DIRECTORY / '02_system'
     previous.mkdir(parents=True, exist_ok=True)
     (previous / 'system.gro').write_text('system\n0\n   1.00000   1.00000   1.00000\n')

@@ -52,6 +52,7 @@ The measurements and the packing rule the module owns, and records:
   shape would hold. The requested number is never scaled (`capacity`).
 """
 import numpy as np
+from dashboard.analysis.runs import structures
 from micelle.frame import unit_axis
 from micelle.packing import golden_angle_directions, pack_micelle
 from micelle.validation import validate_positions
@@ -86,6 +87,9 @@ VERTICAL_SPREAD = 1.1
 #: The belt's default when the pdc pipeline states the run's own setting. 1.1 was the reviewed value; 2.0 widens the
 #: band to twice the detergent's length either side of the mid-plane, so the belt covers more of the membrane.
 DEFAULT_BELT_VERTICAL_SPREAD = 2.0
+#: The belt's vertical translation along the membrane normal, in nm. 0 keeps every previous placement; a positive
+#: value moves the whole belt higher without moving the protein or the cell.
+DEFAULT_BELT_OFFSET_NM = 0.0
 # The belt's body is mostly the outward surface normal, tilted about the local tangent by this angle. The tilt's sign
 # is chosen so the head end leans away from the cylinder's mid-plane and the tail therefore dips towards it; the
 # radial component always shrinks, so the tail end is always closer to the axis than the head end.
@@ -125,6 +129,17 @@ RADIUS_FLOOR = 'floor'
 # DDM's ten oxygens are both "not a carbon", but only the second is a head: this is what the geometry can read when
 # the molecule carries no Martini types of its own (every packaged template: one bead typed `registered-template`).
 POLAR_ELEMENTS = ('O', 'N', 'S', 'P')
+
+
+def tail_bead(bead) -> bool:
+    """Whether one bead of a derived detergent model belongs to the molecule's aliphatic tail.
+
+    The family is read with the engine's own reader (`structures.bead_family`), so the small and tiny spellings of
+    the same apolar series count as carbon: `SC1`-`SC6` and `TC1`-`TC6` are tails exactly as `C1`-`C5` are. A
+    virtual site is not a tail bead even when its type's family letter is C -- a carbohydrate ring interaction site
+    is `TC4`, and it sits on the sugar head, so a model would otherwise orient with its ring site as the tail.
+    """
+    return not bead.get('virtual_site') and structures.bead_family(bead.get('type')) == 'C'
 
 # The box the protein is inserted into, when the caller does not state the run's own numbers: the adapter's defaults.
 DEFAULT_MARGIN_NM = 2.0
@@ -274,12 +289,12 @@ def _profile_from_points(points, labels, source, tail_direction=None) -> dict | 
     roles = [str(label.get('role') or '').strip().lower() for label in labels]
     types = [str(label.get('type') or '').strip() for label in labels]
     names = [str(label.get('name') or '').strip() for label in labels]
+    tails = [tail_bead(label) for label in labels]
     if 'head' in roles and 'tail' in roles:
         head = np.asarray([role == 'head' for role in roles])
         head_source = 'roles'
-    elif any(types) and any(not kind.startswith('C') for kind in types) \
-            and any(kind.startswith('C') for kind in types):
-        head = np.asarray([not kind.startswith('C') for kind in types])
+    elif any(types) and any(tails) and not all(tails):
+        head = np.asarray([not tail for tail in tails])
         head_source = 'types'
     elif any(name[:1].upper() in POLAR_ELEMENTS for name in names) \
             and any(name[:1].upper() not in POLAR_ELEMENTS for name in names):
@@ -503,7 +518,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                      belt_gap_nm=0.0, belt_floor_nm=0.0,
                      min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
                      belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
-                     vertical_spread=VERTICAL_SPREAD):
+                     vertical_spread=VERTICAL_SPREAD, belt_offset_nm=DEFAULT_BELT_OFFSET_NM):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -625,6 +640,19 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                              min_clearance_nm=min_clearance_nm, margin_nm=margin_nm,
                                              initial_z_nm=initial_z_nm, profile=profile)
 
+    if band is not None:
+        # Raise the whole belt along the membrane normal, protein and cell unchanged. The site gate already ran at
+        # the unshifted positions; the final head/body clearance checks below re-run against the shifted sites, so a
+        # belt raised into the protein is refused rather than drawn.
+        offset = float(belt_offset_nm)
+        if abs(offset) > 1e-12:
+            axis = np.asarray(band['record']['cylinder']['axis'], dtype=float)
+            centers = np.asarray(centers, dtype=float) + offset * axis
+            # The box's z is measured from this reach; a translated belt reaches at least the old reach plus the
+            # translation, so take the conservative bound rather than leave the top of the belt outside the cell.
+            band['record']['belt_reach_nm'] = round(float(band['record'].get('belt_reach_nm') or 0.0)
+                                                     + abs(offset), 6)
+        band['record']['belt_offset_nm'] = round(offset, 6)
     issues = [] if unplaced else list(validate_positions(centers, aggregation_number)['issues'])
     if unplaced:
         total = 0 if points is None else len(points)

@@ -584,3 +584,102 @@ def artifact_file(jid, relative):
     response = send_file(path, as_attachment=request.args.get('inline') != '1', download_name=path.name)
     if path.suffix == '.html': response.headers['Content-Security-Policy'] = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:"
     return response
+
+
+def _relative_inside(root: Path, path: Path) -> Path | None:
+    """A path expressed under the run, or None when it is outside it.
+
+    The manifest is a run's record, but it is still data: an absolute path from a copied-in record must not let a
+    diagnostic read a file outside this run, and a symlink must not either.
+    """
+    try:
+        resolved = path.resolve()
+        relative = resolved.relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    if any(part.is_symlink() for part in (resolved, *resolved.parents) if part.is_relative_to(root.resolve())):
+        return None
+    return relative
+
+
+@blueprint.get('/api/jobs/<jid>/lincs-warnings')
+def lincs_warnings_api(jid):
+    """The LINCS warnings a run's stage logs recorded, with the frames GROMACS wrote for them.
+
+    One reader for the Runs panel's Diagnostics block. It reads every stage's own log, maps the warnings' 1-based atom
+    numbers to the PDB serials of the written frame, and measures the neighbourhood of the max-deviation pair in the
+    *initial* frame (the constrained one is the explosion). A warning whose step wrote no pair keeps its exact bond
+    table and reports no coordinates; nothing here starts a simulation or writes into the run.
+    """
+    from ...analysis.runs import lincs
+
+    c = coordinator()
+    job = c.lookup(jid)
+    run_dir = c.run_path(job).resolve()
+    manifest = c.manifest_data(job)
+    warnings, fatal = [], None
+    for stage in manifest.get('stages', []):
+        log = stage.get('log')
+        if not isinstance(log, str) or not log:
+            continue
+        log_relative = _relative_inside(run_dir, Path(log))
+        if log_relative is None or not (run_dir / log_relative).is_file():
+            continue
+        text = (run_dir / log_relative).read_text(errors='replace')
+        count = lincs.fatal_warnings(text)
+        if count is not None:
+            fatal = count
+        found = lincs.warnings_from_log(text)
+        if not found:
+            continue
+        stage_directory = None
+        cwd = stage.get('cwd')
+        if isinstance(cwd, str) and cwd:
+            stage_relative = _relative_inside(run_dir, Path(cwd))
+            if stage_relative is not None:
+                stage_directory = run_dir / stage_relative
+        # A frame is the identity for every warning of this stage, not only the one that wrote it: the atom order is
+        # the system's, so any written frame names the same serials.
+        frames_by_step = {warning['step']: lincs.frames_for(stage_directory, warning['step'])
+                          for warning in found}
+        stage_atoms = {}
+        for frames in frames_by_step.values():
+            source = frames.get('initial') or frames.get('constrained')
+            if source is not None:
+                try:
+                    stage_atoms = lincs.read_pdb(source)
+                except (OSError, ValueError):
+                    stage_atoms = {}
+                if stage_atoms:
+                    break
+        for warning in found:
+            frames = frames_by_step[warning['step']]
+            warning['stage'] = stage.get('name')
+            warning['log'] = str(log_relative)
+            warning['frames'] = {key: {'name': path.name,
+                                       'url': f'/api/jobs/{jid}/artifacts/'
+                                              f'{quote(str(path.relative_to(run_dir)), safe="/")}?inline=1'}
+                                 for key, path in frames.items()}
+            source_key = 'initial' if 'initial' in frames else ('constrained' if 'constrained' in frames else None)
+            source_atoms = {}
+            if source_key:
+                try:
+                    source_atoms = lincs.read_pdb(frames[source_key])
+                except (OSError, ValueError):
+                    source_atoms = {}
+            warning['neighbours'] = lincs.neighbours(source_atoms, warning['atoms'], warning['bonds'])
+            warning['neighbour_cutoff_nm'] = lincs.NEIGHBOUR_CUTOFF_NM
+            warning['short_contact_nm'] = lincs.SHORT_CONTACT_NM
+            referenced = set(warning['atoms'][:2])
+            for bond in warning['bonds']:
+                referenced.update((bond['a'], bond['b']))
+            for row in warning['neighbours']:
+                referenced.update((row['atom'], row['other']))
+            warning['identities'] = lincs.identities(stage_atoms, referenced)
+            warnings.append(warning)
+    # The default is the last warning that actually wrote a frame, so the card opens on something a reader can see;
+    # a run whose warnings wrote none keeps the last warning and says that its coordinates are missing.
+    selected = max((index for index, warning in enumerate(warnings) if warning.get('frames')),
+                   default=(len(warnings) - 1 if warnings else None))
+    return jsonify(status=job.get('status'), run_type=job.get('run_type'), warnings=warnings,
+                   selected=selected, fatal_warnings=fatal)

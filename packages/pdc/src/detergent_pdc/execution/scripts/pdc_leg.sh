@@ -67,7 +67,6 @@ if [ "$(field solvate)" = "True" ]; then
   # place that decides the water bead radius, the ion names and the group genion may replace.
   cp -f ../../inputs/ions.mdp .
   mkdir -p inputs
-  cp -f ../../inputs/water.gro inputs/water.gro
   "$PYTHON" -m detergent_pdc.execution.scripts.pdc_solvate --topology system.top --structure system.gro \
     --salt-molar "$(setting salt_molar)"
 fi

@@ -1,1 +1,1 @@
-from .cli import main as main
+"""Shared micelle geometry used by the pdc placement, build and preview."""

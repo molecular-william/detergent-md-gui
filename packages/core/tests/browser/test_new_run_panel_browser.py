@@ -93,6 +93,11 @@ def test_a_cg_payload_carries_no_method_profile_or_bonded_choice(dashboard, live
     page.locator('#start-run').click()
     expect(page.locator('#notice')).to_contain_text('Run queued.')
 
+    # Queuing leaves the reader on the form: the New run tab stays selected and the Runs table is not opened.
+    expect(page.locator('#tab-new')).to_have_attribute('aria-selected', 'true')
+    expect(page.locator('#new')).to_be_visible()
+    expect(page.locator('#runs')).to_be_hidden()
+
     assert posted['run_type'] == 'cg', posted
     for key in ('profile', 'method', 'bonded_state_id', 'bonded_intent', 'reference_run_id'):
         assert key not in posted, f'{key} is still sent for a CG run: {posted}'

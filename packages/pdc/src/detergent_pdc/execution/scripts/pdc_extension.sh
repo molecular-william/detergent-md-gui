@@ -25,7 +25,6 @@ cp -f ../06_assessment/system.gro ../06_assessment/system.top .
 mkdir -p prod inputs
 cp -f ../../inputs/extension.mdp ../../inputs/extension.ps ../../inputs/minimization.mdp \
       ../../inputs/equilibration.mdp ../../inputs/ions.mdp .
-cp -f ../../inputs/water.gro inputs/water.gro
 
 # Both paths -- continue from the assessment's checkpoint, or delete what the criterion left outside the micelle and
 # restart from the kept system with new velocities -- are the helper's, because the difference is a decision rather

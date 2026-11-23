@@ -13,15 +13,6 @@ TC4 = 'tc4'
 TRANSFORMATION = 'remove_tc4_retain_ring_constraints@1'
 
 
-def representation_modes():
-    return [
-        {'id': TC4, 'label': 'TC4 reference',
-         'description': 'Published carbohydrate mapping with massless TC4 ring sites.'},
-        {'id': PHYSICAL_ONLY, 'label': 'Physical-only, ring-constrained',
-         'description': 'Physical beads only, retaining the 1.15-scaled ring constraints.'},
-    ]
-
-
 def validate_representation(mapping, mode):
     from ..mappings.schema import RING_SCALES
     if mode not in {TC4, PHYSICAL_ONLY}:

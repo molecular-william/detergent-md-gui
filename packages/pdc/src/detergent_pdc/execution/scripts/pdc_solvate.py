@@ -2,7 +2,7 @@
 
 Run by the Energy minimisation leg, which is the stage that solvates the built system, and by `pdc_extension.py`
 when the criterion left detergents outside the micelle and the removal path rebuilds the kept system. The commands
-come from `pdc_solvation`, which is the tested place that decides the bead radius, the ion names and the water group
+come from `pdc_solvation`, which is the tested place that decides the ion names and the water group
 `genion` is allowed to replace; this module runs them, pipes the group in, and reads the composition back off the
 topology that results.
 
@@ -18,6 +18,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from dashboard.execution.scripts import insane_solvate
 from detergent_pdc.execution.adapters import pdc_solvation
 from detergent_pdc.execution.scripts import topology as topology_reader
 
@@ -53,12 +54,15 @@ def main(argv=None) -> int:
     topology, logs = stage / args.topology, stage / 'logs'
     logs.mkdir(exist_ok=True)
 
-    commands = pdc_solvation.solvation_commands(str(topology), str(stage / args.structure), 'system.tpr',
-                                                salt_molar=args.salt_molar)
-    run(commands, logs=logs, group_selection=pdc_solvation.ion_group_selection())
+    # Insane places the water on the system's own grid and keeps the box (`-box`, `-pbc keep`); `gmx solvate` with
+    # the prebuilt water box only kept a solvent radius from the solute, and its coarse bead radii are not in the
+    # topology. The ions stay with the existing `genion` step below, which replaces the W beads the helper writes.
+    placed = insane_solvate.solvate(stage / args.structure, topology, stage / 'solvated.gro')
+    commands = placed['commands'] + pdc_solvation.solvation_commands(
+        str(topology), str(stage / args.structure), 'system.tpr', salt_molar=args.salt_molar)
+    run(commands[1:], logs=logs, group_selection=pdc_solvation.ion_group_selection())
     (stage / OUTPUT_NAME).write_text(json.dumps(
-        {'commands': commands, 'salt_molar': args.salt_molar,
-         'water_bead_radius_nm': pdc_solvation.MARTINI_WATER_RADIUS_NM,
+        {'commands': commands, 'salt_molar': args.salt_molar, 'solvator': 'insane',
          'water_group': pdc_solvation.WATER_BEADS, 'ion_names': list(pdc_solvation.ION_NAMES),
          'molecules': molecules(topology)}, indent=2, sort_keys=True))
     return 0

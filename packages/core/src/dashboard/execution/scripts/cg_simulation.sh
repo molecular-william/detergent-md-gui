@@ -12,7 +12,6 @@ fi
 PYTHON="${PYTHON:-python}"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-WATER_BOX="$PROJECT_ROOT/resources/templates/small_mols_fast_forward/4_CG_sim/inputs/water.gro"
 # The mdrun budget, the device and the scheme choices arrive as environment, because these stages are scripts
 # rather than commands the adapter generates: MDRUN_LAUNCHER is an mpirun prefix or empty, MDRUN_FLAGS the
 # equilibration/production flags and MDRUN_FLAGS_AUTO the minimisation ones. The default below is the case with
@@ -52,7 +51,7 @@ cp system_EMPTY.top system.top
 CG_START=../2_mapping/mapped.gro
 if [ -f ../2_mapping/mapped_scaled.gro ]; then CG_START=../2_mapping/mapped_scaled.gro; fi
 gmx editconf -f "$CG_START" -c -d 1.5 -bt dodecahedron -o boxed.gro
-gmx solvate -cp boxed.gro -cs "$WATER_BOX" -p system.top -radius 0.21 -o solvated.gro
+"$PYTHON" -m dashboard.execution.scripts.insane_solvate --structure boxed.gro --topology system.top --output solvated.gro
 gmx grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr
 ${MDRUN_LAUNCHER:-}gmx mdrun -deffnm min ${MDRUN_FLAGS_AUTO:--ntomp 8} -v
 gmx grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1

@@ -117,9 +117,18 @@ def line_of_beads(count=4, spacing=1.0):
     return [(1, 'PRO', f'B{index:03d}', (float(index) * spacing, 0.0, 0.0)) for index in range(1, count + 1)]
 
 
+_real_subprocess_run = subprocess.run
+
+
 def stubbed_martinize2(calls, beads=None):
-    """A martinize2 that writes exactly what its own command names, and records how it was called."""
+    """A martinize2 that writes exactly what its own command names, and records how it was called.
+
+    Other tools -- the preview's Insane solvent placement -- are passed through to the real runner: a test that
+    replaces `subprocess.run` to stand in for one tool must not also become the stand-in for every other.
+    """
     def run(command, **kwargs):
+        if 'martinize2' not in str(command[0]):
+            return _real_subprocess_run(command, **kwargs)
         calls.append({'command': list(command), **kwargs})
         structure = Path(command[command.index('-x') + 1])
         structure.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +174,9 @@ def test_an_empty_micelle_preview_needs_no_coarse_graining_at_all(tmp_path):
     cost = answer['cost']
     assert cost['coarse_graining_seconds'] == 0.0 and cost['cg_cached'] is False
     assert cost['cg_bytes'] == 0 and cost['cg_key'] is None
-    assert not (tmp_path / 'cache').exists(), 'an empty micelle has nothing to coarse-grain, so nothing is written'
+    # The solvent placement is cached under `cache/solvent`; what must not exist is a coarse-grained protein entry.
+    assert [path for path in (tmp_path / 'cache').glob('*') if path.name != 'solvent'] == [], \
+        'an empty micelle has nothing to coarse-grain, so no protein entry is written'
     assert answer['basis']['protein'] is None and answer['basis']['protein_beads'] == 0
     assert answer['basis']['beads'] == 40 * len(BEADS)
     assert answer['basis']['detergent_representation'] == 'the mapping\u2019s beads'
@@ -841,3 +852,62 @@ def test_the_protein_route_answers_404_for_an_entry_holding_no_structure(dashboa
 
     assert response.status_code == 404
     assert ENTRY_KEY in response.get_json()['error']
+
+
+def test_the_preview_shows_the_initial_water_and_salt_inside_the_box(tmp_path, monkeypatch):
+    """The dry frame is not the whole initial cell: the first leg adds water and salt, and the preview shows both."""
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_martinize2(calls))
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12,
+                     salt_molar=0.15, prepare_executable=None)
+
+    assert answer['valid'], answer['reasons']
+    basis = answer['basis']
+    assert basis['box_nm'] and len(basis['box_nm']) == 3
+    assert basis['solvent']['W'] > 0
+    assert basis['solvent']['NA'] == basis['solvent']['CL'] > 0
+    assert basis['water_residues'] and basis['ion_residues']
+    assert basis['solvent']['salt_molar'] == 0.15
+    residues = {line[17:20].strip() for line in answer['pdb'].splitlines() if line.startswith('HETATM')}
+    assert {'W', 'NA', 'CL'} <= residues
+    assert 'WATER AND IONS INCLUDED' in answer['pdb']
+
+    again = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12,
+                    salt_molar=0.15, prepare_executable=None)
+    assert again['pdb'] == answer['pdb'], 'the cached solvent is the same cell'
+    assert again['basis']['solvent']['cached'] is True
+
+
+def test_the_protein_is_centred_at_the_middle_of_the_preview_cell(tmp_path, monkeypatch):
+    """The build centres the protein in its box; the preview must show the same cell, not the placement's raw origin."""
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_martinize2(calls))
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+    assert answer['valid'], answer['reasons']
+    basis = answer['basis']
+    assert basis['centring']['anchor'] == 'system centre'
+    records = [line for line in answer['pdb'].splitlines() if line.startswith('HETATM')][:basis['beads']]
+    assert records, 'the dry system is the leading atoms of the frame'
+    coordinates = [[float(line[start:start + 8]) for start in (30, 38, 46)] for line in records]
+    centre = [sum(column) / len(column) for column in zip(*coordinates)]
+    box_centre = [value * 10.0 / 2 for value in basis['box_nm']]
+    assert centre == pytest.approx(box_centre, abs=0.01)
+
+
+def test_the_cell_still_contains_every_atom_after_centring_the_protein(tmp_path, monkeypatch):
+    """Centring moves the system with the cell; a box left at the old origin would cut the solvent it contains."""
+    calls = []
+    monkeypatch.setattr(pdc_build.subprocess, 'run', stubbed_martinize2(calls))
+    answer = preview(tmp_path, protein=str(protein(tmp_path)), chains=['A'], mapping=None, aggregation_number=12)
+
+    assert answer['valid'], answer['reasons']
+    basis = answer['basis']
+    origin = [value * 10.0 for value in basis['box_origin_nm']]
+    upper = [origin[axis] + basis['box_nm'][axis] * 10.0 for axis in range(3)]
+    coordinates = [[float(line[start:start + 8]) for start in (30, 38, 46)]
+                   for line in answer['pdb'].splitlines() if line.startswith('HETATM')]
+    for axis in range(3):
+        values = [point[axis] for point in coordinates]
+        assert min(values) >= origin[axis] - 1e-6, (axis, min(values), origin[axis])
+        assert max(values) <= upper[axis] + 1e-6, (axis, max(values), upper[axis])

@@ -114,6 +114,67 @@ def write_report(stage: Path, report: dict) -> None:
     (stage / REPORT_NAME).write_text(json.dumps(report, indent=2, default=str))
 
 
+def centre_shift(points, detergent_positions, box):
+    """The translation that puts the build's anchor at the centre of its unit cell.
+
+    A protein build is centred on the midpoint of the protein beads' own extents: the x/y box is that extent plus the
+    margin, so this gives the margin on both faces, and z puts the protein's middle at the box middle. An empty
+    micelle has no protein to straddle the cell, so its anchor is the mean of the detergent's initial atom positions
+    -- the centre of mass of the placed detergent cloud, not of one molecule.
+
+    The box is not resized: its dimensions are the placement's own (the volume its density was measured in), and the
+    whole system is translated together so the relative geometry, the belt, and the stamped bodies are unchanged.
+    """
+    if points:
+        columns = list(zip(*points))
+        anchor = [round((min(column) + max(column)) / 2, 6) for column in columns]
+        kind = 'protein extents'
+    elif detergent_positions:
+        count = len(detergent_positions)
+        anchor = [round(sum(float(position[index]) for position in detergent_positions) / count, 6)
+                  for index in range(3)]
+        kind = 'detergent initial positions'
+    else:
+        return [0.0, 0.0, 0.0], 'no coordinates', [0.0, 0.0, 0.0]
+    shift = [round(float(box[index]) / 2 - anchor[index], 6) for index in range(3)]
+    return shift, kind, anchor
+
+
+def shift_report(report, shift):
+    """Move the report's coordinates into the frame the structure is written in.
+
+    The centring translation happens after the box and the placement are measured, so the membrane frame and the
+    belt's cylinder origin would otherwise describe coordinates the run does not contain. Lengths and relative
+    numbers (radii, reaches, half-bands) are unchanged; only absolute coordinate fields move.
+    """
+    frame = report.get('membrane_frame')
+    if isinstance(frame, dict):
+        frame_axis = frame.get('axis') or [0.0, 0.0, 1.0]
+        along = sum(delta * axis for delta, axis in zip(shift, frame_axis))
+        for key in ('plane_low_nm', 'plane_high_nm', 'centre_nm'):
+            if key in frame:
+                frame[key] = round(float(frame[key]) + along, 6)
+    band = report.get('placement_band')
+    if isinstance(band, dict):
+        cylinder = band.get('cylinder')
+        if isinstance(cylinder, dict) and 'origin_nm' in cylinder:
+            cylinder['origin_nm'] = [round(float(value) + delta, 6)
+                                     for value, delta in zip(cylinder['origin_nm'], shift)]
+        band_axis = band.get('axis') or [0.0, 0.0, 1.0]
+        along = sum(delta * axis for delta, axis in zip(shift, band_axis))
+        for key in ('plane_low_nm', 'plane_high_nm'):
+            if key in band:
+                band[key] = round(float(band[key]) + along, 6)
+    return report
+
+
+def translate_atoms(atoms, shift):
+    """Move every atom by one vector, in place: the system is centred together, never one component at a time."""
+    for atom in atoms:
+        atom['position'] = [round(float(value) + delta, 5) for value, delta in zip(atom['position'], shift)]
+    return atoms
+
+
 def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries=None, twists=None) -> list[dict]:
     """One detergent per placement, as beads: rotated so its head points along the direction, its head end at the centre.
 
@@ -162,11 +223,11 @@ def stamp(draft: dict, centres, directions, *, first_residue: int = 900, entries
                                  f'names {len(beads)}')
 
     if entries is None:
-        tail = [bead for bead in beads if str(bead.get('type', '')).startswith('C')]
-        head = [bead for bead in beads if not str(bead.get('type', '')).startswith('C')]
+        tail = [bead for bead in beads if pdc_placement.tail_bead(bead)]
+        head = [bead for bead in beads if not pdc_placement.tail_bead(bead)]
         if not tail or not head:
             raise SystemExit('the detergent mapping marks no hydrophobic core: its bead types must distinguish the '
-                             'tail (C-type beads) from the head, or the placement cannot orient it')
+                             'tail (C, SC and TC beads) from the head, or the placement cannot orient it')
 
         positions = {bead['name']: np.asarray(bead['position'], dtype=float) for bead in beads}
         middle = np.mean([positions[bead['name']] for bead in beads], axis=0)
@@ -649,6 +710,7 @@ def build(stage: Path) -> int:
                                                vertical_spread=settings.get(
                                                    'belt_vertical_spread',
                                                    pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD),
+                                               belt_offset_nm=settings.get('belt_offset_nm', 0.0),
                                                body_profile=body_profile)
     report.update({
         'cg_command': command,
@@ -706,12 +768,16 @@ def build(stage: Path) -> int:
         # a `[ molecules ]` line naming a molecule whose bead count nothing knows cannot be written at all.
         atoms += [{'name': f'{template.residue[:2]}{index + 1:03d}', 'residue': template.residue,
                    'position': centre} for index, centre in enumerate(placement['centers'])]
+        shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], box)
+        translate_atoms(atoms, shift)
         micelle_output.write_gro(stage / 'system.gro', atoms,
                                  title=f'protein-detergent complex ({template.name}, '
                                        f'AN={settings["aggregation_number"]})', box=box)
         report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
                        'placed_detergents': len(placement['centers']),
+                       'centring': {'anchor': anchor_kind, 'anchor_nm': anchor_nm, 'shift_nm': shift},
                        'system_top': 'not written: the detergent is one centre per molecule, not a model'})
+        shift_report(report, shift)
         write_report(stage, report)
         return 3
 
@@ -735,6 +801,8 @@ def build(stage: Path) -> int:
     atoms += stamp(model, placement['centers'], placement['directions'],
                    first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1,
                    entries=entries, twists=twists)
+    shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], box)
+    translate_atoms(atoms, shift)
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
                                    f'AN={settings["aggregation_number"]}, {model["residue"]})', box=box)
@@ -742,9 +810,11 @@ def build(stage: Path) -> int:
                                   len(placement['centers']))
     report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
                    'placed_detergents': len(placement['centers']),
+                   'centring': {'anchor': anchor_kind, 'anchor_nm': anchor_nm, 'shift_nm': shift},
                    'detergent_model': settings.get('detergent_model') or {},
                    'molecules': topologies,
                    'system_top': 'system.top'})
+    shift_report(report, shift)
     write_report(stage, report)
     return 0
 

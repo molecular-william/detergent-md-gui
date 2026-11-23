@@ -6,17 +6,15 @@ the run -- and the run itself holds only what `prepare` synthesized, in `inputs/
 """
 import json
 import re
-import shutil
 from pathlib import Path
 
 from dashboard import files, martini3, paths
 from dashboard.execution import devices, protocol, run_inputs, tools
-from dashboard.execution.environment import TUTORIAL_TEMPLATE
 from dashboard.execution.mdp import PROFILES, write_mdp
 from dashboard.execution.settings import normalize
 from dashboard.execution.stages import Stage
 from detergent_pdc import setting_help
-from detergent_pdc.execution.adapters import pdc_import, pdc_preparation
+from detergent_pdc.execution.adapters import pdc_import, pdc_placement, pdc_preparation
 
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
 # (which the detergent's own beads need defined), the solvents file that defines water as `W`, and the ions file that
@@ -62,6 +60,8 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # The vertical half-height of the belt as a multiple of the detergent's own length. 1.1 was the old
             # reviewed value; 2.0 widens the band so the belt covers more of the membrane.
             'belt_vertical_spread': 2.0,
+            # A uniform translation of the belt along the membrane normal; 0 is the reviewed placement.
+            'belt_offset_nm': 0.0,
             'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
             # The CG production legs' own numbers. They are written from `pdc-assessment-v1`/`pdc-extension-v1`,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
@@ -166,6 +166,7 @@ SETTING_SPECS = {
     'min_body_gap_nm': ('Minimum body-bead distance (nm)', 0.0, 2.0),
     'belt_axial_window_nm': ('Local surface axial window (nm)', 0.1, 5.0),
     'belt_vertical_spread': ('Vertical spread (x detergent length)', 0.5, 5.0),
+    'belt_offset_nm': ('Belt vertical offset (nm)', -2.0, 2.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
     # equilibration and restart profiles keep their own values. The production neighbour list, temperature and
@@ -309,7 +310,7 @@ STAGES = (
     # A leg the run asks none of gets no directory, and the manifest records it skipped with its reason.
     Stage('Energy minimisation', '03_minimisation/pdc_leg.sh',
           ('../../inputs/03_minimisation.json', '../../inputs/minimisation.mdp', '../../inputs/ions.mdp',
-           '../../inputs/water.gro', '../02_system/system.gro', '../02_system/system.top',
+           '../02_system/system.gro', '../02_system/system.top',
            f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('system.tpr', 'system.gro', 'system.top', 'system.edr', 'system.log', 'solvation.json'),
           script='dashboard/execution/scripts/pdc_leg.sh'),
@@ -341,7 +342,7 @@ STAGES = (
     Stage('CG extension MD', '08_extension/pdc_extension.sh',
           ('../../inputs/' + SETTINGS_NAME, '../../inputs/extension.mdp', '../../inputs/extension.ps',
            '../../inputs/minimization.mdp', '../../inputs/equilibration.mdp', '../../inputs/ions.mdp',
-           '../../inputs/water.gro', '../06_assessment/prod/run.tpr', '../06_assessment/prod/run.cpt',
+           '../06_assessment/prod/run.tpr', '../06_assessment/prod/run.cpt',
            '../07_micelle_assessment/removed.json', '../07_micelle_assessment/kept.gro',
            '../06_assessment/system.top', f'../02_system/{PROTEIN_TOPOLOGY_DIRECTORY}/'),
           ('prod/run.gro', 'prod/run.xtc'),
@@ -1274,8 +1275,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     model = {'mapping': None, 'terms': 0, 'reference_terms': 0, 'fallback_terms': 0,
              'source': 'no mapping: the detergent is one centre per molecule'}
     model_tail_beads = []
-    tail_beads_source = ("the run's own mapping: beads of the aliphatic carbon series, because the template names no "
-                         'tail roles')
+    tail_beads_source = ("the run's own mapping: beads of the aliphatic carbon family (C, SC, TC), because the "
+                         'template names no tail roles')
     if mapping is not None:
         from detergent_pdc.execution import pdc_preview
         from detergent_pdc.models.molecules import detergent_cg
@@ -1307,11 +1308,12 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
             model.update({'terms': draft['terms'], 'reference_terms': draft['reference_terms'],
                           'fallback_terms': draft['fallback_terms'],
                           'source': detergent_cg.terms_source(None, draft)})
-        # The mapping answers for itself when the template cannot: a bead of the aliphatic carbon series is a tail
-        # bead, and the sugar and polar series are not. This is what lets the criterion judge a run whose template is
-        # still the skeleton -- one bead, no roles -- instead of refusing it.
+        # The mapping answers for itself when the template cannot: a bead of the aliphatic carbon family is a tail
+        # bead, and the sugar and polar families are not. This is what lets the criterion judge a run whose template is
+        # still the skeleton -- one bead, no roles -- instead of refusing it. A ring interaction site is a virtual
+        # site (TC4), not a tail bead, so the family reader excludes it.
         model_tail_beads = [str(bead['name']) for bead in draft.get('beads', [])
-                            if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
+                            if pdc_placement.tail_bead(bead)]
     elif _cg_molecule(template_path.parent):
         # The mapping-free branch: the chosen detergent is a first-class `cg` molecule, and its own folder is the
         # model. The same draft shape a mapping derives is synthesized from `[ atoms ]` and the `.gro`, so the build
@@ -1332,9 +1334,9 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
         else:
             references.append(run_inputs.absolute('detergent_model', topology_file, label=f'molecules/{molecule}'))
         model_tail_beads = [str(bead['name']) for bead in draft['beads']
-                            if re.fullmatch(r'C[1-5][a-z]?', str(bead.get('type') or ''))]
-        tail_beads_source = ("the CG molecule's own topology: beads of the aliphatic carbon series, because the "
-                             'template names no tail roles')
+                            if pdc_placement.tail_bead(bead)]
+        tail_beads_source = ("the CG molecule's own topology: beads of the aliphatic carbon family (C, SC, TC), "
+                             'because the template names no tail roles')
     numbers['detergent_model'] = model
     if not numbers['tail_beads'] and model_tail_beads:
         # The template is the long-term home for this, but the skeleton names no roles: the run's own model answers
@@ -1376,9 +1378,8 @@ def prepare(run_dir, *, protein=None, template=None, settings=None, project_root
     extension_ps = _extension_inputs(inputs, numbers, skipped)
     equilibration_steps = _equilibration_mdps(inputs, numbers, skipped, has_protein=protein_path is not None)
     if 'Energy minimisation' not in skipped or 'CG extension MD' not in skipped:
-        # Solvation's fix-up mdp and the water it packs, for the first leg and for the extension's restart alike.
+        # Solvation's fix-up mdp, for the first leg and for the extension's restart alike; Insane packs the water.
         write_mdp('pdc-ions-v1', inputs / 'ions.mdp')
-        shutil.copy2(TUTORIAL_TEMPLATE / '4_CG_sim' / 'inputs' / 'water.gro', inputs / 'water.gro')
     # A tool that is not resolvable is recorded as unresolved rather than raising here, because readiness is the layer
     # that blocks a run for it.
     recorded_tools = {}

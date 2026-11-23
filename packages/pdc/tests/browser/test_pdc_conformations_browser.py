@@ -312,3 +312,25 @@ def test_a_preview_body_without_conformations_keeps_the_single_line(dashboard, l
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('Placement for', timeout=30000)
     expect(page.locator('.new-pdc-preview-library')).to_have_text(SINGLE_LINE)
     assert errors == [], errors
+
+
+def test_a_run_of_another_detergent_is_listed_but_cannot_enter_this_library(dashboard, live_page):
+    """The card is for the chosen detergent; another residue's micelle is shown with why, never silently selectable."""
+    page, errors = live_page
+    serve(page, runs={'runs': [
+        {'id': 'ddmrun000001', 'label': '', 'residue': 'DDM', 'protein': False, 'completed': True,
+         'duration_ns': 100.0, 'eligible': True, 'reason': None},
+        {'id': 'ogrun0000001', 'label': '', 'residue': 'OG', 'protein': False, 'completed': True,
+         'duration_ns': 200.0, 'eligible': True, 'reason': None},
+    ]})
+    browser.open_pdc_new_run(page, live_page.base_url)
+    page.wait_for_function("() => document.querySelectorAll('.new-pdc-shape .eligible-run').length === 2",
+                           timeout=30000)
+    choose_shape(page, 'Build from runs')
+
+    rows = page.locator('.new-pdc-shape .eligible-run')
+    expect(rows.nth(0).locator('input[type=checkbox]')).to_be_checked()
+    expect(rows.nth(1)).to_contain_text('different detergent (OG)')
+    assert rows.nth(1).locator('input[type=checkbox]').is_disabled()
+    expect(rows.nth(1).locator('.tag')).to_have_text('not eligible')
+    assert errors == [], errors

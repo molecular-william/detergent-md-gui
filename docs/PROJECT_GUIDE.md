@@ -1,6 +1,6 @@
 # Detergent MD project guide
 
-The local dashboard runs AA simulations from compatible molecule directories, CG simulations from a chosen parameterization (a saved mapping revision, a published Martini 3 reference, or a derived composition), a protein-detergent complex pipeline (`pdc`), and a sugar osmotic-pressure series. The packaged DDM example (`molecules/DDM`) is a worked reference. The micelle builder remains paused; see [the roadmap](../README.md#roadmap).
+The local dashboard runs AA simulations from compatible molecule directories, CG simulations from a chosen parameterization (a saved mapping revision, a published Martini 3 reference, or a derived composition), a protein-detergent complex pipeline (`pdc`), and a sugar osmotic-pressure series. The packaged DDM example (`molecules/DDM`) is a worked reference.
 
 Read [DDM calibration](DDM_CALIBRATION.md) for scientific results and bonded-workspace limitations before changing DDM scoring, fitting, or carbohydrate mapping. For the carbohydrate validation panel, target registry, Sucrose diagnostic procedure, and paper-scale evidence boundary, read [Carbohydrate Validation Operations](research/2026-09-24-carbohydrate-validation-operations.md) and [Martini 3 carbohydrate validation](research/2026-09-24-martini3-carbohydrate-validation.md).
 
@@ -121,7 +121,7 @@ Fast_Forward also needs lmfit, cgsmiles, matplotlib, MDAnalysis, numba, pbr, pys
 Readiness checks tool executables and imports before launch. Every run captures resolved tool paths, versions, commands, environment, and input/script hashes. No package installation happens inside simulation jobs.
 
 ## Paths, state, canonical inputs
-dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, parameterizations/, model_registry/, compositions/, proteins/, preview/, conformations/ and martini3/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` is the New Run panel's martinize2 cache, which no run reads. `conformations/` is the detergent conformation store (`<residue>/<key>/library.json` and `library.sha256`, written by `detergent_pdc/conformations/` and read in place by a run that names one); it is not tracked in git, and a copied directory is usable by key. `martini3/<version>/` is the installed Martini 3 set every run reads in place -- the official lipidome ITPs, the sugar reference, its provenance and `martini3.json`, which names the version, its source and its files (a flat pre-version install reads as version `legacy`); it is installed from `references/` by the first reader and never written by a run. The set's upstream files -- `references/M3-Lipid-Parameters/ITPs/` with its `LICENSE.txt`, `README.md` and the sugar reference -- are tracked, so a clone installs the force field without a download; the rest of `references/` (PDFs, partial clones, the upstream benchmark material and workbook) is not. SQLite is the only live job store; old JSON job snapshots are not read.
+dashboard/paths.py owns application path configuration. A workspace contains jobs.sqlite3, runs/, uploads/, mapping_drafts/, parameterizations/, model_registry/, compositions/, proteins/, preview/, conformations/ and martini3/. `proteins/` holds structures a pdc run imported (each with a sidecar recording its stated half-thickness and chains); `preview/` holds the New Run panel's martinize2 cache and its cached Insane solvent placement, neither of which a run reads. `conformations/` is the detergent conformation store (`<residue>/<key>/library.json` and `library.sha256`, written by `detergent_pdc/conformations/` and read in place by a run that names one); it is not tracked in git, and a copied directory is usable by key. `martini3/<version>/` is the installed Martini 3 set every run reads in place -- the official lipidome ITPs, the sugar reference, its provenance and `martini3.json`, which names the version, its source and its files (a flat pre-version install reads as version `legacy`); it is installed from `references/` by the first reader and never written by a run. The set's upstream files -- `references/M3-Lipid-Parameters/ITPs/` with its `LICENSE.txt`, `README.md` and the sugar reference -- are tracked, so a clone installs the force field without a download; the rest of `references/` (PDFs, partial clones, the upstream benchmark material and workbook) is not. SQLite is the only live job store; old JSON job snapshots are not read.
 
 A run is **two things**: `runs/<id>/` and the job row that lists it, and the dashboard reads the row — the Runs list pages the store, and every panel resolves a run through `Coordinator.lookup`. A directory copied in by hand (`cp -r`, a zip, another checkout) has no row, so it is invisible until registered. `detergent-import-run` moves both when the sender's workspace is at hand; a pasted directory is registered in place with `python -m dashboard.cli.import_run --adopt --workspace <ws> --run <id> [--apply]` or `POST /api/runs/adopt {"run": "<id>"}`, and `GET /api/runs/unregistered` lists directories the workspace holds but no row names; when that list is non-empty the Runs panel shows a banner, and its dialog registers the ticked directories (AA-only first, one `POST /api/runs/adopt` each). Adoption rebuilds the row from the manifest (`execution/adoption.py`), verifies the copy's inputs against this checkout, rebuilds its analysis attempts from `analyses/*/*/*/manifest.json`, and sets `reference_eligible` only when `references.verify` passes. A `cg` run whose `reference_run_id` is not registered is refused by name: adopt the AA source first. The row records `adopted_at`; display fields the manifest never wrote (`label`, `created`, `method`, `profile`) are derived, not recovered.
 
@@ -259,7 +259,7 @@ A caller that names no mapping still falls back to the run-local `mapping_candid
 
 The AA half runs at its standard durations (100 ps NVT, 1000 ps NPT, 10000 ps production) and the CG half at 10 ps equilibration and 10000 ps production, in pure water at 300 K. Durations only; the thread budget comes from the stage settings, whose defaults are one MPI rank and eight OpenMP threads. It runs AA → ff_map → the mapping's current parameterization or `ff_inter` → CG → ff_assess → SASA with checks at each handoff. Every run is new; retry preserves the original data.
 
-Scripts live in dashboard/execution/scripts/. Scientific assets are read where they live and named in the run's input record: SwissParam and CHARMM36 from their resource folders, Martini from the workspace's installed `martini3/` set (never from a run's own stage directories), the water boxes from the templates. The MDPs are written from the reviewed profiles rather than copied from the templates. `references/` is the vendored upstream of the Martini set -- the installation source and what the code parsers index -- and the install is digest-verified against it, so the two cannot disagree. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories. Maintained `mdrun` launchers request CUDA offload on GPU 0 for nonbonded work with thread pinning; the AA stages put PME on the GPU as well, while a CG-family leg computes no PME at all -- its MDPs use `coulombtype = reaction-field` -- so its flags carry neither `-pme` nor `-pmefft` (`workflow._uses_pme` gives the atomistic stages the PME brackets, `aa.mdrun_command_flags(..., pme=False)` the CG ones, and a PME scheme that names a device is refused there). Verify the recorded command and GROMACS log when diagnosing hardware selection.
+Scripts live in dashboard/execution/scripts/. Scientific assets are read where they live and named in the run's input record: SwissParam and CHARMM36 from their resource folders, Martini from the workspace's installed `martini3/` set (never from a run's own stage directories); the solvent is placed by Insane 1.2.0 on the system's own box instead of a checked-in water box. The MDPs are written from the reviewed profiles rather than copied from the templates. `references/` is the vendored upstream of the Martini set -- the installation source and what the code parsers index -- and the install is digest-verified against it, so the two cannot disagree. No ENAP molecule or script is used. GROMACS 2026 TPRs are kept for simulation; analysis uses supported ligand GRO inputs with matching trajectories. Maintained `mdrun` launchers request CUDA offload on GPU 0 for nonbonded work with thread pinning; the AA stages put PME on the GPU as well, while a CG-family leg computes no PME at all -- its MDPs use `coulombtype = reaction-field` -- so its flags carry neither `-pme` nor `-pmefft` (`workflow._uses_pme` gives the atomistic stages the PME brackets, `aa.mdrun_command_flags(..., pme=False)` the CG ones, and a PME scheme that names a device is refused there). Verify the recorded command and GROMACS log when diagnosing hardware selection.
 
 ### Stage settings
 
@@ -575,9 +575,14 @@ integer seed, the protein **subunit** selection, whether the back-map runs, the 
 CG2AT2 builds; `none` adds no flag), and the **Prepare protein** toggle
 (`prepare_protein`, on by default wherever the build has a protein: the stage skips by name when `pdb2pqr` is
 not resolvable). `GET /api/pdc/preview/placement` derives a live **system preview** — the frame the build
-would write (protein + detergent in the box, before solvation) — through the build's own functions, caching
-only the martinize2 protein step under the workspace's `preview/`; a gate that refuses is returned as a
-reason, never as a drawn picture. Its `basis` carries the protein's **secondary structure** — the DSSP letters
+would write (protein + detergent in the box), then adds Insane's initial water and salt at the form's
+concentration and draws the unit cell from `basis.box_nm`; the dry frame comes from the build's own functions and
+the solvent from the same `insane_solvate.place` call the stage makes, both cached under the workspace's `preview/`.
+A gate that refuses is returned as a reason, never as a drawn picture; a solvent failure leaves the dry frame and
+`basis.solvent_reason`. The dry system's whole-system centroid is aligned to the cell centre before
+solvation; Insane's own translation is undone on the solvent, the frame is wrapped molecule-by-molecule into the
+0..`box_nm` cell, and the cached ribbon is moved by that one `basis.centring.shift_nm`; the box is drawn at the origin,
+so the system is at the cell middle and the solvent stays inside the edges. Its `basis` carries the protein's **secondary structure** — the DSSP letters
 martinize2 was given, keyed by the residue number the frame gives each residue, the `helix`/`sheet`/`coil`
 class each falls in and their counts (`pdc_preview.SECONDARY_CLASSES`, one table) — so the card colours a
 backbone bead by its residue's class and prints the assignment's own totals; a residue the frame cannot give
@@ -776,18 +781,8 @@ Set {"workspace": "/new/workspace"} in config/dashboard-paths.json only after ve
 
 For the 2026-09 reorganization, original runtime stores were retained in archive/dashboard-development-20260917/runtime-original/. That tree is gitignored and is **gone from this checkout**; the workspace-migration hash/database proof lived beside it. The current workspace is the live store; never switch its root while jobs are active.
 
-## Paused work
-### Micelle builder
-A native spherical single-detergent Martini micelle builder around membrane proteins. Paused at the user's request. The initial core (python -m micelle build --template ... --aggregation-number N --seed S --output DIR) validates a registered detergent template, creates a deterministic spherical center lattice, and writes geometry diagnostics. python -m micelle validate build/diagnostics reruns the checks.
-
-The package is intentionally marked experimental until protein-aware packing, topology dependency closure, solvent and ions, GROMACS preprocessing, and dashboard submission are completed. It must not be used to claim a validated scientific model.
-
-Approved design: docs/superpowers/specs/2026-09-14-detergent-micelle-builder-design.md.
-
-Implementation plan: docs/plans/2026-09-14-detergent-micelle-builder.md.
-
-### Membrane-protein workflow
-The protein-detergent complex pipeline (`pdc`) is the maintained implementation of this workflow and runs end to end; see Source ownership and Dashboard workspace above. The historical `memembed -> martinize -> insane -> cg2at` chain is **not** maintained: the `archive/MemProtMD/` tree earlier notes named is gone from this checkout, and nothing in the maintained dashboard/ tree depends on it. The project goal it describes is met by `pdc`, whose back-map stage uses the CG2AT2 build vendored under `tools/cg2at/`.
+## Membrane-protein workflow
+The protein-detergent complex pipeline (`pdc`) is the maintained implementation of this workflow and runs end to end; see Source ownership and Dashboard workspace above. The historical `memembed -> martinize -> insane -> cg2at` chain is **not** maintained: the `archive/MemProtMD/` tree earlier notes named is gone from this checkout. Insane is a declared pip dependency used only for water placement; the build and back-map stages are the maintained `pdc` code and `tools/cg2at/`. The project goal it describes is met by `pdc`, whose back-map stage uses the CG2AT2 build vendored under `tools/cg2at/`.
 
 ## Verification
 Canonical tier commands live in `AGENTS.md` (`## Verify`); `pytest.ini` owns worker defaults and counts. The three
@@ -1071,7 +1066,10 @@ angular/height position: the draw makes one ladder pass and tries bounded local 
 radial) rather than relocating a rejected slot to another ladder phase; a slot whose own region the protein
 penetrates (base head or body inside it) is left empty, not nudged. `min_body_gap_nm` (default 0.3 nm) is a
 **body-body** gate against the run's own stamped model body (an explicit centres-only build gets the head-only gate);
-`belt_gap_nm`, `min_body_gap_nm` and `belt_axial_window_nm` are belt-only settings. A
+`belt_gap_nm`, `min_body_gap_nm`, `belt_axial_window_nm` and `belt_offset_nm` are belt-only settings;
+`belt_offset_nm` translates every placed site together along the membrane normal after the site gate, and the final
+head/body clearance checks run against the shifted sites, so a belt raised into the protein is refused rather than
+drawn. A
 build with no stated membrane keeps a **sphere** (`SHAPE_SPHERE`) whose radius is `radius_nm` or the selected beads'
 extent about their centroid plus the clearance plus the detergent's length, whichever is larger: `radius_nm` is a
 floor there too, and `radius_source` records which number won -- only an empty micelle, with nothing to measure, has
@@ -1155,8 +1153,8 @@ any check stops the stage with a sentence, like a template that cannot build.
 ### Back-mapping
 
 CG2AT2 is vendored under `tools/cg2at/` (`tools/cg2at/cg2at`); `pdc_backmap.sh` runs its **align** method with the
-`martini_3-0_charmm36` fragment DB. The `memembed`, `martinize`, `insane` and `cg2at` package names earlier notes named
-are not maintained trees, and no `archive/` exists in this checkout.
+`martini_3-0_charmm36` fragment DB. The `memembed`, `martinize` and `cg2at` package names earlier notes named are not maintained trees, and no
+`archive/` exists in this checkout; `insane` is a declared solvation dependency.
 
 A detergent is converted from a fragment written out of its own mapping: `execution/scripts/cg2at_fragment.py` turns a
 mapping, the molecule's topology and its coordinates into the `[ BEAD ]`-sectioned PDB and itp CG2AT2 reads, and

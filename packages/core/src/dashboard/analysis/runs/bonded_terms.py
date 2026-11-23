@@ -58,14 +58,6 @@ def read_terms(text):
     return terms
 
 
-def term_sets(terms):
-    """`{'bonds': set, 'angles': set, 'dihedrals': set}` — the shape a "what is missing" caller wants."""
-    return {'bonds': {row['atoms'] for row in terms['bonds']},
-            'angles': {row['atoms'] for row in terms['angles']},
-            'dihedrals': {row['atoms'] for row in terms['dihedrals']}
-                         | {row['atoms'] for row in terms['proper-dihedrals']}}
-
-
 def distance_nm(positions, atoms):
     """The distance between two beads, in nanometres (GROMACS positions are angstroms)."""
     return float(np.linalg.norm(positions[atoms[0]] - positions[atoms[1]]) / 10)

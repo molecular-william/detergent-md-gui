@@ -110,11 +110,3 @@ with source hashes.
 - Ownership: `dashboard/models/bonded/` (interaction library in `__init__.py`, fitting/generation/parameterization),
   `dashboard/models/sugars/` (ring recognition, geometry, topology), `dashboard/execution/` (execution),
   `dashboard/web/routes/` (HTTP), static JS/CSS/templates (UI).
-
-## On hold
-
-The native protein-detergent micelle builder is paused at the user's request; `micelle/` is a partial, unvalidated
-skeleton and must not be presented as a model. Existing starting points:
-[approved design](superpowers/specs/2026-09-14-detergent-micelle-builder-design.md) and
-[implementation plan](plans/2026-09-14-detergent-micelle-builder.md). Do not silently replace DDM
-calibration with this project.

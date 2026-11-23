@@ -436,6 +436,11 @@ def structure_pdb(path, *, topology: dict | None = None, title: str | None = Non
                       topology=topology, title=title or f'{path.name} - a run structure', atomistic=atomistic)
 
 
+def is_solvent(atom) -> bool:
+    """Whether a bead is water or an ion, rather than protein or detergent."""
+    return str(atom.get('residue', '')).upper() in WATER_RESIDUES
+
+
 def is_detergent(atom, detergent_residue) -> bool:
     """Whether a bead belongs to the detergent the caller named, rather than to the protein."""
     return str(atom['residue']).upper() == str(detergent_residue).upper()
@@ -483,7 +488,9 @@ def system_pdb(atoms, *, detergent_residue='DDM', include_water=False, title='PD
                                                include_water=include_water, topology=topology, subunits=subunits,
                                                protein_topologies=protein_topologies, conect_kind=conect_kind,
                                                atomistic=atomistic)
-    lines = structure_remarks(title, topology, counts, subunits=subunits, atomistic=atomistic)
+    clause = ('COARSE-GRAINED SYSTEM AS SET UP, WATER AND IONS INCLUDED' if include_water
+              else None)
+    lines = structure_remarks(title, topology, counts, subunits=subunits, atomistic=atomistic, clause=clause)
     lines += records + conect + ['END']
     return '\n'.join(lines) + '\n'
 
@@ -580,13 +587,17 @@ def _series_layout(atoms, *, detergent_residue, include_water=False, topology=No
         kept.append(atom)
         sources.append(source)
         detergent = is_detergent(atom, detergent_residue)
-        residue = DETERGENT_RESIDUE if detergent else PROTEIN_RESIDUE
+        solvent = is_solvent(atom)
+        residue = (DETERGENT_RESIDUE if detergent
+                   else str(atom['residue']).upper()[:3] if solvent else PROTEIN_RESIDUE)
         # An all-atom file states its atoms' own elements and no Martini family: the size-class stand-in and the
         # family code are a coarse-grained file's readings of a bead, and applying them to atoms painted a whole
-        # all-atom trajectory as carbon. The caller says which kind of system it is writing.
-        element = (atom_element(name) if atomistic
+        # all-atom trajectory as carbon. The caller says which kind of system it is writing. Water is oxygen and an
+        # ion states its own element, so a viewer's element colours do not paint the solvent as protein carbon.
+        element = ('O' if residue == 'W' else residue if solvent
+                   else atom_element(name) if atomistic
                    else elements.get(name.strip().upper()) if detergent else None)
-        family = None if atomistic else (families.get(name.strip().upper()) if detergent else None)
+        family = None if atomistic or solvent else (families.get(name.strip().upper()) if detergent else None)
         # One character, because that is the column: the model's own letter where it fits, its first character
         # otherwise, and the file's REMARK says so rather than leaving a truncated label to be discovered.
         chain = str((subunits or {}).get(name.strip().upper(), CHAIN_UNSTATED))[:1]

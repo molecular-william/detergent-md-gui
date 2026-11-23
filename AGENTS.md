@@ -15,8 +15,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - Runs: `aa.py` for an AA run; `cg_run.py` dispatches a CG run's parameterization to `cg.py` (mapping revision),
   the sugar adapter (published reference) or `composition.py` (derived). A `kind: "cg"` molecule is a pdc detergent
   only, never an AA source or bead-editor entry; a composition is a CG model with a molecule name, not a folder.
-- Protein-detergent: `pdc.py` owns the ten stages, each running a repository `pdc_*.sh`; placement science is
-  `micelle/`. Osmotic: `osmotic.py` with `osmotic_box.py`/`osmotic_mdp.py`.
+- Protein-detergent: `pdc.py` owns the ten stages, each running a repository `pdc_*.sh`; placement is
+  `pdc_placement.py` (belt/cylinder) over `micelle/` (lattice and overlap gates). Osmotic: `osmotic.py` with
+  `osmotic_box.py`/`osmotic_mdp.py`.
 - Tools resolve through `config/tools.json` and `execution/tools.py`: a declared path is verified or resolves to
   nothing, never a substitute; every manifest records the resolved version and path.
 - `packages/` holds three distributions: `core` is the engine (`detergent-core`, import `dashboard`); `validation` and
@@ -24,20 +25,22 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   Code map, routes and ownership: `PROJECT_GUIDE.md` *Source ownership*.
 - Tests live in `packages/<name>/tests/{unit,integration,browser}`; `tests/harness/` holds the shared fixtures,
   plugins and the area table.
-- graphify (`.agents/skills/graphify`) builds the gitignored `graphify-out/` through `.venv/bin/graphify`; it is
-  navigation only, never a check -- use `query`/`path`/`explain`, and find callers by search and pin them with tests.
+- GitNexus is gone; do not reinstall it. graphify (`.agents/skills/graphify`, workspace-local) builds the gitignored
+  `graphify-out/` through `.venv/bin/graphify`; navigation only, never a check -- use `query`/`path`/`explain`, and
+  find callers by search and pin them with tests.
 
 ## Run contract
 - Run types: `aa_only`, `cg`, `pdc`, `osmotic`; a `cg` run's `parameterization.kind` (revision, reference, composition)
-  picks its adapter and `STAGES`; `pdc`'s ten are `01_prepare` … `10_backmap`, named by `pdc.LEGS`/`stage_by_name`.
-- A prepared run reads shared inputs in place: `inputs/inputs.json` names each by role/label/kind/root/path (layout 4,
-  and every live manifest has been migrated), and `stage_scripts`/`python_modules` name the repository code with a version
-  that a not-yet-run stage re-checks; `mdp_profiles` names each MDP's reviewed profile, so no `.py` or copied `.sh` lives in a run.
+  picks its adapter and `STAGES`; `pdc`'s ten directories are `01_prepare` … `10_backmap` in `pdc.STAGES`/`stage_by_name`,
+  and `pdc.LEGS` names only the three equilibration legs (minimisation, NVT, NPT).
+- A prepared run reads shared inputs in place from `inputs/inputs.json` (layout 4); `stage_scripts`/`python_modules`
+  name the repository code with a version a not-yet-run stage re-checks, and `mdp_profiles` each MDP's profile, so no
+  `.py` or copied `.sh` lives in a run. Detail: `PROJECT_GUIDE.md` *Run storage and lifecycle*.
 - Every stage records start/end, command, environment, inputs, outputs, exit code and log path.
 - A stage with nothing to do records `skipped` (exit 4) with `skip.json`; a stage `prepare` rules out gets no directory
   and is recorded `skipped` from `skipped_stages`.
 - Migrations (`cli/migrate_run_layout.py`, `migrate_run_types.py`, `migrate_named_analyses.py`, `migrate_named_records.py`, `migrate_molecule_versions.py`, `migrate_mapping_identities.py`, `migrate_reference_pins.py`, `repair_reference_edition.py`) rewrite records once, verify their output, keep a `--rollback` ledger, and are never re-run by hand on already-migrated data.
-- Runs end `complete`, `failed`, `cancelled` or `blocked`.
+- A run's status ends `completed`, `failed`, `cancelled` or `blocked`; `complete` is the last stage label.
 
 ## Invariants
 - One name is one saved mapping (`records/<slug>.json`): `save_draft` refuses a name another model holds (409 with
@@ -55,11 +58,13 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   `funct 1` refuses the topology; one that reads each line as a dihedral measures one torsion eight times, and a writer must collapse the block's lines (`refine`).
 - `ff_assess` scores against histograms it does not make. A revision recording none still runs, and its assessment stage
   records `skipped` with that reason rather than scoring 0.00.
-- `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for`
-  is the only list, and a `cg` revision run owes `dihedral-fit`/`bonded-cross-check`, which record `skipped` for the other kinds.
-- A pdc belt is a **cylinder** about the membrane normal when the protein states a membrane: radius from the slab
-  atoms' radial extent (`radius_nm` is a floor), each detergent at its own surface point (head out, tail 15 deg inward),
-  band 1.1x its length; no membrane keeps a sphere. On either shape a detergent's body must clear the protein, not just its head site.
+- `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for` is the
+  only list, and a `cg` revision run owes exactly that list's kinds; one with nothing to do records `skipped`, never a
+  fabricated pass.
+- A pdc belt is a **cylinder** about the membrane normal: its surface is measured locally per site
+  (`BELT_LOCAL_ANGLE_DEG` 10 deg, axial `belt_axial_window_nm`, plus `belt_gap_nm`); `min_body_gap_nm` gates body
+  against body, and a rejected site tries bounded offsets before being left empty. No membrane keeps a sphere,
+  where `radius_nm` is radius and floor (`pdc_placement._belt_cylinder`; `PROJECT_GUIDE.md` *Shapes, stages and series*).
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
 - Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and
@@ -79,16 +84,21 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   them and `aa.mdrun_command_flags` is the only builder, so a stage script states neither a device nor an offload
   scheme. Each stage records `resource_usage.gpu`; the index is the CUDA ordinal, with the NVML row and PCI bus id
   beside it. A host with no device (`devices.present`) offers no GPU setting and writes no GPU flag.
-- A run setting is advertised in `SETTING_SPECS` or `CHOICE_SPECS` in the same edit: `web/routes/runs.py` keeps only
-  advertised keys, so an unadvertised setting is dropped without a word and the run silently uses the default.
+- A run setting is advertised by its run type's adapter (`settings_specs()`/`choice_specs()`), which publishes the
+  dialect's `SETTING_SPECS`/`CHOICE_SPECS`: `web/routes/runs.py` keeps only advertised keys, so an unadvertised setting
+  is dropped without a word and the run silently uses the default.
 - Provenance is the `inputs.json` record and `stage_scripts` names/versions (plus `provenance.json`, which gates nothing), not a copy: the one Martini 3 set lives at
   `workspace/dashboard/martini3/<version>/` (`dashboard.martini3`, witnessed by `martini3.json`), every run reads it in place, and `references/` is upstream; a molecule folder is `molecules/<id>/<version>/`; a mapping's molecule binding is `{molecule_id, version}`, and a shared AA reference is pinned by its edition.
 
 ## Engineering rules
 - Read `docs/HANDOFF.md` before the first edit and leave it current: the next session starts there, not from your
   transcript.
+- A Python change is live only after the dashboard restarts; `static/` is read per request. Check active jobs and
+  worker leases first, then restart the unit -- a live check can compare a new page against an old engine.
 - When a request is ambiguous, ask one round of numbered questions: the user decides the science; a UI change shows an
   HTML draft and a cross-layer change a plan in `docs/plans/` before code.
+- `docs/plans/*` is gitignored but plan files are tracked: add a new one with `git add -f docs/plans/<file>.md`, or it
+  silently stays untracked while `HANDOFF.md` cites it.
 - Trace inputs, state transitions, outputs and failure handling before editing; fix the cause, measure before and
   after, and report each check's command and result. Reproduce a suspected pre-existing failure at HEAD first.
 - Test against fixtures, never the developer's workspace, and build the record through the route the UI uses. Shared
@@ -105,11 +115,13 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - Simulation outputs are immutable; analyses reference their source trajectory. A reader that makes a tool cache beside
   its input (MDAnalysis' `*_offsets.npz`) opens the file through a symlink in a temporary directory, never in the run
   tree.
+- An analysis attempt stages each source as a symlink; its producer publishes new files and never edits a staged
+  input. `files.stat_snapshot` detects a write through the link; it does not prevent it (`PROJECT_GUIDE.md` *Run accounting*).
 - GROMACS + Martini by default; anything else only with measured need.
 
 ## Do not
 - Read files with shell commands (`cat`, `head`, `sed`): use read for files, glob for paths, grep for contents.
-- Kill a process by an unfiltered listener: DSH is 3080, the dashboard 5000.
+- One coordinator per workspace. Never kill by an unfiltered listener: DSH is 3080, the dashboard 5000.
 - Push; the user pushes. Commit only after the relevant checks pass; `scripts/gate_commit.sh` is the gate.
 - Clean or reset paths you are not changing: name the paths, and leave `git clean`, `git reset --hard` and a broad `git checkout` alone.
 - Exercise a destructive control against the live workspace. Point it at a fixture, or inspect what the client sends.
@@ -123,6 +135,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   its own graphs for BARTENDER; unifying them is postponed, not planned, and a bartender model runs stage 5 `skipped`,
   never the FF baseline.
 - CG production 20 fs, CG equilibration 5 fs, AA half 2 fs; each MDP is its reviewed `mdp.PROFILES` entry's own.
+- Analyses batch with `np.vecdot`, so `packages/core/pyproject.toml` declares `numpy>=2`; another summation order moves
+  a fitted angle across the +-180 branch cut.
 - This GROMACS is an MPI-only build: `-ntomp` is the knob, `-ntmpi` is invalid. In use:
   `/usr/local/gromacs/2026.3/bin/gmx`.
 - Internal consistency is the primary evidence; the reference's own numbers are context, not a pass mark.
@@ -131,9 +145,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - The published M3-Lipid set is tracked at `references/M3-Lipid-Parameters` (Apache-2.0) and installed per workspace;
   update it deliberately, never per run. GLYCAM06 is dropped.
 - The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
+- Insane 1.2.0 is the solvent placer for every CG/pdc run (`dashboard.execution.scripts.insane_solvate`, declared `insane` in `config/tools.json`); `gmx solvate` is not used. It replaced the replicated water box after measured water–head contacts fell inside the Martini bead radii.
 - `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.
 - Phase 4 (sucrose and maltose experimental sources) is deferred, not abandoned.
-- GitNexus graph checks are gone (2026-11-03); graphify is navigation only, never a check -- find callers by search and pin them with tests.
 
 ## Verify
 ```
@@ -144,7 +158,7 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 scripts/gate_commit.sh <message-file> <paths...>                # fast tier + ruff over named paths
 .venv/bin/python scripts/mutation_check.py                       # 11 mutants: 9 caught, 1 stale anchor, 1 control survived; run after committing
 ```
-Eleven areas in `tests/harness/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module): pdc,
-runs, bonded, analysis, infra, osmotic, mapping, carbohydrate, web, molecules, aa. Compose an area with a tier, e.g.
-`-m 'pdc and not browser and not slow'`; counts are in `pytest.ini`. Private `MPLCONFIGDIR`; lint your own paths; the
-mutation script refuses a file with uncommitted changes, so it runs on the committed tree.
+Eleven areas in `tests/harness/areas.py` cover the suite (`test_test_areas.py` fails on an unnamed module); compose an
+area with a tier, e.g. `-m 'pdc and not browser and not slow'`. Counts drift: quote a fresh `pytest --collect-only -q`.
+Private `MPLCONFIGDIR`; lint your own paths; the mutation script refuses a file with uncommitted changes, so it runs on
+the committed tree.

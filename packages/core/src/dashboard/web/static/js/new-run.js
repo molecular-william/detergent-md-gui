@@ -1412,8 +1412,10 @@ function createEngineNewRun({ form, selectTab, refreshJobs, refreshStorage }) {
         catch (error) { if (error.status === 404 && !await validateCloneSource()) return; throw error; }
       }
       invalidateResource('/api/references'); invalidateResource('/api/storage');
-      setCloneSource(''); notice('Run queued.'); selectTab('runs'); await refreshJobs();
-      // The just-created run may now be active on its device; re-read the active map without holding up the switch.
+      // A queued run does not take the reader off the form: the panel stays open with its inputs, and the runs table
+      // is refreshed in the background for when they choose to open it.
+      setCloneSource(''); notice('Run queued.'); await refreshJobs();
+      // The just-created run may now be active on its device; re-read the active map in the background.
       gpuDevice.load();
     } catch (error) { notice(error.message); }
     finally { submitting = false; refreshReadiness(); }

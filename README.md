@@ -19,15 +19,16 @@ generic adapters. Generated parameters are hypotheses: a fit is an execution fac
 ## Install from a clone
 
 A clone carries the source and the Martini 3 force field; the compiled tools and their checkouts (Fast-Forward,
-BARTENDER, CG2AT2) live under `tools/`, which is provisioned separately and gitignored, so the checkout stays
-reasonably small and every run still records the exact bytes and versions it used.
+BARTENDER, CG2AT2) live under `tools/`, which is provisioned separately and gitignored, while Insane comes from PyPI
+as a declared dependency, so the checkout stays reasonably small and every run still records the exact bytes and
+versions it used.
 
 ### 1. Python environment
 
 You need Python 3.12 or newer. Every simulation stage runs a bash script, so the simulations need Linux or macOS; the
 dashboard and the test suite run on both. GROMACS is covered in step 2.
 
-The distributions declare only their dashboard imports, so the scientific stack is installed explicitly:
+The distributions declare their dashboard imports, including Insane for solvent placement; the rest of the scientific stack is installed explicitly:
 
 ```bash
 python3.12 -m venv .venv
@@ -59,6 +60,7 @@ missing tool is reported by readiness rather than replacing itself with somethin
 | Fast-Forward (`ff_map`, `ff_inter`, `ff_assess`) | the AA→CG parameterization | <https://github.com/Martini-Force-Field-Initiative/fast_forward> | `tools/fast_forward` |
 | BARTENDER + xtb | the CG Bond Interactions fit | the CGMartini tutorial archive (URL in the command below) | `tools/bartender/m3_bartender` |
 | CG2AT2 | the `pdc` back-mapping stage | <https://github.com/owenvickery/cg2at> | `tools/cg2at` |
+| Insane 1.2.0 (pip) | solvent placement for every CG and pdc run | PyPI; installed by step 1 as a `detergent-core` dependency | `.venv/bin/insane`; declare it as `"insane": "insane"` |
 | Martini 3 force field | every CG run | shipped in this repository (upstream: <https://github.com/Martini-Force-Field-Initiative/M3-Lipid-Parameters>, Apache-2.0) | `references/M3-Lipid-Parameters` |
 | the sugar reference | part of the same Martini set | shipped in this repository | `references/martini_v3.0.0_sugars_v2.itp` |
 | PLUMED (optional) | the `osmotic` series | <https://www.plumed.org> | any path; declare it |
@@ -108,6 +110,7 @@ name that is not declared at all (`martinize2`, `pdb2pqr`) resolves the same way
   "fast_forward_commit": "61e407e60ffa0153fb2b5a028b065383619c2586",
   "bartender": "tools/bartender/m3_bartender/bartender",
   "xtb": "tools/bartender/m3_bartender/xtb-6.4.1/bin/xtb",
+  "insane": "insane",
   "plumed": "/opt/plumed/bin/plumed"
 }
 ```
@@ -277,12 +280,8 @@ paths and commits only when both are clean.
 
 **Implemented and maintained.** The AA and CG adapters, the `pdc` pipeline with CG2AT2 back-mapping, the osmotic series,
 the mapping editor, the CG Bond Interactions panel, and the two-monitor Run view (paired in simulation time, not by
-frame index). The `memembed → martinize → insane → cg2at` chain earlier notes described is gone: `archive/MemProtMD/` is
-not in this checkout, and `pdc` is what that goal became.
-
-**Paused.** The native micelle builder (`micelle/`) — a spherical single-detergent Martini micelle around membrane
-proteins, with a partial, unvalidated implementation. It must not be presented as a model. The protein-detergent
-workflow it was meant to serve is implemented through `pdc`.
+frame index). The `memembed → martinize → cg2at` chain earlier notes described is gone: `archive/MemProtMD/` is
+not in this checkout, and `pdc` is what that goal became. Insane remains as the solvent placer, not as that chain.
 
 **Cancelled, not to be rebuilt.** The iterative mapping refinement panel (2026-10-15: the human review gate cost more than
 the decision it supported) and the scheduled cron drivers (2026-10-15). The routes and the `refinement-score` analysis

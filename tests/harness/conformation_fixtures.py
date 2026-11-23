@@ -98,6 +98,11 @@ def run_tree(workspace, run_id='b920391735dd', *, status='completed', run_type='
     inputs = run / 'inputs'
     inputs.mkdir(parents=True, exist_ok=True)
     if 'mapping' not in omit:
+        # The record names the mapping by workspace path, as layout 4 does; the file exists there, so a reader that
+        # resolves the name (a conformation source, after layout 4 stopped carrying a digest) can hash it.
+        mapping_path = workspace / 'mapping_drafts' / 'mapping_candidate.json'
+        mapping_path.parent.mkdir(parents=True, exist_ok=True)
+        mapping_path.write_text('{}\n')
         manifest = {'id': run_id, 'status': status, 'run_type': run_type, 'protein': protein,
                     'inputs': [{'role': 'mapping', 'label': 'mapping_candidate.json', 'kind': 'store',
                                 'root': 'workspace', 'path': 'mapping_drafts/mapping_candidate.json',

@@ -3,6 +3,9 @@
 Every refusal here stands between a protein-contacted or differently-mapped micelle and a library of conformations,
 so each one is pinned by the run id and the reason rather than by "something went wrong".
 """
+import hashlib
+import json
+
 import pytest
 from detergent_pdc.conformations import sources
 
@@ -129,3 +132,33 @@ def assert_refusal(workspace, sentence):
         sources(workspace, ['b920391735dd'])
     assert sentence in str(error.value)
     assert 'b920391735dd' in str(error.value)
+
+
+def test_a_layout_4_mapping_is_resolved_by_its_name_and_hashed(tmp_path):
+    """Layout 4 records the mapping by root and path, with no digest; the file's own bytes are the identity."""
+    run_tree(tmp_path)
+    run = tmp_path / 'runs' / 'b920391735dd'
+    manifest = json.loads((run / 'manifest.json').read_text())
+    entry = manifest['inputs'][0]
+    entry.pop('sha256', None)
+    entry.pop('bytes', None)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    mapping = tmp_path / 'mapping_drafts' / 'mapping_candidate.json'
+    mapping.parent.mkdir(parents=True, exist_ok=True)
+    mapping.write_text('{"beads": [], "name": "a mapping the run recorded by name"}')
+
+    found = record(tmp_path)
+
+    assert found['mapping_sha256'] == hashlib.sha256(mapping.read_bytes()).hexdigest()
+
+
+def test_a_layout_4_mapping_that_is_missing_is_refused_with_a_reason(tmp_path):
+    run_tree(tmp_path)
+    run = tmp_path / 'runs' / 'b920391735dd'
+    manifest = json.loads((run / 'manifest.json').read_text())
+    manifest['inputs'][0].pop('sha256', None)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    (tmp_path / 'mapping_drafts' / 'mapping_candidate.json').unlink()
+
+    with pytest.raises(ValueError, match='cannot be resolved'):
+        sources(tmp_path, ['b920391735dd'])

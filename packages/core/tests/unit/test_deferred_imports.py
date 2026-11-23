@@ -2,10 +2,9 @@
 
 These modules import MDAnalysis, matplotlib and the sugar model inside function bodies, which keeps the
 dashboard's start-up cheap but means an import is only exercised on the code path that reaches it. A test that
-takes another path says nothing about it: `consistency.aa_bead_means` carried
-`from ..models.sugars import coordinates` — one dot short — for as long as it existed, and it raised
-`ModuleNotFoundError: No module named 'dashboard.analysis.models'` the first time the published comparison
-called it, after a real run had been queued against it. Resolving every deferred import is cheap and catches
+takes another path says nothing about it: `consistency` carried a deferred import one dot short
+for as long as it existed, and it raised `ModuleNotFoundError` the first time the published comparison
+called that path, after a real run had been queued against it. Resolving every deferred import is cheap and catches
 the whole class: a wrong module, a wrong level, or a name the target module does not export.
 """
 import ast

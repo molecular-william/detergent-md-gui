@@ -68,19 +68,6 @@ def estimate_bond(lengths_nm, temperature, *, constraint_threshold=DEFAULT_CONST
             'constraint': force_constant(sigma, temperature, kind='bond') > float(constraint_threshold)}
 
 
-def estimate_angle(angles_deg, temperature, *, constraint_threshold=DEFAULT_CONSTRAINT_THRESHOLD):
-    """An angle's mean, its spread, and the force constant, all taken around the circle."""
-    values = np.asarray(angles_deg, dtype=float)
-    if values.size < 2:
-        raise ValueError('a spread needs at least two frames, not one')
-    value, sigma = circular_mean_and_spread(values)
-    k = force_constant(sigma, temperature, kind='angle')
-    return {'kind': 'angle', 'value': value, 'sigma': sigma, 'sigma_units': 'degrees',
-            'force_constant': k, 'force_constant_units': 'kJ/mol/rad^2', 'frames': int(values.size),
-            'temperature': float(temperature), 'threshold': float(constraint_threshold),
-            'constraint': k > float(constraint_threshold)}
-
-
 # --- the fitted topology, and the comparison ----------------------------------------------------------------
 
 #: `[ section ]` names a topology can carry that the equipartition estimator can read back. `[ angles ]` is absent on

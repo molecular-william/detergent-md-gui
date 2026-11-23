@@ -66,6 +66,7 @@ CODE_VERSIONS: dict[str, dict] = {
     'use_parameterization_module': {'path': 'dashboard/execution/scripts/use_parameterization.py', 'version': 1},
     'validate_run': {'path': 'dashboard/execution/scripts/validate_run.py', 'version': 1},
     'distance_diagnostics': {'path': 'dashboard/execution/scripts/distance_diagnostics.py', 'version': 1},
+    'insane_solvate': {'path': 'dashboard/execution/scripts/insane_solvate.py', 'version': 1},
     'bonded_models': {'path': 'dashboard/models/bonded/__init__.py', 'version': 1},
     'osmotic_adapter': {'path': 'dashboard/execution/adapters/osmotic.py', 'version': 1},
     'osmotic_mdp': {'path': 'dashboard/execution/adapters/osmotic_mdp.py', 'version': 1},

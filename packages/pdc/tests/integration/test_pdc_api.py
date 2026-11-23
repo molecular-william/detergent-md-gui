@@ -348,3 +348,21 @@ def test_the_libraries_route_lists_only_directories_it_can_verify(dashboard):
 
     narrowed = dashboard.client.get('/api/pdc/conformations/libraries?residue=OCT').get_json()
     assert narrowed['libraries'] == []
+
+
+def test_a_layout_4_mapping_record_makes_a_micelle_run_eligible(dashboard):
+    """The record is a name, not a digest: the route must resolve the mapping file the run names and offer the run."""
+    source = source_run(dashboard)
+    manifest = json.loads((source['run'] / 'manifest.json').read_text())
+    for entry in manifest['inputs']:
+        if entry.get('role') == 'mapping':
+            entry.pop('sha256', None)
+            entry.pop('bytes', None)
+    (source['run'] / 'manifest.json').write_text(json.dumps(manifest))
+    insert_job(dashboard, SOURCE_RUN, created='2026-11-01T00:00:00+00:00')
+
+    body = dashboard.client.get('/api/pdc/conformations/runs').get_json()
+    run = next(item for item in body['runs'] if item['id'] == SOURCE_RUN)
+
+    assert run['eligible'] is True and run['reason'] is None
+    assert run['residue'] == 'DDM'

@@ -620,7 +620,6 @@ def test_the_ring_pair_ensemble_is_the_frames_the_fit_already_read(tmp_path, mon
     structure, trajectory = work / '1_AA-reference' / 'prod' / 'lig.gro', work / '1_AA-reference' / 'prod' / 'lig.xtc'
 
     assert record['ensemble'] == _frozen_ensemble(structure, trajectory, beads)
-    assert record['ensemble'] == bartender_fit.ensemble_distances(structure, trajectory, beads)
     assert set(record['ensemble']) == {'R1-R2', 'R1-R3', 'R1-TAIL', 'R2-R3', 'R2-TAIL', 'R3-TAIL'}
     assert record['ensemble']['R1-TAIL']['frames'] == 4
 

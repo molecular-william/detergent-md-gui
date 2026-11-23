@@ -165,10 +165,12 @@ def include(name: str, start, *, installation=None, project_root=None, version=N
     return Path(os.path.relpath(target, Path(start))).as_posix()
 
 
-def system_topology(directory, itp, residue, title, *, force_field, solvents) -> str:
-    """The system_EMPTY.top a CG run writes: the two installed Martini ITPs, the model, and one molecule."""
+def system_topology(directory, itp, residue, title, *, force_field, solvents, ions=None) -> str:
+    """The system_EMPTY.top a CG run writes: the installed Martini ITPs, the model, and one molecule."""
+    include_ions = f'#include "{include(ions, directory)}"\n' if ions else ''
     return (f'#include "{include(force_field, directory)}"\n'
             f'#include "{include(solvents, directory)}"\n'
+            f'{include_ions}'
             f'#include "{itp}"\n'
             f'[ system ]\n{title}\n'
             f'[ molecules ]\n{residue} 1\n')

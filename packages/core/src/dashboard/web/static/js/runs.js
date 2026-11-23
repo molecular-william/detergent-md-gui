@@ -2,6 +2,7 @@ import { $, $$, storage, setText, notice, api, post, cachedApi, invalidateResour
          liveVisible, whenLive, CATALOGUE_MAX_AGE } from './shared.js';
 import { renderStageSettings, renderProgressSegments } from './stage-settings.js';
 import { renderRunDiagnostics } from './runs-equilibration.js';
+import { renderLincsDiagnostics } from './runs-lincs.js';
 
 // Owns run cards, filtering, stage settings and polling. Form changes are callbacks.
 // How much of a run is trajectory: the number that tells a reader what deleting it would free. GiB, as the
@@ -204,7 +205,10 @@ export function createRuns({ onClone, onDeleted }) {
         // asks for the traces, and the polled refresh below keeps an open block current while an attempt runs.
         const diagnostics = $('.job-diagnostics', card);
         if (diagnostics) diagnostics.addEventListener('toggle', () => {
-          if (diagnostics.open) renderRunDiagnostics(card, card.job).catch(error => notice(error.message));
+          if (diagnostics.open) {
+          renderRunDiagnostics(card, card.job).catch(error => notice(error.message));
+          renderLincsDiagnostics(card, card.job).catch(error => notice(error.message));
+        }
         });
         for (const action of ['cancel','retry']) $('.job-'+action,card).onclick = async () => {
           try { await post(action === 'cancel' ? `/control/${job.id}/cancel` : `/retry/${job.id}`, {}); await refreshJobs(); }
@@ -290,7 +294,10 @@ export function createRuns({ onClone, onDeleted }) {
       // A polled update reaches an open Stage settings row too: the keyed fetch below is a no-op unless the run moved.
       if ($('.job-stage-settings', card)?.open) refreshStageSettings(card, job).catch(error => notice(error.message));
       // The same for Diagnostics: it is keyed on the run and the attempt, so an unchanged row re-renders nothing.
-      if ($('.job-diagnostics', card)?.open) renderRunDiagnostics(card, job).catch(error => notice(error.message));
+      if ($('.job-diagnostics', card)?.open) {
+        renderRunDiagnostics(card, job).catch(error => notice(error.message));
+        renderLincsDiagnostics(card, job).catch(error => notice(error.message));
+      }
       // How far the running stage has got. GROMACS' ETA answers "when will this leg end"; a three-leg script stage
       // (min, eq, md) has two thirds of its life before the ETA says anything, and a tool stage never says anything --
       // so the bar counts what the stage's own log states: legs done, and the step within the current one.

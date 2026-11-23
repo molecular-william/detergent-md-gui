@@ -24,6 +24,7 @@ import numpy as np
 from dashboard.analysis.runs import structures
 from dashboard.analysis.runs.radii import AA_RADII, PROBE
 from dashboard.models.sugars import recognition
+from detergent_pdc.execution.adapters.pdc_placement import tail_bead
 
 # The probe and the element radii are the house surface conventions, imported rather than restated: a second copy
 # would be a second convention, and the two would drift. `PROBE_NM` and `ATOM_RADII_NM` are the names a caller here
@@ -244,13 +245,14 @@ def _atom_sasa_nm2(positions_nm, radii_nm, probe_nm, points, residues=None):
 # --- where the head bead's size class comes from: the detergent's own mapping ----------------------------------
 
 def head_beads(mapping):
-    """A detergent mapping's head-group beads: its physical beads that are not the aliphatic carbon series.
+    """A detergent mapping's head-group beads: its physical beads that are not the aliphatic carbon family.
 
-    The same rule the placement uses to orient a molecule (`pdc_build.py`): a C-type bead is the tail, everything
-    else is the head. A ring virtual site is not a bead with a size of its own, so it is not a head either.
+    The same rule the placement uses to orient a molecule (`pdc_placement.tail_bead`): a C, SC or TC bead is the
+    tail, everything else is the head. A ring virtual site is not a bead with a size of its own, so it is not a head
+    either.
     """
     return [bead for bead in (mapping.get('beads') or [])
-            if not bead.get('virtual_site') and not str(bead.get('type') or '').startswith('C')]
+            if not bead.get('virtual_site') and not tail_bead(bead)]
 
 
 def size_class(bead):
@@ -336,5 +338,5 @@ def mapping_head_radii(mapping):
     beads = head_beads(mapping)
     if not beads:
         raise ValueError('the detergent mapping names no head bead: every physical bead is of the aliphatic carbon '
-                         'series, so there is no head size class to resolve')
+                         'family (C, SC, TC), so there is no head size class to resolve')
     return [size_radius_nm(size_class(bead)) for bead in beads]

@@ -42,7 +42,6 @@ TEMPLATE_MDPS = TUTORIAL_TEMPLATE / '4_CG_sim/inputs'
 MARTINI_FF = martini3.REQUIRED[0]
 MARTINI_SOLVENTS = martini3.REQUIRED[1]
 MARTINI_IONS = martini3.REQUIRED[2]
-WATER_BOX = TEMPLATE_MDPS / 'water.gro'
 SASA_RADII_AA = TUTORIAL_TEMPLATE / '5_SASA/vdwradii_AA.dat'
 SUGAR_REFERENCE = martini3.SUGARS[0]
 SUGAR_PROVENANCE = martini3.SUGARS[1]
@@ -57,6 +56,7 @@ MODULES = {
     'dashboard.execution.scripts.use_parameterization': 'dashboard/execution/scripts/use_parameterization.py',
     'dashboard.execution.scripts.validate_run': 'dashboard/execution/scripts/validate_run.py',
     'dashboard.execution.scripts.distance_diagnostics': 'dashboard/execution/scripts/distance_diagnostics.py',
+    'dashboard.execution.scripts.insane_solvate': 'dashboard/execution/scripts/insane_solvate.py',
     'dashboard.models.bonded': 'dashboard/models/bonded/__init__.py',
 }
 
@@ -722,7 +722,6 @@ def shared_inputs(*, data):
                              label='Martini 3 solvents (martini_v3.0.0_solvents_v1.itp)'),
         run_inputs.installed('martini_ions', martini3.path(MARTINI_IONS),
                              label='Martini 3 ions (martini_v3.0.0_ions_v1.itp)'),
-        _published('martini_water', WATER_BOX, 'Martini 3 water box (water.gro)'),
         _published('sasa_radii_aa', SASA_RADII_AA, 'AA SASA radii (Fast_Forward vdwradii_AA.dat)'),
     ]
     if data.get('rings'):
@@ -873,7 +872,7 @@ def prepare(run_dir: Path, profile=AA_CG_PROFILE, settings=None, mapping_candida
     (sim / 'system_EMPTY.top').write_text(
         martini3.system_topology(sim, names.final_itp, names.residue_name,
                                  f'{names.residue_name} draft in pure water',
-                                 force_field=MARTINI_FF, solvents=MARTINI_SOLVENTS))
+                                 force_field=MARTINI_FF, solvents=MARTINI_SOLVENTS, ions=MARTINI_IONS))
     sasa = run_dir / '6_SASA'
     (sasa / 'AA').mkdir(); (sasa / 'CG').mkdir()
     (sasa / 'CG/vdwradii.dat').write_text(''.join(f'{names.residue_name} B{i:02d} { {"R":0.264,"S":0.230,"T":0.191}[b["size"]]}\n' for i,b in enumerate(data['beads'],1)))

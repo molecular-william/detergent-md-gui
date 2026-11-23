@@ -421,16 +421,19 @@ def test_the_mapping_answers_for_the_tail_when_the_template_names_none(tmp_path)
 
     Measured: a prepared run reached production and then stopped at "the run records no tail beads, so the criterion
     cannot tell a micelle from a crowd". The template is a placeholder -- one bead, no roles -- while the run's own
-    mapping does know the tail, so the mapping answers and the settings say which source was used.
+    mapping does know the tail, so the mapping answers and the settings say which source was used. The tail here is
+    drawn with the small apolar spelling (`SC1`/`SC2`) rather than `C1`: it is the same Martini carbon family, and a
+    model whose tail uses it must still be accepted and recorded as the tail.
     """
     # The repository's own DDM is a tracked asset with a real topology; the mapping is the record the test builds.
     root = PROJECT_ROOT
     candidate = tmp_path / 'candidate.json'
     candidate.write_text(json.dumps({
-        'schema_version': 3, 'molecule_id': 'DDM', 'name': 'a sugar bead and a tail bead', 'martini_version': 3,
+        'schema_version': 3, 'molecule_id': 'DDM', 'name': 'a sugar bead and a small apolar tail',
+        'martini_version': 3,
         'beads': [{'name': 'S1A', 'type': 'SP1r', 'atoms': [1, 2]},
-                  {'name': 'TAIL1', 'type': 'C1', 'atoms': [3, 4]},
-                  {'name': 'TAIL2', 'type': 'C1', 'atoms': [5, 6]}],
+                  {'name': 'TAIL1', 'type': 'SC1', 'atoms': [3, 4]},
+                  {'name': 'TAIL2', 'type': 'SC2', 'atoms': [5, 6]}],
         'connections': [['S1A', 'TAIL1'], ['TAIL1', 'TAIL2']]}))
 
     pdc.prepare(tmp_path / 'run', template='molecules/DDM/v1/micelle_template.json',

@@ -85,6 +85,29 @@ def test_a_detergent_is_placed_with_its_head_end_at_the_site_it_was_given():
     assert flipped['TAIL1'] == [3.5, 0.0, 0.0], 'and the body follows the direction it was given'
 
 
+def test_a_small_carbon_tail_orients_the_molecule_the_same_way():
+    """An `SC` tail is the same apolar family as a `C` tail, so the head end is still the site.
+
+    Martini 3 writes a small apolar bead as `SC1`-`SC6`; a model whose tail is drawn that way used to be refused
+    as having "no hydrophobic core" because only `C`-prefixed types counted. The ring site (`TC4`, virtual) stays
+    on the head side of the axis rather than being read as a tiny tail.
+    """
+    draft = {'residue': 'DDM', 'beads': [
+        {'name': 'TAIL1', 'type': 'SC1', 'residue': 'DDM', 'position': [0.5, 0.0, 0.0]},
+        {'name': 'TAIL2', 'type': 'SC2', 'residue': 'DDM', 'position': [1.0, 0.0, 0.0]},
+        {'name': 'HEAD', 'type': 'SP1r', 'residue': 'DDM', 'position': [0.0, 0.0, 0.0]},
+        {'name': 'SITE', 'type': 'TC4', 'residue': 'DDM', 'virtual_site': {'function': 1},
+         'position': [0.25, 0.0, 0.0]},
+    ]}
+
+    atoms = pdc_build.stamp(draft, [[4.0, 0.0, 0.0]], [[1.0, 0.0, 0.0]], first_residue=3)
+
+    beads = {atom['name']: atom['position'] for atom in atoms}
+    assert beads['HEAD'] == [4.0, 0.0, 0.0], 'the head end is the site'
+    assert beads['TAIL1'][0] < 4.0 and beads['TAIL2'][0] < beads['TAIL1'][0], \
+        'the SC tail hangs back toward the centre-line, in order'
+
+
 def test_a_stamped_micelle_has_its_heads_toward_the_water_and_its_tails_in_the_core():
     """The property the frames are judged by: per detergent, the head is further from the micelle's centre than
     the tail -- heads to the water, tails in the core.
@@ -433,3 +456,31 @@ def test_a_library_that_cannot_be_loaded_stops_the_build(tmp_path, monkeypatch):
     assert code == 2
     report = json.loads((stage / pdc.REPORT_NAME).read_text())
     assert report['valid'] is False and 'conformations-v1' in report['reasons'][0]
+
+
+def test_the_built_protein_sits_at_the_centre_of_its_box(tmp_path):
+    """The box is sized around the protein; without a translation the protein is written at its OPM origin, a cell
+    corner. The build now shifts the whole system so the protein's own extents midpoint is the box centre."""
+    stage = prepared_stage(tmp_path)
+
+    assert pdc_build.build(stage) == 0
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    lines = (stage / 'system.gro').read_text().splitlines()
+    box = [float(value) for value in lines[-1].split()]
+    protein = np.asarray([[float(line[20 + 8 * axis:28 + 8 * axis]) for axis in range(3)]
+                          for line in lines[2:5]])       # the fixture wrote three protein beads
+    centre = (protein.min(axis=0) + protein.max(axis=0)) / 2
+
+    assert np.allclose(centre, np.asarray(box) / 2, atol=1e-3), (centre, box)
+    assert report['centring']['anchor'] == 'protein extents'
+    assert len(report['centring']['shift_nm']) == 3
+
+
+def test_the_anchor_is_the_protein_extents_or_the_detergent_centroid():
+    shift, kind, anchor = pdc_build.centre_shift([[0.0, 0.0, 0.0], [2.0, 4.0, 6.0]], [], [10.0, 10.0, 10.0])
+    assert kind == 'protein extents'
+    assert anchor == [1.0, 2.0, 3.0] and shift == [4.0, 3.0, 2.0]
+
+    shift, kind, anchor = pdc_build.centre_shift([], [[1.0, 2.0, 3.0], [3.0, 4.0, 5.0]], [10.0, 10.0, 10.0])
+    assert kind == 'detergent initial positions'
+    assert anchor == [2.0, 3.0, 4.0] and shift == [3.0, 2.0, 1.0]

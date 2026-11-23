@@ -66,30 +66,41 @@
         {# The gap between the measured membrane surface and the detergents' bodies: a belt setting, so it lives inside
            the belt block and disappears with an empty micelle. Hidden -- not disabled -- in self-assembly, where the
            adapter ignores it, because the value still posts and nothing about the payload changes. #}
-        <label>Belt–protein gap <span class="hint">nm · added clearance</span>
-          <span class="setting-control">
-            <input name="belt_gap_nm" type="number" min="0" max="5" step="0.1">
-            <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
-          </span>
-        </label>
-        <label>Minimum body-bead distance <span class="hint">nm · between detergents</span>
-          <span class="setting-control">
-            <input name="min_body_gap_nm" type="number" min="0" max="2" step="0.05">
-            <button type="button" class="secondary pdc-default" data-field="min_body_gap_nm">Default</button>
-          </span>
-        </label>
-        <label>Local surface axial window <span class="hint">nm · per belt site</span>
-          <span class="setting-control">
-            <input name="belt_axial_window_nm" type="number" min="0.1" max="5" step="0.05">
-            <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
-          </span>
-        </label>
-        <label>Vertical spread <span class="hint">× detergent length</span>
-          <span class="setting-control">
-            <input name="belt_vertical_spread" type="number" min="0.5" max="5" step="0.1">
-            <button type="button" class="secondary pdc-default" data-field="belt_vertical_spread">Default</button>
-          </span>
-        </label>
+        {# The four belt numbers are two rows of two: the two packing distances, then the two surface/band
+           numbers. A grid of their own rather than a `.new-pdc-pair`, which the pairing test measures as exactly one
+           row of two cells. #}
+        <div class="new-pdc-belt-grid">
+          <label>Belt–protein gap <span class="hint">nm · added clearance</span>
+            <span class="setting-control">
+              <input name="belt_gap_nm" type="number" min="0" max="5" step="0.1">
+              <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
+            </span>
+          </label>
+          <label>Minimum body-bead distance <span class="hint">nm · between detergents</span>
+            <span class="setting-control">
+              <input name="min_body_gap_nm" type="number" min="0" max="2" step="0.05">
+              <button type="button" class="secondary pdc-default" data-field="min_body_gap_nm">Default</button>
+            </span>
+          </label>
+          <label>Local surface axial window <span class="hint">nm · per belt site</span>
+            <span class="setting-control">
+              <input name="belt_axial_window_nm" type="number" min="0.1" max="5" step="0.05">
+              <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
+            </span>
+          </label>
+          <label>Vertical spread <span class="hint">× detergent length</span>
+            <span class="setting-control">
+              <input name="belt_vertical_spread" type="number" min="0.5" max="5" step="0.1">
+              <button type="button" class="secondary pdc-default" data-field="belt_vertical_spread">Default</button>
+            </span>
+          </label>
+        </div>
+          <label>Belt vertical offset <span class="hint">nm · along the membrane normal</span>
+            <span class="setting-control">
+              <input name="belt_offset_nm" type="number" min="-2" max="2" step="0.1">
+              <button type="button" class="secondary pdc-default" data-field="belt_offset_nm">Default</button>
+            </span>
+          </label>
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
           {# The estimate states its number and folds its method into the dashboard's own info button: a real
              button, so it is focusable and announced, showing its tooltip on hover, keyboard focus or a tap
@@ -127,7 +138,10 @@
       <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox" checked></label>
       <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox" checked></label>
       <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
-      <label>Run label <input name="label" maxlength="160" placeholder="Optional label for this run"></label>
+      <label>Run label<span class="setting-control">
+        <input name="label" maxlength="160" placeholder="Optional label for this run">
+        <button type="button" class="secondary new-pdc-suggest-label">Suggest</button>
+      </span></label>
     </section>
     {# The five stages, in the layout the validation panel already uses: a native <details> per stage, a facts line in
        the summary so a closed editor still says what it holds, and that stage's own numbers in its body. The
@@ -321,9 +335,9 @@
       {# What used to be the Other run options fold: the run's output, forces, coupling, salt, box and execution.
          They are sections of this same fieldset now, in the validation panel's shape (a titled group over a grid),
          because they are stage settings like the stages above them. Every control here that names a reviewed profile
-         value carries a Default button (`pdc-default`), like the stage editors above; the seed keeps its Generate
-         next to that Default, and the initial z box gets Auto instead, because it measures the chosen protein rather
-         than restoring a profile number. #}
+         value carries a Default button (`pdc-default`), like the stage editors above; the seed is generated rather
+         than restored and keeps only its Generate button, and the initial z box gets Auto instead, because it
+         measures the chosen protein rather than restoring a profile number. #}
       <section class="new-option-group">
         <h4 class="new-option-title">Output cadence</h4>
         <div class="settings-grid">
@@ -333,6 +347,12 @@
           <label>Trajectory precision<span class="setting-control"><input name="xtc_precision" type="number" min="1" max="1000000" step="any"><button type="button" class="secondary pdc-default" data-field="xtc_precision">Default</button></span></label>
           <label>Centre-of-mass removal (steps)<span class="setting-control"><input name="nstcomm" type="number" min="1" max="1000000" step="1"><button type="button" class="secondary pdc-default" data-field="nstcomm">Default</button></span></label>
         </div>
+        {# Where the scope is not obvious: these five are the CG production legs' numbers, and the reviewed
+           equilibration and minimisation profiles keep their own cadence. The live run.log of the CG assessment
+           carries the run's value; a reader who checks an earlier stage's log sees 100 or 1000 and should know why. #}
+        <p class="hint">The cadence applies to the two CG production legs (assessment and extension). The minimisation,
+          NVT and NPT legs keep the cadence their reviewed profiles state (100 steps for the minimisation, 1000 for
+          NVT and NPT).</p>
       </section>
 
       <section class="new-option-group">
@@ -343,6 +363,8 @@
           <label>Coulomb cut-off (nm)<span class="setting-control"><input name="rcoulomb" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary pdc-default" data-field="rcoulomb">Default</button></span></label>
           <label>van der Waals cut-off (nm)<span class="setting-control"><input name="rvdw" type="number" min="0.1" max="5" step="0.05"><button type="button" class="secondary pdc-default" data-field="rvdw">Default</button></span></label>
         </div>
+        <p class="hint">The cut-offs apply to the two CG production legs; the minimisation, NVT and NPT legs keep the
+          reviewed values their profiles state.</p>
       </section>
 
       <section class="new-option-group">
@@ -350,7 +372,6 @@
         <div class="settings-grid">
           <label>Salt concentration (M)<span class="setting-control"><input name="salt_molar" type="number" min="0" max="5" step="0.01"><button type="button" class="secondary pdc-default" data-field="salt_molar">Default</button></span></label>
           <label>Random seed<span class="setting-control"><input name="pdc_seed" type="number" min="1" max="2147483646" step="1" required>
-            <button type="button" class="secondary pdc-default" data-field="pdc_seed">Default</button>
             <button type="button" class="secondary pdc-generate-seed">Generate</button></span></label>
           <label>Box margin (nm)<span class="setting-control"><input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1"><button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button></span></label>
           <label>Initial z box (nm)<span class="setting-control"><input name="initial_z_nm" type="number" min="1" max="50" step="0.1"><button type="button" class="secondary pdc-auto-z" title="Measure the selected protein and size the z box from it">Auto</button></span></label>
@@ -380,10 +401,10 @@
 
       <details class="new-pdc-options-notes">
         <summary>What these numbers mean</summary>
-        <p class="hint">These are the run-wide numbers: output cadence, cut-offs, salt, seed, box and execution. Each
-          stage's own numbers — including its neighbour list, temperature and couplings — are in its editor above; a
-          leg's timestep, where blank, is that leg's reviewed profile dt (5 fs equilibration, 20 fs production) and a
-          stated number converts every duration to steps at that number.</p>
+        <p class="hint">These are the run-wide numbers: output cadence and cut-offs (the CG production legs), salt, seed,
+          box and execution. Each stage's own numbers — including its neighbour list, temperature and couplings — are
+          in its editor above; a leg's timestep, where blank, is that leg's reviewed profile dt (5 fs equilibration,
+          20 fs production) and a stated number converts every duration to steps at that number.</p>
         <p class="hint"><code>nstxtcout</code> is the compressed-trajectory stride; newer profiles spell the same
           option <code>nstxout-compressed</code>. Full-precision <code>nstxout</code>, <code>nstvout</code> and
           <code>nstfout</code> stay off, as the profiles state.</p>
@@ -468,6 +489,7 @@
         <dt>Derived from</dt><dd class="new-pdc-preview-from">—</dd>
         <dt>Beads</dt><dd class="new-pdc-preview-beads">—</dd>
         <dt>Box</dt><dd class="new-pdc-preview-box">—</dd>
+        <dt>Solvent</dt><dd class="new-pdc-preview-solvent">—</dd>
         <dt>Cost</dt><dd class="new-pdc-preview-cost">—</dd>
         <dt>Kept</dt><dd class="new-pdc-preview-kept">—</dd>
       </dl>

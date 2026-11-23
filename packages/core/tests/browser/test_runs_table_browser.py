@@ -128,6 +128,10 @@ def test_runs_views_checkpoints_and_stage_settings(dashboard, live_page):
     # A poll while the disclosure is open re-renders it from the same keyed answer rather than clearing it.
     page.evaluate('refreshJobs()')
     expect(host).to_contain_text('Maximum steps')
+    # The groups are four columns at every width the table is read at; only the phone falls to one.
+    page.set_viewport_size({'width':1000, 'height':844})
+    columns = host.evaluate("el => getComputedStyle(el).gridTemplateColumns.split(' ').length")
+    assert columns == 4, columns
     page.set_viewport_size({'width':390, 'height':844})
     # The table itself scrolls inside its frame; the page must not gain a horizontal scrollbar because of it.
     browser.assert_no_horizontal_scroll(page)

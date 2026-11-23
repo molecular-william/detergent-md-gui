@@ -185,7 +185,8 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     # its tails apolar (`C1`, `TC4`). A frame the writer was handed no moleculetype for writes the unstated zero for
     # every bead, which is the empty micelle's `family not stated` defect: this is that frame's acceptance, read off
     # the route's own answer.
-    families = [int(round(float(line[60:66]))) for line in body['pdb'].splitlines() if line.startswith('HETATM')]
+    families = [int(round(float(line[60:66]))) for line in body['pdb'].splitlines()
+                if line.startswith('HETATM') and line[17:20].strip() == 'DET']
     assert families and 0 not in families, f'a bead states no family: {sorted(set(families))}'
     assert len(set(families)) >= 2, sorted(set(families))
     assert {pdc_view.BEAD_FAMILIES.index(pdc_view.bead_family('SP1r')),
@@ -194,7 +195,9 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     # Nothing a run reads, and no run: a preview is not a job.
     assert list(dashboard.paths.runs.glob('*')) == [] if dashboard.paths.runs.exists() else True
     assert dashboard.client.get('/api/jobs').get_json()['total'] == 0
-    assert not (dashboard.paths.workspace / 'preview').exists(), 'an empty micelle coarse-grains nothing'
+    cg = dashboard.paths.workspace / 'preview' / 'cg'
+    assert [path for path in cg.glob('*') if path.name != 'solvent'] == [], \
+        'an empty micelle coarse-grains nothing; only the solvent placement is cached'
 
 
 def test_a_template_the_builder_refuses_is_an_answer_with_no_coordinates(dashboard, tmp_path):
@@ -534,7 +537,8 @@ def test_a_preview_with_a_stored_library_draws_whole_drawn_bodies_and_names_the_
                                               'sources': [source['run_id']]}
     assert body['cost']['conformations_cached'] is True, 'a reference library is never rebuilt'
     assert body['cost']['conformations_seconds'] >= 0
-    atoms = [line for line in body['pdb'].splitlines() if line.startswith('HETATM')]
+    atoms = [line for line in body['pdb'].splitlines()
+             if line.startswith('HETATM') and line[17:20].strip() == 'DET']
     assert len(atoms) == 12 * len(conformation_fixtures.BEADS), 'the whole drawn body stands at every site'
     assert len({line[22:26] for line in atoms}) == 12, 'each site is its own detergent residue'
 

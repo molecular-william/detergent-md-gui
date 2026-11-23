@@ -19,6 +19,8 @@ from dashboard.execution.environment import ROOT
 from dashboard.models import compositions
 from dashboard.models.compositions import parameterizations
 
+from tests.harness.pdc_fixtures import write_gro
+
 PAYLOAD = {'head_fragment_id': 'builtin:martini-sugars-v2:GLC', 'tail_recipe_id': 'linear-c1',
            'carbon_count': 12, 'head_endpoint': {'bead': 'C'}, 'tail_endpoint': {'bead': 'C01'},
            'linkage_profile_id': 'sugar-alkyl-ether-ddm-transfer', 'display_name': 'Glucose C12',
@@ -150,12 +152,14 @@ def test_the_simulation_script_constructs_the_real_gromacs_commands(tmp_path, sa
            'MOLECULE_TYPE': 'GLC', 'FINAL_ITP': 'GLC.itp', 'MDRUN_FLAGS': '-ntomp 4',
            'MDRUN_FLAGS_AUTO': '-ntomp 4'}
     stage = run / 'stages/4_CG_sim'
+    # The GROMACS stand-in writes nothing; Insane reads the boxed structure `editconf` would have written.
+    write_gro(stage / 'boxed.gro', [(1, 'GLC', 'B01', (1.0, 1.0, 1.0))], box=(5.0, 5.0, 5.0))
     completed = subprocess.run(['bash', str(run_scripts.code_path(composition.SIMULATION_SCRIPT, root=ROOT))],
                                cwd=stage, env=env, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
     commands = log.read_text().splitlines()
     assert commands[0] == 'editconf -f ../2_mapping/mapped.gro -c -d 1.5 -bt dodecahedron -o boxed.gro'
-    assert any(line.startswith('solvate ') and '-p system.top' in line for line in commands)
+    assert 'insane_solvate' in completed.stderr and not any(line.startswith('solvate ') for line in commands)
     assert 'grompp -f inputs/minimization.mdp -p system.top -c solvated.gro -o min.tpr' in commands
     assert 'mdrun -deffnm min -ntomp 4 -v' in commands
     assert 'grompp -f inputs/eq.mdp -p system.top -c min.gro -o eq.tpr -maxwarn 1' in commands

@@ -71,7 +71,7 @@ def test_the_assessment_stage_carries_no_solvation_or_equilibration_inputs(tmp_p
 
     assert (inputs_dir(run) / 'assessment.mdp').is_file()
     assert list(stage.iterdir()) == [], 'the stage directory is filled by the stage, not by prepare'
-    for name in ('minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'water.gro'):
+    for name in ('minimization.mdp', 'equilibration.mdp', 'ions.mdp'):
         assert not any(str(entry).endswith(name) for entry in declared), f'{name} is not this stage\'s input'
 
 

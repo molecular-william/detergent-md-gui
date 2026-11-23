@@ -165,7 +165,7 @@ def test_the_extension_stage_can_re_solvate_after_a_removal(tmp_path):
 
     inputs = inputs_dir(prepared_run(tmp_path))
 
-    for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp', 'water.gro'):
+    for name in ('extension.mdp', 'minimization.mdp', 'equilibration.mdp', 'ions.mdp'):
         assert (inputs / name).is_file(), name
     # Each is written from its reviewed profile, which the run's own record names: the fix-up mdp `genion` is fitted
     # to is `pdc-ions-v1`.
