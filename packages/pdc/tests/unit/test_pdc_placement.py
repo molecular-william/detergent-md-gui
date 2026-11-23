@@ -440,17 +440,30 @@ def test_a_request_the_cylinder_cannot_hold_fails_the_count_gate_rather_than_bei
     """The refusal path: what the shape cannot hold is reported, and the slots that fail stay empty.
 
     A solid transmembrane cloud of radius 2.4 nm, and a count of 600 over the vertical band a 0.4 nm molecule's
-    spread covers. The bounded local trials move a slot out and around, but they cannot manufacture room for a count
-    the ladder's own slots do not fit, so the draw ends with fewer sites than asked and the count gate says so.
+    spread covers. The bounded local trials move every slot that can be moved, but they cannot manufacture room for a
+    count the ladder's own slots do not fit, so the draw ends with fewer sites than asked and the count gate says so.
+    Every empty slot is recorded with its own base geometry and the gate it failed; no fabricated list is returned.
     """
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
     placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=0.4), 600, seed=4,
                                             frame=_frame(), radius_nm=2.4, measure_capacity=False)
+    band = placed['band']
 
     assert not placed['valid']
     assert any(issue.startswith('aggregation count') for issue in placed['issues']), placed['issues']
     assert len(placed['centers']) < 600, 'the slots the gates refused are left empty'
-    assert placed['band']['rejected'] > 0, 'the entries the draw offered were refused'
+    assert band['rejected'] == len(band['rejected_slots']) > 0
+    assert band['detergents_drawn'] == band['rejected'] + len(placed['centers'])
+    assert band['passes'] == 1, 'the ladder is drawn once'
+    for slot in band['rejected_slots']:
+        assert set(slot) == {'position_nm', 'normal_nm', 'heading_rad', 'height_nm', 'reason', 'gate_nm'}
+        assert slot['reason'] in ('head-clearance', 'body-clearance', 'site-spacing', 'body-gap')
+        assert np.isfinite(slot['position_nm'] + slot['normal_nm'] + [slot['gate_nm']]).all()
+    # The count sentence is the empty-slot marks' detail, verbatim; the rings come first.
+    count_issue = next(issue for issue in placed['issues'] if issue.startswith('aggregation count'))
+    empty = [mark for mark in placed['problems'] if mark['kind'] == 'empty-slot']
+    assert empty and placed['problems'][:len(empty)] == empty
+    assert all(mark['detail'] == count_issue and mark['molecule'] is None for mark in empty)
 
 
 @pytest.mark.parametrize(('points', 'length_nm', 'reason'), [
@@ -953,8 +966,9 @@ def test_the_capacity_is_the_placers_own_measurement_not_a_formula(tmp_path):
 
 #: The sha256 of the placement record `place_detergents(None, _template(tmp_path), 2, seed=7)` produced before a
 #: conformation library existed, with the one new `conformations: None` key removed. This is every existing run's
-#: geometry: if it changes, a placement's own numbers moved. Re-record it only when that is the intended change.
-UNTROUBLED_PLACEMENT_SHA256 = '729a75a1262b0d07b01eaf4d7297d8a251424d6165758732c9cdf96a38116c61'
+#: geometry: if it changes, a placement's own numbers moved. It also pins the preview's additive
+#: `problems`/`problems_truncated` keys (empty and zero here). Re-record it only when that is the intended change.
+UNTROUBLED_PLACEMENT_SHA256 = '3ddc78958e373fed001029a20911c0c0747f63f7a4e292af57f17a15b63a56aa'
 
 
 def drawn_profile(offsets):
@@ -1272,12 +1286,13 @@ def test_the_body_gate_measures_the_model_body_and_an_explicit_none_is_a_centres
     assert fallback['body_profile']['source'] == 'coordinates'
 
 
-def test_a_slot_whose_base_head_is_inside_the_protein_is_skipped_not_nudged():
-    """A protein through the belt makes a hole: the slot's own region is left empty, not pushed aside.
+def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
+    """Task 1: a base the old gate refused is nudged, and the accepted head and body clear every gate.
 
-    The base site is the ladder's own heading/height placed at the supplied local surface. A protein point on that
-    head is deep penetration (distance 0), so the slot is refused before any local trial. A point far away leaves the
-    same slot placeable, so the test pins the skip and not a broken generator.
+    The base head is the ladder's own heading/height placed at the supplied local surface, with a protein point
+    sitting exactly on it. The old code rejected this slot before any trial (a head distance of 0 nm is below the
+    clearance); the ladder's first legal trial moves the head radially outward and the slot is filled. The trial is
+    inside the documented local bounds, so no neighbour's ladder position is used.
     """
     from micelle.packing import golden_angle_directions
 
@@ -1286,19 +1301,200 @@ def test_a_slot_whose_base_head_is_inside_the_protein_is_skipped_not_nudged():
     ladder = golden_angle_directions(1, 3)
     heading = float(np.arctan2(ladder[0, 1], ladder[0, 0]))
     height = float(np.sin(0.5 * np.pi * ladder[0, 2]) * half_band)
-    across, up = pdc_placement._plane_basis(np.asarray(cylinder['axis']))
+    axis = np.asarray(cylinder['axis'], dtype=float)
+    across, up = pdc_placement._plane_basis(axis)
     outward = np.cos(heading) * across + np.sin(heading) * up
-    base_site = (1.0 + length) * outward + height * np.asarray(cylinder['axis'])
+    base_candidate = (1.0 + length) * outward + height * axis
+    base_direction = (np.cos(pdc_placement.TILT_RADIANS) * outward
+                      + np.sign(height) * np.sin(pdc_placement.TILT_RADIANS) * axis)
+    protein = np.asarray([base_candidate])
+    profile = pdc_placement.detergent_profile(_template(tmp_path))
 
-    blocked = pdc_placement._cylinder_sites(
-        1, 3, cylinder, lambda heading, height: 1.0, length, half_band, [base_site],
-        pdc_placement.MIN_CLEARANCE_NM)
-    clear = pdc_placement._cylinder_sites(
-        1, 3, cylinder, lambda heading, height: 1.0, length, half_band, [base_site + np.array([20.0, 0.0, 0.0])],
-        pdc_placement.MIN_CLEARANCE_NM)
+    # The old first gate: the base head is inside the clearance, so the slot never reached a trial.
+    assert float(np.linalg.norm(base_candidate - protein, axis=1).min()) < pdc_placement.MIN_CLEARANCE_NM
+    assert pdc_placement.body_clearance(base_candidate, base_direction, profile, protein) < \
+        pdc_placement.BEAD_CLEARANCE_NM
 
-    assert len(blocked[0]) == 0, 'the penetrated slot is left empty'
-    assert len(clear[0]) == 1, 'the same slot is placeable when the protein is not there'
+    centers, directions, drawn, rejected, passes, rejected_slots = pdc_placement._cylinder_sites(
+        1, 3, cylinder, lambda heading, height: 1.0, length, half_band, protein,
+        pdc_placement.MIN_CLEARANCE_NM, profile)
+
+    assert len(centers) == 1 and drawn == 1 and rejected == 0 and passes == 1
+    assert rejected_slots == []
+    moved = centers[0]
+    assert not np.allclose(moved, base_candidate), 'the refused slot is moved by a trial, not kept or dropped'
+    relative = moved - np.asarray(cylinder['origin'])
+    assert abs(float(relative @ axis) - height) <= max(abs(value) for value in pdc_placement.BELT_TRIAL_HEIGHT_NM)
+    radial = relative - float(relative @ axis) * axis
+    base_radial = 1.0 + length
+    assert float(np.linalg.norm(radial)) - base_radial <= \
+        max(pdc_placement.BELT_TRIAL_RADIAL_NM) + 1e-9, 'the move is a local nudge, not another ladder slot'
+    assert float(np.linalg.norm(moved - protein, axis=1).min()) >= pdc_placement.MIN_CLEARANCE_NM
+    beads = pdc_placement.body_beads(moved, directions[0], profile)
+    assert float(np.linalg.norm(beads[:, None, :] - protein[None, :, :], axis=2).min()) >= \
+        pdc_placement.BEAD_CLEARANCE_NM
+
+
+def _assert_finite_marks(marks):
+    """Every mark is JSON-safe: three finite coordinates, a finite radius, finite beads."""
+    assert all(np.isfinite(mark['position_nm']).all() for mark in marks)
+    assert all(mark['normal_nm'] is None or np.isfinite(mark['normal_nm']).all() for mark in marks)
+    assert all(np.isfinite(mark['radius_nm']) for mark in marks)
+    assert all(np.isfinite(bead).all() for mark in marks for bead in mark['protein_beads'])
+    assert all(len(mark['position_nm']) == 3 for mark in marks)
+
+
+def test_the_rejection_records_and_problems_are_deterministic_in_the_seed(tmp_path):
+    """Same seed -> byte-identical rejected slots and marks; a different seed -> different geometry."""
+    points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
+    template = _template(tmp_path, length_nm=0.4)
+    first = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4,
+                                           measure_capacity=False)
+    again = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4,
+                                           measure_capacity=False)
+    other = pdc_placement.place_detergents(points, template, 600, seed=5, frame=_frame(), radius_nm=2.4,
+                                           measure_capacity=False)
+
+    assert json.dumps(first['problems'], sort_keys=True) == json.dumps(again['problems'], sort_keys=True)
+    assert first['band']['rejected_slots'] == again['band']['rejected_slots']
+    assert first['band']['rejected_slots'] != other['band']['rejected_slots']
+    assert first['problems'] != other['problems']
+    _assert_finite_marks(first['problems'])
+
+
+def test_an_empty_slot_ring_sits_at_the_rejected_slots_own_base_point(tmp_path):
+    """The preview's ring is the slot's own geometry: base point, outward normal, and the failed gate's distance."""
+    points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 600, seed=4,
+                                            frame=_frame(), radius_nm=2.4, measure_capacity=False)
+    slots = placed['band']['rejected_slots']
+    empty = [mark for mark in placed['problems'] if mark['kind'] == 'empty-slot']
+
+    assert len(empty) == len(slots)
+    for slot, mark in zip(slots, empty):
+        assert mark['position_nm'] == slot['position_nm']
+        assert mark['normal_nm'] == slot['normal_nm']
+        assert mark['radius_nm'] == slot['gate_nm']
+        assert mark['molecule'] is None and mark['detail'].startswith('aggregation count')
+
+
+def test_a_rejected_slot_is_lifted_with_the_belt_so_its_ring_stays_on_the_drawn_belt(tmp_path):
+    """A raised belt raises its empty slots too: the ring sits where that slot would have stood after the offset."""
+    points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
+    template = _template(tmp_path, length_nm=0.4)
+    level = pdc_placement.place_detergents(points, template, 200, seed=4, frame=_frame(), radius_nm=2.4,
+                                           measure_capacity=False)
+    lifted = pdc_placement.place_detergents(points, template, 200, seed=4, frame=_frame(), radius_nm=2.4,
+                                            belt_offset_nm=0.3, measure_capacity=False)
+    axis = np.asarray(level['band']['cylinder']['axis'], dtype=float)
+    before = level['band']['rejected_slots']
+    after = lifted['band']['rejected_slots']
+
+    assert len(before) == len(after) > 0
+    for low, high in zip(before, after):
+        assert np.allclose(np.asarray(high['position_nm']) - np.asarray(low['position_nm']), 0.3 * axis, atol=5e-6)
+        assert high['height_nm'] == pytest.approx(low['height_nm'] + 0.3, abs=5e-6)
+        assert high['normal_nm'] == low['normal_nm']
+        assert high['reason'] == low['reason']
+    rings = [mark for mark in lifted['problems'] if mark['kind'] == 'empty-slot']
+    assert [mark['position_nm'] for mark in rings] == [slot['position_nm'] for slot in after]
+
+
+def test_a_head_inside_the_clearance_is_marked_at_its_site_and_nearest_protein_bead(tmp_path):
+    """The belt raises into a protrusion the unshifted site gate never measured: each offending head is marked."""
+    points = _ring(1.0, 0.0, count=12) + _ring(3.0, 2.0, count=24)
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
+                                            radius_nm=1.0, belt_offset_nm=2.0, measure_capacity=False)
+    head = [mark for mark in placed['problems'] if mark['kind'] == 'head-clearance']
+
+    assert not placed['valid'] and head
+    issue = next(issue for issue in placed['issues'] if issue.startswith('detergent too close'))
+    centers = np.asarray(placed['centers'])
+    cloud = np.asarray(points)
+    for mark in head:
+        index = mark['molecule'] - 1
+        assert mark['detail'] == issue
+        assert mark['position_nm'] == [round(float(value), 6) for value in centers[index]]
+        assert mark['normal_nm'] is None
+        assert len(mark['protein_beads']) == 1
+        assert np.linalg.norm(centers[index] - np.asarray(mark['protein_beads'][0])) < \
+            pdc_placement.MIN_CLEARANCE_NM
+        assert np.linalg.norm(centers[index] - np.asarray(mark['protein_beads'][0])) == pytest.approx(
+            float(np.linalg.norm(centers[index] - cloud, axis=1).min()), abs=6e-6)
+    _assert_finite_marks(placed['problems'])
+
+
+def test_a_drawn_body_inside_the_bead_gate_is_marked_with_its_offending_pair(tmp_path):
+    """A body-clearance mark is the offending detergent bead, and the protein point it comes too close to."""
+    template = _template(tmp_path)
+    protein = [[0.0, 0.0, 0.0]]
+    library = DrawnLibrary([[[0.0, 0.0, 0.0], [0.0, 0.0, -3.0]]])
+    placed = pdc_placement.place_detergents(protein, template, 4, seed=7, conformations=library)
+    body = [mark for mark in placed['problems'] if mark['kind'] == 'body-clearance']
+    drawn = placed['conformations']
+
+    assert not placed['valid'] and body
+    issue = next(issue for issue in placed['issues'] if 'drawn detergent body' in issue)
+    for mark in body:
+        assert mark['detail'] == issue
+        index = mark['molecule'] - 1
+        assert 0 <= index < len(placed['centers'])
+        profile = library.profiles[drawn['entries'][index]]
+        beads = pdc_placement.body_beads(np.asarray(placed['centers'][index]),
+                                         np.asarray(placed['directions'][index]),
+                                         profile, drawn['twists'][index])
+        assert any(np.allclose(mark['position_nm'], np.round(bead, 6)) for bead in beads)
+        assert mark['normal_nm'] is None
+        assert np.linalg.norm(np.asarray(mark['position_nm']) - np.asarray(mark['protein_beads'][0])) < \
+            pdc_placement.BEAD_CLEARANCE_NM
+    _assert_finite_marks(placed['problems'])
+
+
+def test_an_overlapping_pair_records_both_molecule_indices(tmp_path, monkeypatch):
+    """One mark per member, each naming its own index and the partner's centre, so both indices are recorded."""
+    from micelle.validation import validate_positions
+
+    monkeypatch.setattr(pdc_placement, 'MIN_DISTANCE_NM', 0.0)
+    placed = pdc_placement.place_detergents(None, _template(tmp_path), 60, seed=7, mode='self-assembly',
+                                            radius_nm=1.0)
+    overlap = [mark for mark in placed['problems'] if mark['kind'] == 'overlap']
+    report = validate_positions(placed['centers'], len(placed['centers']))
+    first, second = report['overlap_pairs'][0]
+
+    assert not placed['valid'] and overlap
+    assert len(report['minimum_pair']) == 2, 'the report names the closest pair'
+    issue = next(issue for issue in placed['issues'] if issue.startswith('detergent overlap'))
+    centers = np.asarray(placed['centers'])
+    partner_of = {first + 1: second, second + 1: first}
+    pair_marks = [mark for mark in overlap
+                  if mark['molecule'] in partner_of
+                  and mark['protein_beads'] == [[round(float(value), 6)
+                                                 for value in centers[partner_of[mark['molecule']]]]]]
+    assert {mark['molecule'] for mark in pair_marks} == {first + 1, second + 1}
+    for mark in pair_marks:
+        assert mark['detail'] == issue
+        assert mark['position_nm'] == [round(float(value), 6) for value in centers[mark['molecule'] - 1]]
+    _assert_finite_marks(placed['problems'])
+
+
+def test_problem_marks_are_capped_and_the_leftovers_counted(tmp_path, monkeypatch):
+    """MAX_PROBLEMS marks in the documented order; `problems_truncated` is the number left out."""
+    template = _template(tmp_path)
+    long_entry = [[[0.0, 0.0, 0.0], [0.0, 0.0, -3.0]]]
+    library = DrawnLibrary(long_entry)
+
+    monkeypatch.setattr(pdc_placement, 'MAX_PROBLEMS', 10_000)
+    uncapped = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 250, seed=7, conformations=library)
+    total = len(uncapped['problems'])
+    assert total > 200 and uncapped['problems_truncated'] == 0
+
+    monkeypatch.setattr(pdc_placement, 'MAX_PROBLEMS', 50)
+    capped = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 250, seed=7, conformations=library)
+    assert pdc_placement.MAX_PROBLEMS == 50
+    assert len(capped['problems']) == 50
+    assert capped['problems_truncated'] == total - 50
+    assert capped['problems'] == uncapped['problems'][:50]
+    assert pdc_placement.MAX_PROBLEMS == 50
 
 
 def test_the_whole_belt_can_be_lifted_along_the_membrane_normal(tmp_path):

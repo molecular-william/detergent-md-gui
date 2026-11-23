@@ -45,9 +45,11 @@ The measurements and the packing rule the module owns, and records:
 * the **local surface is height-aware and the belt is packed**: a site's surface is measured over the in-slab atoms
   within the adaptive angular window *and* within `belt_axial_window_nm` of its own height, so a site above or below a
   transmembrane helix sees the bundle rather than that helix's arc. Between detergents the gate is the bodies' own
-  separation (`min_body_gap_nm`); a slot that fails its gates tries a bounded, deterministic sequence of local offsets
-  -- height first, then heading, then radially outward -- and is left empty if none clears, so even coverage does not
-  depend on relocating a rejected site into the next lobby of the ladder.
+  separation (`min_body_gap_nm`); **every** slot that fails a gate tries a bounded, deterministic sequence of local
+  offsets -- height first, then heading, then radially outward -- and is left empty only if none clears, so even
+  coverage does not depend on relocating a rejected site into the next lobby of the ladder. Every slot left empty is
+  recorded with its own base coordinate, heading, height and the gate it failed (`rejected_slots`), which is what the
+  preview's empty-slot rings and a refusal's count read.
 * the **capacity** is measured against those same gates when a count cannot be placed, so a refusal can say what the
   shape would hold. The requested number is never scaled (`capacity`).
 """
@@ -101,11 +103,12 @@ TILT_RADIANS = np.deg2rad(TILT_DEGREES)
 # narrower window would let a neighbouring site stand inside the same protrusion, and a wider one would spread one
 # helix's extra radius around a larger arc than it occupies.
 BELT_LOCAL_ANGLE_DEG = 10.0
-#: How deeply a base slot's body must reach into the protein before the slot is skipped rather than nudged. The
-#: ordinary bead gate (0.25 nm) is a clearance, not a penetration: a body that merely grazes the surface can be
-#: moved by a trial; one whose beads are essentially inside the protein means the protein passes through the belt at
-#: that slot, and the honest answer is to leave the slot empty.
-BELT_PENETRATION_NM = 0.05
+# The maximum number of geometry marks one placement returns. A dense shell can put every protein bead inside a gate,
+# and one browser answer must not carry thousands of marks; the issue sentences stay complete beside the cap.
+MAX_PROBLEMS = 200
+# A bead mark's own drawing radius, in nm. It is display geometry, not a gate: the positions and the gate distance a
+# ring carries are the measured numbers.
+PROBLEM_BEAD_RADIUS_NM = 0.3
 # The axial half-window of that local measurement, in nm: only in-slab atoms within this axial distance of the site's
 # own height set its surface. Without it a sector is one angular-only maximum, so a helix that reaches 3 nm at one
 # axial end stands every site in that sector off at 3 nm, including the sites above and below it. 0.75 nm is about the
@@ -475,6 +478,117 @@ def placed_bead_clearance(centers, directions, profile, points, *, profiles=None
     return None if not np.isfinite(best) else best
 
 
+def placed_bead_clearance_sites(centers, directions, profile, points, *, profiles=None, twists=None) -> list[dict]:
+    """Each placed detergent's own closest bead-to-protein approach, with the offending pair.
+
+    `placed_bead_clearance` answers only the smallest number over the whole placement, which is enough for the gate
+    but not for a mark that has to point at the bead and the protein point it is near. This is the same measurement
+    kept per molecule: `distance_nm` is that molecule's minimum, `bead_nm` the detergent bead that reached it and
+    `protein_point_nm` the protein point. An empty list is the same answer as `placed_bead_clearance`'s `None` --
+    there was nothing to measure.
+    """
+    if points is None or not len(points) or not len(centers):
+        return []
+    if profiles is None:
+        if profile is None:
+            return []
+        profiles = [profile] * len(centers)
+    angles = [0.0] * len(centers) if twists is None else [float(twist) for twist in twists]
+    cloud = np.asarray(points, dtype=float)
+    records = []
+    for index, (site, direction, body, twist) in enumerate(zip(centers, directions, profiles, angles)):
+        beads = body_beads(site, direction, body, twist)
+        gap = beads[:, None, :] - cloud[None, :, :]
+        distances = np.sqrt((gap * gap).sum(axis=2))
+        flat = int(np.argmin(distances))
+        bead_index, point_index = divmod(flat, distances.shape[1])
+        records.append({'molecule': index + 1,
+                        'distance_nm': float(distances[bead_index, point_index]),
+                        'bead_nm': beads[bead_index].tolist(),
+                        'protein_point_nm': cloud[point_index].tolist()})
+    return records
+
+
+def _finite_point(point) -> bool:
+    """Whether one recorded mark position is three finite numbers: a `nan` is dropped, never drawn."""
+    if point is None:
+        return False
+    values = np.asarray(point, dtype=float).reshape(-1)
+    return values.size == 3 and bool(np.isfinite(values).all())
+
+
+def _rounded_point(point) -> list[float]:
+    """One mark position, rounded the way the placement's record rounds a measured number."""
+    return [round(float(value), 6) for value in np.asarray(point, dtype=float).reshape(3)]
+
+
+def _collect_problems(*, rejected_slots, count_issue, centers, points, head_issue, min_clearance_nm,
+                      body_issue, body_sites, overlap_issue, overlap_pairs) -> list[dict]:
+    """The preview's marks, made from the measurements the gate already took and the sentences already written.
+
+    Order is deterministic and is the cap's order: empty slots first (their own ladder order), then molecules by
+    1-based index. A sentence in `issues` is the `detail` of every mark it explains, verbatim, so no mark can say
+    something the refusal does not; a mark whose position is not finite is dropped and the sentence keeps the count.
+    """
+    marks = []
+    if count_issue is not None:
+        for slot in rejected_slots or ():
+            position, normal = slot.get('position_nm'), slot.get('normal_nm')
+            gate = slot.get('gate_nm')
+            if not _finite_point(position) or not _finite_point(normal):
+                continue
+            if gate is None or not np.isfinite(gate):
+                continue
+            marks.append({'kind': 'empty-slot', 'detail': count_issue, 'molecule': None,
+                          'position_nm': _rounded_point(position), 'normal_nm': _rounded_point(normal),
+                          'radius_nm': round(float(gate), 6), 'protein_beads': []})
+    ordered = []
+    if head_issue is not None and points is not None and len(points) and len(centers):
+        cloud = np.asarray(points, dtype=float)
+        offsets = np.asarray(centers, dtype=float)[:, None, :] - cloud[None, :, :]
+        distances = np.sqrt((offsets * offsets).sum(axis=2))
+        nearest = distances.argmin(axis=1)
+        for index in range(len(centers)):
+            if float(distances[index, nearest[index]]) >= min_clearance_nm:
+                continue
+            site, bead = centers[index], cloud[nearest[index]]
+            if not _finite_point(site) or not _finite_point(bead):
+                continue
+            ordered.append((index, {'kind': 'head-clearance', 'detail': head_issue, 'molecule': index + 1,
+                                    'position_nm': _rounded_point(site), 'normal_nm': None,
+                                    'radius_nm': PROBLEM_BEAD_RADIUS_NM,
+                                    'protein_beads': [_rounded_point(bead)]}))
+    if body_issue is not None:
+        for record in body_sites:
+            if record['distance_nm'] >= BEAD_CLEARANCE_NM:
+                continue
+            bead, point = record['bead_nm'], record['protein_point_nm']
+            if not _finite_point(bead) or not _finite_point(point):
+                continue
+            ordered.append((record['molecule'] - 1, {
+                'kind': 'body-clearance', 'detail': body_issue, 'molecule': record['molecule'],
+                'position_nm': _rounded_point(bead), 'normal_nm': None,
+                'radius_nm': PROBLEM_BEAD_RADIUS_NM, 'protein_beads': [_rounded_point(point)]}))
+    if overlap_issue is not None:
+        center_rows = np.asarray(centers, dtype=float)
+        for pair in overlap_pairs or ():
+            first, second = int(pair[0]), int(pair[1])
+            if not (0 <= first < len(center_rows) and 0 <= second < len(center_rows)):
+                continue
+            for mine, partner in ((first, second), (second, first)):
+                if not _finite_point(center_rows[mine]) or not _finite_point(center_rows[partner]):
+                    continue
+                # One mark per member so both indices are recorded; the partner's own centre is the bead the mark
+                # points at, exactly as a body-clearance mark points at its protein bead.
+                ordered.append((mine, {'kind': 'overlap', 'detail': overlap_issue, 'molecule': mine + 1,
+                                       'position_nm': _rounded_point(center_rows[mine]), 'normal_nm': None,
+                                       'radius_nm': PROBLEM_BEAD_RADIUS_NM,
+                                       'protein_beads': [_rounded_point(center_rows[partner])]}))
+    ordered.sort(key=lambda item: item[0])
+    marks.extend(mark for _, mark in ordered)
+    return marks
+
+
 def _draw_conformations(conformations, seed, count):
     """One entry index and one azimuth per site, drawn from the library's own generator.
 
@@ -648,21 +762,33 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         if abs(offset) > 1e-12:
             axis = np.asarray(band['record']['cylinder']['axis'], dtype=float)
             centers = np.asarray(centers, dtype=float) + offset * axis
+            # The belt is drawn raised, so every rejected slot's own base is raised with it: an empty-slot ring
+            # must sit where that slot would have stood in the frame the returned centres are in.
+            for slot in band['record'].get('rejected_slots', ()):
+                slot['position_nm'] = [round(float(value), 6)
+                                       for value in np.asarray(slot['position_nm'], dtype=float) + offset * axis]
+                slot['height_nm'] = round(float(slot['height_nm']) + offset, 6)
             # The box's z is measured from this reach; a translated belt reaches at least the old reach plus the
             # translation, so take the conservative bound rather than leave the top of the belt outside the cell.
             band['record']['belt_reach_nm'] = round(float(band['record'].get('belt_reach_nm') or 0.0)
                                                      + abs(offset), 6)
         band['record']['belt_offset_nm'] = round(offset, 6)
-    issues = [] if unplaced else list(validate_positions(centers, aggregation_number)['issues'])
+    validation = None
+    issues = []
+    if not unplaced:
+        validation = validate_positions(centers, aggregation_number)
+        issues = list(validation['issues'])
     if unplaced:
         total = 0 if points is None else len(points)
         issues.append(f'the protein has {unplaced} coarse-grained bead(s) without a position, of {total}, so '
                       f'no detergent can be placed clear of it')
     clearance = None
+    head_issue = None
     if not unplaced and points is not None and len(points) and len(centers):
         clearance = min(float(np.linalg.norm(center - points, axis=1).min()) for center in centers)
         if clearance < min_clearance_nm:
-            issues.append(f'detergent too close to the protein: {clearance:.3f} nm < {min_clearance_nm} nm')
+            head_issue = f'detergent too close to the protein: {clearance:.3f} nm < {min_clearance_nm} nm'
+            issues.append(head_issue)
     drawn = None
     if conformations is not None:
         entries, twists = _draw_conformations(conformations, seed, len(centers))
@@ -690,9 +816,16 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
 
     # A drawn body that reaches into the gate is refused here, after the capacity measurement: the shell's own
     # capacity is measured over the template's body, so quoting it would answer a question this gate did not ask.
+    body_issue = None
+    body_sites = []
     if drawn is not None and body is not None and body < BEAD_CLEARANCE_NM:
-        issues.append(f'a drawn detergent body reaches within {body:.3f} nm of the protein: the body gate is '
+        body_issue = (f'a drawn detergent body reaches within {body:.3f} nm of the protein: the body gate is '
                       f'{BEAD_CLEARANCE_NM} nm')
+        issues.append(body_issue)
+        body_sites = placed_bead_clearance_sites(
+            centers, directions, profile, points,
+            profiles=[conformations.profiles[index] for index in drawn['entries']],
+            twists=drawn['twists'])
 
     # The numbers the shape was built at, and the settings they were measured over. `radius_nm` is the radius of the
     # shape this placement built -- the sphere's shell, the belt's cylinder surface -- and `radius_floor_nm` is the
@@ -709,6 +842,18 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         radius, radius_source = float(radius_nm), None
     if unplaced:
         radius_source = None
+    rejected_slots = band['record'].get('rejected_slots', []) if band is not None else []
+    count_issue = next((issue for issue in issues if issue.startswith('aggregation count')), None)
+    overlap_issue = next((issue for issue in issues if issue.startswith('detergent overlap')), None)
+    overlap_pairs = validation['overlap_pairs'] if validation is not None else []
+    problems = _collect_problems(rejected_slots=rejected_slots, count_issue=count_issue,
+                                 centers=centers, points=points,
+                                 head_issue=head_issue, min_clearance_nm=min_clearance_nm,
+                                 body_issue=body_issue, body_sites=body_sites,
+                                 overlap_issue=overlap_issue, overlap_pairs=overlap_pairs)
+    problems_truncated = max(0, len(problems) - MAX_PROBLEMS)
+    if problems_truncated:
+        problems = problems[:MAX_PROBLEMS]
     return {'centers': centers.tolist(), 'directions': directions.tolist(), 'mode': mode,
             # Nothing was drawn against a protein no measurement could be made of, so there is no shape to name.
             'placement_shape': None if unplaced else (SHAPE_CYLINDER if band is not None else SHAPE_SPHERE),
@@ -740,7 +885,11 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
             'protein_free': points is None or not len(points), 'protein_clearance_nm': clearance,
             'bead_clearance_nm': None if body is None else round(float(body), 6),
             'capacity_aggregation': capacity_aggregation,
-            'issues': issues, 'valid': not issues}
+            'issues': issues, 'valid': not issues,
+            # The preview's marks are the gate's own measurements written where the sentences are: an empty slot's
+            # ring sits at the slot's own base point, a bead mark at the offending bead. They are display data only;
+            # nothing in a run reads them.
+            'problems': problems, 'problems_truncated': problems_truncated}
 
 
 def _sphere_shell(points, template, profile, radius_nm, min_clearance_nm) -> dict:
@@ -910,6 +1059,11 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     count is the number the draw actually kept and the count gate refuses a count the shape could not cover. A slot
     is never relocated to the next ladder phase: the offsets are small nudges inside its own neighbourhood, which is
     what keeps the belt's angular and height coverage even instead of clustering sites wherever a pass found room.
+
+    The draw's own counts are `detergents_drawn` (ladder slots offered to the gates), `rejected` (slots left empty
+    because no trial cleared every gate), `passes` (1 when the ladder was drawn, 0 for a zero count -- the ladder is
+    drawn exactly once, never re-phased) and `rejected_slots`, one record per empty slot with its own base point,
+    outward normal, heading, height, failed gate and that gate's distance.
     """
     frame_axis = np.asarray(unit_axis(frame.axis), dtype=float)
     bounds = _slab_bounds(frame)
@@ -963,7 +1117,7 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
                 local = float(radial[sector & (axial_gap <= nearest + 1e-9)].max())
         return max(local + float(belt_gap_nm), float(belt_floor_nm))
 
-    centers, directions, drawn, rejected, passes = _cylinder_sites(
+    centers, directions, drawn, rejected, passes, rejected_slots = _cylinder_sites(
         count, seed, cylinder, surface_at, length, half_band, points, min_clearance_nm, profile,
         min_body_gap_nm)
     # The surface each placed head actually stood off. The head is `length` beyond its local surface along the
@@ -1027,6 +1181,9 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         # that stands for a surface which varies with angle.
         'volume_nm3': round(np.pi * ((mean_surface + length) ** 2 - mean_surface ** 2) * (2.0 * half_band), 6),
         'detergents_drawn': drawn, 'rejected': rejected, 'passes': passes,
+        # One record per slot the gates left empty, with the slot's own base geometry and the gate it failed. This
+        # is what a refusal's count and the preview's empty-slot rings read; it is not a second placement.
+        'rejected_slots': rejected_slots,
         'axis': [float(value) for value in cylinder['axis']],
         'plane_low_nm': float(bounds[0]), 'plane_high_nm': float(bounds[1]), 'source': frame.source,
     }
@@ -1103,6 +1260,41 @@ def _belt_trials():
         yield 0.0, 0.0, offset
 
 
+def _belt_trial_verdict(candidate, direction, profile, protein_points, kept, kept_beads,
+                        min_clearance_nm, min_body_gap_nm, reach):
+    """Why one belt trial is refused, or `None` and the body its acceptance keeps.
+
+    Every gate is authoritative and checked in the order the docstring states: the head site's clearance, the
+    head-site spacing, the molecule's own body against the protein, and -- when it is positive -- the body-to-body
+    gap. A refusal's reason is what the slot's own record states; an acceptance's `beads` is stacked into
+    `kept_beads` so the next slot can measure its body gap without rebuilding an accepted body.
+    """
+    if float(np.linalg.norm(candidate - protein_points, axis=1).min()) < min_clearance_nm:
+        return 'head-clearance', None
+    if kept and float(np.linalg.norm(candidate - np.asarray(kept), axis=1).min()) < MIN_DISTANCE_NM:
+        return 'site-spacing', None
+    if body_clearance(candidate, direction, profile, protein_points) < BEAD_CLEARANCE_NM:
+        return 'body-clearance', None
+    beads = body_beads(candidate, direction, profile)
+    if min_body_gap_nm > 0 and kept_beads.size:
+        # Only a kept bead inside the gate plus the molecule's own reach can be within the gate of this body, so the
+        # comparison stays small even for a full belt of a many-atom molecule.
+        limit = float(min_body_gap_nm) + reach
+        offsets = kept_beads - candidate
+        near = kept_beads[np.einsum('ij,ij->i', offsets, offsets) <= limit * limit]
+        if near.size:
+            gap = beads[:, None, :] - near[None, :, :]
+            if float(np.sqrt((gap * gap).sum(axis=2)).min()) < float(min_body_gap_nm):
+                return 'body-gap', None
+    return None, beads
+
+
+def _belt_gate_distance(reason, min_clearance_nm, min_body_gap_nm) -> float:
+    """The gate distance a rejected slot's ring states: the number the refusal was measured against."""
+    return {'head-clearance': float(min_clearance_nm), 'site-spacing': float(MIN_DISTANCE_NM),
+            'body-clearance': float(BEAD_CLEARANCE_NM), 'body-gap': float(min_body_gap_nm)}.get(reason, 0.0)
+
+
 def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protein_points,
                     min_clearance_nm, profile=None, min_body_gap_nm=0.0):
     """`count` head sites outside the cylinder's **local** lateral surface, one per golden-angle ladder slot.
@@ -1119,18 +1311,23 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     build hangs back along `-direction` -- dips towards it, and its radial component is always smaller than the
     head's. Every site is its own angle, height and direction; no single heading is shared by the belt.
 
-    **Each slot keeps the ladder's own (heading, height).** A slot whose own region the protein penetrates -- its
-    base head site or body is inside the protein clearance gates -- is left empty, not nudged out of the way; the hole
-    is where the protein passes through the belt. A slot whose base clears the protein but fails a detergent-spacing
-    gate tries the module's bounded local offsets (`_belt_trials`), recomputing the surface at every trial, and is
-    left empty if none clears. The ladder is drawn exactly once -- the next pass's phase is never used to replace a
-    refused slot -- so coverage stays the ladder's own even spacing rather than clustering wherever a pass found room.
+    **Each slot keeps the ladder's own (heading, height), and every slot that fails a gate is nudged.** Its base
+    position is the first trial; when any gate refuses it, the module's bounded local offsets (`_belt_trials`) are
+    tried -- height first, then heading, then radially outward -- and the first trial that clears every gate is
+    accepted. Only a slot with no legal trial is left empty. Trials are small nudges inside the slot's own
+    neighbourhood, never a move to another ladder position, and the next pass's phase is never used to replace a
+    refused slot, so coverage stays the ladder's own even spacing instead of clustering wherever a pass found room.
 
     Four gates decide a trial: the **head site** must keep `min_clearance_nm` from every protein bead (the number the
     placement reports), no two head sites may be closer than `MIN_DISTANCE_NM`, the detergent's **own body**
     (`body_beads` along the direction) must keep `BEAD_CLEARANCE_NM` from every protein bead, and -- when
     `min_body_gap_nm` is positive -- no body bead may be closer than that to any bead of an already accepted body.
     The last gate is what `MIN_DISTANCE_NM` alone cannot see: two bodies whose heads are legal can still overlap.
+    The vertical band is kept by clipping every trial's height inside `[-half_band, half_band]`, so no nudge can
+    leave the membrane.
+
+    A rejected slot is recorded with its **own base** coordinate, outward normal, heading, height, the gate it failed
+    and that gate's distance; the record is what the refusal's count and the preview's empty-slot rings read.
     """
     axis = np.asarray(cylinder['axis'], dtype=float)
     origin = np.asarray(cylinder['origin'], dtype=float)
@@ -1141,6 +1338,7 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     kept_directions: list[np.ndarray] = []
     kept_beads = np.empty((0, 3), dtype=float)
     drawn = rejected = 0
+    rejected_slots = []
     ladder = golden_angle_directions(count, seed)
     base_headings = np.arctan2(ladder[:, 1], ladder[:, 0])
     # The ladder's third coordinate is the old torus's meridian fraction, so its axial part is sin(pi/2 * z):
@@ -1150,20 +1348,10 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
         if len(kept) >= count:
             break
         drawn += 1
-        # The slot's own region is the ladder's position, not a nudge from it. If the protein reaches into that
-        # region -- a helix through the belt, a soluble domain crossing the band -- the slot is left empty rather
-        # than pushed outwards or sideways: the hole is the honest picture of a torus the protein penetrates.
         base_outward = float(np.cos(base_heading)) * across + float(np.sin(base_heading)) * up
         base_radius = surface_at(base_heading, base_height) + length
         base_candidate = origin + base_radius * base_outward + base_height * axis
-        base_lean = 1.0 if base_height >= 0.0 else -1.0
-        base_direction = cosine * base_outward + base_lean * sine * axis
-        if float(np.linalg.norm(base_candidate - protein_points, axis=1).min()) < min_clearance_nm:
-            rejected += 1
-            continue
-        if body_clearance(base_candidate, base_direction, profile, protein_points) < BELT_PENETRATION_NM:
-            rejected += 1
-            continue
+        base_reason = None
         accepted = False
         for heading_offset, height_offset, radial_offset in _belt_trials():
             height = float(np.clip(base_height + height_offset, -half_band, half_band))
@@ -1173,37 +1361,30 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
             candidate = origin + radius * outward + height * axis
             lean = 1.0 if height >= 0.0 else -1.0
             direction = cosine * outward + lean * sine * axis
-            if float(np.linalg.norm(candidate - protein_points, axis=1).min()) < min_clearance_nm:
-                continue
-            if kept and float(np.linalg.norm(candidate - np.asarray(kept), axis=1).min()) < MIN_DISTANCE_NM:
-                continue
-            if body_clearance(candidate, direction, profile, protein_points) < BEAD_CLEARANCE_NM:
-                continue
-            beads = None
-            if min_body_gap_nm > 0 and kept_beads.size:
-                # Only a kept bead inside the gate plus the molecule's own reach can be within the gate of this
-                # body, so the comparison stays small even for a full belt of a many-atom molecule.
-                limit = float(min_body_gap_nm) + reach
-                offsets = kept_beads - candidate
-                near = kept_beads[np.einsum('ij,ij->i', offsets, offsets) <= limit * limit]
-                if near.size:
-                    beads = body_beads(candidate, direction, profile)
-                    gap = beads[:, None, :] - near[None, :, :]
-                    if float(np.sqrt((gap * gap).sum(axis=2)).min()) < float(min_body_gap_nm):
-                        continue
-            if beads is None:
-                beads = body_beads(candidate, direction, profile)
-            kept.append(candidate)
-            kept_directions.append(direction)
-            kept_beads = np.vstack([kept_beads, beads]) if kept_beads.size else beads
-            accepted = True
-            break
+            reason, beads = _belt_trial_verdict(candidate, direction, profile, protein_points, kept,
+                                                kept_beads, min_clearance_nm, min_body_gap_nm, reach)
+            if reason is None:
+                kept.append(candidate)
+                kept_directions.append(direction)
+                kept_beads = np.vstack([kept_beads, beads]) if kept_beads.size else beads
+                accepted = True
+                break
+            if heading_offset == 0.0 and height_offset == 0.0 and radial_offset == 0.0:
+                base_reason = reason
         if not accepted:
             rejected += 1
+            rejected_slots.append({
+                'position_nm': [round(float(value), 6) for value in base_candidate],
+                'normal_nm': [round(float(value), 6) for value in base_outward],
+                'heading_rad': round(float(base_heading), 6),
+                'height_nm': round(float(base_height), 6),
+                'reason': base_reason,
+                'gate_nm': round(_belt_gate_distance(base_reason, min_clearance_nm, min_body_gap_nm), 6),
+            })
     passes = 1 if count else 0
     if not kept:
-        return np.empty((0, 3)), np.empty((0, 3)), drawn, rejected, passes
-    return np.asarray(kept), np.asarray(kept_directions), drawn, rejected, passes
+        return np.empty((0, 3)), np.empty((0, 3)), drawn, rejected, passes, rejected_slots
+    return np.asarray(kept), np.asarray(kept_directions), drawn, rejected, passes, rejected_slots
 
 
 def _plane_basis(axis):
