@@ -1,0 +1,210 @@
+/* The light theme is the base every sheet states. The dark theme is this file's palette swap: it redefines the
+ * root's colours, then every rule below restates one surface, border or ink the sheets write as a literal, so a panel
+ * that carries no variable of its own still reads on a dark page.
+ *
+ * Two rules keep this file small enough to maintain. The overrides are prefixed with `:where([data-theme="dark"])`,
+ * which adds no specificity: they win because this sheet is linked last, and a sheet's own more specific state rule
+ * still beats the plain one it refines. The palette is a handful of surface steps plus four tint families, so a literal
+ * that is a surface maps to a surface step rather than to a colour of its own.
+ *
+ * The 3D viewers keep their white stage on purpose: bead and surface colours are chosen against it, and a black stage
+ * would silently change what a colour means. Plotly plots follow the theme instead (`plotTheme()` in `shared.js`).
+ */
+:root { --accent-ink: var(--accent) }
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d131b; --surface: #151d27; --surface-2: #1a2431; --surface-3: #243040;
+  --line: #2a3746; --ink: #dbe3ee; --muted: #94a3b6;
+  --accent: #3573cc; --accent-ink: #7fb2f7; --danger: #f08a95; --card: #151d27;
+}
+
+/* The header control. It states the theme it is in, and its `aria-pressed` carries the same answer for a reader. */
+#theme-toggle { background: var(--surface); color: var(--muted); border: 1px solid var(--line); padding: 7px 12px; font-size: 13px }
+#theme-toggle:hover { color: var(--accent-ink) }
+#theme-toggle .theme-glyph { margin-right: 6px }
+
+
+:where([data-theme="dark"]) .composition-plot { background:var(--surface-2) }
+:where([data-theme="dark"]) .composition-diagnostics { background:var(--surface-2) }
+:where([data-theme="dark"]) .composition-terms input[data-dirty=true] { background:#18293f }
+
+:where([data-theme="dark"]) .eyebrow { color:var(--accent-ink) }
+:where([data-theme="dark"]) button.secondary, :where([data-theme="dark"]) a.secondary { background:var(--surface); color:var(--accent-ink) }
+:where([data-theme="dark"]) button.danger { background:#2e171b; border-color:#6d2f38 }
+:where([data-theme="dark"]) nav button[aria-selected=true] { background:var(--surface); color:var(--accent-ink) }
+:where([data-theme="dark"]) .badge { background:var(--surface-3) }
+:where([data-theme="dark"]) .badge[data-status=failed] { background:#2e171b; color:#f0909b }
+:where([data-theme="dark"]) .badge[data-status=running] { background:#18293f; color:var(--accent-ink) }
+:where([data-theme="dark"]) .badge[data-status=completed] { background:#142b1f; color:#7fd3a5 }
+:where([data-theme="dark"]) .notice { background:#2c2413; border:1px solid #6b5726 }
+:where([data-theme="dark"]) summary { color:var(--accent-ink) }
+:where([data-theme="dark"]) input, :where([data-theme="dark"]) select { border:1px solid #2a3746; background:var(--surface) }
+:where([data-theme="dark"]) .timeline-step[data-status=running] .timeline-dot { box-shadow:0 0 0 4px #18293f }
+:where([data-theme="dark"]) .figure-tabs button { background:var(--surface-3) }
+:where([data-theme="dark"]) .figure-viewport { background:var(--surface) }
+:where([data-theme="dark"]) .inherited-setting input:disabled, :where([data-theme="dark"]) .inherited-setting select:disabled { background:var(--surface-3) }
+:where([data-theme="dark"]) .distance-diagnostic { background:#2c2413; border-color:#6b5726 }
+:where([data-theme="dark"]) .bonded-diagram { background:var(--surface-2); background:var(--surface) }
+:where([data-theme="dark"]) .bonded-interaction-table tr[aria-selected=true] { background:#18293f }
+:where([data-theme="dark"]) .bonded-editor-panel { background:var(--surface-2) }
+:where([data-theme="dark"]) .bonded-plot { background:var(--surface) }
+:where([data-theme="dark"]) .bonded-readonly-parameter { background:var(--surface-3) }
+:where([data-theme="dark"]) .torsion-blocks dt { color:var(--accent-ink) }
+:where([data-theme="dark"]) .torsion-more > summary { color:var(--accent-ink) }
+:where([data-theme="dark"]) .torsion-caveat { border-left:3px solid #6b5726; background:#2c2413 }
+:where([data-theme="dark"]) .bonded-job-meter { background:var(--surface-3) }
+:where([data-theme="dark"]) .bonded-job-steps li { background:var(--surface-2) }
+:where([data-theme="dark"]) .bonded-job-steps li[data-state=done] { background:#18293f }
+:where([data-theme="dark"]) .bonded-term-inputs input { background:var(--surface) }
+:where([data-theme="dark"]) .bonded-term-inputs input[data-dirty=true] { background:#18293f }
+:where([data-theme="dark"]) #bonded-terms-status[data-state=warn] { color:#e0b45f }
+:where([data-theme="dark"]) #modules-button { background:var(--surface); color:var(--accent-ink) }
+:where([data-theme="dark"]) .modules-popover { background:var(--surface) }
+:where([data-theme="dark"]) .module-row:hover { background:var(--surface-2) }
+:where([data-theme="dark"]) .module-glyph { background:var(--surface-3); color:var(--accent-ink) }
+:where([data-theme="dark"]) .module-row.is-off .module-glyph { background:var(--surface-2); color:var(--muted) }
+:where([data-theme="dark"]) .module-switch-track::after { background:var(--surface) }
+:where([data-theme="dark"]) .modules-dirty { background:#2c2413; border:1px solid #6b5726 }
+:where([data-theme="dark"]) .bonded-workspace .info-btn { background:var(--surface-3); color:var(--accent-ink) }
+:where([data-theme="dark"]) .bonded-workspace .info-btn:hover, :where([data-theme="dark"]) .bonded-workspace .info-btn:focus-visible { background:#1c2f47 }
+:where([data-theme="dark"]) .bonded-terms-status[data-state=warn] { color:#e0b45f }
+:where([data-theme="dark"]) .bonded-surface-plot { background:var(--surface) }
+
+:where([data-theme="dark"]) nav[role=tablist] button[aria-selected=true] { color:var(--accent-ink) }
+:where([data-theme="dark"]) nav[role=tablist] button .tab-glyph { color:var(--accent-ink) }
+
+:where([data-theme="dark"]) .mapping-editor-diagram { border:1px solid #2a3746; background:var(--surface-2) }
+:where([data-theme="dark"]) .mapping-warning { border:1px solid #6b5726; background:#2c2413; color:#e0b45f }
+:where([data-theme="dark"]) .validation-comparison[data-comparison] { background:var(--surface-3) }
+:where([data-theme="dark"]) .validation-claim { background:#2e171b }
+:where([data-theme="dark"]) .validation-surface-frame { background:var(--surface) }
+:where([data-theme="dark"]) .mapping-editor-controls caption { background:var(--surface-2) }
+:where([data-theme="dark"]) #mapping-bead-rows tr.selected { background:#18293f }
+
+:where([data-theme="dark"]) #molecule-inputs > summary { background:var(--surface-2) }
+:where([data-theme="dark"]) #molecule-details { background:var(--surface-2) }
+:where([data-theme="dark"]) #run-form .preset-bar { background:var(--surface-2); border:1px solid #33507a }
+:where([data-theme="dark"]) #run-form .info-btn { background:var(--surface-3); color:var(--accent-ink) }
+:where([data-theme="dark"]) #run-form .info-btn:hover, :where([data-theme="dark"]) #run-form .info-btn:focus-visible { background:#1c2f47 }
+:where([data-theme="dark"]) .review-status[data-ready=true] { color:#7fd3a5 }
+:where([data-theme="dark"]) #run-form .stage-editor { background:var(--surface-2) }
+:where([data-theme="dark"]) #run-form .stage-editor[open] { background:var(--surface) }
+:where([data-theme="dark"]) #run-form .stage-editor > summary { background:var(--surface) }
+:where([data-theme="dark"]) #run-form .stage-editor > summary::before { color:var(--accent-ink) }
+
+:where([data-theme="dark"]) .run-view-structures tr[aria-selected="true"] { background:#18293f }
+:where([data-theme="dark"]) .run-view-viewer { background:var(--surface-2) }
+:where([data-theme="dark"]) .run-view-readout { background:var(--surface-2) }
+:where([data-theme="dark"]) .run-view-readout .ok { color:#7fd3a5 }
+:where([data-theme="dark"]) .monitor .chooser .list button[data-active="true"], :where([data-theme="dark"]) .monitor .chooser .list button:hover { background:#18293f }
+:where([data-theme="dark"]) .run-view-segments tr[data-boundary='true'] td, :where([data-theme="dark"]) .run-view-segments tr[data-boundary='true'] th { background:#2c2413 }
+:where([data-theme="dark"]) .run-view-analysis .analysis-check .check-progress { color:var(--accent-ink) }
+:where([data-theme="dark"]) .run-view-analysis .analysis-views button { background:var(--surface-3) }
+:where([data-theme="dark"]) .run-view-analysis .analysis-mode-tabs button { background:var(--surface-3) }
+:where([data-theme="dark"]) .run-view-analysis .analysis-notice { background:#2c2413; color:#e0b45f }
+
+:where([data-theme="dark"]) .runs-filters { background:var(--surface-2) }
+:where([data-theme="dark"]) .filter-count { color:#e0b45f; background:#3a2e10; border:1px solid #6b5726 }
+:where([data-theme="dark"]) .linkish { color:var(--accent-ink) }
+:where([data-theme="dark"]) .run-table-scroll { background:var(--surface) }
+:where([data-theme="dark"]) .run-table > thead th { background:var(--surface-2) }
+:where([data-theme="dark"]) .run-summary .job-validate { color:var(--accent-ink) }
+:where([data-theme="dark"]) .run-table .timeline-dot { border:1px solid #2a3746; background:var(--surface) }
+:where([data-theme="dark"]) .run-table .timeline-step[data-status=skipped] .timeline-dot { background:var(--surface-3); color:var(--muted) }
+:where([data-theme="dark"]) .run-table .timeline-step[data-status=running] .timeline-dot, :where([data-theme="dark"]) .run-table .timeline-step[data-status=cancelling] .timeline-dot { box-shadow:0 0 0 3px #18293f }
+:where([data-theme="dark"]) .job-progress { background:var(--surface-3) }
+:where([data-theme="dark"]) .job-progress[data-indeterminate="true"] .job-progress-fill { background:linear-gradient(90deg,#2c6b4c 0%,#36a269 50%,#2c6b4c 100%) }
+:where([data-theme="dark"]) .job-progress-seg { background:linear-gradient(to right, var(--segment-color) var(--fill), var(--surface-3) var(--fill)) }
+:where([data-theme="dark"]) .job-progress-seg.future { background:var(--surface-3) }
+:where([data-theme="dark"]) .job-progress-seg.unknown { background:linear-gradient(90deg,#2c6b4c 0%, var(--segment-color) 50%, #2c6b4c 100%) }
+:where([data-theme="dark"]) .job-progress-seg.skipped { background:repeating-linear-gradient(45deg,var(--surface-3),var(--surface-3) 3px,#2f3d4d 3px,#2f3d4d 6px) }
+:where([data-theme="dark"]) .run-resources > .job-view-run { background:var(--surface-2) }
+:where([data-theme="dark"]) .run-resources > .job-view-run:hover { background:#18293f }
+:where([data-theme="dark"]) .run-resources > details > summary { background:var(--surface-2) }
+:where([data-theme="dark"]) .run-resources > details[open] > summary { background:#18293f }
+:where([data-theme="dark"]) .run-equilibration-switch button[aria-pressed="true"] { border-color:#33507a; background:#18293f }
+:where([data-theme="dark"]) .adopt-banner { border:1px solid #33507a; background:#18293f }
+:where([data-theme="dark"]) .lincs-warnings tbody tr[aria-selected="true"] { background:#18293f }
+:where([data-theme="dark"]) .lincs-warnings tbody tr.worst, :where([data-theme="dark"]) .lincs-table tbody tr.worst { background:#2e171b }
+:where([data-theme="dark"]) .frame-tag.yes { color:#7fd3a5; border-color:#2c6b4c; background:#142b1f }
+:where([data-theme="dark"]) .frame-tag.no { background:var(--surface-2) }
+:where([data-theme="dark"]) .lincs-frame-bar button[aria-pressed="true"] { background:#18293f }
+:where([data-theme="dark"]) .lincs-viewer { background:var(--surface-2) }
+:where([data-theme="dark"]) .lincs-scroll.has-more thead th { background:var(--surface) }
+
+:where([data-theme="dark"]) nav.section-tabs[role=tablist] .section-tab { color:var(--muted); background:var(--surface-3); border:1px solid var(--line) }
+:where([data-theme="dark"]) nav.section-tabs[role=tablist] .section-tab:hover { background:var(--surface-3); color:var(--ink) }
+:where([data-theme="dark"]) nav.section-tabs[role=tablist] .section-tab[aria-selected="true"] { background:var(--card); color:var(--ink); border-color:#2a3746 }
+:where([data-theme="dark"]) nav.section-tabs[role=tablist] .section-tab .sub { color:var(--muted) }
+:where([data-theme="dark"]) nav.subtabs[role=tablist] { background:var(--card); border:1px solid #2a3746 }
+:where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab { color:var(--muted) }
+:where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab:hover { background:var(--surface-2); color:var(--ink) }
+:where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab[aria-selected="true"] { background:#18293f; color:var(--accent-ink) }
+:where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab .tab-glyph { color:var(--muted) }
+
+:where([data-theme="dark"]) .pdc-viewer { background:var(--surface-2) }
+:where([data-theme="dark"]) .new-pdc-diagram>summary { color:var(--accent-ink) }
+:where([data-theme="dark"]) .new-pdc-workflow-svg { background:var(--surface-2) }
+:where([data-theme="dark"]) .new-pdc-flow-node rect { fill:var(--surface); stroke:#7f93a8 }
+:where([data-theme="dark"]) .new-pdc-flow-node.new-pdc-backmap-node rect { fill:#2c2413; stroke:#d8a952 }
+:where([data-theme="dark"]) .new-pdc-flow-link { stroke:#6f8299 }
+:where([data-theme="dark"]) .new-pdc-estimate-card { background:var(--surface-2) }
+:where([data-theme="dark"]) .new-pdc-verdict.short { color:#f0a060 }
+:where([data-theme="dark"]) .new-pdc-verdict.enough { color:#7fd3a5 }
+:where([data-theme="dark"]) #run-form .new-pdc-limitation { color:#e0b45f }
+:where([data-theme="dark"]) #run-form .new-pdc-preview-viewer { background:var(--surface-2) }
+:where([data-theme="dark"]) #run-form .new-pdc-preview-state.stale { color:#e0b45f }
+:where([data-theme="dark"]) #run-form .new-pdc-preview-problems { border:1px solid #6d2f38; background:#2e171b }
+:where([data-theme="dark"]) #run-form .seg span { background:var(--surface) }
+:where([data-theme="dark"]) #run-form .eligible-run { background:var(--surface) }
+:where([data-theme="dark"]) #run-form .eligible-run:has(input:checked) { background:var(--surface-2) }
+:where([data-theme="dark"]) #run-form .eligible-run .tag { color:#7fd3a5; background:#142b1f }
+:where([data-theme="dark"]) #run-form .eligible-run .tag.warn { color:#e0b45f; background:#2c2413 }
+:where([data-theme="dark"]) #run-form .stored-library { background:var(--surface) }
+:where([data-theme="dark"]) #run-form .stored-library:has(input:checked) { background:var(--surface-2) }
+:where([data-theme="dark"]) #run-form .stored-library .tag { color:var(--accent-ink); background:#18293f }
+:where([data-theme="dark"]) #run-form .new-pdc-preview-library { background:var(--surface-2) }
+:where([data-theme="dark"]) .whole-trajectory>summary { color:var(--accent-ink) }
+:where([data-theme="dark"]) .whole-trajectory button.linkish { color:var(--accent-ink) }
+:where([data-theme="dark"]) .pds-sub { border-top:1px solid #2a3746 }
+:where([data-theme="dark"]) .pds-chip.kind { background:#18293f; color:var(--accent-ink); border-color:#33507a }
+:where([data-theme="dark"]) .pds-chip.gmx { background:var(--surface-2); color:var(--muted); border-color:#2a3746 }
+:where([data-theme="dark"]) .pds-empty { background:var(--surface-2) }
+:where([data-theme="dark"]) .pds-caveat { background:#2c2413; color:#e0b45f }
+:where([data-theme="dark"]) .pds-notice { background:var(--surface-2) }
+
+:where([data-theme="dark"]) .osmotic-sugar-status.ok { background:#142b1f; color:#7fd3a5 }
+:where([data-theme="dark"]) .osmotic-sugar-status.bad { background:#2e171b; color:#f0909b }
+:where([data-theme="dark"]) .osmotic-conc-row { background:var(--surface-2) }
+:where([data-theme="dark"]) .osmotic-conc-row input.bad-value { background:#2e171b }
+:where([data-theme="dark"]) .osmotic-tally { border:1px solid #2a3746; background:var(--surface-2) }
+:where([data-theme="dark"]) .osmotic-range-warning, :where([data-theme="dark"]) .osmotic-sugar-status+.warn { border-left:4px solid #8a6d2c; background:#2c2413; color:#e0b45f }
+:where([data-theme="dark"]) .osmotic-range-warning strong { color:#e0b45f }
+:where([data-theme="dark"]) .osmotic-stop-reason { color:#e0b45f }
+:where([data-theme="dark"]) .osmotic-review-status.ready { color:#7fd3a5 }
+
+:where([data-theme="dark"]) .rvm-claim { background:#2e171b }
+:where([data-theme="dark"]) .rvm-ff { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-ff-source { background:#18293f; color:var(--accent-ink) }
+:where([data-theme="dark"]) .rvm-ff-metric.ff { border-color:#33507a }
+:where([data-theme="dark"]) .rvm-ff-missing { border:1px dashed #6b5726; background:#2c2413; color:#e0b45f }
+:where([data-theme="dark"]) .rvm-measure { background:var(--surface-2) }
+:where([data-theme="dark"]) .rvm-models { border:1px solid #33507a; background:var(--surface-2) }
+:where([data-theme="dark"]) .rvm-own { background:#142b1f; color:#7fd3a5; border:1px solid #2c6b4c }
+:where([data-theme="dark"]) .rvm-frame { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-chart { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-surface-plot { background:var(--surface-2) }
+:where([data-theme="dark"]) .rvm-sasa-chart { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-map { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-gradient { background:linear-gradient(90deg, #18293f, #1d4ed8) }
+:where([data-theme="dark"]) .rvm-reading { background:var(--surface-2) }
+:where([data-theme="dark"]) .rvm-eyebrow { color:var(--accent-ink) }
+:where([data-theme="dark"]) .rvm-attention button { background:var(--surface) }
+:where([data-theme="dark"]) .rvm-attention button:hover { background:#18293f }
+:where([data-theme="dark"]) .rvm-rank { background:var(--surface-3); color:var(--accent-ink) }
+:where([data-theme="dark"]) .rvm-attention-context .rvm-rank { background:var(--surface-2) }
+:where([data-theme="dark"]) .rvm-measure[aria-selected="true"] { background:#18293f }
+/* The native control follows the declared scheme; a dialog's own surface and its scrim are the two the UA leaves open. */
+:where([data-theme="dark"]) dialog { background: var(--surface); color: var(--ink); border: 1px solid var(--line) }
+:where([data-theme="dark"]) ::backdrop { background: rgba(4, 8, 14, .66) }

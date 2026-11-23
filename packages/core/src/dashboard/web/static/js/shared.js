@@ -114,10 +114,20 @@ const liveApi = path => loadOnce(path, () => api(path), {maxAge: 0});
 // module that addresses it: the vocabulary has one owner, and the modules follow it rather than restating it.
 // Read per call rather than cached: it is a `getElementById` and a nine-key parse, and a latched lookup has a way to
 // be wrong that a fresh one does not.
+// Plotly draws its own canvas, so it cannot follow the page's colours from CSS. Every layout a module builds carries
+// this: a transparent paper and plot background, so the panel's own surface shows through, and the theme's ink, so a
+// dark page does not get Plotly's default near-black labels. A switch after a plot is drawn is handled by `theme.js`,
+// which relayouts the plots already on screen.
+function plotTheme() {
+  const style = getComputedStyle(document.documentElement);
+  const ink = style.getPropertyValue('--ink').trim() || '#1c2940';
+  return {paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: {color: ink}};
+}
+
 const panelIds = () => {
   const block = document.getElementById('panel-ids');
   try { return block ? (JSON.parse(block.textContent) || {}) : {}; } catch { return {}; }
 };
 
 export { loadOnce, cachedApi, fillMoleculeOptions, invalidateResource, guarded, DROP, CATALOGUE_MAX_AGE, liveVisible, whenLive, liveApi, pollMilliseconds, liveShown,
-         $,  $$, storage, setText, notice, api, post, plural, artifactUrl, artifactText, panelIds };
+         $,  $$, storage, setText, notice, api, post, plural, artifactUrl, artifactText, panelIds, plotTheme };

@@ -10,6 +10,30 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-23)
 
+- **Dark by default with a header toggle; pdc's two toggles start off (2026-11-23).**
+  The shell carries `<html data-theme="dark">`, an inline head script restores a stored light choice from
+  `localStorage["ddm.theme"]` before the first paint (so a light reader sees no dark flash), and `js/theme.js` flips the
+  attribute, remembers it, and relayouts any Plotly plot already drawn. `static/theme.css`, linked last, swaps the root
+  palette (`--bg/--surface/--surface-2/--surface-3/--line/--ink/--muted/--accent/--accent-ink/--danger/--card`) and
+  restates the neutral surfaces, borders and inks the sheets write as literals; every override is prefixed
+  `:where([data-theme="dark"])`, which adds no specificity, so order alone makes it win and a sheet's own state rule
+  still beats its plain one. `--accent-ink` is the text half of the accent (light keeps `var(--accent)`); Plotly cannot
+  follow CSS, so `shared.js:plotTheme()` gives every layout a transparent paper and the theme's ink. The 3D viewers keep
+  their white stage deliberately: bead and surface colours are chosen against it. The same change unticked pdc's
+  **Remove out-of-micelle detergents** and **Back-map to atomistic (CG2AT2)** defaults in the form *and* in the adapter
+  (`pdc.DEFAULTS`), so a caller that omits them gets the short, coarse-grained chain; `tests/harness/pdc_fixtures.py`
+  now states the full chain explicitly instead of inheriting it.
+  Checks: fast tier **3,180 passed / 1 xfailed**; pdc area **841 passed / 1 xfailed**; full browser tier **434
+  passed** (`-n 16 --dist worksteal`); ruff clean on every touched path. New
+  `packages/core/tests/browser/test_theme_browser.py` asserts the boot default, both computed body colours, the
+  button's `aria-pressed` and the persisted choice across a reload, and is named in `tests/harness/areas.py`'s shell
+  area; the dark page was also screenshotted (Runs, the pdc New run form and its two unticked boxes). Tests moved with
+  the defaults: the protocol default assertions, two prepare-time skip sets, the back-map stage and browser files, the
+  extension-timestep guard, the ten-stage workflow diagram and payload/chain browser cases, and two direct
+  `pdc.prepare` calls that now state the chain. **Not restarted:** `DDM_2ydo_192_libconf_500ns-3` was running and
+  `DM_2ydo_144_libconf_500ns` queued at 20:47 HKT, so the live page still serves the light theme until the usual
+  restart with nothing in flight.
+
 - **The frame-series estimate counts the file's atoms, not the system's (2026-11-23).**
   A build of `NG_2ydo_155_libconf_500ns-3`'s 495-500 ns window (one model every 0.1 ns, `pbc: cluster`,
   `fit: rot+trans` on the protein) failed the size cap: "51 models of 54278 atoms is about 332181360 bytes". The

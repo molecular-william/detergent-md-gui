@@ -2,7 +2,7 @@
 // The record is read only when the row's Diagnostics disclosure is open, and it names its own legs -- a run with one
 // equilibration file is one leg, not the three an AA/pdc run writes. A running run cannot be analysed, so this panel
 // says that instead of offering a request the queue route would refuse.
-import { $, $$, api, post } from './shared.js';
+import { $, $$, api, post, plotTheme } from './shared.js';
 import { ensurePlotly } from './plotly-loader.js';
 
 //: How often an attempt that has been started is asked whether it published, and the ceiling on those asks. The
@@ -155,7 +155,7 @@ function chartFor(panel, term, leg, legKey, record, plotly, failure) {
     xaxis: {title: {text: xTitle, font: {size: 11}}},
     yaxis: {title: {text: term.title + ' (' + term.unit + ')', font: {size: 11}}},
     legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 11}},
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    ...plotTheme(),
   }, {displayModeBar: false, responsive: true}).catch(error => {
     chart.textContent = 'The ' + term.title + ' trace could not be drawn: ' + error.message + '.';
   });

@@ -6,6 +6,7 @@ import { createMappings } from './mappings.js';
 import { createCompositions } from './compositions.js';
 import { createRunView } from './run-view.js';
 import { initModules } from './modules.js';
+import { initTheme } from './theme.js';
 import { setPanelBusy } from './panel-busy.js';
 
 //: The lists New run, Mappings and Bonded read, warmed once the shell is idle. They are catalogues -- changed only by
@@ -32,6 +33,7 @@ function prefetchCatalogues() {
 //: the shell from `dashboard.features.browser_panels()`, so a feature's module is fetched only when its distribution
 //: is installed -- a `[det]` deployment never downloads the protein-detergent panel.
 export async function boot(specs = {}, extensions = []) {
+  initTheme();
   initModules();
   const panels = panelIds();
   //: Feature *panel* modules are imported when their tab first opens, not at boot: a Runs reader does not wait for

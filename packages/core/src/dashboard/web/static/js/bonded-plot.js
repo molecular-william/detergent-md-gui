@@ -2,6 +2,7 @@
 // The bead radii come from `ngl-beads.js`, the one table of what each size class means
 // (`models/sugars/recognition.RADII_NM`); this module only turns one into a marker size.
 import { beadRadiusNm } from './ngl-beads.js';
+import { plotTheme } from './shared.js';
 import { ensurePlotly } from './plotly-loader.js';
 
 const TYPE_COLORS = ['#2455b0', '#b24b8f', '#168477', '#d27a1f', '#6c4bb2', '#5d7187', '#c03b3b', '#4d8c45'];
@@ -400,7 +401,7 @@ export function mountBondedPlot(host, {onBeadSelection, onTermSelection, onPairS
         yaxis: {title: 'y (nm)', showgrid: true, zeroline: false},
         zaxis: {title: 'z (nm)', showgrid: true, zeroline: false},
         aspectmode: 'data', camera: {projection: {type: 'orthographic'}},
-      }, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
+      }, ...plotTheme(),
     };
     return ensurePlotly().then(() => {
       if (token !== generation) return;

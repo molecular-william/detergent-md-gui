@@ -15,7 +15,7 @@ from pathlib import Path
 
 from detergent_pdc.execution.adapters import pdc
 
-from tests.harness.pdc_fixtures import inputs_dir, prepared_run, script_of
+from tests.harness.pdc_fixtures import prepared_run, script_of
 from tests.harness.support import PROJECT_ROOT
 
 BACKMAP = 'Back-mapping (CG2AT2)'
@@ -81,19 +81,16 @@ def test_a_protein_free_run_gets_no_back_map_stage_at_all(tmp_path) -> None:
     assert 'no protein' in record['skipped_stages'][BACKMAP]
 
 
-def test_the_default_is_back_mapping_on(tmp_path) -> None:
-    """Nothing existing moves: a run that says nothing back-maps the way every run did before the toggle."""
-    run = prepared(tmp_path)
-
-    assert json.loads((inputs_dir(run) / pdc.SETTINGS_NAME).read_text())['backmap'] is True
-    assert backmap_directory(run).is_dir()
+def test_the_default_is_back_mapping_off() -> None:
+    """A run that says nothing stops coarse-grained: converting to all-atom is the run's own opt-in."""
+    assert pdc.DEFAULTS['backmap'] is False
+    assert pdc.normalize_settings({})['backmap'] is False
 
 
-def test_the_back_map_is_absent_when_the_run_switched_it_off(tmp_path) -> None:
-    """Switched off at prepare: no stage, no script, and the manifest records the reason."""
-    run = prepared(tmp_path, backmap=False)
+def test_the_back_map_is_present_when_the_run_switched_it_on(tmp_path) -> None:
+    """Switched on at prepare: the stage directory exists and the manifest records no skip for it."""
+    run = prepared(tmp_path, backmap=True)
     record = json.loads((run / 'manifest.json').read_text())
 
-    assert not backmap_directory(run).exists()
-    assert 'back-map' in record['skipped_stages'][BACKMAP].lower()
-    assert not list(run.rglob('skip.json')), 'a prepare-time skip writes no skip.json'
+    assert backmap_directory(run).is_dir()
+    assert BACKMAP not in record['skipped_stages'], 'a run that asked for the conversion owes the stage'

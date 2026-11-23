@@ -91,7 +91,8 @@ AREAS = {
         'integration/test_collection_shapes.py',
         # Named stage-setting presets: the workspace store and the routes the New run form reads.
         'unit/test_setting_presets.py', 'integration/test_setting_presets_api.py',
-        'browser/test_dashboard_browser.py', 'browser/test_lazy_loading.py', 'browser/test_plotly_lazy_browser.py',
+        'browser/test_dashboard_browser.py', 'browser/test_theme_browser.py',
+        'browser/test_lazy_loading.py', 'browser/test_plotly_lazy_browser.py',
         'browser/test_panel_loading_browser.py',
         'browser/test_workspace_navigation_browser.py',
     ),

@@ -1,7 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  {# The page is dark unless the reader chose light, and the choice is applied before the first paint so a light
+     reader never sees a dark flash. `js/theme.js` owns the switch itself; this line only restates its saved answer. #}
+  <script>
+    try { if (JSON.parse(localStorage.getItem('ddm.theme')) === 'light') document.documentElement.dataset.theme = 'light'; } catch (error) {}
+  </script>
   <title>Detergent MD · Laboratory</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='runs.css') }}">
@@ -17,6 +22,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='run-view.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='layout.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='workspaces.css') }}">
+  {# The theme sheet goes last: its dark overrides state no more specificity than the sheets they replace, so order is
+     what makes them win. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
   <meta name="plotly-src" content="{{ url_for('catalog.plotly_asset') }}">
   {# The 1.28 MB NGL bundle is fetched by `ngl-loader.js` when a panel first draws a 3D stage, not here: the
      default Runs tab draws none, and a parser-blocking script in <head> charged every load for it. #}
@@ -39,6 +47,7 @@
 <body data-workspace="{{ workspace.slug }}">
 <header><div><span class="eyebrow">LOCAL SIMULATION WORKSPACE</span><h1>Detergent MD</h1><p>Run, inspect, and refine molecular models.</p></div>
 <div class="header-actions">
+  <button type="button" id="theme-toggle" aria-pressed="true" title="Switch to the light theme"><span class="theme-glyph" aria-hidden="true">☾</span><span class="sr-only">Dark mode</span></button>
   <div class="modules-menu">
     <button type="button" id="modules-button" aria-expanded="false" aria-controls="modules-popover">Modules <span aria-hidden="true">▾</span></button>
     <div id="modules-popover" class="modules-popover" role="dialog" aria-label="Installed modules" hidden>

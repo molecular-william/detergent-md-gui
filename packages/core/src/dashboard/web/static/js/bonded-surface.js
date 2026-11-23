@@ -8,7 +8,7 @@
 // vertices as dots, and the line under the plot that states what was drawn. Plotly arrives lazily (the bundle is
 // 4.8 MB and only two panels need it), so a load waits for it and a result that arrives after the pane has moved on is
 // dropped: the generation token is bumped by every load, clear and destroy.
-import { post } from './shared.js';
+import { post, plotTheme } from './shared.js';
 import { ensurePlotly } from './plotly-loader.js';
 
 //: The two surfaces' own colours, matching the interaction plot's AA blue and CG amber.
@@ -23,8 +23,6 @@ const CONFIG = {responsive: true, displaylogo: false, modeBarButtonsToRemove: ['
 const LAYOUT = {
   height: 360,
   margin: {l: 0, r: 0, t: 0, b: 0},
-  paper_bgcolor: '#fff',
-  plot_bgcolor: '#fff',
   showlegend: true,
   legend: {orientation: 'h', x: 0, y: 1},
   scene: {
@@ -147,7 +145,7 @@ export function createBondedSurface({host}) {
   async function draw(mine) {
     await ensurePlotly();
     if (mine !== generation || !surfaces) return;
-    await window.Plotly.react(plotHost, tracesFor(showingDots), LAYOUT, CONFIG);
+    await window.Plotly.react(plotHost, tracesFor(showingDots), {...LAYOUT, ...plotTheme()}, CONFIG);
     if (mine !== generation) return;
     status.dataset.state = '';
     status.textContent = sentence();
@@ -192,7 +190,7 @@ export function createBondedSurface({host}) {
     showingDots = checkbox.checked;
     if (!surfaces || !window.Plotly) return;
     const mine = generation;
-    window.Plotly.react(plotHost, tracesFor(showingDots), LAYOUT, CONFIG).catch(error => {
+    window.Plotly.react(plotHost, tracesFor(showingDots), {...LAYOUT, ...plotTheme()}, CONFIG).catch(error => {
       if (mine === generation) fail(error);
     });
   }

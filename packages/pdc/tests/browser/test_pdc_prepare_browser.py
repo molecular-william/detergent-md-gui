@@ -141,6 +141,10 @@ def test_the_workflow_card_is_closed_and_draws_the_chain_when_opened(dashboard, 
     serve(page, answer(pdb=PLACEMENT_PDB))
     open_panel(page, live_page.base_url)
 
+    # The diagram draws the path this run will take, and the two pipeline toggles are off by default now, so the
+    # full ten-stage chain is drawn by asking for it.
+    page.locator('[name=remove_out_of_micelle]').check()
+    page.locator('[name=backmap]').check()
     details = page.locator('details.new-pdc-diagram')
     expect(details).to_be_visible()
     assert not details.evaluate('element => element.open'), 'minimised by default'

@@ -10,7 +10,7 @@
 // The sections are registered with `run-view.js` when this module loads (Feature.extension_modules), one instance
 // per monitor. Every selector is resolved inside the host the card hands over and every mutable token lives in a
 // per-host dataset, because two monitors in one page share this module.
-import { api, artifactText, plural } from '/static/js/shared.js';
+import { api, artifactText, plural, plotTheme } from '/static/js/shared.js';
 import { ensurePlotly } from '/static/js/plotly-loader.js';
 import { registerRunViewAnalysisNotice, registerRunViewAnalysisSection } from '/static/js/run-view.js';
 
@@ -325,7 +325,7 @@ function drawSurfacePair(pane, data) {
       xaxis: {title: {text: 'x (nm)', font: {size: 11}}, range: [-extent, extent]},
       yaxis: {title: {text: 'y (nm)', font: {size: 11}}, range: [-extent, extent]},
       zaxis: {title: {text: 'z (nm)', font: {size: 11}}, range: [-extent, extent]}},
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    ...plotTheme(),
   }, {displayModeBar: false, responsive: true})).then(() => {
     observePlotResize(plotHost);
     for (const box of pane.querySelectorAll('input[data-surface-model]')) {
@@ -351,7 +351,7 @@ function drawSasaChart(host, series) {
       xaxis: {title: {text: 'time (ns)', font: {size: 11}}},
       yaxis: {title: {text: 'SASA (nm²)', font: {size: 11}}},
       legend: {orientation: 'h', y: 1.14, x: 0, font: {size: 12}},
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+      ...plotTheme(),
     }, {displayModeBar: false, responsive: true}).then(() => observePlotResize(host));
   }).catch(error => {
     host.textContent = `The SASA chart could not be drawn: ${error.message}.`;
@@ -436,7 +436,7 @@ function drawDisplacement(host, shape) {
       margin: { l: 56, r: 12, t: 8, b: 44 }, height: 260, bargap: 0.35,
       yaxis: { title: { text: 'displacement (pm)', font: { size: 11 } }, rangemode: 'tozero' },
       xaxis: { title: { text: 'bead', font: { size: 11 } }, tickangle: 0 },
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+      ...plotTheme(),
     }, { displayModeBar: false, responsive: true }).then(() => {
       if (current()) observePlotResize(chart);
     });
@@ -496,7 +496,7 @@ function drawFfChart(chart, term) {
       xaxis: {title: {text: `bin (${unit})`, font: {size: 11}}},
       yaxis: {title: {text: 'probability density', font: {size: 11}}},
       legend: {orientation: 'h', y: 1.16, x: 0, font: {size: 12}},
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+      ...plotTheme(),
     }, {displayModeBar: false, responsive: true}).then(() => observePlotResize(chart));
   }).catch(error => {
     chart.textContent = `The distribution could not be drawn: ${error.message}.`;

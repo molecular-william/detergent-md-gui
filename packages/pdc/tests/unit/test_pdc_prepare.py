@@ -183,7 +183,8 @@ def test_an_empty_micelle_is_a_stated_choice_rather_than_a_missing_protein(tmp_p
     """The spec's protein-free build: an absence that is a choice, told apart from one that is an oversight."""
     root = molecule_tree(tmp_path)
 
-    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH,
+                settings={'seed': 1, 'remove_out_of_micelle': True, 'backmap': True}, project_root=root)
     assert (tmp_path / 'run/inputs/protein.pdb').read_text().startswith('; no protein')
     skipped = json.loads((tmp_path / 'run/manifest.json').read_text())['skipped_stages']
     assert set(skipped) == {'Protein preparation', 'Back-mapping (CG2AT2)'}
@@ -397,7 +398,8 @@ def test_the_published_set_is_recorded_as_installed_and_no_grompp_stage_copies_i
 def test_the_run_records_where_its_parameters_came_from(tmp_path):
     """Provenance is the point of using a published set: a run names its version, not just its files."""
     root = molecule_tree(tmp_path)
-    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH,
+                settings={'seed': 1, 'remove_out_of_micelle': True, 'backmap': True}, project_root=root)
 
     settings = settings_of(tmp_path / 'run')
     recorded = settings['detergent_model']
@@ -467,7 +469,8 @@ def test_a_template_that_names_its_own_tail_roles_is_believed_first(tmp_path):
     (root / 'molecules' / 'DDM' / 'micelle_template.json').write_text(json.dumps(template))
 
     # No mapping: this case is about which source is believed, and the template's own roles are the one that wins.
-    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    pdc.prepare(tmp_path / 'run', template=TEMPLATE_PATH,
+                settings={'seed': 1, 'remove_out_of_micelle': True, 'backmap': True}, project_root=root)
 
     settings = settings_of(tmp_path / 'run')
     assert settings['tail_beads'] == ['TAIL']
@@ -478,7 +481,8 @@ def test_a_prepared_protein_free_micelle_has_the_uniform_layout(tmp_path):
     root = molecule_tree(tmp_path)
     run = tmp_path / 'run'
     run.mkdir()
-    pdc.prepare(run, template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    pdc.prepare(run, template=TEMPLATE_PATH, settings={'seed': 1, 'remove_out_of_micelle': True, 'backmap': True},
+                project_root=root)
 
     manifest = json.loads((run / 'manifest.json').read_text())
     assert manifest['layout_version'] == 4
@@ -506,7 +510,8 @@ def test_the_executor_records_a_prepare_time_skip_without_a_directory(tmp_path):
     # record names its repository-owned sources against the project root the run was prepared in, so the executor's
     # verification runs under that same root. The installed Martini set is absolute: the test suite installs it
     # outside any workspace.
-    pdc.prepare(run, template=TEMPLATE_PATH, settings={'seed': 1}, project_root=root)
+    pdc.prepare(run, template=TEMPLATE_PATH, settings={'seed': 1, 'remove_out_of_micelle': True, 'backmap': True},
+                project_root=root)
     with paths.use(paths.Paths(project_root=root, workspace=tmp_path / 'workspace')):
         workflow.run(run, run / 'logs' / 'console.log', stop_after='Protein preparation')
 

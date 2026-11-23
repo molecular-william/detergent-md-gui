@@ -694,7 +694,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     assert posted == {
         'run_type': 'pdc', 'molecule_id': 'DDM', 'template': 'molecules/DDM/v1/micelle_template.json',
         'protein': 'molecules/1qj8/1qj8.pdb', 'label': 'pdc panel test', 'pdc_placement_mode': 'lattice',
-        'backmap': True, 'remove_out_of_micelle': True,
+        # Both pipeline toggles start off: the run is coarse-grained and has no removal chain unless asked.
+        'backmap': False, 'remove_out_of_micelle': False,
         # The launch button's own choice, like the validation panel's: Queue is the default action.
         'gpu_sharing': 'queue',
         # The back-map's pdb2gmx choice is stated always, like the back-map toggle: a run that asked for virtual sites
@@ -899,14 +900,15 @@ def test_the_model_picker_lists_the_servers_models_by_what_they_carry(dashboard,
 def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redraws_the_chain(
         dashboard, live_page):
     """The settings the plan adds are visible where they act: no protein means no Ribbon and no
-    prepare/coarse-grain node; removing the removal pipeline leaves one CG MD leg instead of judge/extend/final."""
+    prepare/coarse-grain node; the removal pipeline is off by default (one CG MD leg), and switching it on turns the
+    judge/extend/final half of the chain on."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     open_panel(page, live_page.base_url)
     page.locator('#new-protein').select_option('')
 
     expect(page.locator('[data-new-summary=prepare]')).to_contain_text('skipped · empty micelle')
-    expect(page.locator('[data-new-summary=removal]')).to_contain_text('on')
+    expect(page.locator('[data-new-summary=removal]')).to_contain_text('off')
     # The protein's beads are no longer drawn, so the card carries no Bonds control at all; the ribbon is the one
     # protein view left, and an empty micelle has no all-atom structure to draw.
     assert page.locator('.new-pdc-preview-bonds').count() == 0, 'the Bonds control is gone from the card'
@@ -916,12 +918,17 @@ def test_the_empty_micelle_disables_the_protein_views_and_the_removal_gate_redra
     expect(page.locator('.new-pdc-flow [data-stage=build] text.title')).to_have_text('1 · Build the micelle')
     assert page.locator('.new-pdc-flow [data-stage=prepare]').count() == 0
     assert page.locator('.new-pdc-flow [data-stage=coarse-grain]').count() == 0
+    assert page.locator('.new-pdc-flow [data-stage=judge]').count() == 0, 'the removal chain is off by default'
+    expect(page.locator('[data-new-summary=sampling]')).to_contain_text('1000 ns CG MD')
+    expect(page.locator('.new-pdc-flow [data-stage=sample] text.title')).to_contain_text('CG MD')
+
+    # Switching removal on adds the judged half of the chain, which the same clicked disclosure must redraw.
+    page.locator('[name=remove_out_of_micelle]').check()
+    expect(page.locator('[data-new-summary=removal]')).to_contain_text('on')
     assert page.locator('.new-pdc-flow [data-stage=judge]').count() == 1
 
     page.locator('[name=remove_out_of_micelle]').uncheck()
     expect(page.locator('[data-new-summary=removal]')).to_contain_text('off')
-    expect(page.locator('[data-new-summary=sampling]')).to_contain_text('1000 ns CG MD')
-    expect(page.locator('.new-pdc-flow [data-stage=sample] text.title')).to_have_text('3 · CG MD')
     assert page.locator('.new-pdc-flow [data-stage=judge]').count() == 0
     assert page.locator('.new-pdc-flow [data-stage=extend]').count() == 0
     assert page.locator('.new-pdc-flow [data-stage=final-assessment]').count() == 0

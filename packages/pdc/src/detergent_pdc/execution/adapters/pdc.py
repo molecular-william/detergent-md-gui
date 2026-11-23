@@ -87,8 +87,8 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             'placement_mode': 'lattice',
             # Which subunits go into the simulation, and whether the back-map runs. `protein_chains` is `None` for
             # every chain -- so an existing caller, which never sends it, keeps the whole file -- and a list of ids
-            # when a caller chooses; `backmap` is `True` so nothing existing stops comparing its CG system with the
-            # atomistic one it came from. Both are choices rather than numbers and are validated in
+            # when a caller chooses; `backmap` is `False` because converting to all-atom is the expensive half of CG2AT2
+            # and the CG system is the run's own product. Both are choices rather than numbers and are validated in
             # `validate_payload` (shape) and `prepare` (against the file).
             #
             # `prepare_protein` is the plan's step 1 and it is **on** by default: a deposited file whose side chains are
@@ -99,15 +99,16 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # "On" cannot mean "refuses when the tool is absent", though: a default that no machine is obliged to
             # satisfy would block every run on a box without `pdb2pqr`. The stage therefore skips by name when the
             # tool is not resolvable, and refuses only when a tool it did resolve could not prepare the structure.
-            'protein_chains': None, 'backmap': True, 'prepare_protein': True,
+            'protein_chains': None, 'backmap': False, 'prepare_protein': True,
             # How the detergents' bodies are drawn: `None` stamps the template's one molecule, which is every build
             # before this setting existed; otherwise a spec naming source runs (build) or a stored library's key and
             # digest (reference). A choice rather than a number, so `validate_payload` normalises it where the
             # library package can say what is wrong.
             'conformation_library': None,
-            # The removal/assessment pipeline is a choice: on by default so every existing run keeps its chain; off
-            # means one plain CG MD leg after NPT, no assessment/removal/extension/final assessment.
-            'remove_out_of_micelle': True,
+            # The removal/assessment pipeline is a choice: off by default, which is one plain CG MD leg after NPT with
+            # no assessment/removal/extension/final assessment. On turns that chain on for a run that asks for it; a
+            # caller that sends nothing gets the short chain.
+            'remove_out_of_micelle': False,
             # The device this run's mdrun uses. Here rather than in the AA half's vocabulary because a pdc run has
             # no AA half and this is the only table its own normalizer reads; the value is one index.
             'mdrun_gpu': 0,
@@ -829,7 +830,7 @@ def _assessment_mdp(inputs: Path, settings: dict) -> int:
     """
     profile = 'pdc-assessment-v1'
     duration_ns = float(settings['assessment_ns'])
-    if not settings.get('remove_out_of_micelle', True):
+    if not settings.get('remove_out_of_micelle', False):
         duration_ns += float(settings['extension_ns'])
     dt = _dt_ps(profile, settings, ASSESSMENT_TIMESTEP)
     steps = round(duration_ns * 1000 / dt)
@@ -995,12 +996,12 @@ def _refuse_a_zero_step_leg(numbers: dict) -> None:
             continue
         # The extension stage does not run when removal is off: its duration is folded into the assessment leg, which
         # the assessment's own entry already guards.
-        if setting == 'extension_ns' and not numbers.get('remove_out_of_micelle', True):
+        if setting == 'extension_ns' and not numbers.get('remove_out_of_micelle', False):
             continue
         duration_ps = float(numbers.get(setting, 0))
         if setting.endswith('_ns'):
             duration_ps *= 1000
-        if setting == 'assessment_ns' and not numbers.get('remove_out_of_micelle', True):
+        if setting == 'assessment_ns' and not numbers.get('remove_out_of_micelle', False):
             duration_ps += float(numbers.get('extension_ns', 0)) * 1000
         if duration_ps > 0 and round(duration_ps / _dt_ps(profile, numbers, dt_setting)) == 0:
             raise ValueError(f'{dt_setting} = {float(numbers[dt_setting]):g} fs leaves the {label} at 0 steps; '
@@ -1045,14 +1046,14 @@ def skipped_stages(settings: dict, *, has_protein: bool) -> dict:
     for name in ('Energy minimisation', 'NVT equilibration', 'NPT equilibration'):
         if float(settings.get(LEGS[name]['setting'], 1)) == 0:
             skipped[name] = LEGS[name]['reason']
-    if not settings.get('remove_out_of_micelle', True):
+    if not settings.get('remove_out_of_micelle', False):
         for name in ('Micelle assessment', 'CG extension MD', 'Final assessment'):
             skipped[name] = ('the run switched out-of-micelle removal off, so there is no assessment to make'
                              if name == 'Micelle assessment' else
                              'the run switched out-of-micelle removal off, so there is nothing to extend or assess')
     if not has_protein:
         skipped['Back-mapping (CG2AT2)'] = 'the run has no protein, so there is nothing to align'
-    elif not settings.get('backmap', True):
+    elif not settings.get('backmap', False):
         skipped['Back-mapping (CG2AT2)'] = 'the run switched back-mapping off, so this stage has nothing to do'
     return skipped
 

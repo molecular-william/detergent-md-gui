@@ -235,13 +235,14 @@ def test_a_timestep_that_leaves_a_leg_at_no_step_is_refused_by_name():
 def test_the_extension_timestep_is_guarded_only_when_that_stage_will_run():
     """The form's 1 ns floor never rounds to 0 steps, so the guard is pinned where it lives.
 
-    With removal off the extension stage is skipped and its duration is folded into the assessment leg, so the
-    extension's own timestep has no leg to leave empty.
+    Removal is off by default now, and with it off the extension stage is skipped and its duration is folded into the
+    assessment leg, so the extension's own timestep has no leg to leave empty; the guard fires only for the run that
+    switches removal on and thereby owes the leg.
     """
     with pytest.raises(ValueError, match='pdc_extension_dt_fs = 50 fs leaves the CG extension MD at 0 steps'):
-        pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50})
-    pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50,
-                                 'remove_out_of_micelle': False})
+        pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50,
+                                     'remove_out_of_micelle': True})
+    pdc._refuse_a_zero_step_leg({'extension_ns': 0.00001, 'pdc_extension_dt_fs': 50})
 
 
 def test_prepare_refuses_the_timestep_that_would_run_no_step(tmp_path):
@@ -316,11 +317,13 @@ def test_a_pdc_job_is_prepared_by_the_pdc_builder(tmp_path):
         'the preparer the optional prepare step runs is recorded with the tools the run always resolves'
 
 
-def test_removal_is_a_choice_with_a_true_default_and_a_strict_boolean():
+def test_removal_is_a_choice_with_a_false_default_and_a_strict_boolean():
     adapter = protocol.adapter_for('pdc')
 
-    assert adapter.stage_defaults()['remove_out_of_micelle'] is True
-    assert adapter.normalize_settings({})['remove_out_of_micelle'] is True
-    assert adapter.normalize_settings({'remove_out_of_micelle': False})['remove_out_of_micelle'] is False
+    assert adapter.stage_defaults()['remove_out_of_micelle'] is False
+    assert adapter.normalize_settings({})['remove_out_of_micelle'] is False
+    assert adapter.stage_defaults()['backmap'] is False, 'converting to all-atom is the same kind of opt-in'
+    assert adapter.normalize_settings({})['backmap'] is False
+    assert adapter.normalize_settings({'remove_out_of_micelle': True})['remove_out_of_micelle'] is True
     with pytest.raises(ValueError, match='remove_out_of_micelle must be one of True, False'):
         adapter.normalize_settings({'remove_out_of_micelle': 'no'})

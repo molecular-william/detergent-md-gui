@@ -1,6 +1,7 @@
 """T11: back-mapping is optional, and the review says what the run will and will not produce.
 
-CG2AT2 becomes a toggle, on by default so nothing existing moves. The panel has to say the difference out loud:
+CG2AT2 becomes a toggle, off by default: the CG system is the run's own product and converting it is an opt-in. The
+panel has to say the difference out loud:
 switched on, the run ends atomistic; switched off, the back-map stage records `skipped` and the run stops
 coarse-grained. A review that said the same thing either way would let a reader mistake a run without back-mapping
 for one with it, so the two states are asserted to be different strings, and the toggle's value is asserted to
@@ -37,43 +38,45 @@ def open_panel(page, base_url):
     return browser.open_pdc_new_run(page, base_url, protein='molecules/1qj8/1qj8.pdb')
 
 
-def test_the_toggle_is_on_by_default_and_the_review_names_the_atomistic_end(dashboard, live_page):
-    """On by default: a run that never touches the toggle still produces the atomistic structure."""
+def test_the_toggle_is_off_by_default_and_the_review_names_the_coarse_grained_end(dashboard, live_page):
+    """Off by default: a run that never touches the toggle stops coarse-grained."""
     page, errors = live_page
     serve(page)
     open_panel(page, live_page.base_url)
 
     toggle = page.locator('[name=backmap]')
     expect(toggle).to_be_visible()
-    assert toggle.is_checked(), 'back-mapping must be on by default so nothing existing moves'
-    expect(page.locator('[data-new-summary=backmap]')).to_contain_text('CG2AT2 to atomistic')
-    expect(page.locator('.new-pdc-backmap-node text.title')).to_contain_text('9 · Back-map')
-    expect(page.locator('.new-pdc-backmap-note')).to_contain_text('atomistic')
+    assert not toggle.is_checked(), 'back-mapping is the run\'s own opt-in'
+    expect(page.locator('[data-new-summary=backmap]')).to_contain_text('coarse-grained')
+    assert page.locator('.new-pdc-backmap-node').count() == 0, 'a skipped back-map is not drawn as a stage'
+    expect(page.locator('.new-pdc-backmap-note')).to_contain_text('skipped')
     assert errors == [], errors
 
 
-def test_switching_it_off_says_the_run_stops_coarse_grained(dashboard, live_page):
+def test_switching_it_on_says_the_run_ends_atomistic(dashboard, live_page):
     """The two states must not read alike: a reader cannot mistake one for the other."""
     page, errors = live_page
     serve(page)
     open_panel(page, live_page.base_url)
 
     summary = page.locator('[data-new-summary=backmap]')
-    on_text = summary.inner_text()
-    assert 'atomistic' in on_text, on_text
-
-    page.locator('[name=backmap]').uncheck()
     off_text = summary.inner_text()
     assert 'coarse-grained' in off_text, off_text
-    assert on_text != off_text
-    # The active path omits a stage that will not run; the result says what the run actually produces.
-    assert page.locator('.new-pdc-backmap-node').count() == 0, 'a skipped back-map is not drawn as a stage'
-    expect(page.locator('.new-pdc-flow [data-stage=result]')).to_contain_text('CG system + records')
-    expect(page.locator('.new-pdc-backmap-note')).to_contain_text('skipped')
 
-    # And back on: the atomistic sentence returns, so the review tracks the toggle rather than a stale render.
     page.locator('[name=backmap]').check()
-    expect(summary).to_contain_text('CG2AT2 to atomistic')
+    on_text = summary.inner_text()
+    assert 'atomistic' in on_text, on_text
+    assert on_text != off_text
+    # The active path adds the stage that will run; the result says what the run actually produces.
+    # The ordinal is the stage's place in the path this run will take, so it moves with the other toggles; the
+    # subject here is that the stage is drawn at all.
+    expect(page.locator('.new-pdc-backmap-node text.title')).to_contain_text('Back-map')
+    expect(page.locator('.new-pdc-flow [data-stage=result]')).to_contain_text('atomistic complex')
+    expect(page.locator('.new-pdc-backmap-note')).to_contain_text('atomistic')
+
+    # And back off: the coarse-grained sentence returns, so the review tracks the toggle rather than a stale render.
+    page.locator('[name=backmap]').uncheck()
+    expect(summary).to_contain_text('coarse-grained')
     assert errors == [], errors
 
 
@@ -128,6 +131,9 @@ def test_the_protein_virtual_site_choice_is_offered_and_reaches_the_payload(dash
     page.route(re.compile(r'^http://127\.0\.0\.1:\d+/$'), queue)
     open_panel(page, live_page.base_url)
 
+    # This choice reaches pdb2gmx inside the back-map, which is off by default now: switch it on so the review names
+    # the flag this test is about.
+    page.locator('[name=backmap]').check()
     choice = page.locator('[name=protein_vsite]')
     expect(choice).to_be_visible()
     assert choice.input_value() == 'none', 'the default is the flag-less back-map every earlier run had'

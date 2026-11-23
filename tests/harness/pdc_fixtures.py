@@ -43,8 +43,12 @@ TEMPLATE = {
 }
 PROTEIN = 'molecules/DDM/protein.pdb'
 TEMPLATE_PATH = 'molecules/DDM/micelle_template.json'
-#: The two settings every pdc test prepared with, before the file says what it is varying.
-DEFAULT_SETTINGS = {'seed': 20260930, 'aggregation_number': 8}
+#: What every pdc test prepared with, before the file says what it is varying. The chain settings are explicit here
+#: rather than left to the adapter's defaults: most pdc files read the assessment, extension or back-map half, and a
+#: fixture whose meaning is "a prepared run" must not silently lose half its questions when a default moves. A file
+#: that tests the short chain states `remove_out_of_micelle: False` (or `backmap: False`) itself.
+DEFAULT_SETTINGS = {'seed': 20260930, 'aggregation_number': 8,
+                    'remove_out_of_micelle': True, 'backmap': True}
 
 PDB_LINE = 'HETATM    1  C1  DDM A   1       0.000   0.000   0.000\n'
 ITP_LINE = '[ moleculetype ]\nDDM             1\n'
