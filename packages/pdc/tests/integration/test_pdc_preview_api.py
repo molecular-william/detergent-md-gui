@@ -191,6 +191,7 @@ def test_a_gate_refusal_with_geometry_answers_a_drawable_frame(dashboard, monkey
     assert basis['problems'], 'the gate recorded the heads it refused'
     assert basis['detergents_placed'] == count and basis['detergents_requested'] == count
     assert basis['box_nm'] and basis['solvent'] is None
+    assert basis['solvent_reason'] == 'not drawn: the picture is the dry system the build writes'
     for mark in basis['problems']:
         for axis, value in enumerate(mark['position_nm']):
             assert -1e-6 <= value <= basis['box_nm'][axis] + 1e-6, (mark, basis['box_nm'])
@@ -280,8 +281,8 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     assert list(dashboard.paths.runs.glob('*')) == [] if dashboard.paths.runs.exists() else True
     assert dashboard.client.get('/api/jobs').get_json()['total'] == 0
     cg = dashboard.paths.workspace / 'preview' / 'cg'
-    assert [path for path in cg.glob('*') if path.name != 'solvent'] == [], \
-        'an empty micelle coarse-grains nothing; only the solvent placement is cached'
+    assert list(cg.glob('*')) == [] if cg.exists() else True, \
+        'an empty micelle coarse-grains nothing and the preview draws no solvent'
 
 
 def test_a_template_the_builder_refuses_is_an_answer_with_no_coordinates(dashboard, tmp_path):

@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-23)
 
+- **The preview is the dry system: no water or ions (2026-11-23; supersedes the 2026-11-20 initial-cell preview).**
+  The user's decision after using it: the preview draws only the protein (with its ribbon), the detergents' full
+  bodies and the unit cell. The run's solvation is its first equilibration leg's, and drawing 10,000-40,000 Insane
+  water beads at 0.08 opacity veiled the belt -- on 2ydo+NG at `belt_gap_nm=3` the ring read as a broken arc even
+  though the frame held all 144 detergents (NGL held 144 residue records) -- and it also shifted the PDB's fixed
+  columns once written residue numbers passed 9,999. Removing it took a 2ydo+NG gap-3 answer from 3.39 MB / 2.4 s
+  to 221 KB / 0.21 s (warm); a refused 150-detergent 2ydo derive is ~1.0 s (the capacity measurement), while the
+  first derive on a new protein still pays martinize2 (7-15 s). `pdc_preview` no longer calls `insane_solvate`
+  (every stage still does), `basis.solvent_reason` says "not drawn: the picture is the dry system the build
+  writes", and the `preview/solvent` cache is no longer read or written. Checks: preview unit 43, preview
+  integration 17 / 1 xfailed, preview browser 24, pdc fast area ..., ruff clean; live on 2ydo+NG gap 3 the viewer
+  holds 144/144 detergents in one ring.
+
 - **Placement fallback, problem marks, and the refused-placement preview (2026-11-23).**
   A belt slot that fails a gate now tries its bounded local offsets first (the base position is the first trial) and
   is left empty only when no trial clears; every rejected slot keeps its base point, outward normal, heading, height
@@ -61,6 +74,7 @@ state, what is next, what is open, and the measurements and incidents a reader h
   and `basis.solvent_reason` rather than refusing the placement. Tests: the backend solvent/cache test, the route
   API family/atom counts filtered to `DET`, the browser layer test (box buffer plus water/ion representations), and
   the preview-browser fixture's pass-through Insane so a martinize2 stub does not stand in for every tool.
+  *Superseded 2026-11-23:* the preview no longer draws water or salt (see Current state above).
 
 - **CG and pdc solvation now use Insane, not a replicated water box (2026-11-20).**
   `gmx solvate` reused a checked-in `water.gro` and only kept its own `-radius` from the solute; a live pdc system

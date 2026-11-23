@@ -2,11 +2,10 @@
 
 Option (b) of the plan's three honest answers, and the only one that is a picture of *this* build rather than of a
 schematic: `pdc_build` leaves a **dry** system -- `system.gro` holds the protein and the detergents, and solvation is
-the first equilibration leg's opening act. The preview derives that dry frame before the run exists, then adds the
-initial solvent context: Insane's water and salt placement in the same box, cached by the dry frame's own bytes and
-the salt concentration. The box boundaries and the low-opacity solvent are the cell a run would start from; the dry
-beads stay the subject. Nothing is a hand-drawn prediction -- the solvent is the same `insane_solvate.place` call the
-stage makes.
+the first equilibration leg's opening act. The preview derives that dry frame before the run exists: the protein and
+its ribbon, the detergents' full bodies, and the cell the build writes. It draws no water and no ions (the user's
+decision, 2026-11-23): they are the first leg's, not the build's, and a 10,000-40,000-bead cell both costs seconds to
+draw and hides the belt behind it.
 
 The pipeline is the build's own, in the build's own order, and every step is a call to the function the stage calls:
 
@@ -27,12 +26,11 @@ Two things this module exists to state rather than to hide:
   builder's gates, and their sentences are handed back as `reasons` -- with the `step` they belong to -- so a panel can
   say which gate refused even when the gate had no sentence of its own. A gate that refused a placement which still
   has centres is drawn: the same frame a valid derive writes, with the placement's own `problems` marked in
-  `basis['problems']` and no solvent (the dry frame is what the gates measured). A refusal with nothing to draw --
+  `basis['problems']` (the dry frame is what the gates measured). A refusal with nothing to draw --
   no centres, a template, a preparation, a model -- keeps `pdb: None` and its sentence.
 
-What it deliberately does not do: draw anything the build's own functions did not produce. The solvent is Insane's
-placement, not a hand-drawn grid, and a placement that cannot run leaves the dry frame and a reason rather than a
-made-up cloud.
+What it deliberately does not do: draw anything the build's own functions did not produce. The frame is the dry
+system the stage writes, and nothing is added to it; the run's own solvation is the first equilibration leg's.
 
 The beads are a coarse-graining of a structure, so the picture carries both halves: `basis['protein_structure']`
 names the **all-atom file martinize2 was handed** -- its cache key and the URL that serves it
@@ -51,17 +49,14 @@ mapping decides where the beads are.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
 from dashboard import files, paths
 from dashboard.analysis.runs import structures as pdc_view
-from dashboard.execution.scripts import insane_solvate
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
 from detergent_pdc.execution.adapters import pdc_box, pdc_placement, pdc_preparation, pdc_protein
 from detergent_pdc.execution.adapters.pdc import DETERGENT_TOPOLOGY
@@ -323,102 +318,13 @@ def detergent_model(mapping_path, molecule_root, project_root):
              'parameterization': adopted['parameterization'], 'source': source}, time.perf_counter() - started)
 
 
-#: The version of the preview's solvent cache entry. Bumped when the entry's shape changes, so an older file is
-#: regenerated rather than read as if it were this one's.
-SOLVENT_CACHE_VERSION = 2
-#: Water and ions a preview shows. They are the real Insane placement, cached by the dry system's own bytes and the
-#: salt concentration: the first derive pays for it, the next one on the same frame reads the cache.
-SOLVENT_CACHE_DIRECTORY = 'solvent'
-
-
-def _gro_text(atoms, box):
-    """The dry system as a `.gro` Insane reads: a title, the count, one fixed-width line per bead, and the box."""
-    lines = ['placement preview solute', f'{len(atoms):5d}']
-    for index, atom in enumerate(atoms, start=1):
-        residue = str(atom['residue'])[:5]
-        name = str(atom['name'])[:5]
-        x, y, z = (float(value) for value in atom['position'])
-        lines.append(f'{int(atom["residue_id"]):5d}{residue:<5}{name:>5}{index:5d}'
-                     f'{x:8.3f}{y:8.3f}{z:8.3f}')
-    lines.append(''.join(f'{float(value):9.5f}' for value in box[:3]))
-    return '\n'.join(lines) + '\n'
-
-
-def _read_solvated(path, solute_count):
-    """The solute's placed positions and the solvent beads Insane wrote, in that order."""
-    lines = Path(path).read_text().splitlines()
-    if len(lines) < 2:
-        raise ValueError(f'Insane wrote no atoms to {path}')
-    beads = []
-    for line in lines[2:-1]:
-        beads.append({'residue_id': int(line[:5]), 'residue': line[5:10].strip(),
-                      'name': line[10:15].strip(),
-                      'position': [float(line[20 + 8 * axis:28 + 8 * axis]) for axis in range(3)]})
-    solute, solvent = beads[:solute_count], beads[solute_count:]
-    return solute, solvent
-
-
-def _solvent(atoms, box, salt_molar, cache_root):
-    """The initial solvated cell: Insane's water and salt, with the solute moved as Insane writes it.
-
-    The dry frame is the build's artifact; the solvent is the first equilibration leg's opening act. Showing it is
-    only honest if it is the placement a run would get, so this calls the same helper the stage calls -- never a
-    hand-drawn grid -- and caches the result under the workspace's preview scratch, keyed by the dry system and the
-    salt concentration. The cache is preview-only and no stage reads it.
-    """
-    text = _gro_text(atoms, box)
-    key = hashlib.sha256(f'{SOLVENT_CACHE_VERSION}\n{salt_molar}\n{text}'.encode()).hexdigest()
-    directory = Path(cache_root) / SOLVENT_CACHE_DIRECTORY
-    cached = directory / f'{key}.json'
-    if cached.is_file():
-        try:
-            answer = json.loads(cached.read_text())
-        except (OSError, ValueError):
-            answer = None
-        if isinstance(answer, dict) and answer.get('version') == SOLVENT_CACHE_VERSION:
-            answer['cached'] = True
-            return answer
-    directory.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=directory) as scratch:
-        structure, output = Path(scratch) / 'solute.gro', Path(scratch) / 'solvated.gro'
-        structure.write_text(text)
-        insane_solvate.place(structure, output, salt_molar=salt_molar, charge='auto')
-        solute, solvent = _read_solvated(output, len(atoms))
-    # Insane centres its own solute before it places the solvent; keep the aligned dry system where it was and undo
-    # that one translation on the solvent. The order is the build's: build, align the system's centre, solvate.
-    insane_shift = [float(solute[0]['position'][axis]) - float(atoms[0]['position'][axis]) for axis in range(3)]
-    residue_id = max((int(atom['residue_id']) for atom in atoms), default=0)
-    water, ions = [], []
-    for bead in solvent:
-        residue_id += 1
-        kind = bead['residue']
-        if kind == 'W':
-            target = water
-        elif kind in ('NA', 'CL'):
-            target = ions
-        else:
-            continue
-        target.append({'residue_id': residue_id, 'residue': kind, 'name': bead['name'],
-                       'position': [round(float(value) - shift, 5)
-                                    for value, shift in zip(bead['position'], insane_shift)]})
-    answer = {'version': SOLVENT_CACHE_VERSION, 'cached': False,
-              'water': water, 'ions': ions,
-              'water_residues': [water[0]['residue_id'], water[-1]['residue_id']] if water else None,
-              'ion_residues': [ions[0]['residue_id'], ions[-1]['residue_id']] if ions else None,
-              'molecules': {'W': len(water), 'NA': sum(1 for ion in ions if ion['residue'] == 'NA'),
-                            'CL': sum(1 for ion in ions if ion['residue'] == 'CL')}}
-    files.atomic_json(cached, answer)
-    return answer
-
-
 def _wrap(atoms, origin, box):
     """Put every molecule in the primary cell the box edges draw, whole, and answer each molecule's own shift.
 
-    Insane writes a solvated frame without wrapping its solute/solvent into the cell -- the stage lets GROMACS do
-    that when it reads the structure -- but the preview's PDB has no periodic machinery, so a bead outside the drawn
-    cell would look like a second, broken system. Wrapping each atom alone would cut a detergent molecule in half
-    across a face; the molecule's centre decides the translation and every bead of it moves together. Wrapping is
-    display-only: the run's own structure is not changed.
+    The preview's PDB has no periodic machinery, so a bead outside the drawn cell would look like a second, broken
+    system. Wrapping each atom alone would cut a detergent molecule in half across a face; the molecule's centre
+    decides the translation and every bead of it moves together. Wrapping is display-only: the run's own structure is
+    not changed.
 
     The shifts are keyed by the same `(residue, residue_id)` molecule key the grouping used. A refused placement's
     marks are translated by these when they belong to a molecule, so a red bead lands on the bead the viewer has:
@@ -502,12 +408,12 @@ def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergen
 
 
 def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, started, model_seconds,
-           salt_molar, cache_root, solvent, title, problems=None, problems_truncated=0):
-    """The dry system written as a PDB, with the solvent context when `solvent` is set.
+           title, problems=None, problems_truncated=0):
+    """The dry system written as a PDB: the protein, the detergents and their bonds.
 
     The valid derive and a refused placement that still has centres go through this one build: the same `stamp`, the
     same system centring, the same wrap and the same `pdc_view.system_pdb` writer. What differs is the title (the
-    caller's), whether the solvent is placed, and whether the placement's marks are translated into this frame. A
+    caller's) and whether the placement's marks are translated into this frame. A
     valid derive passes `problems=None` and writes no such key; a refused one passes the placement's own marks.
 
     Answers `(pdb, None)`, or `(None, sentence)` when `stamp` refuses the detergent model -- that refusal belongs to
@@ -566,9 +472,8 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
     # mean for an empty micelle. The preview must show the same cell, so the same helper and box are used here, not a
     # second rule. The all-atom ribbon is shifted by this vector in the browser, because its cached file is in the
     # coordinates martinize2 read.
-    # The system's centre -- protein and detergents together -- is the preview's anchor. The build's own centring
-    # helper is for the dry artifact; the preview is a solvated-cell picture, so the whole system's centroid decides
-    # where the cell sits.
+    # The system's centre -- protein and detergents together -- is the preview's anchor: the whole system's centroid
+    # decides where the cell sits.
     anchor_nm = [round(sum(float(atom['position'][axis]) for atom in atoms) / len(atoms), 6)
                  for axis in range(3)]
     dry_shift = [round(float(box[axis]) / 2 - anchor_nm[axis], 6) for axis in range(3)]
@@ -585,29 +490,9 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
         # picture. A derive whose coarse-graining was answered by something other than a cache entry names none,
         # and so does an entry that holds neither a prepared nor a selected structure.
         basis['protein_structure'] = protein_structure_basis(cg.get('key'), cg.get('path'))
-    # The dry frame is what the build writes; the solvent is the next leg's opening act. Show both, but keep them
-    # distinguishable: the solvent comes from the same Insane placement a run uses, cached by this dry system's
-    # bytes and the salt concentration. A refused placement is drawn dry: the gates measured this frame, and one
-    # Insane call per keystroke is cost the reader does not need.
-    solvated = None
-    if solvent:
-        solvation_started = time.perf_counter()
-        try:
-            solvated = _solvent(atoms, box, salt_molar, cache_root)
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            # A solvent that cannot be placed is not a refusal of the *placement*: the dry frame is still the build's
-            # own, and the sentence travels beside it so the card can say why the context layer is missing.
-            basis['solvent_reason'] = f'the initial solvent could not be placed: {error}'
-        cost['solvation_seconds'] = round(time.perf_counter() - solvation_started, 3)
-    else:
-        basis['solvent_reason'] = ('not drawn for a refused placement: the dry frame is what the gates measured')
-    basis['salt_molar'] = salt_molar
-    if solvated is not None:
-        basis['water_residues'] = solvated['water_residues']
-        basis['ion_residues'] = solvated['ion_residues']
-        basis['solvent'] = {**solvated['molecules'], 'salt_molar': salt_molar,
-                            'cached': bool(solvated.get('cached'))}
-        atoms += solvated['water'] + solvated['ions']
+    # The frame is the dry system the stage writes: no water, no ions. The run's solvation is the first
+    # equilibration leg's, and drawing it here both cost seconds and hid the belt (user's decision, 2026-11-23).
+    basis['solvent_reason'] = 'not drawn: the picture is the dry system the build writes'
     basis['box_origin_nm'] = [0.0, 0.0, 0.0]
     _, wrap_shifts = _wrap(atoms, basis['box_origin_nm'], box)
     if problems is not None:
@@ -616,7 +501,7 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
             detergent_residue=detergent_residue, detergent_residue_offset=detergent_residue_offset, box=box)
     cost['seconds'] = time.perf_counter() - started
     pdb = pdc_view.system_pdb(atoms, detergent_residue=detergent_residue, topology=topology,
-                              include_water=bool(solvated), title=title)
+                              include_water=False, title=title)
     return pdb, None
 
 
@@ -629,7 +514,6 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
             belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
-            salt_molar=0.15,
             belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
             belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
@@ -681,10 +565,9 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     field, and every caller before the setting existed) is the derived footprint exactly, and a stated number below
     the derived value cannot shrink the box through the protein or the belt.
 
-    `salt_molar` is the run's salt setting; the initial water and ions are Insane's placement at that concentration,
-    cached under `cache_root` and named in `basis['solvent']` (`W`, `NA`, `CL`, `salt_molar`, `cached`) with the
-    residue ranges the card uses to draw them. A solvent placement that cannot run leaves `basis['solvent']` None and
-    `basis['solvent_reason']` set; the dry frame and its box are still answered.
+    The picture is the dry system the stage writes: the protein (and the ribbon it was coarse-grained from), the
+    detergents' full bodies and the cell. No water and no ions are placed or drawn -- the run's solvation is the
+    first equilibration leg's -- and `basis['solvent_reason']` says so in one sentence.
 
     Raises `ValueError` for a question that cannot be asked at all -- a template or protein that is not a file, a
     chain the file does not name, a mapping that does not exist, a count below one, a preparation asked for with no
@@ -698,9 +581,6 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     initial_x = None if initial_x_nm is None else float(initial_x_nm)
     initial_y = None if initial_y_nm is None else float(initial_y_nm)
     radius = float(radius_nm)
-    salt_molar = float(salt_molar)
-    if salt_molar < 0:
-        raise ValueError('salt concentration cannot be negative')
     mode = pdc_placement.canonical_mode(placement_mode)
 
     root = Path(project_root)
@@ -724,8 +604,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
              'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
-             'salt_molar': None, 'solvent': None, 'solvent_reason': None,
-             'water_residues': None, 'ion_residues': None, 'centring': None,
+             'solvent': None, 'solvent_reason': None, 'centring': None,
              'box_origin_nm': [0.0, 0.0, 0.0], 'belt_offset_nm': None,
              'placement_shape': None, 'band_radius_nm': None, 'band_radius_min_nm': None,
              'band_radius_max_nm': None, 'slab_radius_nm': None,
@@ -748,7 +627,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
              'conformations': None}
     cost = {'cg_cached': False, 'coarse_graining_seconds': 0.0, 'detergent_seconds': 0.0,
             'placement_seconds': 0.0, 'seconds': 0.0, 'cg_bytes': 0, 'cg_key': None, 'prepare_seconds': 0.0,
-            'solvation_seconds': 0.0}
+            }
     started = time.perf_counter()
 
     # The template first, because the build does: a template that cannot build a system stops the stage before
@@ -946,8 +825,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             basis['detergents_requested'] = aggregation_number
             pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model,
                                       library=library, record=record, cg=cg, basis=basis, cost=cost,
-                                      started=started, model_seconds=model_seconds, salt_molar=salt_molar,
-                                      cache_root=cache_root, solvent=False,
+                                      started=started, model_seconds=model_seconds,
                                       title=f'refused placement preview ({record.name}, '
                                             f'AN={aggregation_number}, mode={mode}, seed={seed})',
                                       problems=placement.get('problems') or [],
@@ -965,8 +843,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     basis['belt_offset_nm'] = float(belt_offset_nm)
     pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,
                               record=record, cg=cg, basis=basis, cost=cost, started=started,
-                              model_seconds=model_seconds, salt_molar=salt_molar, cache_root=cache_root,
-                              solvent=True,
+                              model_seconds=model_seconds,
                               title=f'placement preview ({record.name}, AN={aggregation_number}, mode={mode}, '
                                     f'seed={seed})')
     if stamp_error is not None:

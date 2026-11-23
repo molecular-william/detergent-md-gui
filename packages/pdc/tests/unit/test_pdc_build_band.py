@@ -314,7 +314,6 @@ def test_the_preview_and_the_build_agree_on_a_belts_box(tmp_path, monkeypatch):
     monkeypatch.setattr(pdc_preview, 'coarse_grained',
                         lambda *args, **kwargs: (beads, {'cached': False, 'seconds': 0.0, 'key': 'stub',
                                                          'path': '', 'beads_bytes': 0}))
-    monkeypatch.setattr(pdc_preview, '_solvent', lambda *args, **kwargs: None)
 
     answer = pdc_preview.preview(project_root=tmp_path, cache_root=tmp_path / 'cache', template=TEMPLATE_PATH,
                                  seed=20260930, protein=PROTEIN, chains=['A'], mapping=None,

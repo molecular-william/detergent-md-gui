@@ -77,7 +77,7 @@ STALE = 'The protein, the subunits or the mapping have changed since this frame 
 DERIVED = 'Derived for the inputs on this form.'
 
 
-def placement_pdb(molecules=MOLECULES, *, water=0, sodium=0, chloride=0):
+def placement_pdb(molecules=MOLECULES):
     """A placement frame written by the writer a run's own snapshot goes through.
 
     Two protein beads and `molecules` DDM molecules, three nanometres apart so no two beads of different molecules are
@@ -91,18 +91,8 @@ def placement_pdb(molecules=MOLECULES, *, water=0, sodium=0, chloride=0):
         for name, xyz in zip(DDM_BEADS, DDM_PLACEMENT):
             atoms.append({'residue_id': 3 + molecule, 'residue': 'DDM', 'name': name,
                           'position': [xyz[0] + molecule * 3.0, xyz[1], xyz[2]]})
-    next_id = 3 + molecules
-    for _ in range(water):
-        atoms.append({'residue_id': next_id, 'residue': 'W', 'name': 'W',
-                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
-    for _ in range(sodium):
-        atoms.append({'residue_id': next_id, 'residue': 'NA', 'name': 'NA',
-                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
-    for _ in range(chloride):
-        atoms.append({'residue_id': next_id, 'residue': 'CL', 'name': 'CL',
-                      'position': [next_id * 0.1, 0.0, 0.0]}); next_id += 1
     model = pdc_view.read_moleculetype_text(ddm_moleculetype(), source='detergent_CG.itp')
-    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model, include_water=bool(water or sodium or chloride),
+    return pdc_view.system_pdb(atoms, detergent_residue='DDM', topology=model,
                                title='placement preview (DDM, AN=2, mode=lattice, seed=20261013)')
 
 
@@ -139,9 +129,8 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
            capacity: dict | None = None, protein_residues: int = 2,
-           structure: dict | None = None, solvent: dict | None = None,
-           water_residues: list | None = None, ion_residues: list | None = None,
-           centring: dict | None = None, problems: list | None = None,
+           structure: dict | None = None, centring: dict | None = None, problems: list | None = None,
+           solvent_reason: str = 'not drawn: the picture is the dry system the build writes',
            detergents_placed: int | None = None, detergents_requested: int | None = None):
     """A response shaped as the route answers, with the fields the card renders.
 
@@ -176,8 +165,7 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   # The all-atom structure the beads were coarse-grained from -- a cache key and the URL that serves
                   # it, exactly as `pdc_preview.protein_structure_basis` writes one -- or `None` for a build with no
                   # protein, exactly as the service writes that.
-                  'protein_structure': structure, 'solvent': solvent,
-                  'water_residues': water_residues, 'ion_residues': ion_residues,
+                  'protein_structure': structure, 'solvent': None, 'solvent_reason': solvent_reason,
                   'centring': centring},
         'cost': cost or {'cg_cached': True, 'coarse_graining_seconds': 0.001, 'detergent_seconds': 0.074,
                          'placement_seconds': 0.005, 'seconds': 0.1017, 'cg_bytes': 50768,
@@ -294,7 +282,7 @@ def test_deriving_the_preview_draws_the_frame_the_route_answered_with(dashboard,
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('1qj8 chains A+B')
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('box 8.35 × 6.78 × 11.08 nm')
     expect(page.locator('.new-pdc-preview-basis')).to_contain_text('clearance from the protein 0.544 nm')
-    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('the dry build with the initial solvent')
+    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('the dry system the build writes')
     expect(page.locator('.new-pdc-preview-from')).to_have_text(
         '1qj8 chains A+B · pre-assembled micelle · 150 detergents · seed 20261013')
     expect(page.locator('.new-pdc-preview-beads')).to_contain_text('1,024 beads')
@@ -1193,28 +1181,27 @@ def test_a_protein_free_frame_asks_for_no_structure_and_draws_one_component(dash
     assert errors == [], errors
 
 
-def test_the_initial_cell_is_drawn_with_translucent_water_salt_and_a_box(dashboard, live_page):
-    """The preview shows the cell the build writes and the solvent the first leg adds, not only the dry beads.
+def test_the_frame_is_the_dry_system_with_no_water_or_ions(dashboard, live_page):
+    """Only the protein's beads and the detergents' full bodies are drawn, inside the unit cell.
 
-    Water and ions are the server's Insane placement: they arrive in the same PDB as the frame and are drawn at low
-    opacity, and the unit cell is a separate buffer layer so it can be around them without becoming a bead.
+    The run's solvation is its first equilibration leg's, not the build's: a 10,000-40,000-bead cell is what made the
+    derive slow and hid the belt (user's decision, 2026-11-23). The box stays, as the cell the build writes.
     """
     page, errors = live_page
-    pdb = placement_pdb(water=6, sodium=1, chloride=1)
+    pdb = placement_pdb()
     requests = []
-    serve(page, answer(pdb, solvent={'W': 6, 'NA': 1, 'CL': 1, 'salt_molar': 0.15, 'cached': False},
-                       water_residues=[5, 10], ion_residues=[11, 12]), requests)
+    serve(page, answer(pdb), requests)
     open_panel(page, live_page.base_url)
     derive(page)
 
-    measured = layers(page, 1, 2 + 2 * len(DDM_BEADS) + 8)
+    measured = layers(page, 1, 2 + MOLECULES * len(DDM_BEADS))
     reps = measured[0]['reps']
-    assert [rep['type'] for rep in reps] == ['ball+stick', 'ball+stick', 'spacefill'], reps
-    assert reps[0]['sele'] == 'not (1-2) and not (5-10) and not (11-12)', reps[0]
-    assert reps[1]['sele'] == '5-10' and reps[1]['opacity'] == 0.08, reps[1]
-    assert reps[2]['sele'] == '11-12' and reps[2]['opacity'] == 0.25, reps[2]
-    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('6 water beads')
-    expect(page.locator('.new-pdc-preview-solvent')).to_contain_text('0.15 M NaCl')
+    assert [rep['type'] for rep in reps] == ['ball+stick'], reps
+    assert reps[0]['sele'] == 'not (1-2)', reps[0]
+    expect(page.locator('.new-pdc-preview-basis')).to_contain_text('the dry system the build writes')
+    expect(page.locator('.new-pdc-preview-solvent')).to_contain_text('not drawn: the picture is the dry system')
+    assert page.evaluate("() => { const host = document.querySelector('.new-pdc-preview-viewer'); "
+                         "return host.previewWater === undefined && host.previewIons === undefined; }")
     box = page.evaluate("""() => {
       const stage = document.querySelector('.new-pdc-preview-viewer').previewStage;
       return !!stage && stage.compList.some(component =>

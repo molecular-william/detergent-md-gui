@@ -1260,7 +1260,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             verticalSpread: field('belt_vertical_spread').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             initial_x: field('initial_x_nm').value || '', initial_y: field('initial_y_nm').value || '',
-            salt: field('salt_molar').value || '', offset: field('belt_offset_nm').value || '',
+            offset: field('belt_offset_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
   // What would be coarse-grained, or drawn from another mapping: a change to one of these is a different question,
@@ -1270,7 +1270,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
                                   inputs.initial_x, inputs.initial_y,
-                                  inputs.salt, inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
+                                  inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
                                   inputs.template].join('|');
 
   function seconds(value) {
@@ -1302,11 +1302,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
           ? ` (${basis.prepare.heavy_atoms_added} heavy atoms)`
           : '')
       : '';
-    const solvent = cost.solvation_seconds ? ` · solvent ${seconds(cost.solvation_seconds)}` : '';
-    if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}${solvent}`;
+    if (!basis?.protein_beads) return `no coarse-graining — the micelle is placed directly: ${placement}${mapping}`;
     return cost.cg_cached
-      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}${prepare}${solvent}`
-      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}${prepare}${solvent}`;
+      ? `the coarse-grained protein was already cached (${kilobytes(cost.cg_bytes)}) · ${placement}${mapping}${prepare}`
+      : `martinize2 ${seconds(cost.coarse_graining_seconds)} (${basis.protein_beads} beads) · ${placement}${mapping}${prepare}`;
   }
 
   function keptSentence(cost, basis) {
@@ -1396,7 +1395,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
     if (inputs.initial_x) query.set('initial_x_nm', inputs.initial_x);
     if (inputs.initial_y) query.set('initial_y_nm', inputs.initial_y);
-    if (inputs.salt) query.set('salt_molar', inputs.salt);
     if (inputs.offset) query.set('belt_offset_nm', inputs.offset);
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
@@ -1478,20 +1476,12 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (!component) return;
     for (const representation of [...component.reprList]) component.removeRepresentation(representation);
     const beads = {...BEAD_RADIUS_PARAMETERS, ...BEAD_FAMILY_PARAMETERS};
-    const water = host.previewWater, ions = host.previewIons;
-    const excluded = [water, ions].filter(Boolean).map(([first, last]) => `not (${first}-${last})`);
     const proteinResidues = Number(host.previewProteinResidues) || 0;
-    const detergent = [proteinResidues ? `not (1-${proteinResidues})` : '', ...excluded]
-      .filter(Boolean).join(' and ') || '*';
+    // The frame is the dry system: the protein's beads (not drawn over) and the detergents' full bodies. No water
+    // and no ions -- the run's solvation is its first equilibration leg's, and drawing it here both cost seconds
+    // and hid the belt (user's decision, 2026-11-23).
+    const detergent = proteinResidues ? `not (1-${proteinResidues})` : '*';
     component.addRepresentation('ball+stick', {sele: detergent, ...beads});
-    // The solvent is context, not the subject: a low-opacity cloud behind the detergent, and the salt slightly firmer
-    // so the ions can be seen at all. Both are the Insane placement the run's first leg would make, cached by the
-    // dry frame; neither is drawn over the protein/detergent representation.
-    if (water) component.addRepresentation('ball+stick', {sele: `${water[0]}-${water[1]}`, colorScheme: 'uniform',
-                                                          colorValue: '#7fa8c9', opacity: 0.08,
-                                                          radiusScale: 0.55, depthWrite: false});
-    if (ions) component.addRepresentation('spacefill', {sele: `${ions[0]}-${ions[1]}`, colorScheme: 'element',
-                                                        opacity: 0.25, radiusScale: 0.8});
   }
 
   // The box the build writes, as twelve lines. NGL's own `unitcell` representation needs a file-level cell record;
@@ -1606,8 +1596,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     host.previewProteinResidues = Number(proteinResidues) || 0;
     host.previewBox = Array.isArray(basis?.box_nm) ? basis.box_nm : null;
     host.previewBoxOrigin = Array.isArray(basis?.box_origin_nm) ? basis.box_origin_nm : null;
-    host.previewWater = Array.isArray(basis?.water_residues) ? basis.water_residues : null;
-    host.previewIons = Array.isArray(basis?.ion_residues) ? basis.ion_residues : null;
     ribbonNote('');
     // Which draw this is. NGL resolves a `loadFile` whenever the file arrives, so a derive pressed while an earlier
     // frame is still loading would otherwise add the older picture on top of the newer one: a draw that is no longer
@@ -1771,18 +1759,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       viewer.setAttribute('aria-label', valid ? PREVIEW_VIEWER_LABEL : previewProblemLabel(basis));
     }
     showPreviewFrame(body.pdb || '', basis.protein_residues, basis.protein_structure, basis);
-    const solvent = basis.solvent || null;
-    const solventText = solvent
-      ? ` · ${Number(solvent.W).toLocaleString()} water beads and ${Number(solvent.NA).toLocaleString()} Na+ / `
-        + `${Number(solvent.CL).toLocaleString()} Cl− ions at low opacity (${Number(solvent.salt_molar).toFixed(2)} M)`
-      // A refused frame's own sentence above already says why there is no solvent; repeating
-      // `basis.solvent_reason` here would say it twice. A valid frame whose solvent failed still names the cause.
-      : (valid && basis.solvent_reason ? ` · ${basis.solvent_reason}` : '');
     sayPreview('.new-pdc-preview-basis', `Placement for ${describeFrame(basis)} · `
       + `${Number(basis.beads).toLocaleString()} beads · box ${box.map(value => Number(value).toFixed(2)).join(' × ')} nm `
-      + (valid ? '· the dry build with the initial solvent the first leg adds'
-               : '· the dry frame the gates measured; no solvent is drawn for a refused placement')
-      + solventText
+      + '· the dry system the build writes'
       + (basis.clearance_nm != null ? ` · clearance from the protein ${Number(basis.clearance_nm).toFixed(3)} nm` : ''));
     sayPreview('.new-pdc-preview-from', describeFrame(basis));
     sayPreview('.new-pdc-preview-beads', `${Number(basis.beads).toLocaleString()} beads `
@@ -1799,11 +1778,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
       + 'writes, before equilibration changes it' + bandSentence);
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
-    sayPreview('.new-pdc-preview-solvent', solvent
-      ? `${Number(solvent.W).toLocaleString()} water beads · ${Number(solvent.NA).toLocaleString()} Na+ · `
-        + `${Number(solvent.CL).toLocaleString()} Cl− · ${Number(solvent.salt_molar).toFixed(2)} M NaCl`
-        + (solvent.cached ? ' · cached placement' : '')
-      : (basis.solvent_reason || 'not placed'));
+    sayPreview('.new-pdc-preview-solvent', basis.solvent_reason || 'not drawn');
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
     renderPreviewPlacement(basis);
     renderPreviewState();

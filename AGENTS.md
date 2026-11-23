@@ -153,6 +153,8 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - The scheduled cron drivers and the mapping-refinement panel are cancelled; do not rebuild either.
 - Insane 1.2.0 is the solvent placer for every CG/pdc run (`dashboard.execution.scripts.insane_solvate`, declared `insane` in `config/tools.json`); `gmx solvate` is not used. It replaced the replicated water box after measured water–head contacts fell inside the Martini bead radii.
 - `-improperIncrement 10` goes to every BARTENDER fit, so impropers fitted since are not comparable with earlier ones.
+- The pdc preview draws the dry system only: the protein, the detergents' full bodies and the unit cell. No water,
+  no ions -- those are the run's first equilibration leg (`pdc_preview.preview`, the user's 2026-11-23 decision).
 - Phase 4 (sucrose and maltose experimental sources) is deferred, not abandoned.
 
 ## Verify
