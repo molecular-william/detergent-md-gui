@@ -628,11 +628,13 @@ def _profile_record(profile) -> dict | None:
 
 def place_detergents(protein_points, template, aggregation_number, seed, *, radius_nm=DEFAULT_RADIUS_NM,
                      min_clearance_nm=MIN_CLEARANCE_NM, mode=DEFAULT_PLACEMENT_MODE, margin_nm=DEFAULT_MARGIN_NM,
-                     initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, measure_capacity=True, conformations=None,
+                     initial_z_nm=DEFAULT_INITIAL_Z_NM, initial_x_nm=None, initial_y_nm=None,
+                     frame=None, measure_capacity=True, conformations=None,
                      belt_gap_nm=0.0, belt_floor_nm=0.0,
                      min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
                      belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
-                     vertical_spread=VERTICAL_SPREAD, belt_offset_nm=DEFAULT_BELT_OFFSET_NM):
+                     vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None,
+                     belt_offset_nm=DEFAULT_BELT_OFFSET_NM):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -697,6 +699,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('the minimum body gap cannot be negative')
     if float(vertical_spread) <= 0:
         raise ValueError('the belt vertical spread must be positive')
+    if vertical_half_nm is not None and float(vertical_half_nm) <= 0:
+        raise ValueError('the belt vertical half-height must be positive')
     if belt_axial_window_nm <= 0:
         raise ValueError('the belt axial window must be positive')
     belt_gap_nm = float(belt_gap_nm)
@@ -742,7 +746,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
             band, belt_reason = _belt_cylinder(points, aggregation_number, seed, frame, min_clearance_nm,
                                                belt_floor_nm, profile, belt_gap_nm,
                                                min_body_gap_nm, belt_axial_window_nm, belt_length_nm,
-                                               vertical_spread)
+                                               vertical_spread, vertical_half_nm)
         if band is None:
             shell = _sphere_shell(points, template, profile, radius_nm, min_clearance_nm)
             centers, directions = pack_micelle(points, template, aggregation_number, seed,
@@ -752,7 +756,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
     else:
         centers, directions = _self_assemble(points, aggregation_number, seed, radius_nm=radius_nm,
                                              min_clearance_nm=min_clearance_nm, margin_nm=margin_nm,
-                                             initial_z_nm=initial_z_nm, profile=profile)
+                                             initial_z_nm=initial_z_nm, initial_x_nm=initial_x_nm,
+                                             initial_y_nm=initial_y_nm, profile=profile)
 
     if band is not None:
         # Raise the whole belt along the membrane normal, protein and cell unchanged. The site gate already ran at
@@ -810,7 +815,9 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                         initial_z_nm=initial_z_nm, frame=frame, belt_gap_nm=belt_gap_nm,
                                         belt_floor_nm=belt_floor_nm, min_body_gap_nm=min_body_gap_nm,
                                         belt_axial_window_nm=belt_axial_window_nm,
-                                        body_profile=body_profile, vertical_spread=vertical_spread)
+                                        body_profile=body_profile, vertical_spread=vertical_spread,
+                                        vertical_half_nm=vertical_half_nm,
+                                        initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
 
@@ -958,10 +965,11 @@ def _capacity_sentence(measurement) -> str:
 
 def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius_nm=DEFAULT_RADIUS_NM,
              min_clearance_nm=MIN_CLEARANCE_NM, margin_nm=DEFAULT_MARGIN_NM,
-             initial_z_nm=DEFAULT_INITIAL_Z_NM, frame=None, seeds=(1, 2, 3), belt_gap_nm=0.0,
+             initial_z_nm=DEFAULT_INITIAL_Z_NM, initial_x_nm=None, initial_y_nm=None, frame=None,
+             seeds=(1, 2, 3), belt_gap_nm=0.0,
              belt_floor_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
              belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
-             vertical_spread=VERTICAL_SPREAD) -> dict:
+             vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None) -> dict:
     """The largest count every seed places validly, by bisection over the placer's own gate.
 
     A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
@@ -991,11 +999,13 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
             return False
         return all(place_detergents(points, template, count, seed=seed, radius_nm=radius_nm,
                                     min_clearance_nm=min_clearance_nm, mode=mode, margin_nm=margin_nm,
-                                    initial_z_nm=initial_z_nm, frame=frame, measure_capacity=False,
+                                    initial_z_nm=initial_z_nm, initial_x_nm=initial_x_nm,
+                                    initial_y_nm=initial_y_nm, frame=frame, measure_capacity=False,
                                     belt_gap_nm=belt_gap_nm, belt_floor_nm=belt_floor_nm,
                                     min_body_gap_nm=min_body_gap_nm,
                                     belt_axial_window_nm=belt_axial_window_nm,
-                                    body_profile=body_profile, vertical_spread=vertical_spread)['valid']
+                                    body_profile=body_profile, vertical_spread=vertical_spread,
+                                    vertical_half_nm=vertical_half_nm)['valid']
                    for seed in seeds)
 
     if fits(requested):
@@ -1013,7 +1023,7 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
 def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, profile=None,
                    belt_gap_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
                    belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, belt_length_nm=_UNSET,
-                   vertical_spread=VERTICAL_SPREAD):
+                   vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
     The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
@@ -1078,7 +1088,10 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     if length is None:
         return None, ('the detergent\'s own length cannot be measured from the molecule the build carries, so the '
                       'cylinder has no surface to stand off and the placement keeps the sphere')
-    half_band = float(vertical_spread) * length
+    # A stated half-height is the band's exact extent in nm; a blank one is the retired multiple of the detergent's
+    # own length, which is what every run and preset before 2026-11-24 meant by this setting.
+    half_band = (float(vertical_half_nm) if vertical_half_nm is not None
+                 else float(vertical_spread) * length)
     axis = np.asarray(cylinder['axis'], dtype=float)
     origin = np.asarray(cylinder['origin'], dtype=float)
     relative = np.asarray(inside, dtype=float) - origin
@@ -1173,6 +1186,7 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         'belt_reach_nm': round(belt_reach, 6),
         'vertical_half_band_nm': round(float(half_band), 6),
         'vertical_spread': round(float(vertical_spread), 6),
+        'vertical_half_nm': None if vertical_half_nm is None else round(float(vertical_half_nm), 6),
         'tilt_deg': TILT_DEGREES,
         'orientation': {'policy': ORIENTATION_CYLINDER_TILTED, 'tilt_deg': TILT_DEGREES,
                         'axis_source': cylinder['axis_source']},
@@ -1395,7 +1409,8 @@ def _plane_basis(axis):
     return across, np.cross(axis, across)
 
 
-def _self_assemble(points, count, seed, *, radius_nm, min_clearance_nm, margin_nm, initial_z_nm, profile=None):
+def _self_assemble(points, count, seed, *, radius_nm, min_clearance_nm, margin_nm, initial_z_nm,
+                   initial_x_nm=None, initial_y_nm=None, profile=None):
     """A random cloud of `count` detergents inside the box the protein is inserted into, off the protein.
 
     The region is the box `pdc_box.initial_box` states for the protein -- the protein's own extent plus the margin in
@@ -1419,7 +1434,8 @@ def _self_assemble(points, count, seed, *, radius_nm, min_clearance_nm, margin_n
     rng = np.random.default_rng(seed)
     if points is not None and len(points):
         middle = points.mean(axis=0)
-        extents = np.asarray(_initial_box(points, margin_nm, initial_z_nm), dtype=float)
+        extents = np.asarray(_initial_box(points, margin_nm, initial_z_nm,
+                                          initial_x_nm, initial_y_nm), dtype=float)
     else:
         middle = np.zeros(3, dtype=float)
         extents = np.full(3, 2.0 * radius_nm, dtype=float)
@@ -1463,8 +1479,13 @@ def _self_assemble(points, count, seed, *, radius_nm, min_clearance_nm, margin_n
     return centers, directions
 
 
-def _initial_box(points, margin_nm, initial_z_nm):
-    """The box rule, imported where it is used: `pdc_box` is otherwise only reached through the build entry point."""
+def _initial_box(points, margin_nm, initial_z_nm, initial_x_nm=None, initial_y_nm=None):
+    """The box rule, imported where it is used: `pdc_box` is otherwise only reached through the build entry point.
+
+    A stated x or y is the cell the reader asked for, so a self-assembly cloud is sampled inside exactly that box:
+    widening or clipping it afterwards would describe a region the detergents did not come from.
+    """
     from detergent_pdc.execution.adapters.pdc_box import initial_box
 
-    return initial_box([list(point) for point in points], margin_nm=margin_nm, initial_z_nm=initial_z_nm)
+    return initial_box([list(point) for point in points], margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+                       initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)

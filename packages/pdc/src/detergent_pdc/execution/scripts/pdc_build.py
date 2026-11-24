@@ -708,7 +708,9 @@ def build(stage: Path) -> int:
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
                                                margin_nm=settings['box_margin_nm'],
-                                               initial_z_nm=insertion_z, frame=frame,
+                                               initial_z_nm=insertion_z,
+                                               initial_x_nm=settings.get('initial_x_nm'),
+                                               initial_y_nm=settings.get('initial_y_nm'), frame=frame,
                                                conformations=library.conformations() if library is not None else None,
                                                belt_gap_nm=settings.get('belt_gap_nm', 0.0),
                                                min_body_gap_nm=settings.get(
@@ -719,6 +721,7 @@ def build(stage: Path) -> int:
                                                vertical_spread=settings.get(
                                                    'belt_vertical_spread',
                                                    pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD),
+                                               vertical_half_nm=settings.get('belt_vertical_half_nm'),
                                                belt_offset_nm=settings.get('belt_offset_nm', 0.0),
                                                body_profile=body_profile)
     report.update({
@@ -754,10 +757,17 @@ def build(stage: Path) -> int:
     # The box is measured on whatever the system actually has: the protein's beads, or -- for an empty micelle --
     # the placed detergents, because a box around no coordinates is not a box. It is computed here rather than
     # before the placement so that a failed placement is reported as a placement failure and not as a box error.
-    initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
-                                  initial_z_nm=insertion_z,
-                                  initial_x_nm=settings.get('initial_x_nm'),
-                                  initial_y_nm=settings.get('initial_y_nm'))
+    try:
+        initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
+                                      initial_z_nm=insertion_z,
+                                      initial_x_nm=settings.get('initial_x_nm'),
+                                      initial_y_nm=settings.get('initial_y_nm'))
+    except ValueError as error:
+        # A stated box that cannot hold the protein is the form's own mistake, not a placement failure: it is reported
+        # as a refusal with that sentence, and no frame is written.
+        report.update({'valid': False, 'box_nm': None, 'box_nm_initial': None, 'reasons': [str(error)]})
+        write_report(stage, report)
+        return 2
     report['box_nm_initial'] = initial
 
     # A tube is the one case where the box is built in the membrane frame: z clears the protein, the slab it sits in
@@ -770,18 +780,23 @@ def build(stage: Path) -> int:
     # old rule clears). Self-assembly samples inside the initial box, so its cell must not be widened here. A stated
     # initial x/y is a floor in both calls: `initial_box` and `membrane_box` take the larger of it and the derived
     # value, so a stated number can never put a face through the protein or the belt.
-    if frame is not None and placement['band'] is not None:
-        band = placement['band']
-        box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
-                                   margin_nm=settings['box_margin_nm'], initial_z_nm=stated_z,
-                                   belt_reach_nm=band.get('belt_reach_nm') or 0.0,
-                                   belt_radius_nm=(band.get('radius_max_nm') or 0.0)
-                                   + (band.get('detergent_length_nm') or 0.0),
-                                   initial_x_nm=settings.get('initial_x_nm'),
-                                   initial_y_nm=settings.get('initial_y_nm'))
-    else:
-        box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'],
-                                   initial_z_nm=stated_z)
+    try:
+        if frame is not None and placement['band'] is not None:
+            band = placement['band']
+            box = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm,
+                                       margin_nm=settings['box_margin_nm'], initial_z_nm=stated_z,
+                                       belt_reach_nm=band.get('belt_reach_nm') or 0.0,
+                                       belt_radius_nm=(band.get('radius_max_nm') or 0.0)
+                                       + (band.get('detergent_length_nm') or 0.0),
+                                       initial_x_nm=settings.get('initial_x_nm'),
+                                       initial_y_nm=settings.get('initial_y_nm'))
+        else:
+            box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'],
+                                       initial_z_nm=stated_z)
+    except ValueError as error:
+        report.update({'valid': False, 'box_nm': None, 'box_nm_initial': initial, 'reasons': [str(error)]})
+        write_report(stage, report)
+        return 2
     # The x/y growth over the box the placement was built for, recorded beside the two boxes it relates. A belt's
     # density is its torus volume, so this widening leaves the measured density unchanged; a self-assembly cloud's
     # density was measured inside the initial box and no widening is made (`[0.0, 0.0]`).

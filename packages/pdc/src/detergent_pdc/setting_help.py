@@ -71,10 +71,13 @@ _MIN_BODY_GAP = ('the minimum distance between any bead of one detergent body an
                  'not GROMACS), in nm: the belt refuses a site whose molecule would come closer than this to an already '
                  'placed one, so two detergents cannot interpenetrate. 0 disables the gate; the sphere and '
                  'self-assembly paths do not read it')
-_BELT_VERTICAL_SPREAD = ('the belt\u2019s vertical half-height as a multiple of the detergent\u2019s own length '
-                         '(dashboard text, not GROMACS): 2.0 covers twice the molecule\u2019s length either side of the '
-                         'mid-plane, a wider band than the old 1.1, so the detergents span more of the membrane. '
-                         'Belt-only; the sphere and self-assembly do not read it')
+_BELT_VERTICAL_HALF = ('the belt\u2019s vertical half-height in nm (dashboard text, not GROMACS): the band spans '
+                       'this far either side of the cylinder\u2019s mid-plane. Blank keeps the retired multiple of the '
+                       'detergent\u2019s own length (2.0), which is what every run before 2026-11-24 placed. Belt-only; '
+                       'the sphere and self-assembly do not read it')
+_BELT_VERTICAL_SPREAD = ('the retired spelling of the belt\u2019s vertical half-height as a multiple of the detergent\u2019s '
+                         'own length (dashboard text, not GROMACS): still read for a run or preset written before '
+                         '2026-11-24, and superseded by the nm setting whenever that one is stated')
 _BELT_AXIAL_WINDOW = ('the axial half-window used to measure a belt site\u2019s local protein surface (dashboard text, '
                       'not GROMACS), in nm: only in-slab atoms within this distance of the site\u2019s height set its '
                       'radius, so a helix at another height does not push the site outward; smaller is tighter, and a '
@@ -143,6 +146,7 @@ HELP = {
     'belt_gap_nm': _BELT_GAP,
     'min_body_gap_nm': _MIN_BODY_GAP,
     'belt_axial_window_nm': _BELT_AXIAL_WINDOW,
+    'belt_vertical_half_nm': _BELT_VERTICAL_HALF,
     'belt_vertical_spread': _BELT_VERTICAL_SPREAD,
     'selection_threshold_fraction': _THRESHOLD,
     'protein_vsite': _VSITE,

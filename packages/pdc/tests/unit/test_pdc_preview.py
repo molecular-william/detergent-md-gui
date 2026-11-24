@@ -669,31 +669,31 @@ def test_a_centres_only_build_says_so_and_carries_no_bonds(tmp_path):
 
 def test_the_box_is_the_one_the_build_measures(tmp_path):
     """`pdc_box`'s own rule over the placed centres -- restated nowhere, or the two would drift apart."""
-    answer = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0)
+    answer = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5)
 
     placement = pdc_placement.place_detergents(None, load_template(str(template(tmp_path))), 40, 20261013,
                                                radius_nm=pdc_placement.DEFAULT_RADIUS_NM, mode='lattice',
-                                               margin_nm=1.5, initial_z_nm=7.0)
-    initial = pdc_box.initial_box(placement['centers'], margin_nm=1.5, initial_z_nm=7.0)
+                                               margin_nm=1.5)
+    initial = pdc_box.initial_box(placement['centers'], margin_nm=1.5)
     expected = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=1.5)
 
     assert answer['basis']['box_nm'] == expected
     assert answer['basis']['box_nm'][1] < answer['basis']['box_nm'][2], 'the box is not a cube by accident'
 
 
-def test_a_stated_initial_xy_is_a_floor_the_preview_and_the_build_share(tmp_path):
-    """The preview's basis box passes a stated x/y to the same rule, so it cannot be wider or narrower than the build.
+def test_a_stated_initial_xy_is_the_previews_exact_cell_or_a_refusal(tmp_path):
+    """The preview's basis box passes a stated x/y to the same rule, so it is the cell the build would write.
 
     A blank x/y is the derived footprint (the pin for every preview before this setting existed); a stated value
-    below it leaves the derived box, and one above it is the cell the preview draws.
+    below it is refused with that sentence, and one above it is the cell the preview draws.
     """
-    derived = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0)
-    floor = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0,
-                    initial_x_nm=1.0, initial_y_nm=1.0)
-    stated = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5, initial_z_nm=7.0,
+    derived = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5)
+    refused = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5,
+                      initial_x_nm=1.0, initial_y_nm=1.0)
+    stated = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5,
                      initial_x_nm=30.0, initial_y_nm=31.0)
 
-    assert floor['basis']['box_nm'] == derived['basis']['box_nm']
+    assert refused['valid'] is False and 'stated x box' in refused['reasons'][0], refused.get('reasons')
     assert stated['basis']['box_nm'][:2] == [30.0, 31.0]
     assert stated['basis']['box_nm'][2] == derived['basis']['box_nm'][2], 'stated x/y never change z'
 

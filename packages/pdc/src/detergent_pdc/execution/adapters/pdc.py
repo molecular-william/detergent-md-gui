@@ -173,7 +173,13 @@ SETTING_SPECS = {
     # half-height over which one site's local protein surface is measured.
     'min_body_gap_nm': ('Minimum body-bead distance (nm)', 0.0, 2.0),
     'belt_axial_window_nm': ('Local surface axial window (nm)', 0.1, 5.0),
-    'belt_vertical_spread': ('Vertical spread (x detergent length)', 0.5, 5.0),
+    # The belt's vertical half-height in nm. Blank keeps the retired multiple below, so every run and preset written
+    # before 2026-11-24 places the band it did; a stated number is the band's exact half-height either side of the
+    # cylinder's mid-plane.
+    'belt_vertical_half_nm': ('Vertical spread (nm - half-height)', 0.5, 10.0),
+    # The retired spelling: a multiple of the detergent's own length. Still advertised so an old payload, clone or
+    # preset validates; only read when `belt_vertical_half_nm` states nothing.
+    'belt_vertical_spread': ('Vertical spread (x detergent length - retired)', 0.5, 5.0),
     'belt_offset_nm': ('Belt vertical offset (nm)', -2.0, 2.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the

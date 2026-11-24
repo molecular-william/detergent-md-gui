@@ -72,7 +72,9 @@ def prepared(tmp_path: Path, *, remark: bool = True, settings: dict | None = Non
     run = tmp_path / 'run'
     run.mkdir()
     pdc.prepare(run, protein=PROTEIN, template=TEMPLATE_PATH,
-                settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0, 'initial_z_nm': 6.0}
+                # No stated starting box by default: blank x/y/z are the derived cell, and a stated one is
+                # now the cell's exact dimension (a fixture that states a small z would refuse the build).
+                settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0}
                 | (settings or {}),
                 project_root=root)
     return run
@@ -234,10 +236,22 @@ def test_the_build_widens_the_belt_box_in_x_and_y_and_records_the_growth(tmp_pat
                 round(max(initial[1], 2 * belt_radius) + 2 * 2.0, 6), report['box_nm'][2]]
     assert report['box_nm'] == expected, 'x and y carry the belt reach; z still clears the protein and the belt'
     old = pdc_box.membrane_box([list(bead[3]) for bead in CG_BEADS], half_thickness_nm=HALF_THICKNESS_NM,
-                               margin_nm=2.0, initial_z_nm=6.0, belt_reach_nm=band['belt_reach_nm'])
+                               margin_nm=2.0, belt_reach_nm=band['belt_reach_nm'])
     assert report['box_nm'][:2] > old[:2], 'and they are wider than the footprint-plus-margin rule item 2 replaces'
     assert report['box_widening_nm'] == [round(report['box_nm'][index] - initial[index], 6) for index in (0, 1)]
     assert report['box_widening_nm'][0] > 0
+
+
+def test_a_stated_vertical_half_height_reaches_the_band_and_the_report(tmp_path):
+    """The panel's nm setting is the band's own number: it is not a multiple of the detergent's length."""
+    stage = stage_directory(prepared(tmp_path, settings={'belt_vertical_half_nm': 3.5}))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+    assert pdc_build.build(stage) == 3
+    band = report_of(stage)['placement_band']
+
+    assert band['vertical_half_nm'] == 3.5
+    assert band['vertical_half_band_nm'] == 3.5, 'a stated half-height is used as itself, not times the length'
 
 
 def test_a_self_assembled_build_keeps_the_box_its_generator_sampled_in(tmp_path):
@@ -263,36 +277,45 @@ def test_a_self_assembled_build_keeps_the_box_its_generator_sampled_in(tmp_path)
                                                settings['aggregation_number'], settings['seed'],
                                                radius_nm=settings['radius_nm'], mode='self-assembly',
                                                margin_nm=settings['box_margin_nm'],
-                                               initial_z_nm=settings['initial_z_nm'], body_profile=None)
+                                               initial_z_nm=settings.get('initial_z_nm')
+                                               or pdc_placement.DEFAULT_INITIAL_Z_NM, body_profile=None)
     centres = detergent_centres(stage) - np.asarray(report['centring']['shift_nm'])
     assert np.allclose(centres, np.asarray(placement['centers']), atol=1e-3), \
         'the built cloud is the generator\'s own, unchanged by the box work'
 
 
-def test_a_stated_initial_xy_that_is_below_the_footprint_does_not_shrink_the_box(tmp_path):
-    """The box rule's floor, measured through the stage's own record: stated x/y cannot put a face through the protein.
+def test_a_stated_initial_xy_is_the_cells_exact_dimension_or_a_refusal(tmp_path):
+    """The box rule's exactness, measured through the stage's own record.
 
-    The CG beads span 2 x 2 nm, so with a 2 nm margin the derived x/y are 6 nm. A stated 1 nm is below that and the
-    build writes 6 nm (and its initial box, which the widening is measured from, is that same derived value); a stated
-    8 x 9 is the caller's wider cell. No membrane here, so the sphere path passes `initial_box`'s x/y straight through.
+    The CG beads span 2 x 2 nm, so with a 2 nm margin the derived x/y are 6 nm. A stated 1 nm cannot hold them, so
+    the stage refuses the build with that sentence and writes no frame; a stated 8 x 9 is the caller's cell and the
+    sphere path passes it through unchanged. No membrane here, so the sphere path is `initial_box`'s x/y exactly.
     """
     root = molecule_tree(tmp_path, remark=False)
-    for name, stated, expected in (('floor', (1.0, 1.0), [6.0, 6.0]),
+    for name, stated, expected in (('refused', (1.0, 1.0), None),
                                    ('stated', (8.0, 9.0), [8.0, 9.0])):
         run = tmp_path / name
         run.mkdir()
         pdc.prepare(run, protein=PROTEIN, template=TEMPLATE_PATH,
                     settings={'seed': 20260930, 'aggregation_number': 8, 'box_margin_nm': 2.0,
-                              'initial_z_nm': 6.0, 'initial_x_nm': stated[0], 'initial_y_nm': stated[1]},
+                              'initial_x_nm': stated[0], 'initial_y_nm': stated[1],
+                              **({'initial_z_nm': 20.0} if expected is not None else {})},
                     project_root=root)
         stage = system_stage(run)
         write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
 
+        if expected is None:
+            assert pdc_build.build(stage) == 2
+            report = report_of(stage)
+            assert report['valid'] is False and 'stated x box' in report['reasons'][0], report.get('reasons')
+            assert not (stage / 'system.gro').exists(), 'a refused box writes no frame'
+            continue
         assert pdc_build.build(stage) == 3
         report = report_of(stage)
         assert report['initial_x_nm'] == stated[0] and report['initial_y_nm'] == stated[1]
-        assert report['box_nm_initial'][:2] == expected, f'{name}: the stated floor was read as a ceiling'
+        assert report['box_nm_initial'][:2] == expected, f'{name}: the stated cell is written as itself'
         assert report['box_nm'][:2] == expected, f'{name}: the sphere cell passes the initial x/y through'
+        assert report['box_nm'][2] == 20.0, f'{name}: the stated z is the cell height the stage writes'
         assert report['box_widening_nm'] == [0.0, 0.0], 'a sphere path is never widened by the belt rule'
 
 
@@ -317,7 +340,7 @@ def test_the_preview_and_the_build_agree_on_a_belts_box(tmp_path, monkeypatch):
 
     answer = pdc_preview.preview(project_root=tmp_path, cache_root=tmp_path / 'cache', template=TEMPLATE_PATH,
                                  seed=20260930, protein=PROTEIN, chains=['A'], mapping=None,
-                                 aggregation_number=8, box_margin_nm=2.0, initial_z_nm=6.0,
+                                 aggregation_number=8, box_margin_nm=2.0,
                                  initial_x_nm=11.0, initial_y_nm=12.0)
 
     assert answer['valid'], answer['reasons']

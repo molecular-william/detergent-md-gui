@@ -116,11 +116,11 @@ def test_the_card_follows_run_configuration_and_shows_only_the_chosen_body(dashb
     serve(page)
     open_panel(page, live_page.base_url)
 
-    # The left column's order: Detergent, Membrane protein, Run configuration, Stage settings, Detergent shape.
-    # The stage settings took the fourth slot when the durations moved out of the belt card into their own editors.
+    # The left column's order: Detergent, Membrane protein, Run and stage settings, Detergent shape. The run
+    # configuration and the starting box are groups of the settings card now, so the shape card follows it directly.
     cards = page.locator('.new-run-inputs > .card')
-    expect(cards.nth(3)).to_have_class(re.compile(r'new-pdc-stages'))
-    expect(cards.nth(4)).to_have_class(re.compile(r'new-pdc-shape'))
+    expect(cards.nth(2)).to_have_class(re.compile(r'new-pdc-stages'))
+    expect(cards.nth(3)).to_have_class(re.compile(r'new-pdc-shape'))
     expect(page.locator('.new-pdc-shape')).to_be_visible()
     # A stored library for this detergent is the default: its body is the one shown, and the other two wait. The
     # availability default never overrides a reader who moves the mode.

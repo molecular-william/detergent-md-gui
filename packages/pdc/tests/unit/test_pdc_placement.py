@@ -263,6 +263,32 @@ def test_a_stated_membrane_puts_the_placement_on_the_cylinders_own_surface(tmp_p
     assert placed['protein_clearance_nm'] >= pdc_placement.MIN_CLEARANCE_NM
 
 
+def test_the_vertical_spread_is_a_half_height_in_nm_when_stated(tmp_path):
+    """Blank keeps the retired multiple of the detergent's own length; a stated number is the band's exact half-height.
+
+    The setting changed units on 2026-11-24: the panel asks for nm, and the adapter still reads the old multiple for a
+    payload or preset written before that, so the blank path has to place the band it always did.
+    """
+    points = _asymmetric_protein()
+    template = _template(tmp_path)
+    blank = pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(),
+                                           vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD)
+    stated = pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(),
+                                            vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
+                                            vertical_half_nm=3.25)
+
+    assert blank['band']['vertical_half_band_nm'] == pytest.approx(
+        pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD * MOLECULE_LENGTH_NM)
+    assert blank['band']['vertical_half_nm'] is None, 'a blank states no number of its own'
+    assert stated['band']['vertical_half_nm'] == pytest.approx(3.25)
+    assert stated['band']['vertical_half_band_nm'] == pytest.approx(3.25),         'the stated nm is the half-height, not a multiple of the length'
+    heights = np.abs(np.asarray(stated['centers']) @ np.asarray(stated['band']['cylinder']['axis'])
+                     - np.asarray(stated['band']['cylinder']['origin_nm'])
+                     @ np.asarray(stated['band']['cylinder']['axis']))
+    assert heights.max() <= 3.25 + 1e-9, 'no site leaves the stated band'
+    assert heights.max() > 0.85 * 3.25, 'the same count still covers the whole band'
+
+
 def test_a_tilted_transmembrane_bundle_still_uses_the_frame_normal(tmp_path):
     """Acceptance (a): the axis is the membrane frame's normal even for a tilted bundle.
 

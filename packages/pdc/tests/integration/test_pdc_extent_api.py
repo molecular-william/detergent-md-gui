@@ -66,8 +66,7 @@ def test_a_structure_that_states_a_membrane_gets_the_membrane_box_rule(dashboard
     assert body['rule'] == 'membrane'
     assert body['half_thickness_nm'] == 1.0
     assert body['dimensions_nm'] == {'x': 3.0, 'y': 2.0, 'z': 4.0}
-    assert body['initial_box_nm'] == pdc_box.membrane_box(POINTS_NM, half_thickness_nm=1.0,
-                                                          margin_nm=2.0, initial_z_nm=6.0)
+    assert body['initial_box_nm'] == pdc_box.membrane_box(POINTS_NM, half_thickness_nm=1.0, margin_nm=2.0)
     assert body['auto_initial_z_nm'] == round(pdc_box.auto_initial_z(POINTS_NM, half_thickness_nm=1.0,
                                                                      margin_nm=2.0), 3)
 
@@ -91,24 +90,23 @@ def test_the_margin_and_initial_z_the_caller_sends_reach_the_box(dashboard, monk
     assert body['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=1.5, initial_z_nm=8.0)
 
 
-def test_the_stated_initial_xy_reaches_the_box_as_a_floor_and_not_the_auto_answer(dashboard, monkeypatch):
-    """A stated x/y widens the box the panel shows; Auto's suggested x/y are the derived footprint either way.
+def test_the_stated_initial_xy_is_the_cells_exact_dimension_and_the_auto_answer_is_the_derived_one(
+        dashboard, monkeypatch):
+    """A stated x/y is the cell the panel shows; Auto's suggested x/y stay the derived footprint.
 
-    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot shrink that, and a stated
-    20 x 25 is the caller's larger cell -- while `auto_initial_x_nm`/`auto_initial_y_nm` stay 7 and 6, because the
-    button fills the values it is about to replace.
+    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot hold the protein and is
+    refused with the number it needs; a stated 20 x 25 is the caller's cell -- while
+    `auto_initial_x_nm`/`auto_initial_y_nm` stay 7 and 6, because the button fills the values it is about to replace.
     """
     _import(dashboard, monkeypatch, '1qj8', NO_MEMBRANE)
 
-    floor = _extent(dashboard, '1qj8', '?initial_x_nm=1.0&initial_y_nm=1.0').get_json()
+    refused = _extent(dashboard, '1qj8', '?initial_x_nm=1.0&initial_y_nm=1.0')
     stated = _extent(dashboard, '1qj8', '?initial_x_nm=20.0&initial_y_nm=25.0').get_json()
 
-    assert floor['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=2.0, initial_z_nm=6.0,
-                                                          initial_x_nm=1.0, initial_y_nm=1.0)
-    assert floor['initial_box_nm'][:2] == [7.0, 6.0]
+    assert refused.status_code == 400
+    assert 'stated x box (1 nm) is smaller than this system needs (7 nm)' in refused.get_json()['error']
     assert stated['initial_box_nm'][:2] == [20.0, 25.0]
-    for body in (floor, stated):
-        assert (body['auto_initial_x_nm'], body['auto_initial_y_nm']) == (7.0, 6.0)
+    assert (stated['auto_initial_x_nm'], stated['auto_initial_y_nm']) == (7.0, 6.0)
 
 
 def test_a_stated_initial_xy_that_is_not_a_positive_number_is_refused_naming_it(dashboard, monkeypatch):

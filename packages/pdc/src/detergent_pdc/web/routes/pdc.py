@@ -490,14 +490,19 @@ def extent_and_box(protein, positions_nm, *, margin_nm, initial_z_nm, initial_x_
     one that states none gets the plain protein-extent box. `positions_nm` are the heavy atoms actually read, so a
     chain selection narrows both the dimensions and the box to the object that will be simulated.
 
-    `initial_x_nm`/`initial_y_nm` are the stated starting cell, forwarded to the same rule as a floor: a value below
-    the derived footprint cannot shrink the box through the protein, and `None` is today's derived value exactly.
+    `initial_x_nm`/`initial_y_nm`/`initial_z_nm` are the stated starting cell, forwarded to the same rule as the
+    cell's exact dimension: a value below the protein's footprint, or the belt's reach, is refused with that sentence
+    rather than silently widened, and `None` is today's derived value exactly. A blank z still inserts the protein
+    into the reviewed 6 nm box, which is the number the initial rule answers with when nothing is stated.
     """
+    from detergent_pdc.execution.adapters import pdc_placement
+
     axes = list(zip(*positions_nm))
     dimensions = {name: round(max(values) - min(values), 3) for name, values in zip('xyz', axes)}
     half_thickness = protein.get('half_thickness_nm')
     if half_thickness is None:
-        return dimensions, pdc_box.initial_box(positions_nm, margin_nm=margin_nm, initial_z_nm=initial_z_nm,
+        insertion_z = pdc_placement.DEFAULT_INITIAL_Z_NM if initial_z_nm is None else initial_z_nm
+        return dimensions, pdc_box.initial_box(positions_nm, margin_nm=margin_nm, initial_z_nm=insertion_z,
                                                initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm), 'initial'
     return (dimensions,
             pdc_box.membrane_box(positions_nm, half_thickness_nm=half_thickness, margin_nm=margin_nm,
@@ -528,9 +533,9 @@ def requested_extent_number(source, name, default):
 def requested_optional_extent_number(source, name):
     """An extent query's optional number: absent is `None` (the derived value), present is validated like a stated one.
 
-    The stated initial x/y are floors, and a blank field means today's derived footprint rather than zero -- so the
-    query's absence is a real answer and must not become a default. A present value that cannot be a box dimension is
-    refused naming its parameter, exactly as `margin_nm` and `initial_z_nm` are.
+    The stated initial x/y/z are the cell's exact dimensions, and a blank field means the derived box rather than zero
+    -- so the query's absence is a real answer and must not become a default. A present value that cannot be a box
+    dimension is refused naming its parameter, exactly as `margin_nm` is.
     """
     if not (source.args.get(name) or '').strip():
         return None
@@ -553,22 +558,23 @@ def pdc_extent(entry):
     `auto_initial_x_nm`/`auto_initial_y_nm` are the same measurement's footprint-plus-margin x/y
     (`pdc_box.auto_initial_xy`), clamped to their own advertised ranges and likewise independent of the stated
     `initial_x_nm`/`initial_y_nm`: the Auto button fills all three from this one measurement, so none of its answers
-    can depend on a value it is about to replace. The stated x/y still reach `initial_box_nm` as floors, so the box
-    line shows the cell a build would actually get.
+    can depend on a value it is about to replace. The stated x/y reach `initial_box_nm` as the cell's exact
+    dimensions, so the box line shows the cell a build would actually get -- or the refusal naming what it cannot
+    hold.
 
     A malformed request -- a non-numeric or non-positive margin or z, a chain the file does not name -- is a 400 with
     the reason; an entry the catalogue does not hold is a 404. A structure the reader refuses (including one that
     holds no atoms) is a 400 carrying that refusal's own sentence.
     """
     from detergent_pdc.analysis.runs import encapsulation
-    from detergent_pdc.execution.adapters import pdc_placement
 
     root = coordinator().ROOT
     protein = catalogue_protein(root, entry)
     try:
         margin_nm = requested_extent_number(request, 'margin_nm', float(pdc.DEFAULTS['box_margin_nm']))
-        initial_z_nm = requested_extent_number(request, 'initial_z_nm',
-                                       float(pdc_placement.DEFAULT_INITIAL_Z_NM))
+        # Absent is the derived box, not the insertion default: a stated z is the cell's exact height now, so a
+        # default here would claim every caller asked for 6 nm.
+        initial_z_nm = requested_optional_extent_number(request, 'initial_z_nm')
         initial_x_nm = requested_optional_extent_number(request, 'initial_x_nm')
         initial_y_nm = requested_optional_extent_number(request, 'initial_y_nm')
     except ValueError as error:
@@ -726,6 +732,9 @@ def preview_choices(source):
                                              float(pdc.DEFAULTS['belt_axial_window_nm']))
     choices['belt_vertical_spread'] = number('belt_vertical_spread',
                                              float(pdc.DEFAULTS['belt_vertical_spread']))
+    # The belt's vertical half-height in nm: blank is the retired multiple above, so only a stated number reaches the
+    # placement as a length.
+    choices['belt_vertical_half_nm'] = number('belt_vertical_half_nm', None)
     choices['belt_offset_nm'] = number('belt_offset_nm', float(pdc.DEFAULTS['belt_offset_nm']))
     return choices
 
@@ -827,7 +836,9 @@ def pdc_preview_placement():
             initial_x_nm=choices['initial_x_nm'], initial_y_nm=choices['initial_y_nm'],
             belt_gap_nm=choices['belt_gap_nm'],
             min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],
-            belt_vertical_spread=choices['belt_vertical_spread'], belt_offset_nm=choices['belt_offset_nm'],
+            belt_vertical_spread=choices['belt_vertical_spread'],
+            belt_vertical_half_nm=choices['belt_vertical_half_nm'],
+            belt_offset_nm=choices['belt_offset_nm'],
             prepare_protein=choices['prepare_protein'],
             # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
             # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.

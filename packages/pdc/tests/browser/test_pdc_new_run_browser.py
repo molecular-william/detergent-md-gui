@@ -62,7 +62,7 @@ STAGE_SETTING_NAMES = (
     'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
     'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
-    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread',
+    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
     'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
 )
@@ -141,20 +141,17 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     page.locator('#run-form details[data-stage=production] summary').click()
     expect(page.locator('#new-assessment-ns')).to_be_visible()
     expect(page.locator('#new-extension-ns')).to_be_visible()
-    # There is no separate fold any more: every one of these controls is inside the Stage settings fieldset.
+    # There is no separate fold or Run configuration card any more: the run configuration and the starting box are
+    # groups of the same Run and stage settings fieldset.
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
-    assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 5
-    # The starting box moved to the Run configuration card; the Salt, seed and box group keeps salt, seed, contact and
-    # the removal threshold, and states the four box controls nowhere.
-    config = page.locator('#run-form .card[aria-labelledby=new-config-title]')
-    for name in ('box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm'):
-        assert config.locator(f'[name={name}]').count() == 1, f'{name} is not in the Run configuration card'
-        assert page.locator(f'#run-form fieldset.new-pdc-stages [name={name}]').count() == 0, \
-            f'{name} is still a Stage settings control'
-    assert config.locator('label', has_text='Initial x box (nm - dimension)').count() == 1
-    assert config.locator('label', has_text='Initial y box (nm - dimension)').count() == 1
-    assert config.locator('label', has_text='Initial z box (nm - dimension)').count() == 1
-    assert config.locator('label', has_text='Box margin (nm - each face)').count() == 1
+    assert page.locator('#run-form fieldset.new-pdc-stages .new-option-group').count() == 7
+    fieldset = page.locator('#run-form fieldset.new-pdc-stages')
+    for name in ('box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm',
+                 'aggregation_number', 'pdc_placement_mode', 'remove_out_of_micelle', 'backmap'):
+        assert fieldset.locator(f'[name={name}]').count() == 1, f'{name} is not in the merged settings card'
+    for label in ('Initial x box (nm - dimension)', 'Initial y box (nm - dimension)',
+                  'Initial z box (nm - dimension)', 'Box margin (nm - each face)', 'Vertical spread'):
+        assert fieldset.locator('label', has_text=label).count() == 1, f'{label} is not in the merged card'
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
@@ -304,8 +301,8 @@ def test_the_seed_defaults_to_today_and_the_gate_still_names_it_when_cleared(das
     assert errors == [], errors
 
 
-def test_the_five_groups_are_sections_inside_the_stage_settings(dashboard, live_page):
-    """The old Other run options fold is gone; its five remaining groups are sections of the fieldset.
+def test_the_groups_are_sections_inside_the_run_and_stage_settings(dashboard, live_page):
+    """The old Other run options fold is gone; its groups, the run configuration and the starting box are sections.
 
     A group that merely exists proves little -- the fold rendered them too. They are asserted to be inside the
     fieldset, after the four stage editors, each with an h4.new-option-title over a settings grid, and the page must
@@ -321,16 +318,32 @@ def test_the_five_groups_are_sections_inside_the_stage_settings(dashboard, live_
     fieldset = page.locator('#run-form fieldset.new-pdc-stages')
     assert page.locator('#new-advanced').count() == 0, 'the Other run options fold is still in the document'
     groups = fieldset.locator(':scope > section.new-option-group')
-    assert groups.count() == 5, 'the five remaining option groups are not sections of the fieldset'
-    assert page.locator('#run-form .new-option-group [name]').count() == 20, 'a control was lost with the fold'
-    for index in range(5):
+    # Seven: the run configuration and the starting box were folded in on 2026-11-24, and joined by the five groups
+    # the retired Other run options fold used to hold.
+    assert groups.count() == 7, 'the option groups are not sections of the fieldset'
+    assert page.locator('#run-form .new-option-group [name]').count() == 34, 'a control was lost with the fold'
+    for index in range(7):
         group = groups.nth(index)
         expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
-        expect(group.locator(':scope > div.settings-grid')).to_be_visible()
-    # The stages come first: every group sits after the last (production) stage editor in document order.
-    last_stage = page.locator('#run-form details.stage-editor').last
-    assert last_stage.evaluate("el => el.compareDocumentPosition(el.closest('fieldset').querySelector('.new-option-group'))"
-                              " === Node.DOCUMENT_POSITION_FOLLOWING")
+    # The five grid groups keep their grid; the two merged ones state their own grids (the pair, the belt grid, the box
+    # grid) because those have to pair controls the pairing tests measure.
+    assert fieldset.locator(':scope > section.new-option-group > div.settings-grid').count() == 5
+    # The order reads as the run is configured: the merged run configuration and starting box first, then the five
+    # stage-setting groups after the last (production) stage editor.
+    titles = page.evaluate("""() => [...document.querySelectorAll(
+        '#run-form fieldset.new-pdc-stages > section.new-option-group')]
+        .map(group => group.querySelector(':scope > h4').textContent.trim())""")
+    assert titles[0] in ('Detergent belt and sampling', 'Micelle and sampling'), titles
+    assert titles[1:] == ['Starting box',
+                      'Output cadence', 'Neighbour search and cutoffs', 'Salt, seed and box',
+                      'Back-map', 'Execution'], titles
+    after_stages = page.evaluate("""() => {
+        const last = [...document.querySelectorAll('#run-form details.stage-editor')].pop();
+        return [...document.querySelectorAll('#run-form fieldset.new-pdc-stages > section.new-option-group')]
+            .filter(group => last.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
+            .map(group => group.querySelector(':scope > h4').textContent.trim()); }""")
+    assert after_stages == ['Output cadence', 'Neighbour search and cutoffs', 'Salt, seed and box',
+                            'Back-map', 'Execution'], after_stages
 
     page.set_viewport_size({'width': 390, 'height': 900})
     browser.assert_no_horizontal_scroll(page)
@@ -369,8 +382,13 @@ def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_
                  ('pdc_production_ref_p', 'pdc_production_tau_p', 'pdc_production_compressibility')) == \
         (1.0, 12.0, 4.5e-5)
     assert values['mdrun_update'] == 'auto'
-    assert {name for name, value in values.items() if value in ('', None)} == {
-        'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs'}, values
+    # The four reviewed-profile timesteps, the starting box (blank is the derived cell), the vertical spread (blank
+    # is twice the detergent's length), the belt offset and the run label are the only blanks.
+    # The label is a run name, not a setting, and its suggestion lands after the panel's own fetch: it is excluded
+    # rather than raced.
+    assert {name for name, value in values.items() if value in ('', None) and name != 'label'} == {
+        'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
+        'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'belt_vertical_half_nm', 'belt_offset_nm'}, values
     assert errors == [], errors
 
 
@@ -493,28 +511,31 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     gap = page.locator('[name=belt_gap_nm]')
     body = page.locator('[name=min_body_gap_nm]')
     axial = page.locator('[name=belt_axial_window_nm]')
-    vertical = page.locator('[name=belt_vertical_spread]')
+    vertical = page.locator('[name=belt_vertical_half_nm]')
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
-    expect(vertical).to_have_value('2')
+    # The vertical spread is nm now, and blank is the derived band (twice the detergent's own length), so it has no
+    # catalogue default to restore and no Default button.
+    expect(vertical).to_have_value('')
+    expect(vertical).to_have_attribute('placeholder', '2 × detergent length')
     gap.fill('0.8')
     body.fill('0.5')
     axial.fill('1.2')
     vertical.fill('2.5')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm'):
         control_label(page, name).locator('button.pdc-default').click()
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
-    expect(vertical).to_have_value('2')
+    expect(vertical).to_have_value('2.5'), 'the stated nm survives the other Default buttons'
 
     # They act on a pre-assembled belt: self-assembly hides them, lattice brings them back, and the values still post
     # either way (the adapter ignores them outside a belt).
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
         expect(control_label(page, name)).to_be_visible()
     page.locator('#new-placement').select_option('self-assembly')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
         expect(control_label(page, name)).to_be_hidden()
     page.locator('#new-placement').select_option('lattice')
 
@@ -526,7 +547,7 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
         page.locator('.new-pdc-preview-derive').click()
     url = captured.value.url
     assert ('belt_gap_nm=0.5' in url and 'min_body_gap_nm=0.4' in url
-            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_spread=2.2' in url), url
+            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_half_nm=2.2' in url), url
     assert errors == [], errors
 
 
@@ -708,7 +729,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'contact_nm': 0.6,
         'belt_gap_nm': 0.0,
-        'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread': 2.0,
+        # The vertical spread is blank in this form (2 x the detergent's length, the retired default), so it is
+        # absent from the payload rather than restated: an omitted setting is the adapter's own default.
+        'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
         'pdc_nvt_dt_fs': 10, 'pdc_npt_dt_fs': 10,
@@ -1140,3 +1163,71 @@ def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_n
     expect(page.locator('[name=initial_y_nm]')).to_have_value('8.8')
     expect(page.locator('[name=initial_z_nm]')).to_have_value('10.4')
     assert errors == [], errors
+
+
+def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard, live_page):
+    """The merged card is one preset: the starting box, the count, the placement and the two switches.
+
+    Saving posts every named control under the adapter's names -- a checkbox as a boolean, not the string its `value`
+    always carries -- and the run label stays out, because it names this run rather than configuring it. Loading puts
+    the ticks back as ticks.
+    """
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    posted = {}
+    saved = {'id': 'preset-box', 'name': 'box and switches', 'is_default': False,
+             'settings': {'initial_x_nm': 12.0, 'initial_y_nm': 13.0, 'initial_z_nm': 20.0,
+                          'aggregation_number': 320, 'pdc_placement_mode': 'self-assembly',
+                          'backmap': True, 'remove_out_of_micelle': True,
+                          'belt_vertical_half_nm': 3.5, 'box_margin_nm': 2.0}}
+
+    def answer(route):
+        if route.request.method == 'POST':
+            posted.update(route.request.post_data_json or {})
+            route.fulfill(json={'preset': saved})
+        else:
+            route.fulfill(json={'presets': [saved], 'default': None})
+
+    open_panel(page, live_page.base_url)
+    page.route(re.compile(r'/api/setting-presets'), answer)
+    page.on('dialog', lambda dialog: dialog.accept('box and switches'))
+    # The belt numbers only show for a belt: a protein is what turns the empty micelle into one.
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    page.locator('[name=initial_x_nm]').fill('12')
+    page.locator('[name=initial_y_nm]').fill('13')
+    page.locator('[name=initial_z_nm]').fill('20')
+    page.locator('#new-count').fill('320')
+    page.locator('[name=remove_out_of_micelle]').check()
+    page.locator('[name=backmap]').check()
+    page.locator('[name=belt_vertical_half_nm]').fill('3.5')
+    page.locator('[name=label]').fill('a different label')
+    page.locator('#preset-save').click()
+
+    settings = posted['settings']
+    assert settings['initial_x_nm'] == '12' and settings['initial_y_nm'] == '13'
+    assert settings['initial_z_nm'] == '20' and settings['aggregation_number'] == '320'
+    assert settings['remove_out_of_micelle'] is True and settings['backmap'] is True
+    assert settings['belt_vertical_half_nm'] == '3.5'
+    assert settings['pdc_placement_mode'] == 'lattice'
+    assert 'label' not in settings, 'the run label is not a setting'
+
+    # Another run's form, then Load: the stored values land on the merged controls, ticks included.
+    page.locator('#new-count').fill('150')
+    page.locator('[name=initial_x_nm]').fill('')
+    page.locator('[name=belt_vertical_half_nm]').fill('')
+    page.locator('[name=backmap]').uncheck()
+    page.locator('[name=remove_out_of_micelle]').uncheck()
+    page.locator('.preset-select').select_option('preset-box')
+    page.locator('#preset-load').click()
+
+    expect(page.locator('#new-count')).to_have_value('320')
+    expect(page.locator('[name=initial_x_nm]')).to_have_value('12')
+    expect(page.locator('[name=initial_y_nm]')).to_have_value('13')
+    expect(page.locator('[name=initial_z_nm]')).to_have_value('20')
+    expect(page.locator('[name=belt_vertical_half_nm]')).to_have_value('3.5')
+    expect(page.locator('[name=backmap]')).to_be_checked()
+    expect(page.locator('[name=remove_out_of_micelle]')).to_be_checked()
+    expect(page.locator('#new-placement')).to_have_value('self-assembly')
+    assert errors == [], errors
+

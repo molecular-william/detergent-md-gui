@@ -626,29 +626,35 @@ profile's `None` entries at the `pdc_production_*` names. The run-wide `nstlist`
 `_with_leg_physics` in `_numbers`, so old payloads and presets fill the production names. The Execution section
 carries **Update and constraints** (`mdrun_update`: auto/cpu/gpu), which reaches every stage through
 `aa.mdrun_command_flags`; the seed has a **Generate** button drawing `1..YYYYMMDD`. A preset bar at the top of the
-fieldset saves and loads every named control in it for the `pdc` run type (`/api/setting-presets?run_type=pdc`),
-with one default the form applies on mount; the store answers the adapter's canonical names, so the panel
+**Run and stage settings** fieldset saves and loads every named control in it for the `pdc` run type
+(`/api/setting-presets?run_type=pdc`) -- since 2026-11-24 the run configuration and the starting box are groups of
+that fieldset, so the number of detergents, the placement mode, the box x/y/z + margin and the two pipeline switches
+(`remove_out_of_micelle`, `backmap`) are preset settings too; the run label is the one named control excluded,
+because it names the run rather than configuring it. A checkbox is stored as a boolean and restored as a tick. There
+is one default the form applies on mount; the store answers the adapter's canonical names, so the panel
 translates them back to its own on load.
 
 The **Membrane protein** card also shows the chosen protein's own x × y × z dimensions and the initial box the build
 would start from, read by `GET /api/pdc/proteins/<entry>/extent?margin_nm=&initial_z_nm=&initial_x_nm=&initial_y_nm=&chains=`. The route reads
 the heavy atoms with the same reader and chain selection the belt estimate uses, and calls `pdc_box`'s own
 `initial_box`/`membrane_box` rule (belt reach zero: this is the box before placement and solvent), so the number on
-the card is the number the build makes rather than a second estimate. The **Run configuration** card states the
-starting cell in **one row of three**: `initial_x_nm`, `initial_y_nm` and `initial_z_nm` (dimensions), with
-`box_margin_nm` (per face) below them. A stated x/y/z is a **floor**, never a ceiling -- `max(stated, derived)` --
-so a value below the derived box cannot cut the protein or the belt; a blank field is the derived value exactly and
+the card is the number the build makes rather than a second estimate. Since 2026-11-24 the run configuration and the
+starting box are **groups of the Run and stage settings card** (one fieldset; the **Starting box** group states
+`initial_x_nm`, `initial_y_nm` and `initial_z_nm` with `box_margin_nm` below them). A stated x/y/z is the cell's
+**exact dimension**: the preview draws it and the build writes it, and a value below what the protein (or, for a
+membrane belt, the belt's radial reach) needs is **refused** with both numbers rather than widened, through
+`pdc_box._exact` in `initial_box`/`extended_box`/`membrane_box`. A blank field is the derived value exactly and
 shows the box the **preview** draws as its placeholder, so the starting box the form states and the box the picture
 shows are one number (the extent route's own line remains the protein-footprint measurement). A blank z keeps the
-insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- and a stated z floors the written box's z.
-One **Auto** fills all three from one extent call (the protein-footprint box; a membrane belt's reach can only widen
-it). A membrane belt widens x/y to its radial reach
-(`max(footprint, 2 x (radius_max_nm + detergent_length_nm)) + 2 x margin`, `pdc_box.membrane_box`'s
-`belt_radius_nm`), and `pdc_build` records the growth as `box_widening_nm`; self-assembly samples inside its own
-initial box and is never widened. Both lines are hidden for an empty micelle, and the panel re-asks when the
+insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- while the written box's z is derived unless
+stated. One **Auto** fills all three from one extent call (the protein-footprint box). A membrane belt's radial reach
+(`2 x (radius_max_nm + detergent_length_nm) + 2 x margin`, `pdc_box.membrane_box`'s `belt_radius_nm`) is what a
+stated x/y must hold, and `pdc_build` records the growth as `box_widening_nm` (zero when the reader states the
+widened cell); self-assembly samples inside its own initial box, so a stated x/y is the cell its cloud is drawn in.
+Both lines are hidden for an empty micelle, and the panel re-asks when the
 protein, its chain ticks, the box margin or any initial box value changes.
 
-The pdc New run form's fourth card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
+The pdc New run form's third card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
 conformation, a library built from micelle-only runs, or a stored library. A **stored library for the selected
 detergent's residue is the default when one exists** (2026-11-23) -- the card selects it and the run's label says
 `libconf` -- because the coordinate library is what the workspace already has; a detergent with no stored library
@@ -1074,9 +1080,9 @@ A pdc belt is a **cylinder** about the membrane frame's normal when the protein 
 measured **locally per site** -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10 deg) of that site's
 heading **and** `belt_axial_window_nm` of its height (default 0.75 nm), plus `belt_gap_nm`, floored by
 `belt_floor_nm` (0) -- and each detergent is placed at its own closest point on that local surface with its head
-outward and its tail tilted 15 deg toward the axis, over a vertical band `belt_vertical_spread` times the detergent
-length (default 2.0, old 1.1) (`_belt_cylinder`,
-`SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
+outward and its tail tilted 15 deg toward the axis, over a vertical band whose half-height is
+`belt_vertical_half_nm` in nm when stated and otherwise the retired `belt_vertical_spread` (default 2.0, old 1.1)
+times the detergent length (`_belt_cylinder`, `SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
 `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm` beside it, so one protruding helix
 steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
 angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then

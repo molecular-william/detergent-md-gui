@@ -10,15 +10,38 @@ clearing the protein and the belt, and x/y widened to the belt's radial reach. `
 are the numbers those insertion rules measure when the caller states none, which is what the form's Auto button asks
 for.
 
-A stated initial x or y is a **floor, never a ceiling**: `max(stated, footprint + 2 x margin)`. A number below the
-protein's own footprint therefore cannot put a box face through the protein, and a number above it gives the run the
-larger cell it asked for. A blank axis is the derived value exactly, never zero.
+A stated initial x, y or z is **exact**: the cell the build writes is the number the reader asked for, and a number
+that cannot hold the protein (or, in `membrane_box`, the belt) is refused with both numbers rather than widened
+silently. A blank axis is the derived value exactly, never zero. The refusal is what keeps an exact cell from putting a
+face through the system it is meant to contain; before 2026-11-24 a stated value was a floor instead.
 
 The density a placement was built at is its shape's, not its cell's: a lattice belt's volume is the torus's own
 (measured from the band, not from the box), a sphere's is the ball's, so widening the box after the placement
 leaves the recorded density where it was. Self-assembly is the one generator that samples inside the box it is
 given, so its box is the placement's own and this module does not widen it.
 """
+
+
+#: How far a stated dimension may sit below the derived one and still count as equal, covering the rounding both
+#: sides apply (six places) without accepting a box that genuinely cuts the system.
+TOLERANCE_NM = 1e-6
+
+
+def _exact(stated, required, axis):
+    """A stated dimension, or the derived one when none is stated; below what the system needs is a refusal.
+
+    The message carries both numbers so a reader can type the smaller one and see why, and names the axis because the
+    form has three of them.
+    """
+    if stated is None:
+        return round(float(required), 6)
+    value = float(stated)
+    if value <= 0:
+        raise ValueError('box extents must be positive')
+    if value + TOLERANCE_NM < float(required):
+        raise ValueError(f'the stated {axis} box ({value:g} nm) is smaller than this system needs '
+                         f'({round(float(required), 6):g} nm)')
+    return round(value, 6)
 
 
 def auto_initial_xy(points, margin_nm=2.0):
@@ -45,25 +68,16 @@ def initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=None, init
     z is its own number rather than a second margin -- the request asks for 20 A in x and y and 60 A in z -- so the
     caller passes it explicitly and GROMACS is given the box rather than asked to derive one.
 
-    A stated x or y is a **floor, never a ceiling**: the answer is `max(stated, footprint + 2 x margin)`, the same rule
-    as `membrane_box`'s belt widening. A value below the derived footprint therefore cannot shrink the box through the
-    protein; a value above it is the caller's larger box. `None` (the panel's blank field) is today's derived value
-    exactly, byte for byte.
+    A stated x or y is **exact**, and a value below the footprint plus the margin is refused rather than widened:
+    the reader asked for that cell, and a cell that cannot hold the protein is a mistake to correct, not to hide.
+    `None` (the panel's blank field) is today's derived value exactly, byte for byte.
     """
     if not points:
         raise ValueError('a box needs at least one coordinate')
     if margin_nm <= 0 or initial_z_nm <= 0:
         raise ValueError('box extents must be positive')
     x, y = auto_initial_xy(points, margin_nm=margin_nm)
-    if initial_x_nm is not None:
-        if initial_x_nm <= 0:
-            raise ValueError('box extents must be positive')
-        x = round(max(x, float(initial_x_nm)), 6)
-    if initial_y_nm is not None:
-        if initial_y_nm <= 0:
-            raise ValueError('box extents must be positive')
-        y = round(max(y, float(initial_y_nm)), 6)
-    return [x, y, round(float(initial_z_nm), 6)]
+    return [_exact(initial_x_nm, x, 'x'), _exact(initial_y_nm, y, 'y'), round(float(initial_z_nm), 6)]
 
 
 def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
@@ -93,9 +107,9 @@ def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
 def extended_box(xy, placed_points, margin_nm=2.0, initial_z_nm=None):
     """The box after placement: z grows so every face is at least `margin_nm` from the placed system.
 
-    `z = 2 x margin + (max_z - min_z)` of the placed coordinates, floored by a stated `initial_z_nm`: the form's
-    starting-box z is the height the reader asked the cell to have, and a value below the placed extent cannot cut
-    the system it contains. `None` (the panel's blank field) is today's derived z exactly.
+    `z = 2 x margin + (max_z - min_z)` of the placed coordinates, unless the form states `initial_z_nm`: the
+    starting-box z is then the cell's exact height, and a value below the placed extent is refused rather than
+    quietly widened. `None` (the panel's blank field) is today's derived z exactly.
 
     The x and y extents are passed through unchanged from the box the placement was built for: a self-assembly cloud
     is sampled uniformly inside exactly that box (`pdc_placement._self_assemble`), so resizing it afterwards would
@@ -111,9 +125,7 @@ def extended_box(xy, placed_points, margin_nm=2.0, initial_z_nm=None):
         raise ValueError('box extents must be positive')
     zs = [float(point[2]) for point in placed_points]
     z = max(zs) - min(zs) + 2 * margin_nm
-    if initial_z_nm is not None:
-        z = max(z, float(initial_z_nm))
-    return [round(float(xy[0]), 6), round(float(xy[1]), 6), round(z, 6)]
+    return [round(float(xy[0]), 6), round(float(xy[1]), 6), _exact(initial_z_nm, z, 'z')]
 
 
 def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=None, belt_reach_nm=0.0,
@@ -140,19 +152,18 @@ def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=None, be
     off plus the detergent's own length -- which `pdc_build` and the preview read out of the band's own record. The
     default of zero is a caller with no belt to state, and then x and y are `initial_box`'s rule byte for byte.
 
-    A stated `initial_x_nm`/`initial_y_nm` composes with item 2's belt rule as a **floor, never a ceiling**:
-    `x = max(initial_box's x, 2 x belt_radius_nm + 2 x margin)`, and the same for y. `initial_box`'s x already includes
-    `max(stated, footprint + 2 x margin)`, so the stated value can neither shrink the box through the protein nor
-    shrink the belt's own widening. `None` is today's derived value exactly.
+    A stated `initial_x_nm`/`initial_y_nm` is the cell's **exact** dimension, and it must hold the belt's own
+    widening: below `max(initial_box's x, 2 x belt_radius_nm + 2 x margin)` it is refused with both numbers.
+    `initial_box`'s x already refuses a value below the protein's footprint, so an accepted number clears both the
+    protein and the belt. `None` is today's derived value exactly.
 
     Widening x and y after the placement does not change the density the placement was built at. A lattice belt's
     volume is the torus's own, measured from the band's radius and height, and a sphere's is the ball's; the box is
     the cell around that shape, not the volume the shape was sampled in. Self-assembly is never this rule: its
     generator samples inside the initial box and its cell goes through `extended_box` unchanged.
 
-    A stated `initial_z_nm` is a **floor, never a ceiling** for z, like x and y: `z = max(the measured membrane
-    box, stated)`, so the form's starting-box height can widen the cell but cannot cut the belt or the protein.
-    `None` (the panel's blank field) is the measured box exactly.
+    A stated `initial_z_nm` is the cell's **exact** height, and a value below the measured membrane box is
+    refused rather than widened. `None` (the panel's blank field) is the measured box exactly.
 
     A protein that states no membrane passes `half_thickness_nm=None` and gets today's box exactly: there is no frame
     to be centred on and no slab to clear. A protein-free build never reaches this rule at all.
@@ -171,9 +182,10 @@ def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=None, be
     furthest = max(abs(float(point[2])) for point in points)
     reach = max(furthest, abs(float(half_thickness_nm)), abs(float(belt_reach_nm or 0.0)))
     radial = abs(float(belt_radius_nm or 0.0))
-    z = 2 * (reach + margin_nm)
-    if initial_z_nm is not None:
-        z = max(z, float(initial_z_nm))
-    return [round(max(initial[0], 2 * radial + 2 * margin_nm), 6),
-            round(max(initial[1], 2 * radial + 2 * margin_nm), 6),
-            round(z, 6)]
+    # The cell the belt needs, before the reader's own number replaces it: the protein's box or the belt's radial
+    # reach, whichever is larger, and the membrane's z.
+    required = [max(initial[0], 2 * radial + 2 * margin_nm), max(initial[1], 2 * radial + 2 * margin_nm),
+                2 * (reach + margin_nm)]
+    return [_exact(initial_x_nm, required[0], 'x'),
+            _exact(initial_y_nm, required[1], 'y'),
+            _exact(initial_z_nm, required[2], 'z')]

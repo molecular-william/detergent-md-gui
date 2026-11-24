@@ -49,7 +49,7 @@ DETERGENT_ITP = '[ moleculetype ]\nDDM_CG 1\n\n[ atoms ]\n1 C1 1 DDM_CG DDM 1 0 
 
 def prepared(tmp_path: Path, settings: dict | None = None, template: str = TEMPLATE_PATH):
     # The box margins this file reads are explicit: they are what several of its assertions are about.
-    return prepared_run(tmp_path, settings={'box_margin_nm': 2.0, 'initial_z_nm': 6.0} | (settings or {}),
+    return prepared_run(tmp_path, settings={'box_margin_nm': 2.0} | (settings or {}),
                         template=template)
 
 
@@ -134,7 +134,8 @@ def test_the_settings_carry_the_decisions_the_run_recorded(tmp_path):
     settings = settings_of(prepared(tmp_path))
 
     assert settings['seed'] == 20260930 and settings['aggregation_number'] == 8
-    assert (settings['box_margin_nm'], settings['initial_z_nm']) == (2.0, 6.0)
+    assert settings['box_margin_nm'] == 2.0
+    assert 'initial_z_nm' not in settings, 'a blank z records no number: the box derives its own height'
     assert 'initial_x_nm' not in settings and 'initial_y_nm' not in settings, \
         'a blank x/y records no number at all, so the build derives the footprint instead of reading a zero'
     assert settings['radius_nm'] > 0, 'the placement radius is a number, never a missing key'

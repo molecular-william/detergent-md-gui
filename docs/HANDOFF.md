@@ -10,6 +10,27 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc New run: one Run and stage settings card, exact starting box, belt spread in nm, presets cover it all
+  (2026-11-24).** The *Detergent belt and sampling* content (placement mode, count, belt numbers, the estimate, the two
+  pipeline switches and the run label) and the *Starting box* group are now groups of the fieldset that was Stage
+  settings, renamed **Run and stage settings**; the left column keeps detergent, protein and shape, and the preset bar
+  reads every named control in that fieldset (a checkbox as a boolean; the run label excluded because it names the
+  run). A stated initial x/y/z is the cell's **exact** dimension (it was a floor): `pdc_box._exact` accepts the stated
+  number or refuses with both numbers, `initial_box`/`extended_box`/`membrane_box` all use it, self-assembly samples
+  inside a stated x/y, and `pdc_build`/`pdc_preview` turn the refusal into `valid:false` reasons (the preview draws
+  nothing; the extent route answers 400). Blank axes keep the derived box, and a blank z keeps the reviewed 6.0 nm
+  insertion box. `belt_vertical_spread` (x detergent length) is retired from the form and superseded by
+  `belt_vertical_half_nm` (nm, blank = 2 x length, the old default); `_belt_cylinder` uses the stated nm as the
+  band's half-height and records `vertical_half_nm` beside `vertical_half_band_nm`, while the retired key stays
+  advertised and read for old payloads and presets. Checks on the shared tree: fast tier **3,197 passed / 1 xfailed**;
+  full browser tier **427 passed** at `-n 16 --dist worksteal`; ruff clean on every touched path. New coverage: the
+  exact-box refusals in `test_pdc_box`/`test_pdc_build_band`/`test_pdc_extent_api`/`test_pdc_preview_api`, the nm
+  band in `test_pdc_placement` and `test_pdc_build_band`, and a browser case that saves and reloads a preset carrying
+  box, count, placement and both switches. **The working tree also carries another in-progress lane's changes** (a
+  pdc complex-data panel: `pdc.js` -> `pdc-analysis.js`, `structure.py`, `feature.py`, panel/route/test edits, and a
+  plan plus HTML draft). This commit stages only this change's paths, with `web/routes/pdc.py` taken hunk by hunk, so
+  that lane's work stays in the worktree for its own commit.
+
 - **Conformation sources read the itp's preprocessor branches the way grompp does (2026-11-24).**
   `NM_micelle_130_1conf_500ns` was refused as a conformation source with "unreadable detergent_CG.itp bonds line 30:
   '#ifdef FLEXIBLE'". `conformations/sources._connectivity` hand-rolled a section scan and treated every content line

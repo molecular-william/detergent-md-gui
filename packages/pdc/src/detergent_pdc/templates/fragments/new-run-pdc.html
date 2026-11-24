@@ -52,8 +52,35 @@
         1.5 s. When pdb2pqr is not resolvable the step records <code>skipped</code> and the structure is coarse-grained as
         deposited, rather than failing the run.</p>
     </section>
-    <section class="card" aria-labelledby="new-config-title">
-      <span class="eyebrow">RUN CONFIGURATION</span><h3 id="new-config-title" class="new-pdc-config-title">Detergent belt and sampling</h3>
+    {# The five stages, in the layout the validation panel already uses: a native <details> per stage, a facts line in
+       the summary so a closed editor still says what it holds, and that stage's own numbers in its body. The
+       durations and the minimisation knobs used to live under Other run options and in two pairs beside the belt; a
+       stage's numbers belong where the stage is. Every input keeps the name `adapters/pdc.py` advertises.
+       `new-pdc-stage-facts` is a class rather than an id because the id contract forbids naming a pdc-only id in a
+       selector (test_dom_ids); each carries `data-stage` for the facts writer in new-run-pdc.js. #}
+    <fieldset class="run-settings card new-pdc-stages">
+      <legend>Run and stage settings</legend>
+      {# A preset bar at the top of the settings it applies: Load fills every named control in this fieldset (the run
+         configuration and the starting box included, the run label excepted), Save
+         stores them under a name, Set as default is what the form applies on mount, and Delete removes one. The ids
+         are the engine's own (the validation page renders the same bar), so the id contract holds; this module reads
+         its copy through the `preset-*` classes instead, because the engine's own module writes the ids on the
+         validation page and one host belongs to one writer (`test_rendered_hosts`). The select carries no `name`, so
+         it is never submitted as a run setting and never reaches the payload. #}
+      <div class="preset-bar" role="group" aria-label="Run and stage setting presets">
+        <label>Preset<select id="preset-select" class="preset-select"><option value="">Profile defaults (no preset)</option></select></label>
+        <div class="toolbar preset-actions">
+          <button type="button" class="secondary preset-load" id="preset-load">Load</button>
+          <button type="button" class="secondary preset-save" id="preset-save">Save current as preset…</button>
+          <button type="button" class="secondary preset-default" id="preset-default">Set as default</button>
+          <button type="button" class="secondary danger preset-delete" id="preset-delete">Delete</button>
+        </div>
+        <span id="preset-marker" class="hint preset-marker" role="status"></span>
+      </div>
+      <p class="hint">Minimisation → NVT → NPT → assessment → extension. Every number starts as the reviewed
+        profile's own; one stated here overrides it for this run only, and the manifest records what was used.</p>
+      <section class="new-option-group new-pdc-config" aria-labelledby="new-config-title">
+        <h4 class="new-option-title new-pdc-config-title" id="new-config-title">Detergent belt and sampling</h4>
       <div class="new-pdc-pair new-pdc-config-pair">
         <label>Initialisation style<select name="pdc_placement_mode" id="new-placement"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
         <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
@@ -88,10 +115,10 @@
               <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
             </span>
           </label>
-          <label>Vertical spread <span class="hint">× detergent length</span>
+          <label>Vertical spread <span class="hint">nm · half-height · blank: 2 × detergent length</span>
             <span class="setting-control">
-              <input name="belt_vertical_spread" type="number" min="0.5" max="5" step="0.1">
-              <button type="button" class="secondary pdc-default" data-field="belt_vertical_spread">Default</button>
+              <input name="belt_vertical_half_nm" type="number" min="0.5" max="10" step="0.1"
+                     placeholder="2 × detergent length">
             </span>
           </label>
         </div>
@@ -128,10 +155,28 @@
 
         </div>
       </div>
-      {# The starting cell, stated here rather than derived invisibly. x and y are dimensions and a stated value is a
-         floor, never a ceiling: a blank field is the protein's own footprint plus the margin, so clearing one can
-         never put a face through the protein. z is a dimension; the margin is per face. The grid is its own class,
-         not a `.new-pdc-pair`, which the pairing test measures as exactly one row of two cells. #}
+      <div class="new-pdc-empty-block" id="new-empty-block" hidden>
+        <table class="new-pdc-estimate"><tbody>
+          <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>
+          <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
+        </tbody></table>
+      </div>
+
+      <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox"></label>
+      <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox"></label>
+      <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
+      <label>Run label<span class="setting-control">
+        <input name="label" maxlength="160" placeholder="Optional label for this run">
+        <button type="button" class="secondary new-pdc-suggest-label">Suggest</button>
+      </span></label>
+      </section>
+
+      <section class="new-option-group">
+        <h4 class="new-option-title">Starting box</h4>
+      {# The starting cell, stated here rather than derived invisibly. A stated x, y or z is the cell's exact
+         dimension: a blank field is the derived value (x and y the protein's footprint plus the margin), and a
+         number that cannot hold the protein or the belt is refused with both numbers rather than widened. The grid
+         is its own class, not a `.new-pdc-pair`, which the pairing test measures as exactly one row of two cells. #}
       <div class="new-pdc-box-grid">
         <label>Initial x box (nm - dimension) <span class="hint">blank: the box the preview draws</span>
           <span class="setting-control">
@@ -156,52 +201,11 @@
           </span>
         </label>
       </div>
-      <p class="hint">The starting box. A blank field shows the box the preview draws as its placeholder, and a
-        stated number is a floor under that box -- never a ceiling -- so a value below the derived size cannot cut the
-        protein or the belt. Auto measures the selected protein and fills the protein-footprint box (x and y are its
-        footprint plus the margin, z the clearance its furthest atom needs); a membrane belt's own reach can only
-        widen the box the picture shows.</p>
-      <div class="new-pdc-empty-block" id="new-empty-block" hidden>
-        <table class="new-pdc-estimate"><tbody>
-          <tr><td>Experimental aggregation number</td><td><strong class="new-pdc-empty-number">— not recorded yet</strong></td></tr>
-          <tr><td>Requested above</td><td><strong class="new-pdc-empty-count">—</strong></td></tr>
-        </tbody></table>
-      </div>
-
-      <label class="new-pdc-backmap">Remove out-of-micelle detergents<input name="remove_out_of_micelle" type="checkbox"></label>
-      <label class="new-pdc-backmap">Back-map to atomistic (CG2AT2)<input name="backmap" type="checkbox"></label>
-      <p class="hint new-pdc-backmap-note" role="status">On: the extended CG state is converted to atomistic with CG2AT2 (<code>-o align</code>). Off: the back-map stage records <code>skipped</code> and the run stops coarse-grained, with no atomistic structure produced.</p>
-      <label>Run label<span class="setting-control">
-        <input name="label" maxlength="160" placeholder="Optional label for this run">
-        <button type="button" class="secondary new-pdc-suggest-label">Suggest</button>
-      </span></label>
-    </section>
-    {# The five stages, in the layout the validation panel already uses: a native <details> per stage, a facts line in
-       the summary so a closed editor still says what it holds, and that stage's own numbers in its body. The
-       durations and the minimisation knobs used to live under Other run options and in two pairs beside the belt; a
-       stage's numbers belong where the stage is. Every input keeps the name `adapters/pdc.py` advertises.
-       `new-pdc-stage-facts` is a class rather than an id because the id contract forbids naming a pdc-only id in a
-       selector (test_dom_ids); each carries `data-stage` for the facts writer in new-run-pdc.js. #}
-    <fieldset class="run-settings card new-pdc-stages">
-      <legend>Stage settings</legend>
-      {# A preset bar at the top of the settings it applies: Load fills every named control in this fieldset, Save
-         stores them under a name, Set as default is what the form applies on mount, and Delete removes one. The ids
-         are the engine's own (the validation page renders the same bar), so the id contract holds; this module reads
-         its copy through the `preset-*` classes instead, because the engine's own module writes the ids on the
-         validation page and one host belongs to one writer (`test_rendered_hosts`). The select carries no `name`, so
-         it is never submitted as a run setting and never reaches the payload. #}
-      <div class="preset-bar" role="group" aria-label="Stage-setting presets">
-        <label>Preset<select id="preset-select" class="preset-select"><option value="">Profile defaults (no preset)</option></select></label>
-        <div class="toolbar preset-actions">
-          <button type="button" class="secondary preset-load" id="preset-load">Load</button>
-          <button type="button" class="secondary preset-save" id="preset-save">Save current as preset…</button>
-          <button type="button" class="secondary preset-default" id="preset-default">Set as default</button>
-          <button type="button" class="secondary danger preset-delete" id="preset-delete">Delete</button>
-        </div>
-        <span id="preset-marker" class="hint preset-marker" role="status"></span>
-      </div>
-      <p class="hint">Minimisation → NVT → NPT → assessment → extension. Every number starts as the reviewed
-        profile's own; one stated here overrides it for this run only, and the manifest records what was used.</p>
+      <p class="hint">The starting box, and the cell the preview draws. A blank field is the derived box (x and y
+        are the protein's footprint plus the margin, z the clearance its furthest atom needs); a stated number is the
+        cell's exact dimension, so the preview and the run draw it exactly. A value the protein or the belt cannot fit
+        inside is refused with the number it needs rather than silently widened.</p>
+      </section>
       <h4 class="new-option-title">Stages</h4>
       <details class="stage-editor" data-stage="minimisation" open>
         <summary><span class="stage-name">Energy minimisation</span><span class="stage-facts new-pdc-stage-facts"
@@ -369,8 +373,8 @@
          They are sections of this same fieldset now, in the validation panel's shape (a titled group over a grid),
          because they are stage settings like the stages above them. Every control here that names a reviewed profile
          value carries a Default button (`pdc-default`), like the stage editors above; the seed is generated rather
-         than restored and keeps only its Generate button, and the starting box lives in the Run configuration card
-         above, where one Auto measures x, y and z from the chosen protein. #}
+         than restored and keeps only its Generate button, and the starting box is the group above, where one Auto
+         measures x, y and z from the chosen protein. #}
       <section class="new-option-group">
         <h4 class="new-option-title">Output cadence</h4>
         <div class="settings-grid">

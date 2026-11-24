@@ -158,7 +158,7 @@ def test_the_belt_settings_are_two_rows_of_two(dashboard, live_page):
     assert rows is not None, 'the belt settings are not rendered as a grid'
     kids = rows['kids']
     assert [kid['name'] for kid in kids] == ['belt_gap_nm', 'min_body_gap_nm',
-                                             'belt_axial_window_nm', 'belt_vertical_spread'], kids
+                                             'belt_axial_window_nm', 'belt_vertical_half_nm'], kids
     for first, second in ((kids[0], kids[1]), (kids[2], kids[3])):
         delta = abs(first['y'] - second['y'])
         assert delta <= TOLERANCE_PX, \

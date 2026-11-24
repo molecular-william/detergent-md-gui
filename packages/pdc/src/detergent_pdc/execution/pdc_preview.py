@@ -354,9 +354,10 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
     length). Everything else -- a protein-free build, a protein that states no membrane, a stated membrane holding
     none of the protein's atoms -- is `extended_box` over the box the placement was built for.
 
-    A stated initial x/y/z is passed through to both rules as a floor (`max(stated, derived)`), exactly as the
-    build passes it: the preview's basis box and the cell the stage writes are then the same number. `None` is the
-    derived value exactly; the insertion box's own z keeps the reviewed default when nothing is stated.
+    A stated initial x/y/z is the cell's exact dimension, exactly as the build reads it: the preview's basis box and
+    the cell the stage writes are then the same number, and a value that cannot hold the protein or the belt is
+    refused rather than widened. `None` is the derived value exactly; the insertion box's own z keeps the reviewed
+    default when nothing is stated.
     """
     insertion_z = 6.0 if initial_z_nm is None else initial_z_nm
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=insertion_z,
@@ -518,6 +519,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
             belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
             belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
+            belt_vertical_half_nm=None,
             belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
@@ -764,11 +766,14 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     points = [list(bead['position']) for bead in beads]
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
-                                              margin_nm=margin, initial_z_nm=insertion_z, frame=frame,
+                                              margin_nm=margin, initial_z_nm=insertion_z,
+                                              initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm,
+                                              frame=frame,
                                               conformations=conformations, belt_gap_nm=float(belt_gap_nm),
                                               min_body_gap_nm=float(min_body_gap_nm),
                                               belt_axial_window_nm=float(belt_axial_window_nm),
                                               vertical_spread=float(belt_vertical_spread),
+                                              vertical_half_nm=belt_vertical_half_nm,
                                               belt_offset_nm=float(belt_offset_nm),
                                               body_profile=body_profile)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
@@ -798,6 +803,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   'min_body_gap_nm': band.get('min_body_gap_nm'),
                   'axial_window_nm': band.get('axial_window_nm'),
                   'vertical_spread': band.get('vertical_spread'),
+                  'vertical_half_nm': band.get('vertical_half_nm'),
                   # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
                   # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
                   # measures a smaller shell, and these two fields are where that shows.
@@ -824,7 +830,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         # not a gate -- and a refusal with no centres (a template, a preparation, an unplaced protein) keeps the
         # text-only answer.
         if placement['centers']:
-            box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+            try:
+                box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+            except ValueError as error:
+                cost['seconds'] = time.perf_counter() - started
+                return _refusal('box', [str(error)], basis, cost, subject='the starting box')
             basis['box_nm'] = list(box)
             basis['belt_offset_nm'] = float(belt_offset_nm)
             basis['detergents_placed'] = len(placement['centers'])
@@ -844,7 +854,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         cost['seconds'] = time.perf_counter() - started
         return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')
 
-    box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+    try:
+        box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+    except ValueError as error:
+        cost['seconds'] = time.perf_counter() - started
+        return _refusal('box', [str(error)], basis, cost, subject='the starting box')
     basis['box_nm'] = list(box)
     basis['belt_offset_nm'] = float(belt_offset_nm)
     pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,

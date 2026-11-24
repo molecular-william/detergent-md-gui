@@ -227,10 +227,11 @@ def test_a_stated_initial_xy_reaches_the_preview_box_and_is_bounded_like_the_ada
 
     body = get(dashboard, template=TEMPLATE, molecule_id='DDM', mapping_candidate='mapping_candidate_fixture.json',
                aggregation_number=40, placement_mode='lattice', pdc_seed=20261013,
-               initial_x_nm=20.0, initial_y_nm=21.0).get_json()
+               initial_x_nm=20.0, initial_y_nm=21.0, initial_z_nm=40.0).get_json()
 
     assert body['valid'] is True, body['reasons']
     assert body['basis']['box_nm'][:2] == [20.0, 21.0]
+    assert body['basis']['box_nm'][2] == 40.0, 'the preview draws exactly the stated cell, z included'
 
     for name, bad in (('initial_x_nm', '0.5'), ('initial_y_nm', '50.5'), ('initial_x_nm', 'lots')):
         response = get(dashboard, template=TEMPLATE, molecule_id='DDM',
@@ -245,8 +246,8 @@ def test_the_basis_is_the_question_that_was_asked_and_the_cost_says_what_was_pai
     mapping_candidate(dashboard)
 
     body = get(dashboard, template=TEMPLATE, molecule_id='DDM', mapping_candidate='mapping_candidate_fixture.json',
-               aggregation_number=40, placement_mode='lattice', pdc_seed=20261013, box_margin_nm=2.0,
-               initial_z_nm=6.0).get_json()
+               aggregation_number=40, placement_mode='lattice', pdc_seed=20261013,
+               box_margin_nm=2.0).get_json()
 
     assert body['valid'] is True, body['reasons']
     basis = body['basis']

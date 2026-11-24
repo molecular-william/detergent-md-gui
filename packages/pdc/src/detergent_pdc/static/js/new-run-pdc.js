@@ -27,7 +27,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The adapter's own names, so a field left empty is omitted and the adapter's default stands rather than a 0.
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
-                   'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm',
+                   'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm', 'belt_offset_nm',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -790,7 +790,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // from a random start, so they are hidden there. Hidden, not disabled: the values still travel, and the adapter
   // ignores them outside a belt.
   function syncBeltGap() {
-    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread',
+    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
                         'belt_offset_nm']) {
       const label = form.querySelector(`[name=${name}]`)?.closest('label');
       if (label) label.hidden = placementMode() === 'self-assembly';
@@ -1269,7 +1269,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             gap: field('belt_gap_nm').value || '',
             bodyGap: field('min_body_gap_nm').value || '',
             axialWindow: field('belt_axial_window_nm').value || '',
-            verticalSpread: field('belt_vertical_spread').value || '',
+            verticalHalf: field('belt_vertical_half_nm').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             initial_x: field('initial_x_nm').value || '', initial_y: field('initial_y_nm').value || '',
             offset: field('belt_offset_nm').value || '',
@@ -1282,7 +1282,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
                                   inputs.initial_x, inputs.initial_y,
-                                  inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
+                                  inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalHalf,
                                   inputs.template].join('|');
 
   function seconds(value) {
@@ -1411,7 +1411,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
     if (inputs.axialWindow) query.set('belt_axial_window_nm', inputs.axialWindow);
-    if (inputs.verticalSpread) query.set('belt_vertical_spread', inputs.verticalSpread);
+    if (inputs.verticalHalf) query.set('belt_vertical_half_nm', inputs.verticalHalf);
     // The shape spec travels as JSON, URL-encoded by `URLSearchParams`: `single` has no spec and sends nothing,
     // exactly as the submit payload does not.
     if (inputs.shape) query.set('conformation_library', inputs.shape);
@@ -1986,26 +1986,26 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   field('backmap')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('remove_out_of_micelle')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); });
   field('protein_vsite')?.addEventListener('change', () => { store(); syncSummary(); });
-  // Named stage-setting presets ---------------------------------------------------------------------------------
+  // Named run-and-stage-setting presets ------------------------------------------------------------------------
   //
   // The store is the workspace's (`/api/setting-presets`, run type `pdc`), the same one the validation panel uses.
-  // A preset here is every named control in the Stage settings fieldset: the five stages, their per-stage timesteps
-  // and the six groups that used to be a separate fold. The bar's ids are the engine's own (the validation page
-  // renders them, which is what keeps the id contract), but this module owns the handlers because the engine's panel
-  // is not created on this workspace.
+  // A preset here is every named control in the Run and stage settings card: the run configuration, the starting box,
+  // the two pipeline switches, the number of detergents and the five stages. Read live rather than listed by hand, so
+  // a control added to the card is a preset setting without a second edit. The run label is the one exception -- it
+  // names this run rather than configuring it -- and a control with no `name` (a derived step count) is never
+  // captured, exactly as it is never submitted. The bar's ids are the engine's own (the validation page renders
+  // them, which is what keeps the id contract), but this module owns the handlers because the engine's panel is not
+  // created on this workspace.
   let presets = [], appliedPreset = null, presetsGeneration = 0, applyingPreset = false;
-  // Read live rather than listed by hand: a control added to the fieldset is a preset setting without a second
-  // edit, and a control with no `name` (the derived step count) is never captured -- it is never submitted either.
-  // The starting box moved to the Run configuration card, but a preset written before that move still carries
-  // `box_margin_nm` and `initial_z_nm`, so those controls are read beside the fieldset: an old preset restores the
-  // same numbers, and a new one captures them (plus the stated x/y) in the same place.
-  const PDC_PRESET_EXTRAS = ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm'];
-  const PDC_PRESET_FIELDS = () => [
-    ...(pdcNode('fieldset.new-pdc-stages')?.querySelectorAll('[name]') || []),
-    ...PDC_PRESET_EXTRAS.map(name => field(name)).filter(Boolean)];
+  const PRESET_NOT_A_SETTING = new Set(['label']);
+  const PDC_PRESET_FIELDS = () => [...(pdcNode('fieldset.new-pdc-stages')?.querySelectorAll('[name]') || [])]
+    .filter(control => !PRESET_NOT_A_SETTING.has(control.name));
   function presetSettings() {
     const settings = {};
     for (const control of PDC_PRESET_FIELDS()) {
+      // A checkbox states a boolean, not the string its `value` always carries: the adapter's choices are True and
+      // False, and a preset has to restore the tick as well as the number.
+      if (control.type === 'checkbox') { settings[control.name] = control.checked; continue; }
       if (control.value === '' || control.value == null) continue;
       settings[control.name] = control.value;
     }
@@ -2062,6 +2062,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     try {
       for (const control of PDC_PRESET_FIELDS()) {
         if (!(control.name in settings)) continue;
+        if (control.type === 'checkbox') {
+          control.checked = Boolean(settings[control.name]);
+          control.dispatchEvent(new Event('change', {bubbles: true}));
+          continue;
+        }
         const value = String(settings[control.name]);
         // A stored value the form cannot offer -- a device this host lost -- is skipped rather than blanking it.
         if (control.tagName === 'SELECT' && ![...control.options].some(option => option.value === value)) continue;
@@ -2204,7 +2209,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'belt_gap_nm',
-                      'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
+                      'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own four inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm']) field(name)?.addEventListener('input', scheduleExtent);
   // One Auto for the starting box: the extent route's own suggested x, y and z, written into their fields as a reader
