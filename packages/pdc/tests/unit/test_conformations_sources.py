@@ -162,3 +162,38 @@ def test_a_layout_4_mapping_that_is_missing_is_refused_with_a_reason(tmp_path):
 
     with pytest.raises(ValueError, match='cannot be resolved'):
         sources(tmp_path, ['b920391735dd'])
+
+
+def guarded_itp_text():
+    """The shape `ff_inter` writes: a term family under `#ifdef FLEXIBLE` and a different one under `#ifndef`.
+
+    A pdc run's mdp defines neither (its legs carry no `define`), so grompp reads the `#ifndef` branch and the
+    `#ifdef` branch is not in the topology at all. The two branches name different pairs here so a reader that keeps
+    both is distinguishable from one that reads the live branch.
+    """
+    lines = []
+    for line in itp_text().splitlines():
+        lines.append(line)
+        if line.strip() == '[ bonds ]':
+            lines += ['#ifdef FLEXIBLE', ' 2 6 1 9.9999 10000.0', '#endif']
+        elif line.strip() == '[ constraints ]':
+            lines += ['#ifndef FLEXIBLE', ' 1 5 1 0.4000', '#endif']
+    return '\n'.join(lines) + '\n'
+
+
+def test_a_guarded_bond_family_is_read_the_way_grompp_reads_it(tmp_path):
+    """A guarded branch is not a bond: the reader crashed on `#ifdef FLEXIBLE` in NM_micelle_130_1conf_500ns.
+
+    Stripping the directives alone is not the fix -- it draws both alternatives, and a pair the run never simulated
+    would be measured against the trajectory. The live `#ifndef` branch has to be read and the inactive `#ifdef`
+    branch has to be dropped.
+    """
+    fixture = run_tree(tmp_path)
+    (fixture['inputs'] / 'detergent_CG.itp').write_text(guarded_itp_text())
+
+    found = sources(tmp_path, [fixture['run_id']])[0]
+    bonds = {(first, second): length for first, second, length in found['bonds']}
+
+    assert bonds[(0, 4)] == pytest.approx(0.4), 'the live branch is connectivity'
+    assert (1, 5) not in bonds, 'the inactive branch is not in this topology'
+

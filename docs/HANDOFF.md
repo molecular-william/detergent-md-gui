@@ -8,7 +8,21 @@ Per-slice history is not repeated here. Every landed slice is its own commit, wi
 message, and this file's earlier revisions are in git (`git log -p -- docs/HANDOFF.md`). What stays here is the
 state, what is next, what is open, and the measurements and incidents a reader has to know.
 
-## Current state (2026-11-23)
+## Current state (2026-11-24)
+
+- **Conformation sources read the itp's preprocessor branches the way grompp does (2026-11-24).**
+  `NM_micelle_130_1conf_500ns` was refused as a conformation source with "unreadable detergent_CG.itp bonds line 30:
+  '#ifdef FLEXIBLE'". `conformations/sources._connectivity` hand-rolled a section scan and treated every content line
+  of `[ bonds ]`/`[ constraints ]` as a term, so the guarded families Fast-Forward writes crashed it; a reader that
+  only stripped the `#` lines would instead have read both alternatives. It now reads through `dashboard.itp` with
+  `defines=()`, which is how the run's own legs were rendered (the pdc adapter writes no `define`): the
+  `#ifndef FLEXIBLE` constraint is the live term and the `#ifdef FLEXIBLE` bond is not in the simulated topology.
+  Measured on the reported run: 11 beads, 16 terms including the live 2-5 constraint (0.341 nm); one extraction pass
+  over its 3.5 GB trajectory samples 201 frames (stride 100), pool 26,130, kept 25,923, broken 207, non-finite 0,
+  10.9 s / 258 MB. Checks: `test_conformations_sources.py` 20 passed (the new test builds ff_inter's guard shape and
+  asserts the live branch is read and the inactive one dropped -- red before the fix with the reported message); pdc
+  area **842 passed / 1 xfailed**; ruff clean. `DDM_2ydo_130_libconf_500ns` was running at 10:17 HKT, so the usual
+  restart is still owed before the panel serves the fix.
 
 - **Dark by default with a header toggle; pdc's two toggles start off (2026-11-23).**
   The shell carries `<html data-theme="dark">`, an inline head script restores a stored light choice from

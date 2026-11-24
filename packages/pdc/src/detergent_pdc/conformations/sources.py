@@ -32,7 +32,7 @@ import math
 import re
 from pathlib import Path
 
-from dashboard import features, files
+from dashboard import features, files, itp
 from dashboard.analysis.runs import layout
 from dashboard.analysis.runs import segments as engine
 from dashboard.execution import run_inputs
@@ -182,30 +182,32 @@ def _connectivity(path, run_id, bead_count):
 
     A molecule whose graph is not connected is refused: an isolated bead would keep whatever image the trajectory
     gave it, and nothing would notice.
+
+    The topology is read through `dashboard.itp` with no preprocessor defines, because that is how the run's own
+    legs were rendered: Fast-Forward guards one term family under `#ifdef FLEXIBLE` and writes the live one under
+    `#ifndef FLEXIBLE`, and a pdc run defines neither. Treating a directive as a bond crashed on
+    `NM_micelle_130_1conf_500ns`; stripping the directives would have read the branch the run never simulated.
     """
     path = Path(path)
     if not path.is_file():
         raise ValueError(f'run {run_id} has no {TOPOLOGY}: {path} is missing')
     pairs = {}
-    section = ''
     try:
         text = path.read_text(errors='replace')
     except OSError as error:
         raise ValueError(f'run {run_id} has an unreadable {TOPOLOGY}: {error}') from error
-    for index, line in enumerate(text.splitlines(), start=1):
-        content = line.split(';', 1)[0].strip()
-        if not content:
-            continue
-        if content.startswith('[') and content.endswith(']'):
-            section = content[1:-1].strip().lower()
-            continue
-        fields = content.split()
+    # Read through the shared topology reader with no defines, which is how the run's own legs were rendered
+    # (the adapter writes no 'define'): an '#ifdef FLEXIBLE' family Fast-Forward guards is not in the simulated
+    # topology, and the '#ifndef FLEXIBLE' constraint is. A hand-rolled scan instead tripped over the directive.
+    for section, lines in itp.sections(text, defines=()):
         found = []
-        if section in ('bonds', 'constraints') and len(fields) >= 2:
-            found = [(fields[0], fields[1], _stated(fields, run_id, section, index, line))]
-        elif section == 'virtual_sitesn' and len(fields) >= 3:
-            found = [(fields[0], parent, None) for parent in fields[2:]]
-        for first, second, length in found:
+        for index, line in lines:
+            fields = line.split()
+            if section in ('bonds', 'constraints') and len(fields) >= 2:
+                found.append((fields[0], fields[1], _stated(fields, run_id, section, index, line), index, line))
+            elif section == 'virtual_sitesn' and len(fields) >= 3:
+                found.extend((fields[0], parent, None, index, line) for parent in fields[2:])
+        for first, second, length, index, line in found:
             try:
                 left, right = int(first) - 1, int(second) - 1
             except ValueError as error:
