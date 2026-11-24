@@ -3,6 +3,7 @@ from pathlib import Path
 
 from dashboard import features
 from dashboard.execution import protocol
+from flask import abort
 
 from . import kinds as pdc_kinds
 from . import layout as pdc_layout
@@ -10,6 +11,7 @@ from . import legacy
 from . import segments as pdc_segments
 from . import topologies as pdc_topologies
 from . import view as pdc_view
+from .analysis.runs import structure as structure_analysis
 from .conformations import cleanup as conformation_cleanup
 from .execution.adapters import pdc
 from .web.routes import pdc as pdc_routes
@@ -46,6 +48,20 @@ def _readiness(data, root):
                                                   'template': data.get('template'),
                                                   'project_root': str(root)})
 
+
+def structure_measurement(c, jid, body):
+    """The thresholds a `pdc-structure` attempt is measured with, validated by the producer's own contract.
+
+    The queue route's signature is `(coordinator, job_id, body)`, the producer publishes one callable that takes the
+    body alone, so this is the adapter between them -- not a second copy of the ranges. A threshold the producer
+    refuses is the caller's malformed request (400), never a 500 out of the validator.
+    """
+    try:
+        return structure_analysis.validate_payload(body or {})
+    except ValueError as error:
+        abort(400, str(error))
+
+
 FEATURE = features.Feature(
     name='pdc',
     blueprints=(pdc_routes.blueprint,),
@@ -62,11 +78,14 @@ FEATURE = features.Feature(
     # through the registry rather than keeping a pdc table of its own.
     legacy_stages={'pdc': legacy.LEGACY_STAGES},
     priority=20,
-    # This feature's own browser surface: the Complexes panel's markup, sheet and module.
+    # This feature's own browser surface: the PDC analysis panel's markup, sheet and module.
     templates=PACKAGE / 'templates',
     static=PACKAGE / 'static',
     styles=('pdc.css',),
-    panel_modules={'pdc': ('js/pdc.js', 'createPdc')},
+    panel_modules={'pdc': ('js/pdc-analysis.js', 'createPdcAnalysis')},
+    # The thresholds `pdc-structure` records are a queue-time contract too: the producer's ranges decide, so a bad
+    # value is refused before an attempt exists.
+    kind_payload={'pdc-structure': structure_measurement},
     # The shared panels' pdc behaviour: the protein-detergent New run form (`new-run-pdc.js`), which run-view
     # structures are beads (`run-view-pdc.js`), and the Structure and interactions section
     # (`run-view-pdc-analysis.js`), registered onto the engine panels as they load.
@@ -88,7 +107,7 @@ FEATURE = features.Feature(
         'form_fragment': 'fragments/new-run-pdc.html',
         'form_blurb': 'fragments/new-run-pdc-blurb.html',
     }),
-    panels=(('complexes', ('Complexes', '\u2b21')),),
+    panels=(('complexes', ('PDC analysis', '\u2b21')),),
     tab_ids=(('complexes', 'pdc'),),
     # A prepared pdc run records the engine spelling `dashboard/execution/scripts/pdc_*.sh`; the files live here now,
     # and the resolver looks for them in this distribution before the engine's own scripts directory.

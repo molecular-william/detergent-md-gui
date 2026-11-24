@@ -58,13 +58,14 @@ def _validator_payload_keys():
     return found
 
 
-def test_the_two_kinds_with_a_payload_are_the_features_own():
-    """The validation report and the mapping comparison: everything else takes any object.
+def test_the_kinds_with_a_payload_are_the_features_own():
+    """The validation report, the mapping comparison and pdc-structure's thresholds: everything else takes any object.
 
     The mapping comparison reads nothing out of the body -- it derives its payload from the run -- so its entry is
-    the empty set, which is why the assertion is over the names rather than over keys.
+    the empty set, which is why the assertion is over the names rather than over keys. `pdc-structure` hands the
+    body to the producer's own `validate_payload` (the ranges live there), so its set is empty here too.
     """
-    assert set(_validator_payload_keys()) == {'carbohydrate-validation', 'mapping-consistency'}
+    assert set(_validator_payload_keys()) == {'carbohydrate-validation', 'mapping-consistency', 'pdc-structure'}
 
 
 def test_default_for_cg_is_its_fit_checks_and_the_energy_test():

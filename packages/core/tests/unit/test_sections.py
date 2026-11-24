@@ -107,7 +107,7 @@ def test_no_other_panel_label_moves_when_one_workspace_names_a_panel():
     assert set(SECTIONS['validation']['panel_labels']) == {'new-run'}
     assert set(SECTIONS['simulations']['panel_labels']) == {'new-run'}
     assert PANELS['runs'][0] == 'Runs'
-    assert PANELS['complexes'][0] == 'Complexes'
+    assert PANELS['complexes'][0] == 'PDC analysis'
 
 
 def test_a_per_workspace_label_names_a_panel_that_workspace_owns():

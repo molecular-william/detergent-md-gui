@@ -14,7 +14,7 @@ Two of the four traps the plan measured are proved here, on real NGL objects:
    the pairs, read from `structure.bondStore` -- not the flag that was sent.
 2. **Coarse-grained beads must be drawn at the radii the model's size classes give them**, through the one helper
    `ngl-beads.js` holds, not at their stand-in element's. The radii are read back off the loaded structure, the way
-   `test_pdc_bead_radii_browser.py` reads them, and held to the model's own table times this panel's own display
+   the Run view's own structure test reads them, and held to the model's own table times this panel's own display
    scale -- both numbers asserted, so neither the table nor the read can drift.
 """
 import re

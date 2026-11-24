@@ -187,7 +187,8 @@ def test_a_feature_panel_module_is_fetched_when_its_tab_first_opens(dashboard, l
 
     A feature ships both: extensions that register hooks on a shared engine panel (they must run before the first
     mount), and panel modules the shell only needs when their tab opens. The pdc distribution's `new-run-pdc.js` is
-    132 KB of extension and its `pdc.js` is a panel; a Runs reader must download the first and not the second.
+    132 KB of extension and its `pdc-analysis.js` is a panel; a Runs reader must download the first and not the
+    second.
     """
     page, errors = live_page
     asked = []
@@ -197,14 +198,14 @@ def test_a_feature_panel_module_is_fetched_when_its_tab_first_opens(dashboard, l
 
     # The extension registered itself on New run -- which is why it is fetched before any panel mounts.
     assert any(path.endswith('/feature-assets/pdc/js/new-run-pdc.js') for path in asked), asked
-    # The Complexes panel was never opened, so its module was never fetched.
-    assert not [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc.js')], asked
+    # The PDC analysis panel was never opened, so its module was never fetched.
+    assert not [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc-analysis.js')], asked
 
     page.locator('#tab-pdc').click()
     expect(page.locator('#pdc')).to_be_visible()
     page.wait_for_function(
-        "() => document.querySelectorAll('#pdc-template option').length > 0", timeout=30000)
-    panel_requests = [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc.js')]
+        "() => document.querySelectorAll('#pdc-analysis-run option').length > 0", timeout=30000)
+    panel_requests = [path for path in asked if path.endswith('/feature-assets/pdc/js/pdc-analysis.js')]
     assert len(panel_requests) == 1, panel_requests
     assert errors == []
 
@@ -217,7 +218,7 @@ def test_a_feature_panel_that_fails_to_import_becomes_the_pages_notice(dashboard
     rejection in the console.
     """
     page, errors = live_page
-    page.route(re.compile(r'/feature-assets/pdc/js/pdc\.js'),
+    page.route(re.compile(r'/feature-assets/pdc/js/pdc-analysis\.js'),
                lambda route: route.fulfill(status=500, content_type='text/plain', body='broken module'))
     page.goto(f'{live_page.base_url}/protein-detergent/runs')
     expect(page.locator('#jobs')).to_be_visible(timeout=30000)
@@ -225,5 +226,5 @@ def test_a_feature_panel_that_fails_to_import_becomes_the_pages_notice(dashboard
     page.locator('#tab-pdc').click()
     notice = page.locator('#notice')
     expect(notice).to_be_visible()
-    expect(notice).to_contain_text('pdc.js')
+    expect(notice).to_contain_text('pdc-analysis.js')
     assert errors == [], errors

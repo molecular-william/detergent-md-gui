@@ -1,4 +1,4 @@
-"""Protein-detergent complex endpoints: the catalogue the panel builds its setup from, and the system it built."""
+"""Protein-detergent complex endpoints: the catalogue a build is configured from, and the preview it derives."""
 import json
 import math
 from datetime import datetime, timezone
@@ -6,7 +6,6 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from dashboard import paths
-from dashboard.analysis.runs import layout, structures
 from dashboard.web.routes.analyses import newest_published
 from dashboard.web.routes.common import coordinator, json_object
 from detergent_pdc.execution import rebuild_whole
@@ -15,8 +14,6 @@ from flask import Blueprint, Response, abort, current_app, jsonify, request
 
 blueprint = Blueprint('pdc', __name__)
 
-SETUP_STAGE = 'system'
-SYSTEM_STRUCTURE = 'system.gro'
 # The centre of the transmembrane slab along z. An OPM structure arrives already oriented, with the bilayer the
 # xy-plane through the origin, so the centre is a property of the coordinate frame rather than a number to measure.
 SLAB_CENTRE_NM = 0.0
@@ -48,6 +45,10 @@ def pdc_structure_api(job_id):
     The record is the analysis's own artifact (`analyses/pdc-structure/...`), not a raw run file. "Not run yet" and
     "ran and failed" are different answers for a reader, and only the second is worth looking into, so a run that
     has never published one answers 404 with the reason.
+
+    The record's `figures` names are answered as `{name, path}`, where `path` is the run-relative artifact path the
+    attempt published them to -- `/api/jobs/<id>/artifacts/<path>` reads it back. A v1 record names no figures and
+    answers an empty list.
     """
     c = coordinator()
     try:
@@ -61,7 +62,11 @@ def pdc_structure_api(job_id):
         abort(404, 'No structure analysis has been published for this run. It is queued by hand from the Run '
                    'view, and it reads one bounded sample of the run\'s production leg.')
     attempt, published, path = found
+    figures = [{'name': name,
+                'path': str((path.parent / name).relative_to(c.run_path(job)))}
+               for name in published.get('figures') or []]
     return jsonify({**published,
+                    'figures': figures,
                     'attempt': attempt.name,
                     'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
                     'source': str(path.relative_to(c.RUNS))})
@@ -79,19 +84,6 @@ def rebuild_whole_trajectory_api(job_id):
     except ValueError as error:
         abort(400, str(error))
     return jsonify({**rebuild_whole.describe(run_dir), 'state': state}), 202
-
-
-def setup_root(job_id) -> Path:
-    """A run's stage root -- `stages/` when it exists, the run root for a legacy run -- or a 404.
-
-    The stage root is what every pdc built-system path is relative to, in both layouts: the numbered `02_system/` of a
-    current run and the root-level `1_system/` of the two runs written before the numbering.
-    """
-    c = coordinator()
-    try:
-        return layout.stage_root(c.run_path(c.lookup(job_id)))
-    except (KeyError, OSError):
-        abort(404, 'unknown run')
 
 
 @blueprint.get('/api/pdc/catalog')
@@ -310,46 +302,6 @@ def pdc_import_structure():
         # A fetch that failed is upstream's problem, not the caller's bad request -- and nothing was written.
         return jsonify({'error': f'{pdbid} could not be fetched: {error}'}), 502
     return jsonify(record), 201
-
-
-def detergent_topology(root: Path):
-    """The run's detergent moleculetype, read from the stage that holds the system or from the one that wrote it.
-
-    The location is the build's own rule -- beside the stage, or in the stage that wrote it -- so the built-system
-    view draws the bonds the run simulated. A moleculetype that cannot be read is reported as none; a view with
-    coordinates still has something to show.
-    """
-    directory = layout.stage_dir(root, SETUP_STAGE)
-    path = None
-    if directory is not None:
-        candidates = [directory / pdc.DETERGENT_TOPOLOGY,
-                      *sorted(directory.resolve().parent.glob(f'*/{pdc.DETERGENT_TOPOLOGY}'))]
-        path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if path is None:
-        return None
-    try:
-        return structures.read_moleculetype(path)
-    except (OSError, ValueError):
-        return None
-
-
-@blueprint.get('/api/pdc/<job_id>/system.pdb')
-def pdc_system_pdb(job_id):
-    """The built system as a viewer file. 404 with a reason until a build has produced one.
-
-    The panel shows the system as set up rather than as imagined, so this serves the coordinates a stage wrote,
-    through `structures.system_pdb`: one residue per molecule, and the run's own moleculetype's bonds as CONECT
-    records. Without them the panel falls back to NGL's distance-based guess -- measured at 90 bonds on a frame the
-    model bonds 60 ways. Before that stage has run there is no picture to show, and saying so is better than an
-    empty box.
-    """
-    root = setup_root(job_id)
-    structure = layout.stage_path(root, SETUP_STAGE, SYSTEM_STRUCTURE)
-    try:
-        atoms = structures.read_gro(structure)
-    except (OSError, ValueError, TypeError) as error:
-        abort(404, f'no built system to show yet: {error}')
-    return Response(structures.system_pdb(atoms, topology=detergent_topology(root)), mimetype='text/plain')
 
 
 def catalogue_protein(root, entry):

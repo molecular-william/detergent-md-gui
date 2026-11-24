@@ -118,7 +118,8 @@ function publishedMarkup(body, job, queue) {
   const sampling = body.sampling || {};
   const shape = body.shape_nm || {};
   const rg = shape.rg || {};
-  const contacts = body.contacts;
+  const contacts = body.protein_present !== false && body.contacts && body.contacts.mean != null
+    ? body.contacts : null;
   const micelle = body.micelle || {};
   const fallback = body.leg?.fallback_reason || !extensionLeg(body);
   const noProtein = body.protein_present === false;

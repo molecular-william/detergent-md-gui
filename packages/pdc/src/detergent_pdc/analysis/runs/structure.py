@@ -1,14 +1,21 @@
 """`pdc-structure`: one bounded sample of a run's production leg, read by GROMACS' own analyses.
 
-The definitions are `docs/plans/2026-11-09-pdc-analyses-definitions.md` §3 and the report schema is §3.4. The leg is
-the run's own segmenter's latest playable segment -- the extension when it ran, else the assessment. It is sampled
-once, with `gmx trjconv`, and every tool reads that one file: `gmx gyrate` for the radius of gyration, `gmx rdf` for
-the radial distributions, `gmx select` + `gmx mindist -on` for bead contacts.
+The definitions are `docs/plans/2026-11-09-pdc-analyses-definitions.md` §3 and the report schema v2 is
+`docs/plans/2026-11-24-pdc-complex-data-panel.md` §3.4. The leg is the run's own segmenter's latest playable segment
+-- the extension when it ran, else the assessment. It is sampled once, with `gmx trjconv`, and every tool reads that
+one file: `gmx gyrate` for the radius of gyration, `gmx rdf` for the radial distributions (protein→head,
+protein→tail, head–head, tail–tail), `gmx select` + `gmx mindist -on` for the pooled protein–detergent contacts, the
+protein–head / protein–tail groups and the water–head / water–tail bead counts.
 
 The micelle membership is not re-derived. It is the run's own criterion, `pdc_assessment.assess_micelle`, applied
 frame by frame: tail beads within the run's `contact_nm`, the largest connected cluster. The gyration tensor is the
 one number GROMACS does not give (§1.1): its eigenvalues are a numpy calculation on the same sample, and its derived
 shape numbers state their formula in the record.
+
+The four tunable thresholds are the payload contract (`validate_payload`) and are recorded with their effective
+values: the RDF bin, the RDF range (cut to half the shortest box edge), the contact cutoff (the run's own micelle
+criterion by default) and the water-bead cutoff. Each metric is drawn to its own PNG, so a reader can read a number
+without the panel that drew it.
 
 Nothing here decides whether a run is scientifically valid. The record carries `scientifically_validated: false`,
 its method, its sampling, its cutoffs and its caveats beside every number.
@@ -16,6 +23,7 @@ its method, its sampling, its cutoffs and its caveats beside every number.
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -46,12 +54,23 @@ SAMPLE = 'sample.xtc'
 RAW_SAMPLE = 'sample-raw.xtc'
 #: The radial distribution's own interval: 0.05 nm bins (the interval measured in §1.1) and 2 nm. Both are the
 #: analysis's choice, not the run's (Q8); `r_max` is cut to half the shortest box edge because a minimum-image
-#: distance beyond it is not unique.
+#: distance beyond it is not unique. The payload can override both (`validate_payload`).
 BIN_WIDTH_NM = 0.05
 R_MAX_NM = 2.0
 #: The bead-contact cutoff. The run's own micelle contact distance is the smallest defensible default: it is a
 #: number the run recorded and the distance its own criterion already calls a contact (Q8's cutoff is the user's).
 CONTACT_NM = pdc_assessment.CONTACT_NM
+#: The water-bead contact cutoff: a Martini W bead near a head or tail bead. It is a bead coordination count, not
+#: the papers' all-atom hydration number -- one W bead stands for several waters.
+WATER_CUTOFF_NM = 0.6
+#: The only residue name the water contact groups count. Ions are not water, so `SOLVENT_RESIDUES` is not reused.
+WATER_RESIDUE = 'W'
+#: The allowed range of each payload threshold (plan §3.3). A blank field means the default.
+THRESHOLD_RANGES = {'rdf_bin_nm': (0.01, 0.20), 'rdf_rmax_nm': (0.5, 4.0),
+                    'contact_nm': (0.2, 1.5), 'water_cutoff_nm': (0.2, 1.5)}
+#: One PNG per plotted metric, published beside the report and named there (`figures`).
+FIGURES = ('pdc-structure-rdf.png', 'pdc-structure-contacts-protein.png', 'pdc-structure-contacts-water.png',
+           'pdc-structure-shape.png', 'pdc-structure-aggregation.png')
 #: One pass over a multi-gigabyte leg is minutes, not the seconds a parsed xvg takes.
 EXTRACT_TIMEOUT_S = 1800
 TOOL_TIMEOUT_S = 600
@@ -93,6 +112,60 @@ def sample_arguments(frames_in_file, first_ns, dt_ps):
     if dt_ps and not first_ns:
         return ['-dt', f'{stride * float(dt_ps):g}'], stride
     return ['-skip', str(stride)], stride
+
+
+# ------------------------------------------------------------------------------------------------------- thresholds
+
+def validate_payload(payload):
+    """The queue-time threshold contract: the four tunable values, or `ValueError` naming the bad one.
+
+    A blank field -- absent, `None` or an empty string -- means the default, so it is dropped rather than stored as a
+    second spelling of it. The returned dict is the payload the attempt's identity is built from: floats for the
+    values that were given, nothing else. Unknown keys are refused, because a payload that silently lost a misspelt
+    threshold would report the default while the reader believed otherwise.
+    """
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise ValueError('the pdc-structure payload must be an object of threshold values')
+    unknown = sorted(set(payload) - set(THRESHOLD_RANGES))
+    if unknown:
+        raise ValueError(f'unknown pdc-structure threshold(s): {", ".join(unknown)}')
+    cleaned = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f'{key} must be a number') from None
+        if not math.isfinite(number):
+            raise ValueError(f'{key} must be a finite number')
+        low, high = THRESHOLD_RANGES[key]
+        if not low <= number <= high:
+            raise ValueError(f'{key} must be between {low:g} and {high:g}')
+        cleaned[key] = number
+    return cleaned
+
+
+def resolve_thresholds(payload, contact_nm):
+    """The thresholds one attempt uses: the validated payload over the run's own contact and the defaults."""
+    given = validate_payload(payload)
+    return {'rdf_bin_nm': given.get('rdf_bin_nm', BIN_WIDTH_NM),
+            'rdf_rmax_nm': given.get('rdf_rmax_nm', R_MAX_NM),
+            'contact_nm': given.get('contact_nm', float(contact_nm)),
+            'water_cutoff_nm': given.get('water_cutoff_nm', WATER_CUTOFF_NM)}
+
+
+def effective_rmax(requested_nm, box_nm):
+    """The requested `r_max`, cut to half the shortest box edge; beyond it a minimum-image distance is not unique."""
+    box_nm = [float(value) for value in (box_nm or [])]
+    half = min(box_nm) / 2.0 if len(box_nm) == 3 and min(box_nm) > 0 else None
+    return round(min(float(requested_nm), half) if half else float(requested_nm), 4)
 
 
 def first_peak(r_nm, g):
@@ -330,6 +403,29 @@ def _protein_selection(residue):
     return f'not resname {residue} {" ".join(SOLVENT_RESIDUES)}'
 
 
+def _water_selection():
+    """The water group: `resname W` only. `SOLVENT_RESIDUES` also names ions, and an ion is not a water bead."""
+    return f'resname {WATER_RESIDUE}'
+
+
+#: The four contact groups the report states, in the order the panel reads them. `first`/`second` are the labels the
+#: report and the panel use; the cutoff is a thresholds key, never a literal, because the payload can move it.
+CONTACT_GROUPS = (
+    ('protein', 'head', 'contact_nm',
+     'protein bead–head bead pairs within the cutoff, minimum image (gmx mindist -on, one contact per bead pair); '
+     'not hydrogen bonds'),
+    ('protein', 'tail', 'contact_nm',
+     'protein bead–tail bead pairs within the cutoff, minimum image (gmx mindist -on, one contact per bead pair); '
+     'not hydrogen bonds'),
+    ('water', 'head', 'water_cutoff_nm',
+     'W beads within the cutoff of a head bead, minimum image (gmx mindist -on, one contact per bead pair); a bead '
+     'coordination count, not an all-atom hydration number, and not hydrogen bonds'),
+    ('water', 'tail', 'water_cutoff_nm',
+     'W beads within the cutoff of a tail bead, minimum image (gmx mindist -on, one contact per bead pair); a bead '
+     'coordination count, not an all-atom hydration number, and not hydrogen bonds'),
+)
+
+
 # --------------------------------------------------------------------------------------------- the MDAnalysis pass
 
 def _measure(work, structure, trajectory, criterion):
@@ -347,6 +443,7 @@ def _measure(work, structure, trajectory, criterion):
         os.symlink((work / SAMPLE).resolve(), linked_sample)
         universe = mda.Universe(str(linked_structure), str(linked_sample))
         molecules, tail_groups, protein_atoms, detergent_atoms = [], [], [], []
+        water_present = False
         for group in universe.residues:
             name = str(group.resname).strip()
             indices = np.asarray(group.atoms.indices, dtype=int)
@@ -356,6 +453,7 @@ def _measure(work, structure, trajectory, criterion):
                 tail_groups.append(np.asarray([atom.index for atom in group.atoms
                                                if str(atom.name).strip() in tails], dtype=int))
             elif name.upper() in SOLVENT_RESIDUES:
+                water_present = water_present or name.upper() == WATER_RESIDUE
                 continue
             else:
                 protein_atoms.append(indices)
@@ -389,58 +487,204 @@ def _measure(work, structure, trajectory, criterion):
                 sizes.extend(verdict['cluster_sizes'])
             eigenvalues.append(gyration_tensor(moved[cloud]))
     return {'frames': frames, 'molecules': len(molecules), 'head_beads': head_beads,
-            'protein_beads': int(len(protein)),
+            'protein_beads': int(len(protein)), 'water_present': water_present,
             'box_nm': [float(value) for value in box_nm] if box_nm is not None else [],
             'largest': largest, 'counts': counts, 'free': free, 'sizes': sizes, 'eigenvalues': eigenvalues}
 
 
+# ------------------------------------------------------------------------------------------------------- the figures
+
+#: One colour per RDF pair, in report order: protein→head, protein→tail, head–head, tail–tail.
+RDF_COLOURS = ('#2455b0', '#c98a1f', '#2f7d5b', '#7a4fa0')
+#: One colour per contact group within a figure: the head group then the tail group.
+CONTACT_COLOURS = ('#2455b0', '#c98a1f')
+
+
+def _figure(figsize=(10, 6)):
+    """One Agg figure and its canvas. No pyplot: a producer's figure is never shown, only saved."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    figure = Figure(figsize=figsize, layout='constrained')
+    FigureCanvasAgg(figure)
+    return figure
+
+
+def _note(figure, text):
+    """A figure's own method footnote: the sample size and the cutoff belong on the picture, not only in the JSON."""
+    figure.text(0.01, 0.005, text, fontsize=7.5, color='#5a697d')
+
+
+def _rdf_label(first, second):
+    return f'{first}→{second}' if first == 'protein' else f'{first}–{second}'
+
+
+def draw_rdf_figure(path, rdf, thresholds, frames):
+    """The four g(r) curves on one axis, first peaks marked, pair named in the legend."""
+    figure = _figure((10, 6))
+    axis = figure.subplots()
+    for entry, colour in zip(rdf, RDF_COLOURS):
+        axis.plot(entry['r_nm'], entry['g'], color=colour, linewidth=1.4,
+                  label=_rdf_label(entry['first'], entry['second']))
+        peak_r, peak_g = entry.get('first_peak_nm'), entry.get('first_peak_g')
+        if peak_r is not None and peak_g is not None:
+            axis.plot([peak_r], [peak_g], 'o', color=colour, markersize=4)
+    axis.set(xlabel='r (nm)', ylabel='g(r)', title='Radial distribution · first peaks marked')
+    axis.legend(frameon=False)
+    axis.grid(alpha=.18)
+    _note(figure, f'{frames} sampled frames · bin {thresholds["rdf_bin_nm"]:g} nm · '
+                  f'r_max {thresholds["rdf_rmax_nm"]:g} nm · gmx rdf -norm rdf')
+    figure.savefig(path, dpi=150)
+
+
+def draw_contact_figure(path, groups, first, title, frames):
+    """One contact figure: the per-frame counts of the two groups whose first selection is `first`."""
+    figure = _figure((10, 6))
+    axis = figure.subplots()
+    plotted = 0
+    for entry, colour in zip([entry for entry in groups if entry['first'] == first], CONTACT_COLOURS):
+        series = entry.get('series')
+        if not series:
+            continue
+        label = f'{entry["first"]}–{entry["second"]} · mean {entry["mean"]:.1f} ± {entry["sem"]:.1f}'
+        axis.plot(series['time_ns'], series['contacts'], color=colour, linewidth=1.0, label=label)
+        plotted += 1
+    cutoff = next((entry['cutoff_nm'] for entry in groups if entry['first'] == first), None)
+    if plotted:
+        axis.set(xlabel='time (ns)', ylabel='contacts (bead pairs)',
+                 title=f'{title} · cutoff {cutoff:g} nm')
+        axis.legend(frameon=False)
+    else:
+        axis.text(.5, .5, 'not measured for this run', ha='center', va='center', transform=axis.transAxes)
+        axis.set(title=title)
+    axis.grid(alpha=.18)
+    _note(figure, f'{frames} sampled frames · gmx mindist -on, minimum image, one contact per bead pair · '
+                  'not hydrogen bonds')
+    figure.savefig(path, dpi=150)
+
+
+def draw_shape_figure(path, shape, frames):
+    """Rg, asphericity and relative shape anisotropy over the sampled frames."""
+    figure = _figure((11, 9))
+    axes = figure.subplots(3, 1)
+    panels = (('rg', 'series', 'rg_nm', 'Radius of gyration', 'Rg (nm)'),
+              ('asphericity_nm2', 'series', 'values', 'Asphericity', 'nm²'),
+              ('relative_shape_anisotropy', 'series', 'values', 'Relative shape anisotropy', 'κ²'))
+    for axis, (key, series_key, values_key, title, ylabel) in zip(axes, panels):
+        block = shape.get(key) or {}
+        series = block.get(series_key) or {}
+        times, values = series.get('time_ns'), series.get(values_key)
+        if times and values:
+            axis.plot(times, values, color='#2455b0', linewidth=1.0)
+            axis.set(title=f'{title} · mean {block.get("mean", 0.0):g}', xlabel='time (ns)', ylabel=ylabel)
+        else:
+            axis.text(.5, .5, 'not measured for this run', ha='center', va='center', transform=axis.transAxes)
+            axis.set(title=title, ylabel=ylabel)
+        axis.grid(alpha=.18)
+    _note(figure, f'{frames} sampled frames · Rg from gmx gyrate (mass-weighted); the shape numbers are the '
+                  "producer's own unweighted gyration tensor")
+    figure.savefig(path, dpi=150)
+
+
+def draw_aggregation_figure(path, aggregation, frames):
+    """Largest cluster and free detergents per sampled frame."""
+    figure = _figure((10, 6))
+    axis = figure.subplots()
+    series = (aggregation or {}).get('series') or {}
+    if series.get('time_ns') and series.get('largest'):
+        axis.plot(series['time_ns'], series['largest'], color='#2455b0', linewidth=1.0, label='largest cluster')
+        axis.plot(series['time_ns'], series['free'], color='#c98a1f', linewidth=1.0, label='free detergents')
+        axis.set(xlabel='time (ns)', ylabel='molecules',
+                 title='Aggregation · ' + (f'largest mean {aggregation["largest_mean"]:g}, '
+                                           f'free mean {aggregation["free_mean"]:g}'))
+        axis.legend(frameon=False)
+    else:
+        axis.text(.5, .5, 'not measured: the run records no tail beads', ha='center', va='center',
+                  transform=axis.transAxes)
+        axis.set(title='Aggregation')
+    axis.grid(alpha=.18)
+    _note(figure, f'{frames} sampled frames · the run\'s own micelle criterion (tail beads within the run\'s '
+                  'contact distance, largest connected cluster)')
+    figure.savefig(path, dpi=150)
+
+
+def write_figures(work, *, rdf, contact_groups, shape, aggregation, thresholds, frames):
+    """Write the five per-metric PNGs and return their names, in the report's order."""
+    work = Path(work)
+    draw_rdf_figure(work / FIGURES[0], rdf, thresholds, frames)
+    draw_contact_figure(work / FIGURES[1], contact_groups, 'protein', 'Protein–detergent contacts', frames)
+    draw_contact_figure(work / FIGURES[2], contact_groups, 'water', 'Water-bead contacts', frames)
+    draw_shape_figure(work / FIGURES[3], shape, frames)
+    draw_aggregation_figure(work / FIGURES[4], aggregation, frames)
+    return list(FIGURES)
+
+
 # ----------------------------------------------------------------------------------------------------------- the report
 
-def build_report(*, leg, sampling, micelle, shape, aggregation, rdf, contacts, commands, caveats,
-                 protein_present):
-    """The §3.4 record, with its method paragraph and the two flags every report carries."""
+def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf, contacts, figures, commands,
+                 caveats, protein_present):
+    """The §3.4 v2 record, with its method paragraph and the two flags every report carries.
+
+    Every v1 key is retained. The v2 additions are `thresholds` (the effective values the measurements used), the
+    protein→tail RDF entry, `contacts.groups` and `figures`; a v1 reader that ignores them still reads every number it
+    read before.
+    """
     return {
         'kind': 'pdc-structure',
-        'schema_version': 1,
+        'schema_version': 2,
         'leg': leg,
         'sampling': sampling,
+        'thresholds': thresholds,
         'micelle': micelle,
         'shape_nm': shape,
         'aggregation': aggregation,
         'rdf': rdf,
         'contacts': contacts,
+        'figures': list(figures),
         'commands': commands,
         'method': ('one bounded sample of one production leg: gmx trjconv extracted it once, and gmx gyrate (Rg), '
-                   'gmx rdf (radial distributions) and gmx mindist -on (bead contacts) read that one file; the '
+                   'gmx rdf (radial distributions), gmx mindist -on (bead contacts) read that one file; the '
                    "micelle membership is the run's own criterion (pdc_assessment.assess_micelle: tail beads "
                    'within the contact distance, largest connected cluster); the gyration tensor and its shape '
                    "numbers are the producer's own (numpy eigvalsh: b = λ1 - (λ2 + λ3)/2, "
-                   'κ² = (3/2)(Σλ²/(Σλ)² - 1/3))'),
+                   'κ² = (3/2)(Σλ²/(Σλ)² - 1/3)); the water groups count Martini W beads, not waters'),
         'caveats': list(caveats),
         'scientifically_validated': False,
         'protein_present': bool(protein_present),
     }
 
 
-def _rdf_entries(work, gmx, commands, structure, criterion, r_max_nm, head_present):
-    """The radial distributions this report states: protein→head, head–head and tail–tail."""
+def rdf_pairs(criterion, head_present):
+    """The RDF pairs this report states, in report order, as `(first, second, reference, selection, excl)`.
+
+    Protein→head and protein→tail are the papers' two interfaces; head–head and tail–tail are the packing the
+    existing record already reported. A pair whose selection is empty is absent, never measured as zero.
+    """
     residue, tails = criterion['detergent_residue'], criterion['tail_beads']
     head = _head_selection(residue, tails)
     tail = _tail_selection(residue, tails)
     pairs = []
     if criterion['protein_present']:
-        pairs.append(('protein', 'head', _protein_selection(residue), head, False))
+        if head_present:
+            pairs.append(('protein', 'head', _protein_selection(residue), head, False))
+        if tails:
+            pairs.append(('protein', 'tail', _protein_selection(residue), tail, False))
     if head_present:
         pairs.append(('head', 'head', head, head, True))
     if tails:
         pairs.append(('tail', 'tail', tail, tail, True))
+    return pairs
+
+
+def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present):
+    """The radial distributions this report states: protein→head, protein→tail, head–head and tail–tail."""
     entries = []
-    for first, second, reference, selection, excl in pairs:
+    for first, second, reference, selection, excl in rdf_pairs(criterion, head_present):
         name = f'rdf-{first}-{second}.xvg'
         arguments = ['rdf', '-s', _work_name(work, structure), '-f', SAMPLE,
                      '-ref', reference, '-sel', selection,
-                     '-bin', f'{BIN_WIDTH_NM:g}', '-rmax', f'{r_max_nm:g}', '-norm', 'rdf',
-                     '-o', name, *(['-excl'] if excl else [])]
+                     '-bin', f'{thresholds["rdf_bin_nm"]:g}', '-rmax', f'{thresholds["rdf_rmax_nm"]:g}',
+                     '-norm', 'rdf', '-o', name, *(['-excl'] if excl else [])]
         progress.report(f'pdc-structure: gmx rdf ({first}–{second})')
         _invoke(gmx, commands, f'gmx rdf ({first}–{second})', arguments, work)
         r_nm, columns = parse_xvg(work / name)
@@ -454,39 +698,108 @@ def _rdf_entries(work, gmx, commands, structure, criterion, r_max_nm, head_prese
                         'g': [round(value, 6) for value in g],
                         'norm': 'rdf', 'excl': excl,
                         'normalization': 'gmx rdf -norm rdf (bulk density per selection)',
-                        'bin_width_nm': BIN_WIDTH_NM, 'r_max_nm': r_max_nm,
+                        'bin_width_nm': thresholds['rdf_bin_nm'], 'r_max_nm': thresholds['rdf_rmax_nm'],
                         'first_peak_nm': peak_r, 'first_peak_g': peak_g})
     return entries
 
 
-def _contacts(work, gmx, commands, structure, criterion):
-    """Protein–detergent bead contacts, per frame: `gmx mindist -on` over the two index groups."""
-    residue = criterion['detergent_residue']
-    protein = _protein_selection(residue)
-    detergent = _detergent_selection(residue)
-    _invoke(gmx, commands, 'gmx select (index groups)',
-            ['select', '-s', _work_name(work, structure), '-select', protein, detergent, '-on', 'contacts.ndx'],
-            work)
-    arguments = ['mindist', '-s', _work_name(work, structure), '-f', SAMPLE, '-n', 'contacts.ndx', '-ng', '1',
-                 '-d', f'{criterion["contact_nm"]:g}', '-on', 'numcont.xvg']
-    progress.report('pdc-structure: gmx mindist (contacts)')
-    _invoke(gmx, commands, 'gmx mindist (contacts)', arguments, work, stdin='0\n1\n')
-    times_ps, columns = parse_xvg(work / 'numcont.xvg')
+def _contact_reading(path, cutoff_nm, first, second, definition):
+    """One `gmx mindist -on` XVG as the report's group entry: mean, SEM and the per-frame series."""
+    times_ps, columns = parse_xvg(path)
     if not columns:
-        raise RuntimeError('gmx mindist wrote no contact column')
+        raise RuntimeError(f'gmx mindist wrote no contact column for {first}–{second}')
     values = columns[next(iter(columns))]
     summary = block_summary(values)
-    return {'definition': ('protein bead–detergent bead pairs within the cutoff, minimum image '
-                           '(gmx mindist -on, one contact per bead pair); not hydrogen bonds'),
-            'tool': 'gmx mindist -on',
-            'cutoff_nm': criterion['contact_nm'], 'group': False,
+    return {'first': first, 'second': second, 'cutoff_nm': float(cutoff_nm),
             'mean': round(summary['mean'], 3), 'sem': round(summary['stderr'], 3),
             'series': {'time_ns': [round(value / 1000.0, 4) for value in times_ps],
-                       'contacts': [round(value, 3) for value in values]}}
+                       'contacts': [round(value, 3) for value in values]},
+            'definition': definition}
 
+
+def contact_group_plan(criterion, head_present, water_present):
+    """The four reported groups, each with the selections it reads and whether this run can measure it.
+
+    A group the run cannot measure stays in the list with null numbers, so the panel's four rows never change shape:
+    no protein means no protein–detergent interface, no tail beads means no tail group, and no `W` bead means no
+    water group. A zero would claim a measurement this run never made.
+    """
+    residue, tails = criterion['detergent_residue'], criterion['tail_beads']
+    head = _head_selection(residue, tails)
+    tail = _tail_selection(residue, tails)
+    plan = []
+    for first, second, cutoff_key, definition in CONTACT_GROUPS:
+        first_selection = _protein_selection(residue) if first == 'protein' else _water_selection()
+        second_selection = head if second == 'head' else tail
+        available = (water_present if first == 'water' else criterion['protein_present']) \
+            and (head_present if second == 'head' else bool(tails))
+        plan.append({'first': first, 'second': second, 'cutoff_key': cutoff_key,
+                     'first_selection': first_selection, 'second_selection': second_selection,
+                     'available': available, 'definition': definition})
+    return plan
+
+
+def _contact_groups(work, gmx, commands, structure, plan, thresholds):
+    """Protein–head/tail and water–head/tail bead contacts, per frame: one `gmx mindist -on` per group.
+
+    One index file holds every selection the available groups read; `mindist` is then asked for one group pair at a
+    time (`-ng 1`), its two group numbers answering its two prompts. The groups this run cannot measure are reported
+    with null numbers rather than dropped, so the panel's four rows are stable.
+    """
+    available = [group for group in plan if group['available']]
+    measured = {}
+    if available:
+        selections = []
+        for group in available:
+            for key in ('first_selection', 'second_selection'):
+                if group[key] not in selections:
+                    selections.append(group[key])
+        _invoke(gmx, commands, 'gmx select (contact group selections)',
+                ['select', '-s', _work_name(work, structure), '-select', *selections,
+                 '-on', 'contact-groups.ndx'], work)
+        for group in available:
+            cutoff = thresholds[group['cutoff_key']]
+            name = f'contacts-{group["first"]}-{group["second"]}.xvg'
+            arguments = ['mindist', '-s', _work_name(work, structure), '-f', SAMPLE, '-n', 'contact-groups.ndx',
+                         '-ng', '1', '-d', f'{cutoff:g}', '-on', name]
+            progress.report(f'pdc-structure: gmx mindist ({group["first"]}–{group["second"]})')
+            _invoke(gmx, commands, f'gmx mindist ({group["first"]}–{group["second"]})', arguments, work,
+                    stdin=f'{selections.index(group["first_selection"])}\n'
+                          f'{selections.index(group["second_selection"])}\n')
+            measured[(group['first'], group['second'])] = _contact_reading(
+                work / name, cutoff, group['first'], group['second'], group['definition'])
+    return [measured.get((group['first'], group['second']))
+            or {'first': group['first'], 'second': group['second'],
+                'cutoff_nm': thresholds[group['cutoff_key']],
+                'mean': None, 'sem': None, 'series': None, 'definition': group['definition']}
+            for group in plan]
+
+
+def _contacts(work, gmx, commands, structure, residue, cutoff_nm):
+    """The pooled protein–detergent contacts the v1 record and the Run view read, per frame.
+
+    The new groups split this interface into head and tail; this object stays because it is the v1 contract and the
+    Run view's one contact number, and because it is measured on the same sample with the same cutoff.
+    """
+    _invoke(gmx, commands, 'gmx select (index groups)',
+            ['select', '-s', _work_name(work, structure), '-select', _protein_selection(residue),
+             _detergent_selection(residue), '-on', 'contacts.ndx'], work)
+    arguments = ['mindist', '-s', _work_name(work, structure), '-f', SAMPLE, '-n', 'contacts.ndx', '-ng', '1',
+                 '-d', f'{cutoff_nm:g}', '-on', 'numcont.xvg']
+    progress.report('pdc-structure: gmx mindist (contacts)')
+    _invoke(gmx, commands, 'gmx mindist (contacts)', arguments, work, stdin='0\n1\n')
+    entry = _contact_reading(work / 'numcont.xvg', cutoff_nm, 'protein', 'detergent',
+                             'protein bead–detergent bead pairs within the cutoff, minimum image '
+                             '(gmx mindist -on, one contact per bead pair); not hydrogen bonds')
+    return {'definition': entry['definition'], 'tool': 'gmx mindist -on',
+            'cutoff_nm': entry['cutoff_nm'], 'group': False,
+            'mean': entry['mean'], 'sem': entry['sem'], 'series': entry['series']}
+
+
+# ----------------------------------------------------------------------------------------------------------- the run
 
 def run(work, payload=None):
-    """Sample the run's production leg once and write `pdc-structure.json`."""
+    """Sample the run's production leg once and write `pdc-structure.json` and its five per-metric PNGs."""
     if mda is None:
         raise RuntimeError('MDAnalysis is required for the aggregation pass of pdc-structure')
     work = Path(work)
@@ -522,7 +835,9 @@ def run(work, payload=None):
     measured = _measure(work, structure, trajectory, criterion)
     box_nm = measured['box_nm']
     box_half = min(box_nm) / 2.0 if len(box_nm) == 3 and min(box_nm) > 0 else None
-    r_max_nm = round(min(R_MAX_NM, box_half) if box_half else R_MAX_NM, 4)
+    thresholds = resolve_thresholds(payload, criterion['contact_nm'])
+    requested_rmax_nm = thresholds['rdf_rmax_nm']
+    thresholds['rdf_rmax_nm'] = effective_rmax(requested_rmax_nm, box_nm)
 
     progress.report('pdc-structure: gmx gyrate (Rg)')
     _invoke(gmx, commands, 'gmx gyrate (Rg)',
@@ -533,6 +848,7 @@ def run(work, payload=None):
     rg = gyrate.get('Rg')
     if not rg:
         raise RuntimeError('gmx gyrate wrote no Rg column')
+    times_ns = [round(value / 1000.0, 4) for value in times_ps]
     rg_summary = block_summary(rg)
     axis_components = {label: round(block_summary(values)['mean'], 6)
                        for label, values in gyrate.items() if label != 'Rg'}
@@ -540,7 +856,7 @@ def run(work, payload=None):
         'rg': {'tool': 'gmx gyrate', 'weighting': 'mass',
                'mean': round(rg_summary['mean'], 6), 'sem': round(rg_summary['stderr'], 6),
                'axis_components_nm': axis_components,
-               'series': {'time_ns': [round(value / 1000.0, 4) for value in times_ps],
+               'series': {'time_ns': times_ns,
                           'rg_nm': [round(value, 6) for value in rg]}},
         'gyration_eigenvalues_nm2': {
             'tool': 'producer (numpy eigvalsh)',
@@ -557,11 +873,28 @@ def run(work, payload=None):
             summary = block_summary(values)
             shape[key] = {'formula': ('λ1 - (λ2 + λ3)/2' if key == 'asphericity_nm2'
                                       else '(3/2)(Σλ²/(Σλ)² - 1/3)'),
-                          'mean': round(summary['mean'], 6), 'sem': round(summary['stderr'], 6)}
+                          'mean': round(summary['mean'], 6), 'sem': round(summary['stderr'], 6),
+                          'series': {'time_ns': times_ns,
+                                     'values': [round(value, 6) for value in values]}}
 
     head_present = measured['head_beads'] > 0
-    rdf = _rdf_entries(work, gmx, commands, source, criterion, r_max_nm, head_present)
-    contacts = _contacts(work, gmx, commands, source, criterion) if criterion['protein_present'] else None
+    water_present = measured['water_present']
+    rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present)
+    group_plan = contact_group_plan(criterion, head_present, water_present)
+    groups = _contact_groups(work, gmx, commands, source, group_plan, thresholds)
+    pooled = _contacts(work, gmx, commands, source, criterion['detergent_residue'],
+                       thresholds['contact_nm']) if criterion['protein_present'] else None
+    contacts = {
+        'definition': (pooled['definition'] if pooled else
+                       'protein bead–detergent bead pairs within the cutoff, minimum image '
+                       '(gmx mindist -on, one contact per bead pair); not hydrogen bonds'),
+        'tool': 'gmx mindist -on', 'group': False,
+        'cutoff_nm': thresholds['contact_nm'],
+        'mean': pooled['mean'] if pooled else None,
+        'sem': pooled['sem'] if pooled else None,
+        'series': pooled['series'] if pooled else None,
+        'groups': groups,
+    }
 
     largest = measured['largest']
     aggregation = None
@@ -573,7 +906,11 @@ def run(work, payload=None):
             'cluster_count_mean': round(float(np.mean(measured['counts'])), 3),
             'free_mean': round(float(np.mean(measured['free'])), 3),
             'size_distribution': {'bins': bins,
-                                  'counts': [sizes.count(size) for size in bins]}}
+                                  'counts': [sizes.count(size) for size in bins]},
+            'series': {'time_ns': times_ns,
+                       'largest': [int(value) for value in largest],
+                       'clusters': [int(value) for value in measured['counts']],
+                       'free': [int(value) for value in measured['free']]}}
     shape_summary = {key: value for key, value in shape.items() if value is not None}
 
     stage_directory = _stage_directory(_work_name(work, trajectory))
@@ -626,34 +963,48 @@ def run(work, payload=None):
         'Not validation: scientifically_validated is false, and this record states what was measured and on how '
         'many frames.',
     ]
-    if box_half:
-        caveats.append(f'r_max is {r_max_nm:g} nm, the smaller of {R_MAX_NM:g} nm and half the shortest box edge '
-                       f'({box_half:g} nm); beyond it a minimum-image distance is not unique.')
+    if box_half and thresholds['rdf_rmax_nm'] < requested_rmax_nm:
+        caveats.append(f'r_max is {thresholds["rdf_rmax_nm"]:g} nm, the smaller of the requested '
+                       f'{requested_rmax_nm:g} nm and half the shortest box edge ({box_half:g} nm); beyond it a '
+                       'minimum-image distance is not unique.')
     if not criterion['tail_beads']:
         caveats.append('The run records no tail beads, so its own micelle criterion could not be applied: the '
-                       'aggregation numbers are not reported.')
+                       'aggregation numbers are not reported, and the tail RDF and tail contact groups are not '
+                       'measured.')
     if not criterion['aggregation_number']:
         caveats.append('The run records no requested aggregation number, so the criterion was run without one.')
     if not head_present:
-        caveats.append('The run names every detergent bead a tail, so no head bead set exists and the head–head '
-                       'and protein→head curves are not reported.')
+        caveats.append('The run names every detergent bead a tail, so no head bead set exists and the head–head, '
+                       'protein→head, protein–head and water–head measurements are not reported.')
     if not criterion['protein_present']:
         caveats.append('This run has no protein, so the protein–detergent interface is not defined; only the '
-                       'detergent-only forms are reported.')
+                       'detergent-only forms and the water-bead groups are reported.')
+    if not water_present:
+        caveats.append('The run stages no W bead, so the water–head and water–tail bead contacts are not measured.')
+    caveats.append('The water–head and water–tail numbers count Martini W beads within the cutoff of a head or tail '
+                   'bead (one contact per bead pair); a W bead stands for several waters, so this is a bead '
+                   'coordination count, not an all-atom hydration number.')
+    caveats.append('The measurement cutoff (thresholds.contact_nm) is the bead-contact distance; it is separate '
+                   'from the micelle criterion\'s own contact distance (micelle.contact_nm), which is unchanged by '
+                   'the payload.')
     if fallback_reason:
         caveats.append('This run\'s extension leg did not run, so the production leg is the CG assessment\'s: its '
                        'system was never rebuilt, and its numbers are not comparable with an extension leg\'s.')
 
-    report = build_report(leg=leg, sampling=sampling, micelle=micelle, shape=shape_summary,
-                          aggregation=aggregation, rdf=rdf, contacts=contacts, commands=commands,
-                          caveats=caveats, protein_present=criterion['protein_present'])
+    figures = write_figures(work, rdf=rdf, contact_groups=groups, shape=shape_summary,
+                            aggregation=aggregation, thresholds=thresholds, frames=measured['frames'])
+    report = build_report(leg=leg, sampling=sampling, thresholds=thresholds, micelle=micelle,
+                          shape=shape_summary, aggregation=aggregation, rdf=rdf, contacts=contacts,
+                          figures=figures, commands=commands, caveats=caveats,
+                          protein_present=criterion['protein_present'])
     files.atomic_json(work / RECORD, report)
     labels = [path.name for path in work.iterdir() if path.is_file() and path.name != 'manifest.json']
-    return {'files': sorted(labels), 'leg': leg['name'], 'frames_sampled': measured['frames'],
-            'stride': stride, 'molecules': measured['molecules'],
+    return {'files': sorted(labels), 'figures': figures, 'thresholds': thresholds, 'leg': leg['name'],
+            'frames_sampled': measured['frames'], 'stride': stride, 'molecules': measured['molecules'],
             'rg_nm': shape['rg']['mean'], 'aggregation': aggregation is not None,
             'rdf': [f'{entry["first"]}–{entry["second"]}' for entry in rdf],
-            'contacts': contacts['mean'] if contacts else None}
+            'contacts': contacts['mean'],
+            'contact_groups': {f'{entry["first"]}–{entry["second"]}': entry['mean'] for entry in groups}}
 
 
 def _segment_name(stage_directory):

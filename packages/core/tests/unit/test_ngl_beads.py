@@ -339,12 +339,10 @@ def test_each_panel_states_its_own_scale_at_the_call():
     assert 'MARKER_PIXELS_PER_NM = 72' in bonded, 'the diagram states its own pixels-per-nanometre factor'
 
 
-#: The four bead views that draw the pdc system files -- the mock, the preview card, the Complexes panel and the run
-#: view -- and where each adds the module's colour parameters to its representation. One table, one set of parameters,
-#: so the same bead type is one colour in all four.
-#: The Complexes panel's module now lives in the pdc feature; the other two are the engine's.
-FAMILY_VIEWS = {PDC_JS / 'pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
-                PDC_JS / 'new-run-pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
+#: The bead views that draw the pdc system files -- the New Run preview card and the run view -- and where each adds
+#: the module's colour parameters to its representation. One table, one set of parameters, so the same bead type is
+#: one colour in both. The retired Complexes panel's module is gone with the panel.
+FAMILY_VIEWS = {PDC_JS / 'new-run-pdc.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend'],
                 JS_DIR / 'run-view-monitor.js': ['BEAD_FAMILY_PARAMETERS', 'renderBeadLegend']}
 
 

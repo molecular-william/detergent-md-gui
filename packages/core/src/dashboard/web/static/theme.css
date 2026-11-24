@@ -143,7 +143,6 @@
 :where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab[aria-selected="true"] { background:#18293f; color:var(--accent-ink) }
 :where([data-theme="dark"]) nav.subtabs[role=tablist] .subtab .tab-glyph { color:var(--muted) }
 
-:where([data-theme="dark"]) .pdc-viewer { background:var(--surface-2) }
 :where([data-theme="dark"]) .new-pdc-diagram>summary { color:var(--accent-ink) }
 :where([data-theme="dark"]) .new-pdc-workflow-svg { background:var(--surface-2) }
 :where([data-theme="dark"]) .new-pdc-flow-node rect { fill:var(--surface); stroke:#7f93a8 }
