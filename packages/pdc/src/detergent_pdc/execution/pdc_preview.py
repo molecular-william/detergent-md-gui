@@ -354,10 +354,10 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
     length). Everything else -- a protein-free build, a protein that states no membrane, a stated membrane holding
     none of the protein's atoms -- is `extended_box` over the box the placement was built for.
 
-    A stated initial x/y/z is the cell's exact dimension, exactly as the build reads it: the preview's basis box and
-    the cell the stage writes are then the same number, and a value that cannot hold the protein or the belt is
-    refused rather than widened. `None` is the derived value exactly; the insertion box's own z keeps the reviewed
-    default when nothing is stated.
+    A stated initial x/y/z is the cell's dimension, exactly as the build reads it: the preview's basis box and the
+    cell the stage writes are then the same number. A value too small to hold the protein or the belt is widened to
+    the requirement, and `basis['box_notes']` carries the sentence the panel shows under the box. `None` is the
+    derived value exactly; the insertion box's own z keeps the reviewed default when nothing is stated.
     """
     insertion_z = 6.0 if initial_z_nm is None else initial_z_nm
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=insertion_z,
@@ -372,6 +372,21 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
                                     initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm,
                                 initial_z_nm=initial_z_nm)
+
+
+def _box_notes(box, initial_x_nm, initial_y_nm, initial_z_nm):
+    """The stated box dimensions the written cell had to widen, as one sentence per axis.
+
+    A stated number is used exactly when it holds the system; one too small is widened rather than refused (a stale
+    preset must not fail a run), so the picture and its note say what the cell actually is.
+    """
+    notes = []
+    for position, axis, stated in ((0, 'x', initial_x_nm), (1, 'y', initial_y_nm), (2, 'z', initial_z_nm)):
+        if stated is None or float(stated) + pdc_box.TOLERANCE_NM >= float(box[position]):
+            continue
+        notes.append(f'the stated {axis} box ({float(stated):g} nm) is smaller than this system needs '
+                     f'({float(box[position]):g} nm); the cell is written at {float(box[position]):g} nm')
+    return notes
 
 
 def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergent_residue,
@@ -836,6 +851,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                 cost['seconds'] = time.perf_counter() - started
                 return _refusal('box', [str(error)], basis, cost, subject='the starting box')
             basis['box_nm'] = list(box)
+            basis['box_notes'] = _box_notes(box, initial_x, initial_y, stated_z)
             basis['belt_offset_nm'] = float(belt_offset_nm)
             basis['detergents_placed'] = len(placement['centers'])
             basis['detergents_requested'] = aggregation_number
@@ -860,6 +876,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         cost['seconds'] = time.perf_counter() - started
         return _refusal('box', [str(error)], basis, cost, subject='the starting box')
     basis['box_nm'] = list(box)
+    basis['box_notes'] = _box_notes(box, initial_x, initial_y, stated_z)
     basis['belt_offset_nm'] = float(belt_offset_nm)
     pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,
                               record=record, cg=cg, basis=basis, cost=cost, started=started,

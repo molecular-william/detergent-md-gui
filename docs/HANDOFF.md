@@ -10,6 +10,36 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **A stale preset box no longer fails system preparation (2026-11-24, after 3038f54).**
+  Three 2ydo runs failed at System preparation with exit 2 and a bare command tail. `prepare_report.json` carried the
+  reason: "the stated x box (14 nm) is smaller than this system needs (18.2193 nm)". Their workspace preset
+  `ddm_2ydo_0` still states `initial_x_nm=14`/`initial_y_nm=14`/`initial_z_nm=12` (saved when a stated box was only a
+  floor), and 3038f54 made a stated box exact and a too-small one a refusal. Refusing is the wrong failure for a field
+  a reader cannot make hold: the belt's reach is only measurable during placement, so no form value is guaranteed to
+  satisfy it. `pdc_box._cell` now honours a stated dimension exactly when it fits and widens to the requirement when
+  it cannot; `pdc_build`/`pdc_preview` record the difference as `box_notes`, the Starting box group shows it under
+  the box, and no run is refused for it. Measured: re-running `NG_2ydo_155_libconf_500ns-4`'s stage 2 in a
+  `/tmp` copy (the workspace run was not touched) now succeeds with box `18.219324 x 18.219324 x 12` and two notes
+  naming the stated 14 nm. The exact-box tests are back to widening expectations, with `box_notes` assertions added
+  in `test_pdc_build_band` and `test_pdc_preview`. The earlier entry below still describes the merged card, the nm
+  spread and the preset scope; only its "refused with both numbers" sentence is superseded.
+
+- **PDC analysis: a pdc workspace tab over the pdc-structure v2 record (2026-11-24).**
+  The pdc workspace's fourth tab is now **PDC analysis** (panel id `complexes`); the old Complexes build form and
+  system viewer are retired (New run builds, Run view shows the system). `pdc-structure` is v2: the v1 keys stay and
+  it adds a protein→tail RDF, four contact groups (protein–head/tail at the run's contact, water–head/tail at the
+  water cutoff, W only), a `thresholds` block (RDF bin 0.05 nm, r_max 2.0 nm cut to half the shortest box edge,
+  contact = the run's own 0.6 nm, water 0.6 nm; tunable through `validate_payload`), per-frame shape/aggregation
+  series, and five PNGs (RDF, protein contacts, water contacts, shape, aggregation). The tab reads the record plus
+  the route's `figures: [{name, path}]`, and the run's existing `trajectory-overview` for RMSD/RMSF/energy; a second
+  **Compute overview** button queues that core kind (cached; the Run view's Analysis card reads the same attempt).
+  The old `/api/pdc/<job>/system.pdb` route and its test are gone; the old panel browser tests retire. Live:
+  `pdc-structure` on `DM_2ydo_144_libconf_500ns` completed in **4.5 min** (schema 2, five figures, four RDF pairs,
+  four contact groups; means protein–head 576.8, protein–tail 462.0, water–head 4621.1, water–tail 431.6). Checks:
+  producer unit 27, route 4, panel browser 8, pdc fast area 858/1 xfailed, full fast 3197/1 xfailed, full browser
+  427, ruff clean. The live dashboard was not restarted (a DDM run is active), so the real tab is checked through
+  the browser fixture; it appears after the next restart. The user's unstaged pdc/docs edits are unchanged.
+
 - **pdc New run: one Run and stage settings card, exact starting box, belt spread in nm, presets cover it all
   (2026-11-24).** The *Detergent belt and sampling* content (placement mode, count, belt numbers, the estimate, the two
   pipeline switches and the run label) and the *Starting box* group are now groups of the fieldset that was Stage

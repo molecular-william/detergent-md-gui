@@ -1245,3 +1245,33 @@ def test_the_belt_offset_is_sent_with_the_preview(dashboard, live_page):
     query = urlparse(requests[0]).query
     assert parse_qs(query).get('belt_offset_nm') == ['0.5'], requests[0]
     assert errors == [], errors
+
+
+def test_a_stated_box_the_system_cannot_fit_is_drawn_widened_with_the_reason(dashboard, live_page):
+    """The picture's cell is the cell the build writes: a stale stated box is widened and the note under it says why."""
+    page, errors = live_page
+    notes = ['the stated x box (14 nm) is smaller than this system needs (18.2193 nm); '
+             'the cell is written at 18.2193 nm']
+    body = answer(placement_pdb())
+    body['basis']['box_notes'] = notes
+    serve(page, body)
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    expect(page.locator('.new-pdc-preview-box')).to_contain_text('8.35 × 6.78 × 11.08 nm')
+    expect(page.locator('.new-pdc-box-note')).to_have_text(notes[0])
+    assert errors == [], errors
+
+
+def test_a_box_the_system_fits_states_no_widening(dashboard, live_page):
+    """A stated cell that holds the system is the cell drawn, and the note under the box stays empty."""
+    page, errors = live_page
+    body = answer(placement_pdb())
+    body['basis']['box_notes'] = []
+    serve(page, body)
+    open_panel(page, live_page.base_url)
+    derive(page)
+
+    expect(page.locator('.new-pdc-box-note')).to_have_text('')
+    assert errors == [], errors
+

@@ -641,16 +641,17 @@ the heavy atoms with the same reader and chain selection the belt estimate uses,
 the card is the number the build makes rather than a second estimate. Since 2026-11-24 the run configuration and the
 starting box are **groups of the Run and stage settings card** (one fieldset; the **Starting box** group states
 `initial_x_nm`, `initial_y_nm` and `initial_z_nm` with `box_margin_nm` below them). A stated x/y/z is the cell's
-**exact dimension**: the preview draws it and the build writes it, and a value below what the protein (or, for a
-membrane belt, the belt's radial reach) needs is **refused** with both numbers rather than widened, through
-`pdc_box._exact` in `initial_box`/`extended_box`/`membrane_box`. A blank field is the derived value exactly and
+dimension, and the preview draws and the build writes that number whenever it can hold the protein and belt; a
+number below what the protein (or, for a membrane belt, the belt's radial reach) needs is **widened** to the
+requirement, through `pdc_box._cell` in `initial_box`/`extended_box`/`membrane_box`, and the reason is recorded in
+`box_notes` and shown under the box in the form. A blank field is the derived value exactly and
 shows the box the **preview** draws as its placeholder, so the starting box the form states and the box the picture
 shows are one number (the extent route's own line remains the protein-footprint measurement). A blank z keeps the
 insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- while the written box's z is derived unless
 stated. One **Auto** fills all three from one extent call (the protein-footprint box). A membrane belt's radial reach
 (`2 x (radius_max_nm + detergent_length_nm) + 2 x margin`, `pdc_box.membrane_box`'s `belt_radius_nm`) is what a
-stated x/y must hold, and `pdc_build` records the growth as `box_widening_nm` (zero when the reader states the
-widened cell); self-assembly samples inside its own initial box, so a stated x/y is the cell its cloud is drawn in.
+stated x/y must hold, and `pdc_build` records the growth as `box_widening_nm`; self-assembly samples inside its own
+initial box, so a stated x/y is the cell its cloud is drawn in.
 Both lines are hidden for an empty micelle, and the panel re-asks when the
 protein, its chain ticks, the box margin or any initial box value changes.
 

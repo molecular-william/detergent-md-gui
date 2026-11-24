@@ -1790,11 +1790,13 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
       + 'writes, before equilibration changes it' + bandSentence);
     // The starting box the form states *is* the box this picture draws: a blank field shows those three numbers as
-    // its placeholder, and a typed number is a floor under them (never a ceiling). One number, one meaning.
+    // its placeholder, and a typed number is written as itself whenever it can hold the system. Where it cannot, the
+    // build widens the cell and the answer carries a sentence per axis; the note under the box states it here.
     for (const [name, value] of [['initial_x_nm', box[0]], ['initial_y_nm', box[1]], ['initial_z_nm', box[2]]]) {
       const input = field(name);
       if (input && Number.isFinite(Number(value))) input.placeholder = Number(value).toFixed(2);
     }
+    say('.new-pdc-box-note', (basis.box_notes || []).join(' '));
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-solvent', basis.solvent_reason || 'not drawn');
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));

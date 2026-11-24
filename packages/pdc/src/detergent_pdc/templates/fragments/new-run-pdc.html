@@ -203,8 +203,10 @@
       </div>
       <p class="hint">The starting box, and the cell the preview draws. A blank field is the derived box (x and y
         are the protein's footprint plus the margin, z the clearance its furthest atom needs); a stated number is the
-        cell's exact dimension, so the preview and the run draw it exactly. A value the protein or the belt cannot fit
-        inside is refused with the number it needs rather than silently widened.</p>
+        cell's dimension, and the preview and the run draw it exactly whenever it can hold the protein and belt. A
+        number too small to hold them is widened to what the system needs, and the reason is stated here rather than
+        cutting the system.</p>
+      <p class="hint new-pdc-box-note" role="status"></p>
       </section>
       <h4 class="new-option-title">Stages</h4>
       <details class="stage-editor" data-stage="minimisation" open>

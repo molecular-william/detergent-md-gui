@@ -90,21 +90,20 @@ def test_the_margin_and_initial_z_the_caller_sends_reach_the_box(dashboard, monk
     assert body['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=1.5, initial_z_nm=8.0)
 
 
-def test_the_stated_initial_xy_is_the_cells_exact_dimension_and_the_auto_answer_is_the_derived_one(
+def test_the_stated_initial_xy_is_the_cells_dimension_and_the_auto_answer_is_the_derived_one(
         dashboard, monkeypatch):
-    """A stated x/y is the cell the panel shows; Auto's suggested x/y stay the derived footprint.
+    """A stated x/y is the cell the panel shows when it fits; Auto's suggested x/y stay the derived footprint.
 
-    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot hold the protein and is
-    refused with the number it needs; a stated 20 x 25 is the caller's cell -- while
+    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot hold the protein and the
+    line shows the derived 7 x 6; a stated 20 x 25 is the caller's cell -- while
     `auto_initial_x_nm`/`auto_initial_y_nm` stay 7 and 6, because the button fills the values it is about to replace.
     """
     _import(dashboard, monkeypatch, '1qj8', NO_MEMBRANE)
 
-    refused = _extent(dashboard, '1qj8', '?initial_x_nm=1.0&initial_y_nm=1.0')
+    small = _extent(dashboard, '1qj8', '?initial_x_nm=1.0&initial_y_nm=1.0').get_json()
     stated = _extent(dashboard, '1qj8', '?initial_x_nm=20.0&initial_y_nm=25.0').get_json()
 
-    assert refused.status_code == 400
-    assert 'stated x box (1 nm) is smaller than this system needs (7 nm)' in refused.get_json()['error']
+    assert small['initial_box_nm'][:2] == [7.0, 6.0], 'a stated box the protein cannot fit is the derived one'
     assert stated['initial_box_nm'][:2] == [20.0, 25.0]
     assert (stated['auto_initial_x_nm'], stated['auto_initial_y_nm']) == (7.0, 6.0)
 

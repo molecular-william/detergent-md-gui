@@ -802,6 +802,14 @@ def build(stage: Path) -> int:
     # density was measured inside the initial box and no widening is made (`[0.0, 0.0]`).
     report['box_widening_nm'] = [round(float(box[0]) - float(initial[0]), 6),
                                  round(float(box[1]) - float(initial[1]), 6)]
+    # A stated dimension too small to hold the system is widened, not refused: a stale preset's box cannot fail a
+    # run, and the difference is recorded rather than left invisible. The preview carries the same sentences.
+    stated = {'x': settings.get('initial_x_nm'), 'y': settings.get('initial_y_nm'), 'z': stated_z}
+    report['box_notes'] = [f'the stated {axis} box ({float(value):g} nm) is smaller than this system needs '
+                           f'({float(box[position]):g} nm); the cell is written at {float(box[position]):g} nm'
+                           for position, axis in enumerate('xyz')
+                           for value in (stated[axis],)
+                           if value is not None and float(value) + pdc_box.TOLERANCE_NM < float(box[position])]
     atoms = [{'residue_id': bead['residue_id'], 'residue': bead['residue'], 'name': bead['name'],
               'position': bead['position']} for bead in beads]
     if model is None:

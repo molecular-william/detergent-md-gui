@@ -681,21 +681,24 @@ def test_the_box_is_the_one_the_build_measures(tmp_path):
     assert answer['basis']['box_nm'][1] < answer['basis']['box_nm'][2], 'the box is not a cube by accident'
 
 
-def test_a_stated_initial_xy_is_the_previews_exact_cell_or_a_refusal(tmp_path):
+def test_a_stated_initial_xy_is_the_previews_cell_or_widened_with_a_note(tmp_path):
     """The preview's basis box passes a stated x/y to the same rule, so it is the cell the build would write.
 
     A blank x/y is the derived footprint (the pin for every preview before this setting existed); a stated value
-    below it is refused with that sentence, and one above it is the cell the preview draws.
+    below it is widened to the requirement and `box_notes` says so, while one above it is the cell the preview draws.
     """
     derived = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5)
-    refused = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5,
-                      initial_x_nm=1.0, initial_y_nm=1.0)
+    small = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5,
+                    initial_x_nm=1.0, initial_y_nm=1.0)
     stated = preview(tmp_path, mapping=None, aggregation_number=40, box_margin_nm=1.5,
                      initial_x_nm=30.0, initial_y_nm=31.0)
 
-    assert refused['valid'] is False and 'stated x box' in refused['reasons'][0], refused.get('reasons')
+    assert small['valid'] is True, small.get('reasons')
+    assert small['basis']['box_nm'] == derived['basis']['box_nm'], 'the widened cell is the derived one'
+    assert small['basis']['box_notes'] and 'stated x box (1 nm)' in small['basis']['box_notes'][0],         small['basis']['box_notes']
     assert stated['basis']['box_nm'][:2] == [30.0, 31.0]
     assert stated['basis']['box_nm'][2] == derived['basis']['box_nm'][2], 'stated x/y never change z'
+    assert stated['basis']['box_notes'] == []
 
 
 def test_the_preview_says_which_tool_it_would_have_to_run(tmp_path, monkeypatch):

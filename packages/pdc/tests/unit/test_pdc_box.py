@@ -8,18 +8,18 @@ import pytest
 from detergent_pdc.execution.adapters import pdc_box
 
 
-def test_a_stated_initial_x_and_y_are_the_cells_exact_dimension():
-    """A stated box dimension is what the run writes; only a value the protein cannot fit inside is refused.
+def test_a_stated_initial_x_and_y_are_the_cells_dimension_and_a_smaller_one_is_widened():
+    """A stated box dimension is what the run writes when it can hold the system; below that it is widened to fit.
 
     The footprint is 4 x 2 nm, so with a 2 nm margin the derived box is 8 x 6. A stated 1 nm cannot hold the
-    protein and is refused with both numbers; a stated 10 x 12 is the caller's cell exactly, and the derived 8 x 6
-    is accepted as the same number rather than as a floor. The same call with no x/y is today's derived box.
+    protein, so the cell is that derived 8 x 6 (the build reports the widening); a stated 10 x 12 is the caller's
+    cell exactly, and the derived 8 x 6 is accepted as itself. The same call with no x/y is today's derived box.
     """
     points = [[0.0, 0.0, 0.0], [4.0, 2.0, 1.0]]
 
     assert pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=6.0) == [8.0, 6.0, 6.0]
-    with pytest.raises(ValueError, match=r'stated x box \(1 nm\) is smaller than this system needs \(8 nm\)'):
-        pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=1.0, initial_y_nm=1.0)
+    assert pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=1.0,
+                               initial_y_nm=1.0) == [8.0, 6.0, 6.0]
     assert pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=10.0,
                                initial_y_nm=12.0) == [10.0, 12.0, 6.0]
     assert pdc_box.initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=8.0,
@@ -34,18 +34,17 @@ def test_a_stated_initial_x_or_y_that_is_not_a_positive_dimension_is_refused():
 
 
 def test_a_stated_xy_in_a_membrane_box_must_hold_the_belts_radial_reach():
-    """The reader's cell is exact, so it must contain what the belt needs: below that it is refused, not widened.
+    """The stated cell is used when it contains what the belt needs; below that the belt's reach wins.
 
     The footprint is 4 x 2 nm and the margin 2 nm; a 3 nm belt radius reaches 2 x 3 + 2 x 2 = 10 nm, so a stated
-    9 nm cannot hold the belt and is refused with the number it needs, while a stated 12/13 is the caller's cell.
+    9 nm cannot hold the belt and the box is that 10 nm, while a stated 12/13 is the caller's cell exactly.
     """
     points = [[0.0, 0.0, -0.2], [4.0, 2.0, 0.2]]
     derived = pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_radius_nm=3.0)
 
     assert derived[:2] == [10.0, 10.0]
-    with pytest.raises(ValueError, match=r'stated x box \(9 nm\) is smaller than this system needs \(10 nm\)'):
-        pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_radius_nm=3.0,
-                             initial_x_nm=9.0, initial_y_nm=9.0)
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_radius_nm=3.0,
+                                initial_x_nm=9.0, initial_y_nm=9.0)[:2] == [10.0, 10.0]
     assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, belt_radius_nm=3.0,
                                 initial_x_nm=12.0, initial_y_nm=13.0)[:2] == [12.0, 13.0]
 
@@ -54,8 +53,8 @@ def test_a_protein_that_states_no_membrane_passes_its_stated_xy_to_the_initial_b
     points = [[0.0, 0.0, 0.0], [4.0, 2.0, 1.0]]
     assert pdc_box.membrane_box(points, half_thickness_nm=None, initial_x_nm=10.0, initial_y_nm=7.0) == \
         pdc_box.initial_box(points, initial_x_nm=10.0, initial_y_nm=7.0) == [10.0, 7.0, 6.0]
-    with pytest.raises(ValueError, match='stated y box'):
-        pdc_box.membrane_box(points, half_thickness_nm=None, initial_x_nm=10.0, initial_y_nm=1.0)
+    assert pdc_box.membrane_box(points, half_thickness_nm=None, initial_x_nm=10.0, initial_y_nm=1.0) == \
+        [10.0, 6.0, 6.0], 'a stated y below the footprint is widened to it'
 
 
 def test_auto_initial_xy_is_the_derived_footprint_and_agrees_with_initial_box():
@@ -150,19 +149,17 @@ def test_the_membrane_box_widens_x_and_y_to_the_belts_radial_reach():
     assert new == [12.979604, 12.979604, 11.0804], 'x and y clear the belt, z still clears the furthest bead'
 
 
-def test_a_stated_initial_z_is_the_cells_exact_height():
-    """The form's starting-box z is the cell height, like x and y: it is written as stated, or refused if it cuts."""
+def test_a_stated_initial_z_is_the_cell_height_and_a_smaller_one_is_widened():
+    """The form's starting-box z is the cell height, like x and y: stated when it fits, widened when it would cut."""
     placed = [[0.0, 0.0, 0.0], [0.0, 0.0, 4.0]]
     assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0)[2] == 8.0
     assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0, initial_z_nm=12.0)[2] == 12.0
-    with pytest.raises(ValueError, match='stated z box'):
-        pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0, initial_z_nm=4.0)
+    assert pdc_box.extended_box([10.0, 8.0], placed, margin_nm=2.0, initial_z_nm=4.0)[2] == 8.0
 
     points = [[0.0, 0.0, -3.5402], [4.3517, 2.7817, 3.5402]]
     assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0)[2] == 11.0804
     assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, initial_z_nm=12.0)[2] == 12.0
-    with pytest.raises(ValueError, match='stated z box'):
-        pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, initial_z_nm=8.0)
+    assert pdc_box.membrane_box(points, half_thickness_nm=1.48, margin_nm=2.0, initial_z_nm=8.0)[2] == 11.0804
 
 
 def test_a_belt_reach_inside_the_proteins_own_footprint_does_not_shrink_the_box():

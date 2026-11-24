@@ -68,10 +68,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - A placement the gates refuse is still previewed when it produced centres: `valid: false` with the dry frame and
   `basis.problems` (the red rings/beads), never the valid path's key; a refusal with nothing to draw has no `pdb`,
   and the run still refuses (`pdc_preview.preview`).
-- A stated initial x/y/z box is the cell's **exact** dimension, and one too small for the protein or the belt is
-  refused with both numbers, never widened; a blank axis is the derived box, and a membrane belt's
-  `2 x (radius_max_nm + detergent_length_nm)` is what a stated x/y must hold (`pdc_box._exact`,
-  `pdc_build.build`).
+- A stated initial x/y/z box is the cell's dimension, used as itself when it can hold the protein and belt; one
+  smaller is widened to what the system needs and recorded as `box_notes` (never a refusal, never a silent cut),
+  while a blank axis is the derived box (`pdc_box._cell`, `pdc_build.build`, `pdc_preview`).
 - A run's progress counts mdrun legs from the stage log and its ETA is GROMACS' own text; `percent` is `null` until a
   leg prints.
 - Simulation admission is per GPU: `Coordinator.admit_device` compares the run's own `mdrun_gpu`, and
