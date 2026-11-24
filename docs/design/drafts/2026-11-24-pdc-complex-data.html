@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft: pdc — PDC analysis tab</title>
+<style>
+:root{color-scheme:light;--ink:#1c2940;--muted:#5a697d;--line:#dae2eb;--accent:#2455b0;--surface:#fff;
+  --bg:#f3f6fa;--danger:#a52230;--warn:#fff8e7;--ok:#1f6b45;--soft:#f7f9fc;--violet:#7a4fa0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+header,main,footer{max-width:1180px;margin:auto;padding:24px}
+header{padding-top:30px}
+footer{padding-top:0;color:var(--muted);font-size:12px}
+h1{font-size:27px;letter-spacing:-.6px;margin:3px 0 6px}
+h2{font-size:20px;margin:26px 0 4px;padding-top:6px}
+h3{font-size:14px;margin:0 0 6px}
+h4{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 5px}
+p{margin:6px 0}
+.eyebrow{font-size:11px;letter-spacing:2px;color:var(--accent);font-weight:700}
+.muted,.hint{color:var(--muted)}
+.hint{font-size:12px;margin:4px 0}
+.draft-note{background:#fffbe8;border:1px solid #ecdca4;border-radius:10px;padding:12px 16px;color:#5b4b22;
+  font-size:12.5px;line-height:1.55;margin:14px 0 20px}
+.draft-note b{color:var(--ink)}
+.draft-note ul{margin:6px 0 0 18px;padding:0}
+.draft-note li{margin:3px 0}
+.card{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:14px 0;
+  box-shadow:0 3px 10px #162c4810}
+.mock{outline:1px dashed #b9c6d8;outline-offset:8px;margin-bottom:28px}
+.state{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  margin:0 0 2px}
+.identity{font-size:12px;color:var(--muted);margin:2px 0 8px}
+button,a.button{font:inherit;font-weight:600;border:1px solid transparent;border-radius:8px;padding:6px 11px;
+  cursor:pointer;background:var(--accent);color:#fff;font-size:12.5px;text-decoration:none;display:inline-block}
+button.secondary,a.button.secondary{background:#fff;color:var(--accent);border-color:var(--line)}
+button[disabled]{background:#eef1f5;color:#93a1b3;border-color:var(--line);cursor:default}
+code{font:11.5px/1.5 ui-monospace,monospace;background:#f2f5f9;border:1px solid #e4eaf1;border-radius:5px;
+  padding:1px 5px;overflow-wrap:anywhere}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:auto}
+th{background:var(--soft);padding:7px 9px;color:var(--muted);font-size:10.5px;letter-spacing:.04em;
+  text-transform:uppercase;text-align:left;border-top:1px solid var(--line)}
+td{padding:7px 9px;vertical-align:top;border-top:1px solid #eef2f7;overflow-wrap:anywhere}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tabs{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:0 0 2px}
+.tabs .workspace{font-size:12px;color:var(--muted);margin-right:8px}
+.tabs span{padding:5px 11px;border-radius:8px 8px 0 0;border:1px solid var(--line);border-bottom:0;
+  background:#eef2f7;color:var(--muted);font-size:12.5px;font-weight:600}
+.tabs span.on{background:var(--surface);color:var(--ink);border-color:var(--line);position:relative;top:1px}
+.panel-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.controls{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.controls label{display:flex;flex-direction:column;gap:3px;font-size:10.5px;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--muted);font-weight:700}
+.controls select{font:inherit;font-size:12.5px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;color:var(--ink);min-width:280px}
+.options{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0 4px;background:var(--soft)}
+.options summary{cursor:pointer;font-weight:650;font-size:12.5px}
+.opt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+.opt-grid label{font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.opt-grid input{font:inherit;font-size:12.5px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;
+  background:#fff;color:var(--ink)}
+.statusline{font:12px/1.5 ui-monospace,monospace;color:var(--muted);margin:8px 0;display:flex;
+  align-items:center;gap:6px;flex-wrap:wrap}
+.dot{width:7px;height:7px;border-radius:50%;background:#b8c4d3;display:inline-block;flex:none}
+.dot.live{background:#36a269}
+.dot.wait{background:#c98a1f}
+.chip{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:999px;
+  padding:1px 8px;white-space:nowrap}
+.chip.kind{background:#e8efff;color:#2455b0;border:1px solid #c3d4f5}
+.chip.gmx{background:#f1f3f6;color:#53677e;border:1px solid #dde3ea}
+.chip.data{background:#e8f4ec;color:#1f6b45;border:1px solid #c9e3d3}
+.chip.warn{background:#fff3cf;color:#7a5b13;border:1px solid #ecdca4}
+.sample{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a5a12;
+  background:#fff3cf;border:1px solid #ecdca4;border-radius:999px;padding:0 6px;margin-left:5px;
+  vertical-align:2px;white-space:nowrap}
+.notice{border-left:3px solid var(--accent);background:#f5f8fd;border-radius:0 9px 9px 0;padding:10px 12px;
+  font-size:12px;color:var(--muted);margin:10px 0}
+.notice b{color:var(--ink)}
+.notice.quiet{border-left-color:#b8c4d3;background:var(--soft)}
+.caveat{border-left:3px solid #c98a1f;background:var(--warn);border-radius:0 9px 9px 0;padding:10px 12px;
+  font-size:12px;color:#5b4b22;margin:12px 0 2px}
+.caveat b{color:var(--ink)}
+.caveat ul{margin:5px 0 0 16px;padding:0}
+.caveat li{margin:2px 0}
+.sub{border-top:1px solid #eef2f7;padding:14px 0 4px}
+.sub:first-of-type{border-top:0;padding-top:2px}
+.sub-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+.sub-head b{font-size:14px}
+.figures{display:flex;flex-wrap:wrap;gap:10px 30px;margin:6px 0}
+.fig{font-size:12px;color:var(--muted)}
+.fig b{display:block;font-size:16px;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig b .unit{font-size:11px;color:var(--muted);font-weight:400;margin-left:3px}
+.meta{font-size:11.5px;color:var(--muted);margin:4px 0}
+.meta b{color:var(--ink);font-weight:600}
+.chart{border:1px solid var(--line);border-radius:9px;background:#fff;padding:4px;margin:8px 0 6px;overflow:auto}
+.chart svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:2px 0 4px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:3px}
+.downloads{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 0}
+.figure-slot{border:1px dashed var(--line);background:var(--soft);border-radius:9px;padding:10px 12px;
+  font-size:12px;color:var(--muted);margin:8px 0 4px}
+.figure-slot b{color:var(--ink)}
+.state-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.state-card{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:14px;
+  box-shadow:0 2px 6px #162c480c}
+.state-card p{font-size:12px}
+.state-card .state{margin-bottom:4px}
+.state-card .mini{border:1px dashed var(--line);border-radius:8px;padding:9px 10px;background:var(--soft);
+  font-size:11.5px;color:var(--muted);margin:8px 0}
+.callout{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:14px 16px;margin:12px 0}
+.callout ol{margin:6px 0 0 18px;padding:0;font-size:12.5px}
+.callout li{margin:5px 0}
+.callout .ans{color:var(--ok);font-weight:650}
+.callout code{font-size:11px}
+@media (max-width:900px){.grid2,.state-grid{grid-template-columns:1fr}.opt-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="eyebrow">Design draft · 2026-11-24 · not production</div>
+  <h1>“PDC analysis”: one pdc tab for the CG detergent-paper metrics</h1>
+  <p class="muted">The question this answers: “I have a completed protein–detergent run — where do I read the
+  detergent-organisation data I would otherwise compute by hand, without the panel drawing conclusions for me?”</p>
+  <div class="draft-note">
+    <b>What this draft shows, and what it does not decide.</b>
+    <ul>
+      <li><b>Replace, not add.</b> The pdc workspace's fourth tab becomes <b>PDC analysis</b>. The old
+        <b>Complexes</b> tab — its “Build a complex” form and its NGL system viewer — is retired; New run is the build
+        path and Run view is the system view. The panel id stays <code>complexes</code>, so <code>?run=</code> links
+        and the <code>pdcSetRun</code> hook keep working.</li>
+      <li><b>Data only.</b> No verdict, no mild/harsh label, no pass/fail, no trend/slope, no cross-run overlay. The
+        reader interprets. Three CG-honest metrics are added to the existing <code>pdc-structure</code>:
+        <b>protein→tail RDF</b>, <b>protein–head / protein–tail contacts</b>, and <b>water–head / water–tail
+        bead contacts</b>.</li>
+      <li><b>Reuse.</b> The existing shape, aggregation, RDF and contact measurements stay. RMSD/RMSF/Rg/energy
+        come from the run's existing <code>trajectory-overview</code>; this panel does not recompute them.</li>
+      <li><b>CG only.</b> No alpha-helicity and no hydrogen bonds: a Martini bead has no backbone torsions and no
+        explicit hydrogen. Water contacts are a bead count, not the all-atom “hydration number”.</li>
+      <li><b>Every figure is a sample value</b> typed in for layout. Real values come only from a published attempt
+        on a real run.</li>
+      <li><b>Tunable thresholds</b> are options, blank by default; the run's own contact distance (0.60 nm here) is
+        the default contact cutoff.</li>
+    </ul>
+  </div>
+</header>
+
+<main>
+
+<nav class="tabs" aria-label="Protein-detergent simulations">
+  <span class="workspace">Protein-detergent simulations</span>
+  <span>Runs</span><span>Run view</span><span>New run</span><span class="on">PDC analysis</span>
+</nav>
+
+<section class="card mock" aria-labelledby="panel-title">
+  <div class="panel-head">
+    <div>
+      <p class="state">PDC analysis · completed runs only</p>
+      <h2 id="panel-title" style="margin:0 0 2px;font-size:19px">NG_2ydo_155_libconf_500ns-3</h2>
+      <div class="identity">2ydo + NG · 155 detergents · 500 ns · completed · removal path off (assessment leg)
+        <span class="chip data">data only</span> <span class="chip gmx">not validated</span></div>
+    </div>
+    <div class="controls">
+      <label>Run
+        <select id="run-picker" aria-label="Completed protein-detergent run">
+          <option selected>NG_2ydo_155_libconf_500ns-3 · 2ydo + NG · completed</option>
+          <option>DDM_micelle_192_1conf_500ns-4 · DDM · completed</option>
+          <option>NG_micelle_155_1conf_500ns · NG · completed</option>
+          <option>OG_2ydo_123_libconf_500ns-2 · 2ydo + OG · completed</option>
+        </select>
+      </label>
+      <button id="compute" type="button">Recalculate structure</button>
+    </div>
+  </div>
+
+  <details class="options" open>
+    <summary>Options — thresholds (blank = default)</summary>
+    <div class="opt-grid">
+      <label>RDF bin (nm)
+        <input id="opt-bin" type="number" min="0.01" max="0.20" step="0.01" placeholder="0.05">
+      </label>
+      <label>RDF r<sub>max</sub> (nm)
+        <input id="opt-rmax" type="number" min="0.5" max="4.0" step="0.1" placeholder="2.0">
+      </label>
+      <label>Contact cutoff (nm)
+        <input id="opt-contact" type="number" min="0.2" max="1.5" step="0.05" placeholder="0.60 (run's own)">
+      </label>
+      <label>Water cutoff (nm)
+        <input id="opt-water" type="number" min="0.2" max="1.5" step="0.05" placeholder="0.60">
+      </label>
+    </div>
+    <p class="hint">The run's own micelle contact is <b>0.60 nm</b>; it is the default contact cutoff, not a
+      free-floating choice. Changing any option is a new attempt; the effective values are recorded in the report and
+      shown below.</p>
+  </details>
+
+  <div class="notice">
+    <b>This is the run's fallback production leg.</b> The manifest records: “the run switched out-of-micelle removal
+    off, so there is nothing to extend or assess.” The leg is <b>CG assessment MD</b>
+    (<code>06_assessment</code>); its system was never rebuilt, so its numbers are not comparable with a run that has
+    an extension leg.
+  </div>
+  <div class="notice quiet">
+    <b>Data only.</b> No verdict, no mild/harsh label, no trend, no cross-run overlay. Every number carries its
+    method, sampling, cutoffs and caveats; the reader interprets.
+  </div>
+
+  <div class="statusline"><span class="dot live"></span> Published 2026-11-24 10:12 UTC · attempt
+    <code>0002-20261124</code> · <b>200 of 20,001 frames</b>, stride 100 · <b>CG assessment MD</b> (fallback leg) ·
+    not validated</div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Micelle</b> <span class="chip kind">pdc-structure</span>
+      <span class="chip gmx">gmx gyrate · read-only</span></div>
+    <p class="hint">The detergent assembly, measured with the run's own micelle criterion (tail beads within
+      <b>0.60 nm</b>, largest connected cluster). Not the protein; the protein's own shape is in the overview
+      below. Separate files: <code>pdc-structure-shape.png</code> and <code>pdc-structure-aggregation.png</code>.</p>
+    <div class="figures">
+      <div class="fig">Radius of gyration <span class="sample">sample</span>
+        <b>5.42<span class="unit">nm</span></b></div>
+      <div class="fig">Largest cluster <span class="sample">sample</span>
+        <b>151<span class="unit">molecules</span></b></div>
+      <div class="fig">Free detergents <span class="sample">sample</span>
+        <b>4<span class="unit">molecules</span></b></div>
+      <div class="fig">Clusters <span class="sample">sample</span><b>2</b></div>
+      <div class="fig">Asphericity <span class="sample">sample</span>
+        <b>0.28<span class="unit">nm²</span></b></div>
+      <div class="fig">Relative shape anisotropy <span class="sample">sample</span><b>0.07</b></div>
+    </div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Radial distribution</b> <span class="chip kind">gmx rdf</span>
+      <span class="chip data">trend, not a conclusion</span></div>
+    <p class="hint">How crowded the other beads are at a distance from the protein or from each other.
+      <b>g(r) = 1</b> is the bulk average; a first peak below the head's distance means the tails sit closer to the
+      protein — the papers' tail-in / mixed signature. Four pairs, one bounded sample.</p>
+    <div class="legend" aria-hidden="true">
+      <span><i style="background:#2455b0"></i>protein→head</span>
+      <span><i style="background:#c98a1f"></i>protein→tail</span>
+      <span><i style="background:#2f7d5b"></i>head–head</span>
+      <span><i style="background:#7a4fa0"></i>tail–tail</span>
+    </div>
+    <div class="chart" id="rdf-chart" role="img" aria-label="Radial distribution curves for four bead pairs"></div>
+    <table>
+      <thead><tr><th>Pair</th><th class="num">First peak (nm)</th><th class="num">g at peak</th><th>Reading</th></tr></thead>
+      <tbody>
+        <tr><td>protein → head</td><td class="num">1.18 <span class="sample">sample</span></td>
+          <td class="num">1.31</td><td>the head sits farther out</td></tr>
+        <tr><td><b>protein → tail</b></td><td class="num">0.96 <span class="sample">sample</span></td>
+          <td class="num">1.95</td><td><b>the tail is closer</b></td></tr>
+        <tr><td>head – head</td><td class="num">0.71 <span class="sample">sample</span></td>
+          <td class="num">2.10</td><td>head–head packing</td></tr>
+        <tr><td>tail – tail</td><td class="num">0.54 <span class="sample">sample</span></td>
+          <td class="num">2.45</td><td>tail–tail packing</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">Full curves are the producer's PNG: <code>pdc-structure-rdf.png</code>. The first-peak numbers
+      are in the report and the CSV; the chart is the same data drawn in the tab.</p>
+  </div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Contacts</b> <span class="chip kind">gmx mindist · bead counts</span>
+      <span class="chip warn">not hydrogen bonds</span></div>
+    <p class="hint">Bead pairs within the cutoff, minimum image. These are <b>contacts</b>, not bonds and not
+      hydrogen bonds; the water numbers count Martini <b>W beads</b> near the head or tail, not the all-atom
+      hydration number.</p>
+    <div class="grid2">
+      <div>
+        <h4 style="margin-top:4px">Protein contacts · cutoff 0.60 nm</h4>
+        <div class="chart" id="protein-chart" role="img" aria-label="Protein–head and protein–tail contact series"></div>
+      </div>
+      <div>
+        <h4 style="margin-top:4px">Water-bead contacts · cutoff 0.60 nm</h4>
+        <div class="chart" id="water-chart" role="img" aria-label="Water–head and water–tail bead contact series"></div>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Group</th><th class="num">Cutoff (nm)</th><th class="num">Mean ± SEM</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>protein – head</td><td class="num">0.60</td><td class="num">208 ± 7 <span class="sample">sample</span></td>
+          <td>bead pairs</td></tr>
+        <tr><td><b>protein – tail</b></td><td class="num">0.60</td><td class="num">331 ± 10 <span class="sample">sample</span></td>
+          <td><b>more tail contact</b></td></tr>
+        <tr><td>water – head</td><td class="num">0.60</td><td class="num">1,842 ± 39 <span class="sample">sample</span></td>
+          <td>W beads; not hydration number</td></tr>
+        <tr><td>water – tail</td><td class="num">0.60</td><td class="num">2,415 ± 52 <span class="sample">sample</span></td>
+          <td>W beads; not hydration number</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">Full series: <code>pdc-structure-contacts-protein.png</code> and <code>pdc-structure-contacts-water.png</code>; every value is also in the JSON/CSV.</p>
+  </div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Protein shape and energy</b> <span class="chip kind">trajectory-overview</span>
+      <span class="chip gmx">read, not recomputed</span></div>
+    <p class="hint">Read from the run's existing <b>trajectory-overview</b> record (the core kind on the same
+      production leg). This tab does not run a second pass for these numbers. They are summaries; the overview's own
+      PNG is linked below.</p>
+    <div class="grid2">
+      <div>
+        <div class="figures" style="margin-top:2px">
+          <div class="fig">RMSD <span class="sample">sample</span><b>0.41<span class="unit">nm</span></b></div>
+          <div class="fig">RMSF, mean <span class="sample">sample</span><b>0.29<span class="unit">nm</span></b></div>
+          <div class="fig">Rg, protein <span class="sample">sample</span><b>10.56<span class="unit">nm</span></b></div>
+        </div>
+        <table>
+          <thead><tr><th>Energy term</th><th class="num">Mean</th></tr></thead>
+          <tbody>
+            <tr><td>Potential</td><td class="num">−2.09 × 10⁵ <span class="sample">sample</span></td></tr>
+            <tr><td>LJ (SR)</td><td class="num">−1.87 × 10⁵ <span class="sample">sample</span></td></tr>
+            <tr><td>Coulomb (SR)</td><td class="num">−2.04 × 10⁴ <span class="sample">sample</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="chart" id="overview-chart" role="img" aria-label="RMSD over the sampled trajectory"></div>
+        <p class="hint">RMSD over the sampled frames, from the overview. The full grid (RMSD/Rg/energy/stage
+          traces) is the overview's own PNG; this is a summary slot, not a redraw.</p>
+      </div>
+    </div>
+    <p class="hint">No alpha-helicity and no hydrogen bonds: Martini has no backbone torsions and no explicit
+      hydrogen. A run without an overview shows <b>not computed</b> here and offers <b>Compute overview</b>; the core kind's
+      attempt is cached and readable in the Run view's Analysis card (see the states below).</p>
+  </div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Method, sampling, cutoffs</b></div>
+    <div class="meta">Method: <b>one bounded sample of one production leg, extracted once with
+      <code>gmx trjconv</code>, read by <code>gmx gyrate</code> (Rg), <code>gmx rdf</code> (radial distributions) and
+      <code>gmx mindist</code> (bead contacts); the gyration tensor and the aggregation are the producer's own
+      numpy pass; the run's own micelle criterion</b>.</div>
+    <div class="meta">Sampling: <b>200 of 20,001 frames</b>, stride 100, spanning the leg's whole length · frame
+      spacing 25 ps as the file states it. A bounded sample, not a converged ensemble.</div>
+    <div class="meta">Cutoffs: <b>micelle contact 0.60 nm</b> (the run's own) · <b>contact 0.60 nm</b> ·
+      <b>water 0.60 nm</b> · <b>radial maximum 2.0 nm, bin 0.05 nm</b>. The effective values are recorded in the
+      report; a blank option means these defaults.</div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-head"><b>Downloads</b></div>
+    <p class="hint">The data, not a picture of the data: the report JSON, a CSV of the tables and series, the two
+      producer PNGs, and the overview's own JSON/PNG.</p>
+    <div class="downloads">
+      <a class="button secondary" href="#">pdc-structure.json</a>
+      <a class="button secondary" href="#">pdc-analysis.csv</a>
+      <a class="button secondary" href="#">pdc-structure-rdf.png</a>
+      <a class="button secondary" href="#">pdc-structure-contacts-protein.png</a>
+      <a class="button secondary" href="#">pdc-structure-contacts-water.png</a>
+      <a class="button secondary" href="#">pdc-structure-shape.png</a>
+      <a class="button secondary" href="#">pdc-structure-aggregation.png</a>
+      <a class="button secondary" href="#">trajectory-overview.json</a>
+      <a class="button secondary" href="#">trajectory-overview.png</a>
+    </div>
+  </div>
+
+  <div class="caveat">
+    <b>What these numbers are, and are not.</b>
+    <ul>
+      <li><b>A bounded sample, not an ensemble.</b> 200 of 20,001 frames is 1% of the leg; the report states the
+        frame count, stride and span so the claim can be checked without trusting it.</li>
+      <li><b>A fallback leg.</b> The extension stage was skipped; the assessment leg is not the rebuilt system and
+        is not comparable with a run that has an extension leg.</li>
+      <li><b>Bead contacts, not bonds.</b> Water-bead contacts are not the all-atom hydration number; the report's
+        definitions say so.</li>
+      <li><b>Nothing here is validation.</b> <code>scientifically_validated: false</code>; no verdict, no threshold,
+        no “mild/harsh” label, no trend.</li>
+    </ul>
+  </div>
+</section>
+
+<h2>Other states</h2>
+<p class="hint">The same tab, when the run or the record is in a different state. These are layout sketches; the
+numbers are samples or explicitly “not measured”.</p>
+<div class="state-grid">
+  <div class="state-card">
+    <p class="state">1 · nothing computed yet</p>
+    <h3>No <code>pdc-structure</code> record</h3>
+    <p>The run is completed and selected, but no structure analysis has been published. The tab says so and offers
+      the one action it owns.</p>
+    <div class="mini"><b>Nothing computed yet.</b> Shape, micelle size, radial distribution and bead contacts are
+      read from one bounded sample of this run's production leg.</div>
+    <p><button type="button">Compute structure</button></p>
+    <p class="hint">The 404 from <code>GET /api/jobs/&lt;id&gt;/pdc-structure</code> is a state, not a failure. The
+      Run view's “Structure and interactions” section can also queue the same kind.</p>
+  </div>
+
+  <div class="state-card">
+    <p class="state">2 · an older v1 record</p>
+    <h3>New metrics not measured</h3>
+    <p>A record published before this change has the original shape/RDF/contacts, but no protein→tail RDF, no
+      contact groups and no water contacts. The tab shows the old numbers and marks the new rows
+      <b>not measured</b>; Compute is the way to extend it. No migration.</p>
+    <div class="mini">protein→tail RDF — <b>not measured</b> · contact groups — <b>not measured</b> · water contacts —
+      <b>not measured</b></div>
+    <p><button class="secondary" type="button">Recalculate structure</button></p>
+  </div>
+
+  <div class="state-card">
+    <p class="state">3 · no protein</p>
+    <h3>A detergent-only run (e.g. DDM micelle)</h3>
+    <p>The run has no protein, so the protein–detergent interface is not defined. The protein rows are
+      <b>null</b>, never a zero; the detergent-only RDFs, shape, aggregation and water contacts remain.</p>
+    <div class="mini"><b>This run has no protein.</b> The protein–detergent interface is not defined; only the
+      detergent-only forms are reported.</div>
+    <p class="hint">The micelle shape and the head–head / tail–tail RDFs still answer; the protein–head and
+      protein–tail rows say “not defined”.</p>
+  </div>
+
+  <div class="state-card">
+    <p class="state">4 · no trajectory-overview</p>
+    <h3>RMSD/RMSF/energy not computed</h3>
+    <p>The structure record is published, but the run has no <code>trajectory-overview</code>. The protein-shape
+      block says <b>not computed</b> and offers <b>Compute overview</b>; the core kind caches its attempt as an
+      ordinary analysis, and the Run view's Analysis card reads the same record.</p>
+    <div class="mini">RMSD — <b>not computed</b> · RMSF — <b>not computed</b> · energy — <b>not computed</b><br>
+      <button class="secondary" type="button">Compute overview</button>
+      <span class="muted">the result is cached and readable in Run view.</span></div>
+  </div>
+
+  <div class="state-card">
+    <p class="state">5 · a run that is not completed</p>
+    <h3>Stop the run first</h3>
+    <p>The picker lists completed pdc runs only. If a <code>?run=</code> link names a running run, the tab says so;
+      the analysis coordinator refuses a running run by design.</p>
+    <div class="mini"><b>This run is still running.</b> Analyses are queued on a stopped run. The tab will offer
+      Compute when it completes.</div>
+  </div>
+
+  <div class="state-card">
+    <p class="state">6 · a running attempt</p>
+    <h3>Queued, then published</h3>
+    <p>The Compute button is disabled while the request is in flight. The tab polls the analyses summary; when the
+      attempt finishes it refetches the record and the PNGs. A failure shows the attempt's own sentence, not a
+      blank panel.</p>
+    <div class="mini"><span class="dot wait"></span> Queued · <b>pdc-structure</b> · one sample, one pass</div>
+    <p class="hint">A failed attempt leaves the previous published pair on disk; the tab says what failed and keeps
+      the old data readable.</p>
+  </div>
+</div>
+
+<h2>Your calls (settled)</h2>
+<div class="callout">
+  <p class="hint">The six open items are settled; this draft and the plan reflect them.</p>
+  <ol>
+    <li><b>Label</b> — <span class="ans">PDC analysis</span>.</li>
+    <li><b>Thresholds</b> — <span class="ans">the current defaults</span>: 0.05 nm RDF bin, 2.0 nm r_max, the run's
+      own 0.60 nm contact, 0.60 nm water.</li>
+    <li><b>Dead route</b> — <span class="ans">remove <code>/api/pdc/&lt;job&gt;/system.pdb</code> with the retired
+      panel</span>.</li>
+    <li><b>Old panel tests</b> — <span class="ans">retire them</span>; the New run / Run view coverage stays.</li>
+    <li><b>No <code>trajectory-overview</code></b> — <span class="ans">a second <b>Compute overview</b> button</span>;
+      the core kind caches its attempt, and the Run view's Analysis card reads the same record.</li>
+    <li><b>Figures</b> — <span class="ans">a separate PNG per plotted metric</span>: RDF, protein contacts, water
+      contacts, shape, aggregation; the overview keeps its own PNG.</li>
+  </ol>
+</div>
+
+<p class="hint">Everything in this page is a mock. No panel, producer, route or test has been changed; the static
+numbers are for layout, and every one of them is labelled <span class="sample">sample</span>.</p>
+
+</main>
+
+<footer>Data only — no verdict, no mild/harsh label, no trend, no cross-run overlay. The reader interprets.</footer>
+
+<script>
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  const colors = {head: '#2455b0', tail: '#c98a1f', hh: '#2f7d5b', tt: '#7a4fa0',
+                  whead: '#2f7d5b', wtail: '#7a4fa0'};
+
+  function svgEl(name, attrs) {
+    const el = document.createElementNS(NS, name);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    return el;
+  }
+
+  function frame(w, h, pad, ticksX, ticksY, xMax, yMax, xLabel, yLabel) {
+    const svg = svgEl('svg', {viewBox: `0 0 ${w} ${h}`, role: 'presentation'});
+    const x = v => pad.l + (v / xMax) * (w - pad.l - pad.r);
+    const y = v => h - pad.b - (v / yMax) * (h - pad.t - pad.b);
+    for (const t of ticksY) {
+      svg.append(svgEl('line', {x1: pad.l, x2: w - pad.r, y1: y(t), y2: y(t),
+        stroke: '#eef2f7', 'stroke-width': 1}));
+      const label = svgEl('text', {x: pad.l - 7, y: y(t) + 3, 'text-anchor': 'end',
+        'font-size': 10, fill: '#5a697d'});
+      label.textContent = String(t);
+      svg.append(label);
+    }
+    for (const t of ticksX) {
+      const label = svgEl('text', {x: x(t), y: h - pad.b + 14, 'text-anchor': 'middle',
+        'font-size': 10, fill: '#5a697d'});
+      label.textContent = String(t);
+      svg.append(label);
+    }
+    svg.append(svgEl('line', {x1: pad.l, x2: w - pad.r, y1: h - pad.b, y2: h - pad.b,
+      stroke: '#c9d4e2', 'stroke-width': 1}));
+    svg.append(svgEl('line', {x1: pad.l, x2: pad.l, y1: pad.t, y2: h - pad.b,
+      stroke: '#c9d4e2', 'stroke-width': 1}));
+    const xl = svgEl('text', {x: w - pad.r, y: h - 2, 'text-anchor': 'end', 'font-size': 10, fill: '#5a697d'});
+    xl.textContent = xLabel;
+    svg.append(xl);
+    const yl = svgEl('text', {x: 12, y: (pad.t + h - pad.b) / 2, 'text-anchor': 'middle',
+      'font-size': 10, fill: '#5a697d',
+      transform: `rotate(-90 12 ${(pad.t + h - pad.b) / 2})`});
+    yl.textContent = yLabel;
+    svg.append(yl);
+    return {svg, x, y};
+  }
+
+  function pathOf(points, color) {
+    return svgEl('path', {d: points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
+      .join(' '), fill: 'none', stroke: color, 'stroke-width': 1.8, 'stroke-linejoin': 'round'});
+  }
+
+  function drawRdf() {
+    const host = document.getElementById('rdf-chart');
+    if (!host) return;
+    const w = 760, h = 270, pad = {l: 46, r: 14, t: 16, b: 32};
+    const xMax = 2.4, yMax = 3;
+    const {svg, x, y} = frame(w, h, pad, [0, 0.5, 1, 1.5, 2, 2.4], [0, 1, 2, 3], xMax, yMax, 'r (nm)', 'g(r)');
+    const curves = [
+      {color: colors.head, r0: 1.18, peak: 1.31, width: 0.30, phase: 0.0},
+      {color: colors.tail, r0: 0.96, peak: 1.95, width: 0.26, phase: 1.4},
+      {color: colors.hh, r0: 0.71, peak: 2.10, width: 0.18, phase: 2.2},
+      {color: colors.tt, r0: 0.54, peak: 2.45, width: 0.15, phase: 0.7},
+    ];
+    for (const curve of curves) {
+      const points = [];
+      for (let r = 0.05; r <= 2.4001; r += 0.05) {
+        const g = 1 + (curve.peak - 1) * Math.exp(-Math.pow((r - curve.r0) / curve.width, 2))
+          + 0.06 * Math.sin(r * 7 + curve.phase) * Math.exp(-r * 0.5);
+        points.push([x(r), y(Math.max(0, g))]);
+      }
+      svg.append(pathOf(points, curve.color));
+    }
+    host.replaceChildren(svg);
+  }
+
+  function drawSeries(hostId, series, yMax, yLabel) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    const w = 380, h = 170, pad = {l: 42, r: 10, t: 10, b: 28};
+    const xMax = 500;
+    const {svg, x, y} = frame(w, h, pad, [0, 100, 200, 300, 400, 500], [0, yMax / 2, yMax],
+      xMax, yMax, 'time (ns)', yLabel);
+    for (const item of series) {
+      const points = [];
+      for (let t = 0; t <= 500; t += 10) {
+        const value = item.base + item.amp * Math.sin(t / item.period + item.phase)
+          + item.amp * 0.35 * Math.sin(t / (item.period * 0.23) + item.phase * 2);
+        points.push([x(t), y(Math.max(0, value))]);
+      }
+      svg.append(pathOf(points, item.color));
+    }
+    host.replaceChildren(svg);
+  }
+
+  function drawOverview() {
+    const host = document.getElementById('overview-chart');
+    if (!host) return;
+    const w = 380, h = 170, pad = {l: 42, r: 10, t: 10, b: 28};
+    const xMax = 500, yMax = 0.6;
+    const {svg, x, y} = frame(w, h, pad, [0, 100, 200, 300, 400, 500], [0, 0.3, 0.6],
+      xMax, yMax, 'time (ns)', 'RMSD (nm)');
+    const points = [];
+    for (let t = 0; t <= 500; t += 10) {
+      const value = 0.41 + 0.025 * Math.sin(t / 70) + 0.008 * Math.sin(t / 19 + 1);
+      points.push([x(t), y(value)]);
+    }
+    svg.append(pathOf(points, '#2455b0'));
+    host.replaceChildren(svg);
+  }
+
+  drawRdf();
+  drawSeries('protein-chart', [
+    {base: 208, amp: 9, period: 61, phase: 0.2, color: colors.head},
+    {base: 331, amp: 12, period: 73, phase: 1.1, color: colors.tail},
+  ], 450, 'contacts (beads)');
+  drawSeries('water-chart', [
+    {base: 1842, amp: 38, period: 83, phase: 2.0, color: colors.whead},
+    {base: 2415, amp: 52, period: 97, phase: 0.4, color: colors.wtail},
+  ], 2800, 'contacts (W beads)');
+  drawOverview();
+
+  const compute = document.getElementById('compute');
+  if (compute) compute.addEventListener('click', () => {
+    // A draft: no request. The real panel disables the button while the request is in flight.
+    compute.textContent = 'Queued (draft)';
+    compute.disabled = true;
+    setTimeout(() => {
+      compute.textContent = 'Recalculate structure';
+      compute.disabled = false;
+    }, 1400);
+  });
+})();
+</script>
+</body>
+</html>
