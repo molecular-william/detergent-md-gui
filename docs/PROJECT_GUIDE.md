@@ -644,7 +644,10 @@ starting box are **groups of the Run and stage settings card** (one fieldset; th
 dimension, and the preview draws and the build writes that number whenever it can hold the protein and belt; a
 number below what the protein (or, for a membrane belt, the belt's radial reach) needs is **widened** to the
 requirement, through `pdc_box._cell` in `initial_box`/`extended_box`/`membrane_box`, and the reason is recorded in
-`box_notes` and shown under the box in the form. A blank field is the derived value exactly and
+`box_notes` and shown under the box in the form. **A queue whose stated box cannot hold the system is refused**
+before a job record exists (`Feature.admission` for `pdc`, which asks `pdc_preview`'s own placement question; the
+queue panel posts with a longer deadline because a first answer may coarse-grain a protein). New runs, clones and
+retries pass the same rule; the build's widening remains only as the safe fallback for a payload that reaches it. A blank field is the derived value exactly and
 shows the box the **preview** draws as its placeholder, so the starting box the form states and the box the picture
 shows are one number (the extent route's own line remains the protein-footprint measurement). A blank z keeps the
 insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- while the written box's z is derived unless

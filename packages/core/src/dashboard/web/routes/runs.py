@@ -298,12 +298,27 @@ def _parameterization_of(job):
     return None
 
 
+def _carried_payload(job):
+    """The payload a retry re-queues: the job's own settings and inputs, in admission's spelling.
+
+    A retry is a queue, so it passes the same admission a new run does -- a pdc run whose stated box cannot hold its
+    system must not be re-queued any more than it can be queued.
+    """
+    return {**(job.get('settings') or {}), 'run_type': job.get('run_type'), 'method': job.get('method'),
+            'molecule_id': job.get('molecule_id'), 'protein': job.get('protein') or None,
+            'template': job.get('template') or None,
+            'mapping_candidate': job.get('mapping_candidate') or job.get('mapping_snapshot'),
+            'reference_run_id': job.get('reference_run_id'),
+            'parameterization': _parameterization_of(job)}
+
+
 @blueprint.post('/retry/<jid>')
 def retry(jid):
     c = coordinator()
     job = c.lookup(jid)
     if job['status'] != 'failed':
         abort(409, 'Only failed runs can be retried')
+    admission.validate_run_type(_carried_payload(job))
     # A retry rebuilds the same run, so it carries the fields that run was built from: a composition run without its
     # `composition_id` is refused by admission, and a complex run without `protein`/`template` is built from whatever
     # the defaults name -- a different system that happens to share a run type.

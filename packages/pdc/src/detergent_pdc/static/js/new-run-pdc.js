@@ -2322,7 +2322,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // Each launch button states its own choice, always: a run asked to share a device must not be readable as one
       // that asked to queue beside it.
       payload.gpu_sharing = sharing;
-      await post('/', payload);
+      // Admission asks the preview's own box question before the job exists, and that can coarse-grain a protein it
+      // has not cached yet: a queue POST therefore gets a longer deadline than the shared 10 s default.
+      await api('/', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify(payload), timeoutMs: 120000});
       notice('Run queued.');
       // A build from runs writes its library into the store, so the stored list is read again and the new library
       // is selectable without a reload. This is not awaited: the notice does not wait for it. The form stays on

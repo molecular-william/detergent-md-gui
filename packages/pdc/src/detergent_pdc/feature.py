@@ -38,6 +38,89 @@ def _create_settings(settings, job):
     return {**settings, 'prepare_protein': False}
 
 
+def _box_warnings(payload):
+    """The stated starting box dimensions the build would have to widen, by the preview's own rule.
+
+    Admission asks this question at queue time, so a run the reader cannot fit cannot be admitted (a stale preset's
+    14 nm box was refused only at system preparation before). The answer comes from 'pdc_preview.preview', the same
+    placement the preview card shows: it caches the coarse-grained protein, and an unanswerable question (a missing
+    tool, a protein that cannot be coarse-grained, a template no run could use) is not a reason to refuse a queue --
+    the run's own readiness and stages report those.
+    """
+    from dashboard import paths
+    from dashboard.execution import tools
+
+    from .execution import pdc_preview
+    from .execution.adapters import pdc as pdc_adapter
+    from .execution.adapters import pdc_placement, pdc_preparation
+
+    # The queue speaks the panel's spelling for the two aliased choices; validate_payload reads the adapter's.
+    supplied = dict(payload)
+    if supplied.get('seed') in (None, '') and supplied.get('pdc_seed') not in (None, ''):
+        supplied['seed'] = supplied['pdc_seed']
+    if supplied.get('placement_mode') in (None, '') and supplied.get('pdc_placement_mode') not in (None, ''):
+        supplied['placement_mode'] = supplied['pdc_placement_mode']
+    choices = pdc_adapter.validate_payload(supplied)
+    template = payload.get('template')
+    executable = tools.tool_path('martinize2')
+    if not template or not executable:
+        return []
+
+    def number(name, default=None):
+        value = payload.get(name, default)
+        if value in (None, ''):
+            return None if default is None else default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    state = paths.current()
+    defaults = pdc_adapter.DEFAULTS
+    answer = pdc_preview.preview(
+        project_root=str(state.project_root), cache_root=state.workspace / pdc_preview.CACHE_DIRECTORY,
+        template=template, seed=choices['seed'], protein=payload.get('protein') or None,
+        chains=choices['protein_chains'], mapping=payload.get('mapping_candidate') or None,
+        molecule_id=payload.get('molecule_id') or None,
+        aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
+        box_margin_nm=number('box_margin_nm', float(defaults['box_margin_nm'])),
+        initial_z_nm=number('initial_z_nm'), initial_x_nm=number('initial_x_nm'),
+        initial_y_nm=number('initial_y_nm'), radius_nm=float(pdc_placement.DEFAULT_RADIUS_NM),
+        executable=executable, prepare_protein=choices['prepare_protein'],
+        prepare_executable=tools.tool_path(pdc_preparation.TOOL), workspace=state.workspace,
+        belt_gap_nm=number('belt_gap_nm', float(defaults['belt_gap_nm'])),
+        min_body_gap_nm=number('min_body_gap_nm', float(defaults['min_body_gap_nm'])),
+        belt_axial_window_nm=number('belt_axial_window_nm', float(defaults['belt_axial_window_nm'])),
+        belt_vertical_spread=number('belt_vertical_spread', float(defaults['belt_vertical_spread'])),
+        belt_vertical_half_nm=number('belt_vertical_half_nm'),
+        belt_offset_nm=number('belt_offset_nm', float(defaults['belt_offset_nm'])),
+        # The library changes which bodies are stamped, never the belt's measured reach or the cell it needs.
+        conformation_library=None)
+    return list((answer.get('basis') or {}).get('box_notes') or [])
+
+
+def _admission(data):
+    """Refuse a queued pdc run whose stated starting box cannot hold the system it describes.
+
+    A box the build would have to widen is a cell the reader asked for and cannot have: the run is refused here, at
+    the queue, with the sentence the preview card shows under the box -- rather than admitted and widened, or admitted
+    and failed at system preparation.
+    """
+    if not isinstance(data, dict):
+        return
+    if all(data.get('initial_' + axis + '_nm') in (None, '') for axis in 'xyz'):
+        return
+    try:
+        notes = _box_warnings(data)
+    except Exception:  # noqa: BLE001 -- an unanswerable box question must not become a 500 at the queue
+        # The box question could not be answered; the run's own readiness and stages say why, and admission does not
+        # turn an unrelated refusal into a queue refusal.
+        return
+    if notes:
+        raise ValueError('the starting box cannot hold this system: ' + '; '.join(notes)
+                         + '. Clear the box fields to derive them, or state larger values.')
+
+
 def _readiness(data, root):
     """A protein-detergent build is checked by its own adapter, not by the CG molecule question.
 
@@ -70,6 +153,7 @@ FEATURE = features.Feature(
     kinds=pdc_kinds.KINDS,
     # What the Runs filter panel calls this run type.
     run_type_labels={'pdc': 'Protein-detergent'},
+    admission={'pdc': _admission},
     prepare={'pdc': _prepare},
     create_settings={'pdc': _create_settings},
     readiness={'pdc': _readiness},

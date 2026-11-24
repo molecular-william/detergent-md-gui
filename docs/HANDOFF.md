@@ -10,6 +10,24 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **An impossible starting box is refused at the queue, not widened into a run (2026-11-24, user's decision).**
+  Following the box-widening fix (commit 3ba558e), the user asked that a run whose stated box cannot hold its system
+  must not be queued at all, with the warning. `Feature.admission` now carries the rule: a pdc payload that states
+  `initial_x/y/z_nm` is measured by `pdc_preview.preview` itself -- the same placement the preview card shows, with
+  the coarse-grained protein cached -- and each axis the build would have to widen is a refusal,
+  "the starting box cannot hold this system: <box_notes sentences>. Clear the box fields to derive them, or state
+  larger values." The queue route already applies admission before a job record exists, and `retry` now runs the
+  same rule through `_carried_payload` (the job's own settings), so Retry cannot restart a run the box blocks; clones
+  already passed it. A payload that cannot be measured (no resolvable `martinize2`, a protein that will not
+  coarse-grain, a template nothing can use) is not refused for the box: readiness and the stages report those. The
+  build still widens a box that reaches it, recording `box_notes` -- the fallback for an older record or a retry path
+  that bypasses admission, never the normal outcome.
+  Checks: fast tier **3,201 passed / 1 xfailed** (pdc area 862 / 1 xfailed, core 2,037); full browser tier **429
+  passed** at `-n 16 --dist worksteal`; ruff clean; the queue panel now posts with a
+  120 s deadline (a first admission may coarse-grain a protein). New tests: `test_pdc_run_creation` refuses a
+  too-small box at the queue with the sentence and the `pdc_seed`/`pdc_placement_mode` aliases measured, admits a
+  fitting box and asks no question when no box is stated; `_carried_payload` feeds the same refusal to Retry.
+
 - **A stale preset box no longer fails system preparation (2026-11-24, after 3038f54).**
   Three 2ydo runs failed at System preparation with exit 2 and a bare command tail. `prepare_report.json` carried the
   reason: "the stated x box (14 nm) is smaller than this system needs (18.2193 nm)". Their workspace preset
