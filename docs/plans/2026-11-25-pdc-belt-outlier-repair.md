@@ -1,6 +1,8 @@
 # PDC belt: total-height vertical spread and a far-head repair
 
-Status: built (2026-11-25, the user's decisions in the questions this plan answers)
+Status: built (2026-11-25). **Superseded the same day by `docs/plans/2026-11-25-pdc-park-problem-heads.md`:**
+the ±1.5 nm in-band retry below left the heads the user saw, so a problem head is now parked above or below the
+band. The setting and the outlier-distance trigger described here are still current.
 
 Supersedes the band part of `docs/plans/2026-11-25-pdc-belt-form-coverage-and-placement.md`: the 4 nm spread is the
 **total** height of the band, not the half-height.

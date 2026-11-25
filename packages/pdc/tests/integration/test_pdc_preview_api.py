@@ -476,7 +476,10 @@ def test_the_belt_packing_settings_travel_through_the_preview(dashboard, monkeyp
 
     monkeypatch.setattr(preview_module, 'coarse_grained', stub)
     entry = import_protein(dashboard, monkeypatch, text=axially_local_ring(), pdbid='1axl')
-    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 40}
+    # The parking pass is off for this comparison: it would move the protruding sites and hide the window's effect
+    # on the mean surface, which is what this test measures.
+    query = {'template': TEMPLATE, 'protein': entry['name'], 'pdc_seed': 20261013, 'aggregation_number': 40,
+             'belt_outlier_distance_nm': 0}
 
     narrow = get(dashboard, **query)
     wide = get(dashboard, **{**query, 'belt_axial_window_nm': 5.0})

@@ -10,6 +10,31 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc belt: protruding and too-close heads are parked above or below the band (2026-11-25, after looking at 2ydo +
+  NG).** Plan: `docs/plans/2026-11-25-pdc-park-problem-heads.md`. The user still saw detergents sticking out of the
+  belt and some too close to the protein; the previous ±1.5 nm in-band retry moved none of them at the band and
+  packing actually used. The repair is now a **post-placement parking pass** (`_park_problem_sites`) on the final
+  geometry -- after the belt's vertical translation and after the conformation draw, so it sees the head/body the
+  stage stamps. A head is a problem when it is more than `belt_outlier_distance_nm` beyond the belt's median
+  sideways distance (0 turns only this far criterion off) or when its head/body is closer than its gate (the drawn
+  library body included); `belt_offset_nm` could previously push a gated site inside the clearance and the run was
+  refused. It is retried at its own heading at the small in-band heights first, then **outside each face**
+  (`BELT_PARK_OUTSIDE_NM`, 0.5-2.5 nm), and the first candidate that clears every gate and the body gate and lands
+  back inside the belt replaces it; with no such place it keeps the draw's position, so the count never drops. The
+  band's radius/reach/volume/`placed_axial_max_nm` are recomputed from the moved geometry (reach includes the drawn
+  bodies), and `radial_repair` states far/too-close initial and remaining counts.
+  Measured on the exact live case (2ydo chain A, NG, 155, seed 12253886, 5.5 nm total band, gap 2.7, offset -0.5,
+  axial window 1.0, outlier 0.5, stored library `e1ca152b0b1650ed`): before the change it was **refused** with
+  "detergent too close to the protein: 0.484 nm < 0.5 nm", with 18 far heads and 1 too-close head, only 6 reclaimed.
+  After: **valid**, 18 far + 1 too-close -> **19 moved, 0 far, 0 too-close**, closest head 0.652 nm, maximum belt
+  radius 6.403 -> 4.550 nm, preview placement 1.34 s. The parked heads reach further along the normal, so the cell
+  grows: the stated z 11.606 nm is written at 13.926 nm (`box_notes`), and the queue's admission will refuse a stated
+  cell too small -- clear the z field (or press Auto) before queueing.
+  Checks: fast tier **3,217 passed / 1 xfailed**; full browser tier **430 passed**; pdc fast area 878 / 1 xfailed;
+  ruff clean. Tests that measure the local-surface rule and the pure vertical translation run with the far criterion
+  off, so the parking does not mask what they measure; new tests pin the parked-outside case, the too-close case,
+  the default/large/off outlier distance and the no-legal-spot case.
+
 - **pdc belt: the outlier distance is a form setting (2026-11-25, later again).** `belt_outlier_distance_nm`
   (default 0.75 nm, form 0-5 nm, Default button) is the distance beyond the belt's own median sideways distance at
   which the far-head repair retries a head; **0 turns the repair off**. It is a belt-only cell in the same
@@ -39,7 +64,8 @@ state, what is next, what is open, and the measurements and incidents a reader h
   reports **18**, a count all three of its seeds accept — valid but very conservative, because the golden-angle
   ladder's fit is not monotonic in the count, so "use the measured count" is not a good answer for this system), and
   the ±1.5 retry moved **none** of the 16 NG / 7 DDM heads still outside the belt — the neighbours' bodies and the
-  minimum body gap block every candidate; at the old ±4 nm half-band the same retry moved 1 NG / 3 DDM. At a count
+  minimum body gap block every candidate; at the old ±4 nm half-band the same retry moved 1 NG / 3 DDM. **Superseded
+  by the entry above:** a problem head is now parked above or below the band, not nudged within 1.5 nm of its slot. At a count
   that does fit (18 detergents) the same preview places all 18, the repair moves 1 and leaves none far. If
   the outliers should really move, the next levers are ±2.5 nm plus a small heading turn (a dry run moved 8/11 NG and
   7/8 DDM at the tall band), an inward radial nudge down to the median, or keeping 155 with the taller band.

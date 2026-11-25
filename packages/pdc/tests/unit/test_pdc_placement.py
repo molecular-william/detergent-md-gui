@@ -1174,7 +1174,10 @@ def _belt_with_protrusion(tmp_path, *, window=pdc_placement.DEFAULT_BELT_AXIAL_W
     placed = pdc_placement.place_detergents(_axially_local_helix_protein(), template, count, seed=seed,
                                             frame=_frame(half_thickness_nm=1.48),
                                             belt_axial_window_nm=window, min_body_gap_nm=body_gap,
-                                            body_profile=profile)
+                                            body_profile=profile,
+                                            # The surface rule is what this fixture measures; the parking pass
+                                            # would move the protruding sites, so it is turned off here.
+                                            far_radial_nm=0)
     return placed, profile
 
 
@@ -1341,7 +1344,7 @@ def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
     assert pdc_placement.body_clearance(base_candidate, base_direction, profile, protein) < \
         pdc_placement.BEAD_CLEARANCE_NM
 
-    centers, directions, drawn, rejected, passes, rejected_slots, reclaim = pdc_placement._cylinder_sites(
+    centers, directions, drawn, rejected, passes, rejected_slots = pdc_placement._cylinder_sites(
         1, 3, cylinder, lambda heading, height: 1.0, length, half_band, protein,
         pdc_placement.MIN_CLEARANCE_NM, profile)
 
@@ -1359,93 +1362,105 @@ def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
     beads = pdc_placement.body_beads(moved, directions[0], profile)
     assert float(np.linalg.norm(beads[:, None, :] - protein[None, :, :], axis=2).min()) >= \
         pdc_placement.BEAD_CLEARANCE_NM
-    assert reclaim['moved'] == 0 and reclaim['still_far'] == 0, 'the only site is not compared with a belt'
 
 
-def test_a_head_far_outside_the_belt_is_retried_at_a_nearby_height():
-    """A head beyond the belt's median by `BELT_FAR_RADIAL_NM` is re-tried up to 1.5 nm higher/lower.
+def _parking_scene(*, always_far=False):
+    """Three heads on a z-axis cylinder, one far outside the belt; the far sector's surface is stated by a rule.
 
-    The first ladder site's local surface is far larger than the other two, so its head lands well outside the belt
-    the other two define. One of the bounded trial heights sees the small surface; the site is accepted there, back
-    inside the belt, and the record says so. This is the user's 2026-11-25 repair, pinned without a real protein.
+    Two heads define a 1.5 nm belt; the third's heading sees a 3.0 nm surface, so it lands 3.5 nm out -- beyond the
+    median by more than the default outlier distance. With `always_far` the far sector stays far at every height, so
+    no parking candidate can bring it back and the original position must stand.
     """
-    from micelle.packing import golden_angle_directions
-
-    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
-    count, seed, length, half_band = 3, 5, 0.5, 2.0
-    ladder = golden_angle_directions(count, seed)
-    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
-    heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
-    far_heading, far_height = float(headings[0]), float(heights[0])
-
+    axis = np.array([0.0, 0.0, 1.0])
+    across, up = pdc_placement._plane_basis(axis)
+    length, half_band = 0.5, 2.0
+    headings = (0.0, 2.1, -2.1)
+    radii = (3.5, 1.5, 1.5)
+    centers = np.asarray([[radius * np.cos(heading), radius * np.sin(heading), 0.0]
+                          for heading, radius in zip(headings, radii)], dtype=float)
+    # The far sector's surface is large through the whole band and small outside it, so only the outside heights park
+    # the far head; a test can instead make it large everywhere.
     def surface_at(heading, height):
-        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
-        if same and abs(float(height) - far_height) < 1.5 - 1e-9:
+        same = abs(float(np.angle(np.exp(1j * heading)))) < 1e-6
+        if not same:
+            return 1.0
+        if always_far or abs(float(height)) < half_band:
             return 3.0
         return 1.0
 
-    # A protein point far away from every trial: the gates have nothing to refuse, so only the repair's own radius
-    # condition decides, which is what this test is about.
-    protein = np.asarray([[0.0, 0.0, 50.0]])
-    centers, directions, drawn, rejected, passes, slots, reclaim = pdc_placement._cylinder_sites(
-        count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
-        profile=None, min_body_gap_nm=0.0)
-
-    assert len(centers) == count and rejected == 0
-    assert reclaim['moved'] == 1 and reclaim['still_far'] == 0, reclaim
-    assert reclaim['threshold_nm'] == pytest.approx(reclaim['median_radius_nm'] + pdc_placement.BELT_FAR_RADIAL_NM)
-    moved = centers[0]
-    candidates = [float(np.clip(far_height + offset, -half_band, half_band)) for offset in (1.5, -1.5)]
-    axis = np.asarray(cylinder['axis'], dtype=float)
-    assert any(abs(float(moved @ axis) - height) < 1e-9 for height in candidates), \
-        'the first in-band height that brings the head back inside the belt is the one used'
-    radial = moved - float(moved @ axis) * axis
-    assert float(np.linalg.norm(radial)) == pytest.approx(1.0 + length), 'the re-tried head is in the belt'
+    directions = np.asarray([across, np.cos(2.1) * across + np.sin(2.1) * up,
+                             np.cos(-2.1) * across + np.sin(-2.1) * up], dtype=float)
+    return centers, directions, surface_at, axis, across, up, length, half_band
 
 
-def test_the_outlier_distance_sets_the_retry_trigger_and_zero_turns_it_off():
-    """The same far head: the default distance retries it, a larger one ignores it, and 0 disables the repair.
+def _park(centers, directions, surface_at, axis, across, up, length, half_band, *, far_radial_nm, protein):
+    return pdc_placement._park_problem_sites(
+        centers, directions, origin=np.zeros(3), axis=axis, across=across, up=up, half_band_nm=half_band,
+        offset_nm=0.0, length_nm=length, surface_at=surface_at, profile=None, protein_points=protein,
+        min_clearance_nm=pdc_placement.MIN_CLEARANCE_NM, min_body_gap_nm=0.0, far_radial_nm=far_radial_nm)
 
-    The setting is the run's `belt_outlier_distance_nm`; the record carries both the distance stated and the
-    absolute threshold it becomes (the belt's median plus that distance).
+
+def test_a_protruding_head_is_parked_outside_the_band():
+    """A head beyond the belt's median by the outlier distance moves to a height above or below the band.
+
+    The far head's sector is large through the band and small beyond it, so the in-band heights cannot reclaim it;
+    the first outside height (+(half-band + 0.5) nm) can, and the head lands back inside the belt there.
     """
-    from micelle.packing import golden_angle_directions
+    centers, directions, surface_at, axis, across, up, length, half_band = _parking_scene()
+    protein = np.asarray([[0.0, 0.0, 50.0]])
+    parked, _, record = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                              far_radial_nm=pdc_placement.BELT_FAR_RADIAL_NM, protein=protein)
 
-    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
-    count, seed, length, half_band = 3, 5, 0.5, 2.0
-    ladder = golden_angle_directions(count, seed)
-    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
-    heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
-    far_heading, far_height = float(headings[0]), float(heights[0])
+    assert record['moved'] == 1 and record['still_far'] == 0, record
+    assert record['threshold_nm'] == pytest.approx(record['median_radius_nm'] + pdc_placement.BELT_FAR_RADIAL_NM)
+    relative = parked[0] - np.zeros(3)
+    height = float(relative @ axis)
+    assert height == pytest.approx(half_band + pdc_placement.BELT_PARK_OUTSIDE_NM[0]), \
+        'the first outside height that clears the belt is the one used'
+    radial = relative - height * axis
+    assert float(np.linalg.norm(radial)) == pytest.approx(1.0 + length), 'the parked head is back in the belt'
 
-    def surface_at(heading, height):
-        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
-        if same and abs(float(height) - far_height) < 1.5 - 1e-9:
-            return 3.0
-        return 1.0
 
+def test_the_outlier_distance_sets_the_parking_trigger_and_zero_turns_it_off():
+    """The same far head: the default distance parks it, a larger one ignores it, and 0 turns the far criterion off."""
+    centers, directions, surface_at, axis, across, up, length, half_band = _parking_scene()
     protein = np.asarray([[0.0, 0.0, 50.0]])
 
-    def place(far_radial_nm):
-        return pdc_placement._cylinder_sites(
-            count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
-            profile=None, min_body_gap_nm=0.0, far_radial_nm=far_radial_nm)
-
-    _, _, _, _, _, _, default = place(pdc_placement.BELT_FAR_RADIAL_NM)
+    parked, _, default = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                               far_radial_nm=pdc_placement.BELT_FAR_RADIAL_NM, protein=protein)
     assert default['moved'] == 1 and default['still_far'] == 0
     assert default['distance_nm'] == pytest.approx(pdc_placement.BELT_FAR_RADIAL_NM)
 
-    centers, _, _, _, _, _, wide = place(10.0)
+    unchanged, _, wide = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                               far_radial_nm=10.0, protein=protein)
     assert wide['moved'] == 0 and wide['still_far'] == 0, 'no head is beyond a 10 nm trigger'
     assert wide['distance_nm'] == pytest.approx(10.0)
-    radial = centers[0] - float(centers[0] @ np.asarray(cylinder['axis'])) * np.asarray(cylinder['axis'])
-    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), 'the far head is left where it was'
+    assert np.allclose(unchanged[0], centers[0]), 'the far head is left where it was'
 
-    centers, _, _, _, _, _, off = place(0.0)
+    unchanged, _, off = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                              far_radial_nm=0.0, protein=protein)
     assert off['moved'] == 0 and off['still_far'] == 0 and off['threshold_nm'] is None, off
     assert off['distance_nm'] == 0.0
-    radial = centers[0] - float(centers[0] @ np.asarray(cylinder['axis'])) * np.asarray(cylinder['axis'])
-    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), '0 disables the repair'
+    assert np.allclose(unchanged[0], centers[0]), '0 turns the far criterion off'
+
+
+def test_a_head_that_ends_too_close_to_the_protein_is_parked():
+    """A head within the protein's clearance is moved to another height even when the far criterion is off.
+
+    The protein bead sits exactly on the first head, so the placement cannot leave it there. The parking pass tries
+    the small in-band heights; the first that clears the bead is used and the record says the site was too close.
+    """
+    centers, directions, surface_at, axis, across, up, length, half_band = _parking_scene()
+    protein = np.asarray([centers[0]])
+    parked, _, record = pdc_placement._park_problem_sites(
+        centers, directions, origin=np.zeros(3), axis=axis, across=across, up=up, half_band_nm=half_band,
+        offset_nm=0.0, length_nm=length, surface_at=surface_at, profile=None, protein_points=protein,
+        min_clearance_nm=pdc_placement.MIN_CLEARANCE_NM, min_body_gap_nm=0.0, far_radial_nm=0.0)
+
+    assert record['too_close_initial'] == 1 and record['moved'] == 1, record
+    assert record['still_too_close'] == 0, record
+    assert float(np.linalg.norm(protein - parked[0], axis=1).min()) >= pdc_placement.MIN_CLEARANCE_NM
+    assert not np.allclose(parked[0], centers[0]), 'the too-close head moved'
 
 
 def test_a_negative_outlier_distance_is_refused(tmp_path):
@@ -1454,32 +1469,15 @@ def test_a_negative_outlier_distance_is_refused(tmp_path):
                                        far_radial_nm=-0.1)
 
 
-def test_a_head_with_no_nearby_legal_height_keeps_its_original_position():
-    """The repair never drops a detergent: no legal nearby height means the draw's own position stands."""
-    from micelle.packing import golden_angle_directions
-
-    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
-    count, seed, length, half_band = 3, 5, 0.5, 2.0
-    ladder = golden_angle_directions(count, seed)
-    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
-    far_heading = float(headings[0])
-
-    def surface_at(heading, height):
-        # The far sector is far at every height: no 1.5 nm nudge can bring this head inside the belt.
-        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
-        return 3.0 if same else 1.0
-
+def test_a_head_with_no_legal_height_keeps_its_original_position():
+    """The parking never drops a detergent: a sector that is far at every height leaves the draw's position standing."""
+    centers, directions, surface_at, axis, across, up, length, half_band = _parking_scene(always_far=True)
     protein = np.asarray([[0.0, 0.0, 50.0]])
-    centers, directions, drawn, rejected, passes, slots, reclaim = pdc_placement._cylinder_sites(
-        count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
-        profile=None, min_body_gap_nm=0.0)
+    parked, _, record = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                              far_radial_nm=pdc_placement.BELT_FAR_RADIAL_NM, protein=protein)
 
-    assert len(centers) == count and rejected == 0
-    assert reclaim['moved'] == 0 and reclaim['still_far'] == 1, reclaim
-    relative = centers[0] - np.asarray(cylinder['origin'])
-    axis = np.asarray(cylinder['axis'], dtype=float)
-    radial = relative - float(relative @ axis) * axis
-    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), 'the original far head is kept'
+    assert record['moved'] == 0 and record['still_far'] == 1, record
+    assert np.allclose(parked[0], centers[0]), 'the original far head is kept'
 
 
 def _blocked_in_band_protein(count, seed, half_band, length_nm, slab_half_nm):
@@ -1646,27 +1644,25 @@ def test_a_rejected_slot_is_lifted_with_the_belt_so_its_ring_stays_on_the_drawn_
     assert [mark['position_nm'] for mark in rings] == [slot['position_nm'] for slot in after]
 
 
-def test_a_head_inside_the_clearance_is_marked_at_its_site_and_nearest_protein_bead(tmp_path):
-    """The belt raises into a protrusion the unshifted site gate never measured: each offending head is marked."""
+def test_a_raised_belt_s_too_close_heads_are_parked_and_the_placement_is_valid(tmp_path):
+    """A belt translated into a protrusion the unshifted site gate never measured has its offending heads parked.
+
+    The user's 2026-11-25 decision: a head left within the clearance by the belt's vertical translation is moved
+    above or below the band rather than refusing the run. The record says how many were too close and how many were
+    moved; the final geometry clears the gate.
+    """
     points = _ring(1.0, 0.0, count=12) + _ring(3.0, 2.0, count=24)
     placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
                                             radius_nm=1.0, belt_offset_nm=2.0, measure_capacity=False)
-    head = [mark for mark in placed['problems'] if mark['kind'] == 'head-clearance']
+    repair = placed['band']['radial_repair']
 
-    assert not placed['valid'] and head
-    issue = next(issue for issue in placed['issues'] if issue.startswith('detergent too close'))
-    centers = np.asarray(placed['centers'])
-    cloud = np.asarray(points)
-    for mark in head:
-        index = mark['molecule'] - 1
-        assert mark['detail'] == issue
-        assert mark['position_nm'] == [round(float(value), 6) for value in centers[index]]
-        assert mark['normal_nm'] is None
-        assert len(mark['protein_beads']) == 1
-        assert np.linalg.norm(centers[index] - np.asarray(mark['protein_beads'][0])) < \
-            pdc_placement.MIN_CLEARANCE_NM
-        assert np.linalg.norm(centers[index] - np.asarray(mark['protein_beads'][0])) == pytest.approx(
-            float(np.linalg.norm(centers[index] - cloud, axis=1).min()), abs=6e-6)
+    assert placed['valid'], placed['issues']
+    assert repair['too_close_initial'] > 0 and repair['moved'] >= 1, repair
+    assert repair['still_too_close'] == 0, repair
+    clearance = min(float(np.linalg.norm(np.asarray(points) - center, axis=1).min())
+                    for center in np.asarray(placed['centers']))
+    assert clearance >= pdc_placement.MIN_CLEARANCE_NM, clearance
+    assert not [mark for mark in placed['problems'] if mark['kind'] == 'head-clearance']
     _assert_finite_marks(placed['problems'])
 
 
@@ -1745,10 +1741,11 @@ def test_problem_marks_are_capped_and_the_leftovers_counted(tmp_path, monkeypatc
 
 def test_the_whole_belt_can_be_lifted_along_the_membrane_normal(tmp_path):
     """A belt offset moves every site together, higher along the frame's axis; 0 is the unchanged placement."""
-    points = _asymmetric_protein()
-    level = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame())
+    points = _ring(2.4, 0.0, count=12)
+    level = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
+                                           far_radial_nm=0)
     lifted = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
-                                            belt_offset_nm=0.2)
+                                            belt_offset_nm=0.2, far_radial_nm=0)
 
     assert level['valid'] and lifted['valid'], (level['issues'], lifted['issues'])
     assert lifted['band']['belt_offset_nm'] == 0.2

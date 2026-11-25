@@ -1112,22 +1112,29 @@ the absolute heights just above and below the band (`BELT_TRIAL_BEYOND_NM`: +-(h
 1.0) nm, at its base heading, local surface re-measured) before it is left empty; the user's 2026-11-25 decision,
 so a slot the protein blocks is placed just off the band instead of lost. The record's `placed_axial_max_nm` is the
 tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band, and `volume_nm3` uses the
-larger of the two. **The far heads are then reclaimed**, the user's 2026-11-25 decision: a placed head more than
-`belt_outlier_distance_nm` (default 0.75 nm; 0 turns the repair off) beyond the belt's own median sideways distance
-is retried at its own heading up to 1.5 nm higher or lower (the six `BELT_RECLAIM_HEIGHT_NM` steps, clipped to the
-band), and the first candidate that clears every gate and lands back inside the belt replaces it; a head with no such
-neighbour keeps the draw's position, so the count never drops. The trigger travels from the form through the preview
-and admission to the build; `BELT_FAR_RADIAL_NM` is only the default. The band's `radial_repair` records the median, the threshold, the trial heights
-and how many heads moved or stayed far. This exists because one side chain reaching into the membrane can push a
-whole detergent out: the local surface is the sector's maximum, not the average. A rejected
+larger of the two. **Problem heads are then parked above or below the band**, the user's 2026-11-25 decision:
+after the belt's vertical translation, a placed head is a problem when it is more than `belt_outlier_distance_nm`
+(default 0.75 nm; 0 turns this **far** criterion off) beyond the belt's own median sideways distance, or when its head
+or its carried body -- the template, and the drawn library body when there is a library -- is closer to the protein
+than its gate. It is retried at its own heading at the small in-band heights first (`BELT_PARK_INSIDE_NM`) and then
+at the heights just above and below the band (`BELT_PARK_OUTSIDE_NM`, up to 2.5 nm beyond each face); the first
+candidate that clears every gate, keeps the drawn body clear and (when the far criterion is on) lands back inside the
+belt replaces it, and the record's radius/reach/volume are recomputed from the moved geometry. A head with no such
+place keeps the draw's position, so the count never drops. The trigger travels from the form through the preview and
+admission to the build; `BELT_FAR_RADIAL_NM` is only the default, and `belt_outlier_distance_nm` of 0 does not stop a
+too-close head being parked, because leaving it would refuse the run. The band's `radial_repair` records the median,
+the threshold, the heights tried, how many heads moved and how many far/too-close heads remain. This exists because
+one side chain reaching into the membrane can push a whole detergent out -- the local surface is the sector's
+maximum, not the average -- and because the belt's translation can leave a head inside the clearance. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,
 which the preview's red rings and a refusal's count read. The placement's `problems` list is the same
 measurements as display marks (empty slot, head/body clearance, overlap; 200-mark cap, `problems_truncated`). `min_body_gap_nm` (default 0.3 nm) is a
 **body-body** gate against the run's own stamped model body (an explicit centres-only build gets the head-only gate);
 `belt_gap_nm`, `min_body_gap_nm`, `belt_axial_window_nm` and `belt_offset_nm` are belt-only settings;
-`belt_offset_nm` translates every placed site together along the membrane normal after the site gate, and the final
-head/body clearance checks run against the shifted sites, so a belt raised into the protein is refused rather than
-drawn. A
+`belt_offset_nm` translates every placed site together along the membrane normal after the site gate; the parking
+pass then moves any head the translation left too close (or far out) and the final head/body clearance checks run on
+the moved geometry, so a belt raised into the protein has its offending heads parked, and is refused only where no
+nearby spot clears. A
 build with no stated membrane keeps a **sphere** (`SHAPE_SPHERE`) whose radius is `radius_nm` or the selected beads'
 extent about their centroid plus the clearance plus the detergent's length, whichever is larger: `radius_nm` is a
 floor there too, and `radius_source` records which number won -- only an empty micelle, with nothing to measure, has
