@@ -54,13 +54,20 @@ _SALT = ('the salt concentration the system is solvated at (dashboard text, not 
          'ions to this molarity and neutralises the net charge; 0 is no added salt')
 _SEED = ('the seed the run draws from (dashboard text, not GROMACS): the placement is deterministic in it, and the '
          'NVT leg writes it as gen-seed, so the same number repeats a run')
-_BOX_MARGIN = ('the clearance between a box face and the system (dashboard text, not GROMACS): x and y are the '
-               "protein's own footprint plus this margin on each side, and a membrane-stating protein's z is "
-               'centred on its membrane with at least this margin to the furthest atom or the slab')
-_INITIAL_Z = ('the z extent of the box a protein with no stated membrane is inserted into (dashboard text, not '
-              'GROMACS): x and y come from the protein footprint, while z is this stated number. Auto measures the '
-              "selected protein and sets z to its z extent plus twice the box margin; a membrane-stating protein's "
-              'box is already centred on its membrane and clears it by the margin')
+_BOX_MARGIN = ('the clearance between a box face and the system (dashboard text, not GROMACS), in nm: x and y are '
+               "the protein's own footprint plus this margin on each side, and a membrane-stating protein's box is "
+               'centred on its membrane with at least this margin to the furthest atom or the belt. 2 nm is the '
+               'default, and it is what a blank x or y box is derived from')
+_INITIAL_XY = ('the starting cell\'s {axis} dimension in nm (dashboard text, not GROMACS): blank is the box the '
+               "preview draws -- the protein's footprint plus the box margin, widened to the belt's radial reach when "
+               'a belt is placed -- and a stated number is the cell\'s dimension, drawn and run exactly whenever it '
+               'can hold the protein and the belt. A stated number too small to hold them is refused at the queue '
+               'with both numbers, so clear the box fields to derive them or state larger values')
+_INITIAL_Z = ("the starting cell's z dimension in nm (dashboard text, not GROMACS): blank is the box the preview "
+              "draws. A membrane-stating protein's z is centred on its membrane and clears the furthest atom, the "
+              'slab and the belt by the box margin; without a stated membrane the insertion box is the reviewed 6 nm '
+              "and the written cell is measured from the placed system. A stated number is the cell's height "
+              'whenever it can hold the system, and the queue refuses one that cannot')
 _CONTACT = ("the distance within which two detergents' tail beads count as touching (dashboard text, not GROMACS): "
             "the contact graph's largest connected cluster is the micelle, and a detergent in a smaller cluster is "
             'outside it')
@@ -72,12 +79,16 @@ _MIN_BODY_GAP = ('the minimum distance between any bead of one detergent body an
                  'placed one, so two detergents cannot interpenetrate. 0 disables the gate; the sphere and '
                  'self-assembly paths do not read it')
 _BELT_VERTICAL_HALF = ('the belt\u2019s vertical half-height in nm (dashboard text, not GROMACS): the band spans '
-                       'this far either side of the cylinder\u2019s mid-plane. Blank keeps the retired multiple of the '
-                       'detergent\u2019s own length (2.0), which is what every run before 2026-11-24 placed. Belt-only; '
+                       'this far either side of the cylinder\u2019s mid-plane, and 4 nm is the default. A slot the '
+                       'protein blocks is retried slightly above or below this band before it is left empty. Belt-only; '
                        'the sphere and self-assembly do not read it')
 _BELT_VERTICAL_SPREAD = ('the retired spelling of the belt\u2019s vertical half-height as a multiple of the detergent\u2019s '
-                         'own length (dashboard text, not GROMACS): still read for a run or preset written before '
-                         '2026-11-24, and superseded by the nm setting whenever that one is stated')
+                         'own length (dashboard text, not GROMACS): read only for a run or preset written before '
+                         '2026-11-24 that states it without the nm setting, and superseded by that setting whenever it '
+                         'is stated')
+_BELT_OFFSET = ('a uniform translation of the belt along the membrane normal, in nm (dashboard text, not GROMACS): 0 '
+                'is the reviewed placement, and a positive value moves the whole belt higher without moving the '
+                'protein or the cell. Belt-only; the sphere and self-assembly do not read it')
 _BELT_AXIAL_WINDOW = ('the axial half-window used to measure a belt site\u2019s local protein surface (dashboard text, '
                       'not GROMACS), in nm: only in-slab atoms within this distance of the site\u2019s height set its '
                       'radius, so a helix at another height does not push the site outward; smaller is tighter, and a '
@@ -141,6 +152,8 @@ HELP = {
     'salt_molar': _SALT,
     'pdc_seed': _SEED,
     'box_margin_nm': _BOX_MARGIN,
+    'initial_x_nm': _INITIAL_XY.format(axis='x'),
+    'initial_y_nm': _INITIAL_XY.format(axis='y'),
     'initial_z_nm': _INITIAL_Z,
     'contact_nm': _CONTACT,
     'belt_gap_nm': _BELT_GAP,
@@ -148,6 +161,7 @@ HELP = {
     'belt_axial_window_nm': _BELT_AXIAL_WINDOW,
     'belt_vertical_half_nm': _BELT_VERTICAL_HALF,
     'belt_vertical_spread': _BELT_VERTICAL_SPREAD,
+    'belt_offset_nm': _BELT_OFFSET,
     'selection_threshold_fraction': _THRESHOLD,
     'protein_vsite': _VSITE,
     'mdrun_gpu': CORE_HELP['mdrun_gpu'],

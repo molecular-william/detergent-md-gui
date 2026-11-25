@@ -47,14 +47,15 @@ APOLAR = {'A': 38.0, 'A,B,C': 75.285}
 
 def body(chains):
     apolar = APOLAR[chains]
-    head = 0.2187
-    needed = apolar / head
+    coverage = 0.4378
+    needed = apolar / coverage
     return {'protein': {'name': '1at9', 'id': TRIMER['id'], 'source': 'imported', 'half_thickness_nm': 1.5},
             'molecule_id': 'DDM', 'mappings': [MAPPING_FILE],
             'chains': chains.split(','),
             'slab': {'axis': 'z', 'centre_nm': 0.0, 'half_thickness_nm': 1.5},
-            'atoms': 1200, 'apolar_area_nm2': apolar, 'head_radius_nm': 0.264, 'head_area_nm2': head,
-            'requested': 150, 'needed': needed, 'fraction': 150 * head / apolar,
+            'atoms': 1200, 'apolar_area_nm2': apolar, 'coverage_area_nm2': coverage,
+            'coverage_radii_nm': [0.264], 'tail_ends': 1,
+            'requested': 150, 'needed': needed, 'fraction': 150 * coverage / apolar,
             'method': 'Flat-area estimate from the deposited structure.',
             'caveat': 'This is a sizing aid and not a verdict.'}
 

@@ -6,9 +6,8 @@ periodic image or silently changes the density a placement was built for.
 
 `initial_box` is the box a protein is inserted into, `extended_box` the one it gets once the detergents are placed,
 `membrane_box` the one a protein that states its own membrane gets: centred on that membrane's plane, with z
-clearing the protein and the belt, and x/y widened to the belt's radial reach. `auto_initial_z`/`auto_initial_xy`
-are the numbers those insertion rules measure when the caller states none, which is what the form's Auto button asks
-for.
+clearing the protein and the belt, and x/y widened to the belt's radial reach. `auto_initial_xy` is the x/y those
+insertion rules derive when the caller states none.
 
 A stated initial x, y or z is the cell's dimension whenever it can hold the system (the protein, and in
 `membrane_box` the belt too): that is the number the build writes and the preview draws. A number smaller than that
@@ -49,9 +48,9 @@ def auto_initial_xy(points, margin_nm=2.0):
     """The x/y a box should have when nobody states one, from the protein's own coordinates.
 
     The protein's footprint plus `margin_nm` at each face -- exactly what `initial_box` uses when no x or y is stated.
-    The form's Auto button fills these numbers, and the panel shows them as the derived value while its x/y fields are
-    blank; a blank field posts nothing, so the run derives the same number the panel displayed. The value is rounded
-    like its neighbours' boxes.
+    The extent route publishes it as the belt-less initial box; the panel's own box line and its Auto button read the
+    preview instead, because only a placement can measure the belt's radial reach. The value is rounded like its
+    neighbours' boxes.
     """
     if not points:
         raise ValueError('a box needs at least one coordinate')
@@ -84,14 +83,15 @@ def initial_box(points, margin_nm=2.0, initial_z_nm=6.0, initial_x_nm=None, init
 def auto_initial_z(points, half_thickness_nm=None, margin_nm=2.0):
     """The z a box should have when nobody states one, from the protein's own coordinates.
 
-    This is `initial_box`'s and `membrane_box`'s z rule with the stated z replaced by a measurement, which is what the
-    form's Auto button asks for. Without a membrane it is the protein's own z span plus the margin at each face -- the
-    same answer `initial_box` gives when that number is passed as `initial_z_nm`. With a membrane it is
-    `membrane_box`'s z, `2 x (max(furthest atom, half-thickness) + margin)`: the box is centred on the membrane plane,
-    so the protein already clears it by the margin rather than needing a second span's worth of box.
+    This is `initial_box`'s and `membrane_box`'s z rule with the stated z replaced by a measurement. Without a
+    membrane it is the protein's own z span plus the margin at each face -- the same answer `initial_box` gives when
+    that number is passed as `initial_z_nm`. With a membrane it is `membrane_box`'s z, `2 x (max(furthest atom,
+    half-thickness) + margin)`: the box is centred on the membrane plane, so the protein already clears it by the
+    margin rather than needing a second span's worth of box.
 
-    A caller that wants no belt in the measurement passes no `belt_reach_nm`; this is the box before the detergents
-    are placed, exactly as `membrane_box`'s default states. The value is rounded like its neighbours' boxes.
+    It measures no belt, so it is the box before the detergents are placed, exactly as `membrane_box`'s default
+    states. The panel's Auto button does not read it: Auto writes the preview's own box, belt included. The value is
+    rounded like its neighbours' boxes.
     """
     if not points:
         raise ValueError('a box needs at least one coordinate')

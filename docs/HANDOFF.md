@@ -10,6 +10,42 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc New run: belt/box labels, one three-column belt grid, collapsed editors, 4 nm spread, tail-hemisphere
+  coverage, preview-exact Auto, and an out-of-band belt fallback (2026-11-25, the user's decisions).** Plan and the
+  user's answers: `docs/plans/2026-11-25-pdc-belt-form-coverage-and-placement.md`.
+  The **Detergent belt and sampling** group is one three-column grid (initialisation style, count, belt gap, minimum
+  body-bead distance, axial window, vertical spread, vertical offset); each belt label's subtext is the unit only
+  (`nm`) and the explanation is the server-sent info button (`setting_help.HELP`). The five belt-only cells carry
+  `data-belt-only` and hide in self-assembly and for an empty micelle. **Vertical spread** is `belt_vertical_half_nm`
+  in nm with a 4.0 default (`pdc.DEFAULTS`), a Default button and no retired placeholder; a pre-2026-11-24 payload
+  that states `belt_vertical_spread` and no nm key keeps that multiple (`_numbers` drops the injected 4.0), and
+  `feature._box_warnings`/`preview_choices`/`pdc_preview.preview` apply the same default so admission, preview and
+  build describe one band. **Starting box** labels are `Initial box x/y/z` and `Box margin` with `nm` subtext; the
+  blank-field/exact-dimension rule is in their info buttons; the prose paragraph and the per-axis `box_notes` line
+  are gone from the panel (the queue's refusal states the same sentences; `box_notes` stays in the record).
+  **Every stage editor opens collapsed** (the facts line still states what it holds).
+  **Slab coverage** now divides by the hemispheric area of the mapping's **free-end tail beads**:
+  `coverage = 2*pi*sum(r^2)`, a free end being a non-virtual C/SC/TC bead of degree one in the mapping's
+  `connections`, so branched LMNG sums two ends. The route answers `coverage_area_nm2`/`coverage_radii_nm`/`tail_ends`
+  (the old `head_radius_nm`/`head_area_nm2` are gone), and sizes the mapping the form has selected (`?mapping=`);
+  unnamed, every saved mapping must agree. Measured live on 2ydo: DDM 2*pi*0.264^2 = 0.4379 nm^2 (needed 83.5 for
+  the 192 asked), LMNG `mapping_candidate_481aa...` 2*2*pi*0.230^2 = 0.6648 nm^2 (needed 55.0); with no mapping named
+  the LMNG drafts disagree (0.665 vs 0.876 in `mapping_candidate_696edc...`, whose ends are R beads) and the route
+  says so.
+  **Initial box Auto** derives the preview and writes its `basis.box_nm`, so the stated cell is the cell the picture
+  drew (the extent route's belt-less `auto_initial_*` fields and their tests are removed; `pdc_box.auto_initial_z`
+  stays a documented rule, unused by the panel).
+  **Blocked belt slots**: after every in-band trial fails, `_cylinder_sites` tries the absolute heights
+  +-(half_band + 0.5) then +-(half_band + 1.0) nm at the slot's base heading (`BELT_TRIAL_BEYOND_NM`), local surface
+  re-measured; the band record adds `placed_axial_max_nm` and `volume_nm3` uses the larger of it and the requested
+  band. Placement/build unit tests pin both the fallback and an ordinary in-band belt.
+  Checks: fast tier **3,208 passed / 1 xfailed**; full browser tier **430 passed** (`-n 16 --dist worksteal`); pdc fast
+  area 869 / 1 xfailed; ruff clean on every touched path. The dashboard was restarted (`detergent-dashboard.service`,
+  no jobs active) and the live page serves the new labels/help/defaults; live encapsulation numbers above. Tests
+  changed with the behaviour: the removed note line, the three-column belt geometry, Auto's preview source, collapsed
+  editors (cases that fill stage fields open the editor first), the free-end-tail coverage arithmetic, and the
+  mapping-scoped estimate. **Unstaged user edits elsewhere were left alone.**
+
 - **An impossible starting box is refused at the queue, not widened into a run (2026-11-24, user's decision).**
   Following the box-widening fix (commit 3ba558e), the user asked that a run whose stated box cannot hold its system
   must not be queued at all, with the warning. `Feature.admission` now carries the rule: a pdc payload that states

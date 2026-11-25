@@ -125,6 +125,8 @@ def test_the_stage_reads_the_structures_own_membrane_and_places_the_belt_on_its_
     assert band['cylinder']['axis'] == [0.0, 0.0, 1.0]
     assert band['radius_nm'] == 1.0 and band['radius_source'] == 'measured'
     assert band['detergent_length_nm'] == MOLECULE_LENGTH_NM
+    assert band['placed_axial_max_nm'] <= band['vertical_half_band_nm'] + 1e-3, \
+        'this ordinary belt is placed inside the band it states'
     assert report['protein_clearance_nm'] >= MIN_CLEARANCE_NM
 
     centres = detergent_centres(stage)

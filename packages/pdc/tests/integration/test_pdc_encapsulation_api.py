@@ -1,9 +1,9 @@
 """The encapsulation endpoint the new-run panel calls: the numbers, the method and the caveat.
 
 The route's job is to be honest about what it can and cannot size. A protein whose structure states no membrane has
-no slab, so it is refused with a reason rather than given a default; a detergent with no saved mapping has no head
-bead size class, so it too is refused. The structure and the mapping are built here -- a hand-made PDB imported
-through the real import path, and a hand-made mapping -- so nothing touches the developer's workspace.
+no slab, so it is refused with a reason rather than given a default; a detergent with no saved mapping has no free-end
+tail bead, so it too is refused. The structure and the mapping are built here -- a hand-made PDB imported through the
+real import path, and a hand-made mapping -- so nothing touches the developer's workspace.
 """
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ THIN = MEMBRANE.replace('10.0', '2.0')
 ANNOTATION_FREE = MEMBRANE.replace('REMARK      1/2 of bilayer thickness:   10.0\n', '')
 
 CARBON_SPHERE = 4 * math.pi * (0.175 + 0.191) ** 2      # one CA, as an isolated sphere, nm^2
+# The fixture mapping's one free-end tail bead is TAIL1, an R bead: 2 * pi * 0.264^2 nm^2.
+COVERAGE = 2 * math.pi * 0.264 ** 2
 
 
 def _import(dashboard, monkeypatch, pdbid, text):
@@ -33,8 +35,9 @@ def _import(dashboard, monkeypatch, pdbid, text):
     return dashboard.client.post('/api/pdc/proteins/import', json={'pdbid': pdbid})
 
 
-def _url(entry, molecule_id='DDM', aggregation_number=150):
-    return f'/api/pdc/proteins/{entry}/encapsulation?molecule_id={molecule_id}&aggregation_number={aggregation_number}'
+def _url(entry, molecule_id='DDM', aggregation_number=150, mapping=None):
+    url = f'/api/pdc/proteins/{entry}/encapsulation?molecule_id={molecule_id}&aggregation_number={aggregation_number}'
+    return url if mapping is None else url + f'&mapping={mapping}'
 
 
 def test_the_estimate_comes_back_with_its_numbers_its_method_and_its_caveat(dashboard, monkeypatch):
@@ -46,17 +49,19 @@ def test_the_estimate_comes_back_with_its_numbers_its_method_and_its_caveat(dash
     assert response.status_code == 200, response.get_data(as_text=True)
     body = response.get_json()
     assert body['apolar_area_nm2'] == pytest.approx(2 * CARBON_SPHERE)
-    assert body['head_radius_nm'] == 0.230, 'the head bead is the small sugar bead the mapping records'
-    assert body['head_area_nm2'] == pytest.approx(math.pi * 0.230 ** 2)
-    assert body['needed'] == pytest.approx(2 * CARBON_SPHERE / (math.pi * 0.230 ** 2))
+    assert body['coverage_area_nm2'] == pytest.approx(COVERAGE), \
+        'the free-end tail bead is the fixture mapping\u2019s one R-bead leaf'
+    assert body['coverage_radii_nm'] == [0.264] and body['tail_ends'] == 1
+    assert body['needed'] == pytest.approx(2 * CARBON_SPHERE / COVERAGE)
     assert body['requested'] == 150
     assert body['fraction'] == pytest.approx(150 / body['needed'])
-    assert 'Shrake-Rupley' in body['method'] and 'largest head bead' in body['method']
+    assert 'Shrake-Rupley' in body['method'] and 'free-end tail bead' in body['method']
     assert 'flat surface' in body['caveat'] and 'roughly the right order' in body['caveat']
     # The panel's bubble reads the short form; the long method travels beside it, so the two never have to agree on a
     # single string and shortening what is displayed does not delete what the route states.
-    assert 'head bead' in body['method_summary'] and 'No simulation' in body['method_summary']
+    assert 'free-end tail bead' in body['method_summary'] and 'No simulation' in body['method_summary']
     assert body['method_summary'] != body['method']
+    assert 'head_radius_nm' not in body and 'head_area_nm2' not in body
 
 
 def test_the_route_s_method_says_apolar_parented_modified_residues_are_folded_in(dashboard, monkeypatch):
@@ -108,29 +113,81 @@ def test_a_detergent_with_no_saved_mapping_is_refused_with_a_reason(dashboard, m
     assert 'mapping' in response.get_json()['error']
 
 
-def test_a_mapping_that_names_no_head_bead_is_refused_with_a_reason(dashboard, monkeypatch):
-    """Every physical bead of the aliphatic carbon series: there is no head size class to resolve."""
+def test_a_mapping_whose_tail_has_no_free_end_is_refused_with_a_reason(dashboard, monkeypatch):
+    """A ring of tail beads has no leaf, so there is no hemisphere to sum and no coverage area to divide by."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
-    mapping_candidate(dashboard, beads=[{'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]}])
+    tail = [{'name': name, 'type': 'C1', 'size': 'R', 'atoms': [index]}
+            for index, name in enumerate(('TAIL1', 'TAIL2', 'TAIL3'), start=1)]
+    mapping_candidate(dashboard, beads=tail,
+                      connections=[['TAIL1', 'TAIL2'], ['TAIL2', 'TAIL3'], ['TAIL3', 'TAIL1']])
 
     response = dashboard.client.get(_url('1qj8'))
 
     assert response.status_code == 400
-    assert 'head' in response.get_json()['error']
+    assert 'free-end tail' in response.get_json()['error']
 
 
-def test_saved_mappings_that_disagree_about_the_head_bead_are_refused(dashboard, monkeypatch):
-    """Two saved mappings, two head sizes: the route refuses rather than picking one silently."""
+def test_a_mapping_that_states_no_connections_is_refused_with_a_reason(dashboard, monkeypatch):
+    """With no connectivity the route cannot say which tail bead is an end, so it refuses rather than guessing."""
+    _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
+    mapping_candidate(dashboard, connections=[])
+
+    response = dashboard.client.get(_url('1qj8'))
+
+    assert response.status_code == 400
+    assert 'connections' in response.get_json()['error']
+
+
+def test_saved_mappings_that_disagree_about_the_coverage_area_are_refused(dashboard, monkeypatch):
+    """Two saved mappings, two coverage areas: the route refuses rather than picking one silently."""
     _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
     mapping_candidate(dashboard)
     mapping_candidate(dashboard, name='mapping_candidate_second.json',
-             beads=[{'name': 'TAIL1', 'type': 'C1', 'size': 'R', 'atoms': [1]},
-                    {'name': 'HEAD', 'type': 'P1', 'size': 'R', 'atoms': [2]}])
+                      beads=[{'name': 'TAIL1', 'type': 'SC1', 'size': 'S', 'atoms': [1]},
+                             {'name': 'HEAD', 'type': 'P1', 'size': 'R', 'atoms': [2]}],
+                      connections=[['TAIL1', 'HEAD']])
 
     response = dashboard.client.get(_url('1qj8'))
 
     assert response.status_code == 400
-    assert 'disagree' in response.get_json()['error']
+    error = response.get_json()['error']
+    assert 'disagree' in error and '0.438' in error and '0.332' in error, error
+
+
+def test_a_named_mapping_is_the_one_the_estimate_sizes(dashboard, monkeypatch):
+    """The form's selected mapping decides the area: two saved candidates may disagree and the chosen one is used.
+
+    A molecule's saved drafts can differ about a tail bead's size class (LMNG's end beads are R in one revision and
+    S in another). With no mapping named the route refuses to pick; with one named -- the model the run will build
+    from -- that mapping's own free-end beads are what is summed.
+    """
+    _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
+    mapping_candidate(dashboard)
+    second = 'mapping_candidate_second.json'
+    mapping_candidate(dashboard, name=second,
+                      beads=[{'name': 'TAIL1', 'type': 'SC1', 'size': 'S', 'atoms': [1]},
+                             {'name': 'HEAD', 'type': 'P1', 'size': 'R', 'atoms': [2]}],
+                      connections=[['TAIL1', 'HEAD']])
+
+    assert dashboard.client.get(_url('1qj8')).status_code == 400, 'unnamed, the disagreement is stated'
+    chosen = dashboard.client.get(_url('1qj8', mapping=second))
+
+    assert chosen.status_code == 200, chosen.get_data(as_text=True)
+    body = chosen.get_json()
+    assert body['mappings'] == [second]
+    assert body['coverage_radii_nm'] == [0.230] and body['tail_ends'] == 1
+    assert body['coverage_area_nm2'] == pytest.approx(2 * math.pi * 0.230 ** 2)
+
+
+def test_a_named_mapping_the_molecule_does_not_hold_is_refused(dashboard, monkeypatch):
+    _import(dashboard, monkeypatch, '1qj8', MEMBRANE)
+    mapping_candidate(dashboard)
+
+    response = dashboard.client.get(_url('1qj8', mapping='mapping_candidate_missing.json'))
+
+    assert response.status_code == 400
+    error = response.get_json()['error']
+    assert 'mapping_candidate_missing.json' in error and 'no saved mapping' in error
 
 
 def test_an_unknown_protein_entry_is_a_404(dashboard, monkeypatch):

@@ -49,9 +49,6 @@ def test_a_structure_that_states_no_membrane_gets_the_initial_box_rule(dashboard
     assert body['protein'] == '1qj8'
     assert body['dimensions_nm'] == {'x': 3.0, 'y': 2.0, 'z': 4.0}
     assert body['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=2.0, initial_z_nm=6.0)
-    assert (body['auto_initial_x_nm'], body['auto_initial_y_nm']) == \
-        tuple(round(value, 3) for value in pdc_box.auto_initial_xy(POINTS_NM, margin_nm=2.0))
-    assert body['auto_initial_z_nm'] == round(pdc_box.auto_initial_z(POINTS_NM, margin_nm=2.0), 3)
     assert body['rule'] == 'initial'
     assert body['half_thickness_nm'] is None
     assert body['chains'] is None
@@ -67,18 +64,6 @@ def test_a_structure_that_states_a_membrane_gets_the_membrane_box_rule(dashboard
     assert body['half_thickness_nm'] == 1.0
     assert body['dimensions_nm'] == {'x': 3.0, 'y': 2.0, 'z': 4.0}
     assert body['initial_box_nm'] == pdc_box.membrane_box(POINTS_NM, half_thickness_nm=1.0, margin_nm=2.0)
-    assert body['auto_initial_z_nm'] == round(pdc_box.auto_initial_z(POINTS_NM, half_thickness_nm=1.0,
-                                                                     margin_nm=2.0), 3)
-
-
-def test_the_auto_initial_z_is_the_same_whatever_z_the_caller_asked_for(dashboard, monkeypatch):
-    """Auto is a measurement, so it cannot depend on the value it is about to replace."""
-    _import(dashboard, monkeypatch, '1qj8', NO_MEMBRANE)
-
-    default = _extent(dashboard, '1qj8').get_json()['auto_initial_z_nm']
-    requested = _extent(dashboard, '1qj8', '?initial_z_nm=40.0').get_json()['auto_initial_z_nm']
-
-    assert default == requested == round(pdc_box.auto_initial_z(POINTS_NM, margin_nm=2.0), 3)
 
 
 def test_the_margin_and_initial_z_the_caller_sends_reach_the_box(dashboard, monkeypatch):
@@ -90,13 +75,11 @@ def test_the_margin_and_initial_z_the_caller_sends_reach_the_box(dashboard, monk
     assert body['initial_box_nm'] == pdc_box.initial_box(POINTS_NM, margin_nm=1.5, initial_z_nm=8.0)
 
 
-def test_the_stated_initial_xy_is_the_cells_dimension_and_the_auto_answer_is_the_derived_one(
-        dashboard, monkeypatch):
-    """A stated x/y is the cell the panel shows when it fits; Auto's suggested x/y stay the derived footprint.
+def test_the_stated_initial_xy_is_the_cells_dimension(dashboard, monkeypatch):
+    """A stated x/y is the cell the panel shows when it fits, and the requirement when it cannot.
 
-    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot hold the protein and the
-    line shows the derived 7 x 6; a stated 20 x 25 is the caller's cell -- while
-    `auto_initial_x_nm`/`auto_initial_y_nm` stay 7 and 6, because the button fills the values it is about to replace.
+    The protein spans 3 x 2 nm, so a 2 nm margin derives 7 x 6 nm. A stated 1 nm cannot hold the protein and is
+    widened to 7 x 6; a stated 20 x 25 is the caller's cell exactly.
     """
     _import(dashboard, monkeypatch, '1qj8', NO_MEMBRANE)
 
@@ -105,7 +88,7 @@ def test_the_stated_initial_xy_is_the_cells_dimension_and_the_auto_answer_is_the
 
     assert small['initial_box_nm'][:2] == [7.0, 6.0], 'a stated box the protein cannot fit is the derived one'
     assert stated['initial_box_nm'][:2] == [20.0, 25.0]
-    assert (stated['auto_initial_x_nm'], stated['auto_initial_y_nm']) == (7.0, 6.0)
+    assert 'auto_initial_x_nm' not in stated, 'Auto writes the preview\'s box, not a belt-less measurement'
 
 
 def test_a_stated_initial_xy_that_is_not_a_positive_number_is_refused_naming_it(dashboard, monkeypatch):

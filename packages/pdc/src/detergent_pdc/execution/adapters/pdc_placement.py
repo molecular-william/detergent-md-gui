@@ -46,7 +46,8 @@ The measurements and the packing rule the module owns, and records:
   within the adaptive angular window *and* within `belt_axial_window_nm` of its own height, so a site above or below a
   transmembrane helix sees the bundle rather than that helix's arc. Between detergents the gate is the bodies' own
   separation (`min_body_gap_nm`); **every** slot that fails a gate tries a bounded, deterministic sequence of local
-  offsets -- height first, then heading, then radially outward -- and is left empty only if none clears, so even
+  offsets -- height first, then heading, then radially outward -- then, if all of those fail, the absolute heights just
+  above and below the band (`BELT_TRIAL_BEYOND_NM`), and is left empty only if none clears, so even
   coverage does not depend on relocating a rejected site into the next lobby of the ladder. Every slot left empty is
   recorded with its own base coordinate, heading, height and the gate it failed (`rejected_slots`), which is what the
   preview's empty-slot rings and a refusal's count read.
@@ -125,6 +126,13 @@ DEFAULT_MIN_BODY_GAP_NM = 0.3
 BELT_TRIAL_HEIGHT_NM = (0.2, -0.2, 0.4, -0.4)
 BELT_TRIAL_HEADING_DEG = (-6.0, 6.0, -12.0, 12.0)
 BELT_TRIAL_RADIAL_NM = (0.35, 0.7, 1.05)
+# A slot whose every in-band trial fails also samples just **outside** the stated band before it is left empty: the
+# user's decision (2026-11-25) is that the spaces slightly above and below the ladder's vertical spread are tried
+# rather than leaving a slot the protein blocks. The heights are absolute -- +(half_band + 0.5), -(half_band + 0.5),
+# +(half_band + 1.0), -(half_band + 1.0) nm, in that order -- at the slot's base heading and with no radial offset, so
+# the fallback is bounded and deterministic and the ladder, the gates and the count are unchanged. A belt that uses one
+# records the height it actually occupies (`placed_axial_max_nm`); `vertical_half_band_nm` stays the requested band.
+BELT_TRIAL_BEYOND_NM = (0.5, 1.0)
 # Which number decided a shape's radius: the protein's own measurement, or the setting used as a floor under it.
 RADIUS_MEASURED = 'measured'
 RADIUS_FLOOR = 'floor'
@@ -1065,10 +1073,14 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     The gate is applied *while the sites are drawn*: every slot of the ladder keeps its own (heading, height), and a
     site that lands within the clearance of the protein, within the overlap gate of an earlier site, within
     `BEAD_CLEARANCE_NM` of a protein bead -- or whose own body is closer than `min_body_gap_nm` to an accepted body --
-    tries the module's bounded local offsets (`BELT_TRIAL_*`). A slot whose trials all fail is left empty, so the
-    count is the number the draw actually kept and the count gate refuses a count the shape could not cover. A slot
-    is never relocated to the next ladder phase: the offsets are small nudges inside its own neighbourhood, which is
-    what keeps the belt's angular and height coverage even instead of clustering sites wherever a pass found room.
+    tries the module's bounded local offsets (`BELT_TRIAL_*`). A slot whose in-band trials all fail samples the
+    documented absolute heights just outside the band (`BELT_TRIAL_BEYOND_NM`) at its base heading before it is left
+    empty, so the count is the number the draw actually kept and the count gate refuses a count the shape could not
+    cover. A slot is never relocated to the next ladder phase: the offsets are small nudges inside its own
+    neighbourhood, which is what keeps the belt's angular and height coverage even instead of clustering sites
+    wherever a pass found room. If the out-of-band fallback stands a site outside the requested band, the record's
+    `placed_axial_max_nm` is the tallest placed centre and `volume_nm3` uses it; `vertical_half_band_nm` stays the band
+    the run asked for.
 
     The draw's own counts are `detergents_drawn` (ladder slots offered to the gates), `rejected` (slots left empty
     because no trial cleared every gate), `passes` (1 when the ladder was drawn, 0 for a zero count -- the ladder is
@@ -1139,8 +1151,12 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         relative_centres = np.asarray(centers, dtype=float) - origin
         axial_centres = relative_centres @ axis
         surfaces = np.linalg.norm(relative_centres - np.outer(axial_centres, axis), axis=1) - float(length)
+        # The band the draw actually occupies, not the one the request stated: a slot the protein blocked may have
+        # been accepted just outside `[-half_band, half_band]`, so the record states the tallest placed centre.
+        placed_axial_max = float(np.abs(axial_centres).max())
     else:
         surfaces = np.empty(0, dtype=float)
+        placed_axial_max = 0.0
     mean_surface = float(surfaces.mean()) if surfaces.size else float(belt_floor_nm)
     min_surface = float(surfaces.min()) if surfaces.size else float(belt_floor_nm)
     max_surface = float(surfaces.max()) if surfaces.size else float(belt_floor_nm)
@@ -1185,6 +1201,9 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         'detergent_length_nm': round(float(length), 6),
         'belt_reach_nm': round(belt_reach, 6),
         'vertical_half_band_nm': round(float(half_band), 6),
+        # The tallest placed centre's axial distance from the cylinder origin. It equals `vertical_half_band_nm` unless
+        # the out-of-band fallback was used, which is exactly what a reader needs to see the taller band.
+        'placed_axial_max_nm': round(placed_axial_max, 6),
         'vertical_spread': round(float(vertical_spread), 6),
         'vertical_half_nm': None if vertical_half_nm is None else round(float(vertical_half_nm), 6),
         'tilt_deg': TILT_DEGREES,
@@ -1192,8 +1211,10 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
                         'axis_source': cylinder['axis_source']},
         # The cylindrical shell the detergents occupy, so the belt's density and the sphere's are the same
         # measurement of a different shape and the panel can print either. The mean local surface is the one number
-        # that stands for a surface which varies with angle.
-        'volume_nm3': round(np.pi * ((mean_surface + length) ** 2 - mean_surface ** 2) * (2.0 * half_band), 6),
+        # that stands for a surface which varies with angle. The height is the band actually occupied, so a belt that
+        # used the out-of-band fallback does not report a volume smaller than the one it fills.
+        'volume_nm3': round(np.pi * ((mean_surface + length) ** 2 - mean_surface ** 2)
+                            * (2.0 * max(float(half_band), placed_axial_max)), 6),
         'detergents_drawn': drawn, 'rejected': rejected, 'passes': passes,
         # One record per slot the gates left empty, with the slot's own base geometry and the gate it failed. This
         # is what a refusal's count and the preview's empty-slot rings read; it is not a second placement.
@@ -1258,12 +1279,13 @@ def _transmembrane_cylinder(inside, frame_axis, bounds):
 
 
 def _belt_trials():
-    """The bounded local offsets one belt slot may try, in order: height first, then heading, then radially outward.
+    """The bounded **in-band** local offsets one belt slot may try, in order: height first, then heading, then radially.
 
     A trial is a small nudge inside the slot's own neighbourhood, never a move to another ladder position -- that is
     what keeps a slot that fails its gates from clustering onto a neighbour's arc. Each trial's surface is recomputed
     at its own (heading, height), so a height trial can step out of a protrusion's axial window and a radial trial can
-    clear a body the local window could not see.
+    clear a body the local window could not see. These are the trials that stay inside the requested band; a slot they
+    all fail samples the documented out-of-band heights (`BELT_TRIAL_BEYOND_NM`) before being left empty.
     """
     yield 0.0, 0.0, 0.0
     for offset in BELT_TRIAL_HEIGHT_NM:
@@ -1328,17 +1350,21 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     **Each slot keeps the ladder's own (heading, height), and every slot that fails a gate is nudged.** Its base
     position is the first trial; when any gate refuses it, the module's bounded local offsets (`_belt_trials`) are
     tried -- height first, then heading, then radially outward -- and the first trial that clears every gate is
-    accepted. Only a slot with no legal trial is left empty. Trials are small nudges inside the slot's own
-    neighbourhood, never a move to another ladder position, and the next pass's phase is never used to replace a
-    refused slot, so coverage stays the ladder's own even spacing instead of clustering wherever a pass found room.
+    accepted. Only when every in-band trial fails does the slot sample just outside the band: the absolute heights
+    `+/- (half_band + 0.5)` then `+/- (half_band + 1.0)` nm at its base heading, no radial offset, re-measuring the
+    surface at each height (`BELT_TRIAL_BEYOND_NM`, the user's decision of 2026-11-25). That fallback is bounded and
+    deterministic, and it never relocates a slot: if it also fails, the slot is left empty. Trials are small nudges
+    inside the slot's own neighbourhood, never a move to another ladder position, and the next pass's phase is never
+    used to replace a refused slot, so coverage stays the ladder's own even spacing instead of clustering wherever a
+    pass found room.
 
     Four gates decide a trial: the **head site** must keep `min_clearance_nm` from every protein bead (the number the
     placement reports), no two head sites may be closer than `MIN_DISTANCE_NM`, the detergent's **own body**
     (`body_beads` along the direction) must keep `BEAD_CLEARANCE_NM` from every protein bead, and -- when
     `min_body_gap_nm` is positive -- no body bead may be closer than that to any bead of an already accepted body.
     The last gate is what `MIN_DISTANCE_NM` alone cannot see: two bodies whose heads are legal can still overlap.
-    The vertical band is kept by clipping every trial's height inside `[-half_band, half_band]`, so no nudge can
-    leave the membrane.
+    The in-band trials keep the vertical band by clipping every height inside `[-half_band, half_band]`; only the
+    documented out-of-band fallback stands a site outside it, and then by at most `half_band + 1.0` nm.
 
     A rejected slot is recorded with its **own base** coordinate, outward normal, heading, height, the gate it failed
     and that gate's distance; the record is what the refusal's count and the preview's empty-slot rings read.
@@ -1358,6 +1384,24 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     # The ladder's third coordinate is the old torus's meridian fraction, so its axial part is sin(pi/2 * z):
     # scaling that fraction by VERTICAL_SPREAD makes the measured head-height spread exactly 1.5x the old one.
     base_heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
+
+    def try_site(heading, height, radial_offset=0.0):
+        """One (heading, height, radial) trial: its accepted (candidate, direction, beads), or `None` and the reason.
+
+        The local surface is re-measured at the trial's own (heading, height), and the tilt's sign comes from that
+        height, so an out-of-band height leans away from the mid-plane exactly as an in-band one does.
+        """
+        outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
+        radius = surface_at(heading, height) + float(radial_offset) + length
+        candidate = origin + radius * outward + height * axis
+        lean = 1.0 if height >= 0.0 else -1.0
+        direction = cosine * outward + lean * sine * axis
+        reason, beads = _belt_trial_verdict(candidate, direction, profile, protein_points, kept,
+                                            kept_beads, min_clearance_nm, min_body_gap_nm, reach)
+        if reason is not None:
+            return None, reason
+        return (candidate, direction, beads), None
+
     for base_heading, base_height in zip(base_headings, base_heights):
         if len(kept) >= count:
             break
@@ -1366,25 +1410,31 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
         base_radius = surface_at(base_heading, base_height) + length
         base_candidate = origin + base_radius * base_outward + base_height * axis
         base_reason = None
-        accepted = False
+        site = None
         for heading_offset, height_offset, radial_offset in _belt_trials():
             height = float(np.clip(base_height + height_offset, -half_band, half_band))
             heading = float(base_heading + heading_offset)
-            outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
-            radius = surface_at(heading, height) + float(radial_offset) + length
-            candidate = origin + radius * outward + height * axis
-            lean = 1.0 if height >= 0.0 else -1.0
-            direction = cosine * outward + lean * sine * axis
-            reason, beads = _belt_trial_verdict(candidate, direction, profile, protein_points, kept,
-                                                kept_beads, min_clearance_nm, min_body_gap_nm, reach)
-            if reason is None:
-                kept.append(candidate)
-                kept_directions.append(direction)
-                kept_beads = np.vstack([kept_beads, beads]) if kept_beads.size else beads
-                accepted = True
+            site, reason = try_site(heading, height, radial_offset)
+            if site is not None:
                 break
             if heading_offset == 0.0 and height_offset == 0.0 and radial_offset == 0.0:
                 base_reason = reason
+        if site is None:
+            # Every in-band trial failed. Before leaving the slot empty, sample just outside the band at the slot's
+            # own base heading with no radial offset, in the documented deterministic order.
+            for beyond in BELT_TRIAL_BEYOND_NM:
+                for height in (half_band + beyond, -(half_band + beyond)):
+                    site, _ = try_site(base_heading, height)
+                    if site is not None:
+                        break
+                if site is not None:
+                    break
+        accepted = site is not None
+        if accepted:
+            candidate, direction, beads = site
+            kept.append(candidate)
+            kept_directions.append(direction)
+            kept_beads = np.vstack([kept_beads, beads]) if kept_beads.size else beads
         if not accepted:
             rejected += 1
             rejected_slots.append({

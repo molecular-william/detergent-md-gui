@@ -1361,6 +1361,101 @@ def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
         pdc_placement.BEAD_CLEARANCE_NM
 
 
+def _blocked_in_band_protein(count, seed, half_band, length_nm, slab_half_nm):
+    """A transmembrane ring plus a lid of protein atoms standing on every in-band trial site above the slab.
+
+    The lid atoms are deliberately **outside** the frame's slab: `_belt_cylinder` measures its local surface only
+    from in-slab atoms, so they gate a candidate's clearance without ever becoming a surface to stand off. Every
+    positive-height slot whose in-band trials would all land above the slab gets one lid atom on each of them, so
+    only the documented out-of-band fallback can place those slots. The ring is the only in-slab atom, which makes
+    the measured cylinder the flat 1.0 nm ring.
+    """
+    ring = _ring(1.0, 0.0, count=24)
+    ladder = golden_angle_directions(count, seed)
+    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
+    heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
+    axis = np.array([0.0, 0.0, 1.0])
+    across, up = pdc_placement._plane_basis(axis)
+    lowest = max(abs(value) for value in pdc_placement.BELT_TRIAL_HEIGHT_NM)
+    lid = []
+    for heading, height in zip(headings, heights):
+        if height - lowest <= slab_half_nm:
+            # This slot has an ordinary in-band trial inside the slab; it is not the case this fixture blocks.
+            continue
+        for heading_offset in (0.0, *np.deg2rad(pdc_placement.BELT_TRIAL_HEADING_DEG)):
+            for height_offset in (0.0, *pdc_placement.BELT_TRIAL_HEIGHT_NM):
+                trial_height = float(np.clip(height + height_offset, -half_band, half_band))
+                if trial_height <= slab_half_nm:
+                    continue
+                # The topmost lid atom stays 0.02 nm inside the band, so the first out-of-band height is still more
+                # than `min_clearance_nm` above it.
+                trial_height = min(trial_height, half_band - 0.02)
+                for radial_offset in (0.0, *pdc_placement.BELT_TRIAL_RADIAL_NM):
+                    radius = 1.0 + length_nm + radial_offset
+                    outward = np.cos(heading + heading_offset) * across + np.sin(heading + heading_offset) * up
+                    lid.append(list(radius * outward + trial_height * axis))
+    return np.asarray(ring + lid, dtype=float)
+
+
+def test_a_slot_the_protein_blocks_in_band_clears_at_the_next_height_above_the_band(tmp_path):
+    """A slot whose every in-band trial fails tries the absolute heights above/below the band before it is empty.
+
+    The protein's lid sits exactly on every in-band trial a positive-height slot can reach, so none of the base,
+    height, heading or radial trials clear the head gate. The documented first out-of-band height (+(half_band +
+    0.5)) is then tried at the slot's own heading, with no radial offset, and it clears -- and the record states the
+    taller band it actually occupies while `vertical_half_band_nm` stays the requested one.
+    """
+    count, seed = 12, 4
+    half_band = pdc_placement.VERTICAL_SPREAD * MOLECULE_LENGTH_NM
+    points = _blocked_in_band_protein(count, seed, half_band, MOLECULE_LENGTH_NM, slab_half_nm=0.85)
+    placed = pdc_placement.place_detergents(points, _template(tmp_path), count, seed=seed,
+                                            frame=_frame(half_thickness_nm=0.85), measure_capacity=False)
+    band = placed['band']
+    axis = np.asarray(band['cylinder']['axis'], dtype=float)
+    origin = np.asarray(band['cylinder']['origin_nm'], dtype=float)
+    heights = (np.asarray(placed['centers'], dtype=float) - origin) @ axis
+
+    assert placed['valid'], placed['issues']
+    assert len(placed['centers']) == count, 'the fallback placed the slots the in-band trials could not'
+    assert band['vertical_half_band_nm'] == pytest.approx(half_band)
+    assert band['placed_axial_max_nm'] > half_band, 'a placed centre stands outside the band the request stated'
+    assert band['placed_axial_max_nm'] == pytest.approx(float(np.abs(heights).max()), abs=1e-6)
+
+    outside = heights[np.abs(heights) > half_band + 1e-9]
+    assert outside.size >= 1
+    assert np.allclose(outside, half_band + pdc_placement.BELT_TRIAL_BEYOND_NM[0]), \
+        'the first out-of-band height is the one that cleared, at the slot\'s own heading'
+    assert np.allclose((np.asarray(placed['directions']) @ axis)[np.abs(heights) > half_band + 1e-9],
+                       np.sin(np.deg2rad(pdc_placement.TILT_DEGREES))), \
+        'an out-of-band height takes its tilt sign from that height, as every trial does'
+
+    limit = half_band + max(pdc_placement.BELT_TRIAL_BEYOND_NM)
+    assert float(np.abs(heights).max()) <= limit + 1e-6, 'the fallback is bounded by its last documented height'
+    assert float(heights.min()) >= -limit - 1e-6, 'and it never leaves the band further on the other side'
+    mean, length = band['radius_nm'], band['detergent_length_nm']
+    assert band['volume_nm3'] == pytest.approx(
+        np.pi * ((mean + length) ** 2 - mean ** 2) * 2.0 * band['placed_axial_max_nm']), \
+        'the volume is the band actually occupied, not the requested half-band'
+
+
+def test_a_slot_with_nothing_blocking_it_still_places_inside_the_band(tmp_path):
+    """The fallback must not move ordinary placements: every centre and the recorded maximum stay in the band."""
+    placed = pdc_placement.place_detergents(_asymmetric_protein(), _template(tmp_path), 12, seed=4, frame=_frame())
+    band = placed['band']
+    axis = np.asarray(band['cylinder']['axis'], dtype=float)
+    origin = np.asarray(band['cylinder']['origin_nm'], dtype=float)
+    heights = (np.asarray(placed['centers'], dtype=float) - origin) @ axis
+
+    assert placed['valid'], placed['issues']
+    assert len(placed['centers']) == 12
+    assert np.all(np.abs(heights) <= band['vertical_half_band_nm'] + 1e-9), \
+        'an ordinary slot is still placed in band; the out-of-band fallback never runs for it'
+    assert band['placed_axial_max_nm'] <= band['vertical_half_band_nm'] + 1e-9
+    assert band['placed_axial_max_nm'] == pytest.approx(float(np.abs(heights).max()), abs=1e-6)
+    mean, length, half_band = band['radius_nm'], band['detergent_length_nm'], band['vertical_half_band_nm']
+    assert band['volume_nm3'] == pytest.approx(np.pi * ((mean + length) ** 2 - mean ** 2) * 2.0 * half_band)
+
+
 def _assert_finite_marks(marks):
     """Every mark is JSON-safe: three finite coordinates, a finite radius, finite beads."""
     assert all(np.isfinite(mark['position_nm']).all() for mark in marks)
@@ -1405,12 +1500,16 @@ def test_an_empty_slot_ring_sits_at_the_rejected_slots_own_base_point(tmp_path):
 
 
 def test_a_rejected_slot_is_lifted_with_the_belt_so_its_ring_stays_on_the_drawn_belt(tmp_path):
-    """A raised belt raises its empty slots too: the ring sits where that slot would have stood after the offset."""
+    """A raised belt raises its empty slots too: the ring sits where that slot would have stood after the offset.
+
+    The count is chosen so some slots stay empty even after the out-of-band fallback (280 holds 255), and few enough
+    that `MAX_PROBLEMS` does not truncate their rings.
+    """
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
     template = _template(tmp_path, length_nm=0.4)
-    level = pdc_placement.place_detergents(points, template, 200, seed=4, frame=_frame(), radius_nm=2.4,
+    level = pdc_placement.place_detergents(points, template, 280, seed=4, frame=_frame(), radius_nm=2.4,
                                            measure_capacity=False)
-    lifted = pdc_placement.place_detergents(points, template, 200, seed=4, frame=_frame(), radius_nm=2.4,
+    lifted = pdc_placement.place_detergents(points, template, 280, seed=4, frame=_frame(), radius_nm=2.4,
                                             belt_offset_nm=0.3, measure_capacity=False)
     axis = np.asarray(level['band']['cylinder']['axis'], dtype=float)
     before = level['band']['rejected_slots']

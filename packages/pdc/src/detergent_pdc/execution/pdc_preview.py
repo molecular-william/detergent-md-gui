@@ -534,7 +534,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
             belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
             belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
-            belt_vertical_half_nm=None,
+            belt_vertical_half_nm=pdc_adapter.DEFAULTS['belt_vertical_half_nm'],
             belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
@@ -578,14 +578,18 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     detergent bodies, forwarded to the placement and to nothing else: a sphere placement never reads it, so an
     unstated gap keeps the frame a build has always written and `0.0` is byte-identical to it. `min_body_gap_nm` and
     `belt_axial_window_nm` are the belt's packing and local-surface settings, forwarded the same way and recorded in
-    `basis`; both reach only a belt, exactly as in the build.
+    `basis`; both reach only a belt, exactly as in the build. `belt_vertical_half_nm` is the band's half-height, and
+    an omitted value is the run's own 4 nm default (the adapter's `DEFAULTS`, so the preview and the build describe
+    the same band); `None` is reserved for a caller replaying an old payload, which asks for the retired multiple of
+    the detergent's length.
 
     `initial_x_nm`/`initial_y_nm`/`initial_z_nm` are the run's stated starting cell, passed to the same box rule the
-    build uses (`pdc_box.initial_box`/`membrane_box`/`extended_box`). Each is a floor, never a ceiling: `None` (the
-    form's blank field, and every caller before the settings existed) is the derived box exactly, and a stated
-    number below the derived value cannot shrink the box through the protein or the belt. The form's blank fields
-    show this derive's own `box_nm` as their placeholders, so the starting box it states is the box the picture
-    shows; a statement is the insertion box's z for the placement and a floor under the written box.
+    build uses (`pdc_box.initial_box`/`membrane_box`/`extended_box`). A stated number is the cell's exact dimension
+    whenever it can hold the protein and the belt; a smaller one is widened to the requirement by `_cell` and the
+    difference is recorded in `basis['box_notes']` (the queue refuses such a cell before a job exists). `None` is the
+    derived box exactly. The form's blank fields show this derive's own `box_nm` as their placeholders and its Auto
+    button writes those same numbers, so the starting box it states is the box the picture shows. The `box_notes`
+    sentences are the record's, not the panel's: the form shows the picture and the queue's refusal instead.
 
     The picture is the dry system the stage writes: the protein (and the ribbon it was coarse-grained from), the
     detergents' full bodies and the cell. No water and no ions are placed or drawn -- the run's solvation is the

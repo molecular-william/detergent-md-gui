@@ -329,8 +329,8 @@ def saved_mappings(molecule_id):
     """Every saved CG mapping for a molecule, as `(file name, record)`.
 
     Read the way a run reads one -- `pdc.prepare` resolves a mapping through the same store, by file name -- and
-    without the mapping validator: this is a question about a bead's size class, and an unrelated validation finding
-    must not hide the mapping that would actually build a run.
+    without the mapping validator: this is a question about the beads and the connections, and an unrelated
+    validation finding must not hide the mapping that would actually build a run.
     """
     from dashboard.models.mappings import store
 
@@ -351,10 +351,16 @@ def pdc_encapsulation(entry):
 
     The panel renders what the server decided rather than repeating the arithmetic in JavaScript. A protein whose
     structure states no membrane has no slab and is refused with that reason; a detergent with no saved mapping has
-    no head bead size class and is refused with that one. `molecule_id` is the detergent, `aggregation_number` the
+    no free-end tail bead and is refused with that one. `molecule_id` is the detergent, `aggregation_number` the
     count the reader asked for, and `chains` (comma-separated, or repeated) the subunits to size -- so the number
     describes the object that will be simulated rather than the whole deposited file. A chain the structure does not
     have is refused, not dropped.
+
+    `mapping` (optional) names the saved mapping the form has selected, and the estimate then sizes that one: a
+    molecule can hold more than one saved candidate -- a mapped revision and the draft it followed -- and those can
+    disagree about a tail bead's size class. An unnamed mapping keeps the agreement rule over every saved one,
+    because with no choice stated there is no single area to divide by; a named mapping the molecule does not hold is
+    refused rather than silently sizing a different one.
     """
     from detergent_pdc.analysis.runs import encapsulation
 
@@ -366,8 +372,8 @@ def pdc_encapsulation(entry):
                                  'to size a belt against'}), 400
     molecule_id = (request.args.get('molecule_id') or '').strip()
     if not molecule_id:
-        return jsonify({'error': 'molecule_id is required: the estimate needs the detergent whose head bead it '
-                                 'sizes'}), 400
+        return jsonify({'error': 'molecule_id is required: the estimate needs the detergent whose free-end tail '
+                                 'beads it sizes'}), 400
     requested = request.args.get('aggregation_number', '')
     try:
         requested = int(requested)
@@ -378,22 +384,31 @@ def pdc_encapsulation(entry):
 
     mappings = saved_mappings(molecule_id)
     if not mappings:
-        return jsonify({'error': f'{molecule_id} has no saved CG mapping, so its head bead\u2019s size class -- and '
-                                 'with it the area one detergent covers -- cannot be resolved'}), 400
-    head_radii, footprints = [], {}
+        return jsonify({'error': f'{molecule_id} has no saved CG mapping, so its free-end tail beads -- and with '
+                                 'them the area one detergent covers -- cannot be resolved'}), 400
+    chosen = (request.args.get('mapping') or '').strip()
+    if chosen:
+        mappings = [(name, record) for name, record in mappings if name == chosen]
+        if not mappings:
+            return jsonify({'error': f'{molecule_id} has no saved mapping named {chosen!r}, so the area one '
+                                     'detergent covers cannot be resolved for it'}), 400
+    radii_by_mapping, coverages = {}, {}
     for name, record in mappings:
         try:
-            radii = encapsulation.mapping_head_radii(record)
+            radii = encapsulation.mapping_coverage_radii(record)
         except ValueError as error:
-            return jsonify({'error': f'the saved mapping {name} names no head bead this can size: {error}'}), 400
-        head_radii.extend(radii)
-        footprints[name] = max(radii)
-    # Only the largest head bead sets the footprint, so two mappings that agree about it can both be used; two that
-    # disagree leave the estimate with no single radius, and picking one would hide a real disagreement.
-    if len(set(footprints.values())) != 1:
-        detail = '; '.join(f'{name} says {radius:.3f} nm' for name, radius in sorted(footprints.items()))
-        return jsonify({'error': f'the saved mappings for {molecule_id} disagree about the head bead\u2019s size '
-                                 f'class: {detail}'}), 400
+            return jsonify({'error': f'the saved mapping {name} has no coverage area this can size: {error}'}), 400
+        radii_by_mapping[name] = radii
+        coverages[name] = encapsulation.coverage_area_nm2(radii)
+    # With no mapping named, every saved one must set the same coverage area before the estimate can divide by it;
+    # two that disagree leave it with no single area, and picking one would hide a real disagreement. A named
+    # mapping is the reader's own choice, so it is the one sized.
+    if len({round(area, 3) for area in coverages.values()}) != 1:
+        detail = '; '.join(f'{name} says {area:.3f} nm^2' for name, area in sorted(coverages.items()))
+        return jsonify({'error': f'the saved mappings for {molecule_id} disagree about the area one detergent '
+                                 f'covers: {detail}. Choose the model the run will use and the estimate follows '
+                                 'that one'}), 400
+    coverage_radii = radii_by_mapping[sorted(radii_by_mapping)[0]]
 
     chains = requested_chains(request)
     location = Path(protein['path'])
@@ -414,7 +429,7 @@ def pdc_encapsulation(entry):
         numbers = encapsulation.estimate(atoms['positions_nm'], atoms['radii_nm'],
                                          encapsulation.apolar_mask(atoms['residues']),
                                          centre_nm=SLAB_CENTRE_NM, half_thickness_nm=half_thickness,
-                                         head_radii_nm=head_radii, requested=requested,
+                                         coverage_radii_nm=coverage_radii, requested=requested,
                                          residues=atoms['residues'])
     except (OSError, ValueError) as error:
         return jsonify({'error': f'{protein["name"]} could not be sized: {error}'}), 400
@@ -426,7 +441,8 @@ def pdc_encapsulation(entry):
                                'narrowed': atoms['narrowed']},
                     'slab': {'axis': 'z', 'centre_nm': SLAB_CENTRE_NM, 'half_thickness_nm': half_thickness},
                     'atoms': numbers['atoms'], 'apolar_area_nm2': numbers['apolar_area_nm2'],
-                    'head_radius_nm': numbers['head_radius_nm'], 'head_area_nm2': numbers['head_area_nm2'],
+                    'coverage_area_nm2': numbers['coverage_area_nm2'],
+                    'coverage_radii_nm': numbers['coverage_radii_nm'], 'tail_ends': numbers['tail_ends'],
                     'requested': numbers['requested'], 'needed': numbers['needed'],
                     'fraction': numbers['fraction'],
                     'method': encapsulation.ESTIMATE_METHOD, 'method_summary': encapsulation.ESTIMATE_SUMMARY,
@@ -504,15 +520,11 @@ def pdc_extent(entry):
     coarse-grained rebuild -- martinize2 is not run and nothing is written, which is what lets the panel ask again on
     every change to the protein, the chains, the margin or the initial-z.
 
-    `auto_initial_z_nm` is the same measurement's z, which is what the form's Auto button fills in: the box the build
-    would get with no stated z, from `pdc_box.auto_initial_z`, rounded to 3 decimals and clamped to the range the form
-    offers. It is answered for both rules and is independent of the `initial_z_nm` the caller sent.
-    `auto_initial_x_nm`/`auto_initial_y_nm` are the same measurement's footprint-plus-margin x/y
-    (`pdc_box.auto_initial_xy`), clamped to their own advertised ranges and likewise independent of the stated
-    `initial_x_nm`/`initial_y_nm`: the Auto button fills all three from this one measurement, so none of its answers
-    can depend on a value it is about to replace. The stated x/y reach `initial_box_nm` as the cell's exact
-    dimensions, so the box line shows the cell a build would actually get -- or the refusal naming what it cannot
-    hold.
+    The box this route answers is the belt-less measurement, which is why it no longer carries an "auto" box for the
+    form: the panel's Auto button writes the **preview's** own `basis.box_nm`, because that is the cell the reader sees
+    drawn (a belt widens x and y to its radial reach, which nothing short of a placement can measure). The stated
+    x/y reach `initial_box_nm` as the cell's exact dimensions, so the box line shows the cell a build would actually
+    get -- or the refusal naming what it cannot hold.
 
     A malformed request -- a non-numeric or non-positive margin or z, a chain the file does not name -- is a 400 with
     the reason; an entry the catalogue does not hold is a 404. A structure the reader refuses (including one that
@@ -552,21 +564,8 @@ def pdc_extent(entry):
                                                initial_y_nm=initial_y_nm)
     except ValueError as error:
         return jsonify({'error': f'{protein["name"]}: {error}'}), 400
-    # What the form's Auto button asks for: the numbers the build would measure, not the ones the caller typed -- the
-    # same answer for both rules, clamped to the range the form offers. It deliberately ignores the stated x/y/z, so
-    # pressing Auto cannot depend on a value it replaces.
-    low, high = pdc.SETTING_SPECS['initial_z_nm'][1], pdc.SETTING_SPECS['initial_z_nm'][2]
-    auto_z = pdc_box.auto_initial_z(atoms['positions_nm'], half_thickness_nm=protein.get('half_thickness_nm'),
-                                    margin_nm=margin_nm)
-    auto_z = round(min(max(auto_z, low), high), 3)
-    auto_x, auto_y = pdc_box.auto_initial_xy(atoms['positions_nm'], margin_nm=margin_nm)
-    x_low, x_high = pdc.SETTING_SPECS['initial_x_nm'][1], pdc.SETTING_SPECS['initial_x_nm'][2]
-    y_low, y_high = pdc.SETTING_SPECS['initial_y_nm'][1], pdc.SETTING_SPECS['initial_y_nm'][2]
-    auto_x = round(min(max(auto_x, x_low), x_high), 3)
-    auto_y = round(min(max(auto_y, y_low), y_high), 3)
     return jsonify({'protein': protein['name'], 'dimensions_nm': dimensions, 'initial_box_nm': box,
-                    'auto_initial_x_nm': auto_x, 'auto_initial_y_nm': auto_y,
-                    'auto_initial_z_nm': auto_z, 'rule': rule,
+                    'rule': rule,
                     'half_thickness_nm': protein.get('half_thickness_nm'), 'chains': chains})
 
 
@@ -684,9 +683,12 @@ def preview_choices(source):
                                              float(pdc.DEFAULTS['belt_axial_window_nm']))
     choices['belt_vertical_spread'] = number('belt_vertical_spread',
                                              float(pdc.DEFAULTS['belt_vertical_spread']))
-    # The belt's vertical half-height in nm: blank is the retired multiple above, so only a stated number reaches the
-    # placement as a length.
-    choices['belt_vertical_half_nm'] = number('belt_vertical_half_nm', None)
+    # The belt's vertical half-height in nm: the adapter's default unless a caller names the retired multiple without
+    # this key (an old payload or preset), which is the same rule `pdc._numbers` applies to a run's settings.
+    half = number('belt_vertical_half_nm', None)
+    if half is None and not (source.args.get('belt_vertical_spread') or '').strip():
+        half = float(pdc.DEFAULTS['belt_vertical_half_nm'])
+    choices['belt_vertical_half_nm'] = half
     choices['belt_offset_nm'] = number('belt_offset_nm', float(pdc.DEFAULTS['belt_offset_nm']))
     return choices
 

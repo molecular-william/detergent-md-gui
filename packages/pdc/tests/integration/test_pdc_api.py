@@ -47,9 +47,9 @@ def test_the_catalogue_carries_the_decided_defaults(dashboard):
     assert defaults['assessment_ns'] == 100 and defaults['extension_ns'] == 900
     assert defaults['selection_threshold_fraction'] == 0.10 and defaults['attempts_max'] == 3
     assert defaults['box_margin_nm'] == 2.0 and defaults['contact_nm'] == 0.6
-    # The starting box has no catalogue default any more: a blank field is the derive's own box, and a stated value
-    # is a floor. 6.0 is still the *insertion* box's z when nothing is stated, but that is the build's rule, not a
-    # number the form fills in.
+    # The starting box has no catalogue default: a blank field is the derive's own box, and a stated value is the
+    # cell's exact dimension (the queue refuses one too small). 6.0 is still the *insertion* box's z when nothing is
+    # stated, but that is the build's rule, not a number the form fills in.
     assert 'initial_z_nm' not in defaults and 'initial_x_nm' not in defaults
 
 
@@ -57,9 +57,12 @@ def test_the_catalogue_carries_the_stage_settings_help(dashboard):
     """The panel draws one info button per key from this map, so a control with no sentence has no explanation."""
     body = dashboard.client.get('/api/pdc/catalog').get_json()
 
-    assert {'pdc_seed', 'initial_z_nm', 'nstlog'} <= set(body['help'])
+    assert {'pdc_seed', 'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'belt_offset_nm', 'nstlog'} <= set(body['help'])
     assert body['help_sources'] == settings_help.SOURCES
-    assert 'Auto measures the selected protein' in body['help']['initial_z_nm']
+    # The blank-field rule lives in the info bubble now; the label carries only its unit.
+    assert 'blank is the box the preview draws' in body['help']['initial_x_nm']
+    assert 'blank is the box the preview draws' in body['help']['initial_z_nm']
+    assert '4 nm is the default' in body['help']['belt_vertical_half_nm']
 
 
 def test_the_protein_list_is_what_the_repository_holds(dashboard):

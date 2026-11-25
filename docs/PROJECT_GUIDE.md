@@ -601,13 +601,21 @@ restate the classes, which are the beads' own residues'. The **Bonds** control s
 representations between `ball+stick` and `licorice` so the frame's own CONECT records read at preview scale,
 and **Ribbon** shows or hides the ribbon; both send nothing, stay out of the derive's inputs and change no
 derived value. The **encapsulation estimate** (`GET /api/pdc/proteins/<entry>/encapsulation`) reports how many
-detergents the apolar surface implies. Structural import lands the file in the workspace's `proteins/` with a
-sidecar.
+detergents the apolar surface implies: the slab's apolar solvent-accessible area divided by the hemispheric area the
+mapping's **free-end tail beads** present (`coverage_area_nm2 = 2*pi*sum(r^2)`; a free end is a non-virtual C/SC/TC
+bead of degree one in the mapping's `connections`, so a branched detergent such as LMNG contributes two; each radius
+comes from its Martini 3 size class, and a mapping with no connections or no free end is refused). The form sends
+the `mapping` it has selected, so a molecule holding drafts that disagree about an end bead's size is sized from the
+model the run will build from; with no mapping named, every saved mapping must agree. The panel's row is *Apolar
+area one detergent covers*. Structural import lands the file in the workspace's `proteins/` with a sidecar.
 
 Its **Stage settings** are one `fieldset.run-settings` with four editors — minimisation, NVT, NPT and one
 **CG production** editor for the assessment and extension legs — and, below them, five sections that used to be a
 folded *Other run options* block: output cadence, neighbour search and cutoffs, salt/seed/box, back-map and
-execution. Every grid is three controls across at desktop width, two below 1100 px and one on a phone. A dynamics
+execution. Every editor starts collapsed, and the facts line in its summary still states what it holds. Every grid is
+three controls across at desktop width, two below 1100 px and one on a phone; **Detergent belt and sampling** is one
+three-column grid holding the placement style, the count and the five belt numbers, whose labels carry only their
+unit (`nm`) with the explanation in the setting's info button (`setting_help.HELP`). A dynamics
 editor opens with **Duration · Timestep · Steps**: the count carries no `name` (it is derived, never posted) and
 editing it back-solves the duration; a blank timestep is the reviewed profile's own dt (5 fs equilibration, 20 fs
 production), so an untouched run writes the reviewed MDP byte for byte. The four timestep settings are
@@ -644,14 +652,18 @@ starting box are **groups of the Run and stage settings card** (one fieldset; th
 dimension, and the preview draws and the build writes that number whenever it can hold the protein and belt; a
 number below what the protein (or, for a membrane belt, the belt's radial reach) needs is **widened** to the
 requirement, through `pdc_box._cell` in `initial_box`/`extended_box`/`membrane_box`, and the reason is recorded in
-`box_notes` and shown under the box in the form. **A queue whose stated box cannot hold the system is refused**
+`box_notes` (the record's; the form no longer prints it, because the queue states the same sentence). **A queue
+whose stated box cannot hold the system is refused**
 before a job record exists (`Feature.admission` for `pdc`, which asks `pdc_preview`'s own placement question; the
 queue panel posts with a longer deadline because a first answer may coarse-grain a protein). New runs, clones and
 retries pass the same rule; the build's widening remains only as the safe fallback for a payload that reaches it. A blank field is the derived value exactly and
 shows the box the **preview** draws as its placeholder, so the starting box the form states and the box the picture
 shows are one number (the extent route's own line remains the protein-footprint measurement). A blank z keeps the
 insertion box's reviewed 6.0 nm -- there is no `DEFAULTS` entry for it -- while the written box's z is derived unless
-stated. One **Auto** fills all three from one extent call (the protein-footprint box). A membrane belt's radial reach
+stated. One **Auto** derives the preview and writes the preview's own `basis.box_nm` into all three fields, so the
+cell it states is the cell the picture drew (it is no longer the extent route's belt-less footprint, which a belt's
+radial reach makes misleading). The labels are `Initial box x/y/z` and `Box margin`, each with `nm` as its subtext and
+the blank-field / exact-dimension rule in the info button. A membrane belt's radial reach
 (`2 x (radius_max_nm + detergent_length_nm) + 2 x margin`, `pdc_box.membrane_box`'s `belt_radius_nm`) is what a
 stated x/y must hold, and `pdc_build` records the growth as `box_widening_nm`; self-assembly samples inside its own
 initial box, so a stated x/y is the cell its cloud is drawn in.
@@ -1085,13 +1097,19 @@ measured **locally per site** -- the furthest in-slab atom within `BELT_LOCAL_AN
 heading **and** `belt_axial_window_nm` of its height (default 0.75 nm), plus `belt_gap_nm`, floored by
 `belt_floor_nm` (0) -- and each detergent is placed at its own closest point on that local surface with its head
 outward and its tail tilted 15 deg toward the axis, over a vertical band whose half-height is
-`belt_vertical_half_nm` in nm when stated and otherwise the retired `belt_vertical_spread` (default 2.0, old 1.1)
-times the detergent length (`_belt_cylinder`, `SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
+`belt_vertical_half_nm` in nm, defaulting to 4.0 nm (the retired `belt_vertical_spread`, a multiple of the detergent
+length, is read only for a pre-2026-11-24 payload that states it without the nm key) (`_belt_cylinder`,
+`SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
 `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm` beside it, so one protruding helix
 steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
 angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then
 radial) rather than relocating a rejected slot to another ladder phase. **Every** slot that fails a gate tries
-that ladder -- the base position is its first trial -- and is left empty only when no trial clears; a rejected
+that in-band ladder -- the base position is its first trial -- and a slot whose in-band trials all fail then samples
+the absolute heights just above and below the band (`BELT_TRIAL_BEYOND_NM`: +-(half-band + 0.5) then +-(half-band +
+1.0) nm, at its base heading, local surface re-measured) before it is left empty; the user's 2026-11-25 decision,
+so a slot the protein blocks is placed just off the band instead of lost. The record's `placed_axial_max_nm` is the
+tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band, and `volume_nm3` uses the
+larger of the two. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,
 which the preview's red rings and a refusal's count read. The placement's `problems` list is the same
 measurements as display marks (empty slot, head/body clearance, overlap; 200-mark cap, `problems_truncated`). `min_body_gap_nm` (default 0.3 nm) is a

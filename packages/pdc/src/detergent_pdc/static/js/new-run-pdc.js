@@ -352,17 +352,17 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     describeChains();
   }
 
-  // The initial box's one Auto is a measurement of the chosen protein. An empty micelle has no structure to measure,
-  // so the button says why by being disabled rather than answering a number about nothing. It fills all three axes
-  // (x, y, z): x/y the derived footprint plus the margin, z the route's measured clearance. It is one behaviour, not
-  // a z button and an xy button that could disagree.
+  // The initial box's one Auto measures the chosen protein by drawing the preview: an empty micelle has no structure
+  // to measure, so the button says why by being disabled rather than answering a number about nothing. It fills all
+  // three axes from the preview's own `basis.box_nm`, so the cell it writes is the cell the picture shows. It is one
+  // behaviour, not a z button and an xy button that could disagree.
   function syncAutoButton() {
     const button = pdcNode('.pdc-auto-box');
     if (!button) return;
     const hasProtein = !!field('protein').value;
     button.disabled = !hasProtein;
     button.title = hasProtein
-      ? 'Measure the selected protein and fill the initial x, y and z boxes from it'
+      ? "Fill the initial box x, y and z with the box the preview draws"
       : 'Choose a protein: an empty micelle has no structure to measure a box from.';
   }
 
@@ -786,14 +786,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     syncTimeRows();
   }
 
-  // The three controls act on a pre-assembled belt on a membrane-stating protein; self-assembly settles the belt
-  // from a random start, so they are hidden there. Hidden, not disabled: the values still travel, and the adapter
-  // ignores them outside a belt.
+  // The five belt numbers act on a pre-assembled belt on a membrane-stating protein; self-assembly settles the belt
+  // from a random start, so they are hidden there, and an empty micelle has no belt to size. Hidden, not disabled: the
+  // values still travel, and the adapter ignores them outside a belt. The grid is one three-column row set, so a
+  // hidden cell closes up in place.
   function syncBeltGap() {
-    for (const name of ['belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
-                        'belt_offset_nm']) {
-      const label = form.querySelector(`[name=${name}]`)?.closest('label');
-      if (label) label.hidden = placementMode() === 'self-assembly';
+    const hasProtein = !!field('protein').value;
+    for (const label of form.querySelectorAll('.new-pdc-belt-grid [data-belt-only]')) {
+      label.hidden = !hasProtein || placementMode() === 'self-assembly';
     }
   }
 
@@ -901,7 +901,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       say('.new-pdc-shortfall', enough ? ''
         : `The estimate asks for about ${Math.round(body.needed)}; below that, expect bare patches rather than a belt.`);
       say('.new-pdc-apolar', `${Number(body.apolar_area_nm2).toFixed(1)} nm²`);
-      say('.new-pdc-head', `${Number(body.head_area_nm2).toFixed(3)} nm²`);
+      say('.new-pdc-coverage', `${Number(body.coverage_area_nm2).toFixed(3)} nm²`);
       say('.new-pdc-need', `${Math.round(body.needed)} detergents`);
       say('.new-pdc-have', `${(fraction * 100).toFixed(1)}%`);
       // The short form the bubble carries; the route's full `method` is its own statement and is not reprinted here.
@@ -949,6 +949,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // Only a whole-file run omits this: a present selection is always sent, so the numbers beside it are the ones
     // for the structure the run will build.
     if (chains.length) query.set('chains', chains.join(','));
+    // The area one detergent covers comes from the mapping's own tail beads, and a molecule can hold more than one
+    // saved candidate: size the one this run will build from, so the estimate cannot describe another's beads.
+    if (field('mapping_candidate')?.value) query.set('mapping', field('mapping_candidate').value);
     // A catalogue id can be an absolute path (an imported structure lives outside the repository), and the route
     // reads such a path with its leading slash stripped: `catalogue_protein` compares both sides without one. That
     // is also the only spelling that answers directly -- a percent-encoded leading slash decodes to `//` in the
@@ -1059,16 +1062,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       renderExtent();
       return;
     }
-    // The route's own suggested box dimensions, when it answers them: the one Auto button writes all three numbers
-    // into their fields. x/y are the derived footprint plus the margin -- the value a blank field would get -- and do
-    // not depend on the stated x/y, exactly as z does not depend on the stated z.
-    const autoZ = Number(body.auto_initial_z_nm);
-    const autoX = Number(body.auto_initial_x_nm);
-    const autoY = Number(body.auto_initial_y_nm);
-    extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial',
-                   autoX: Number.isFinite(autoX) ? autoX : undefined,
-                   autoY: Number.isFinite(autoY) ? autoY : undefined,
-                   autoZ: Number.isFinite(autoZ) ? autoZ : undefined};
+    // The route's answer is the belt-less box line above the preview; the starting box's Auto button reads the
+    // preview's own `basis.box_nm` instead (see the handler below), because a belt widens x/y and only the placement
+    // can measure that. The answer therefore carries no second "auto" measurement that could disagree with the cell.
+    extentState = {kind: 'answer', dimensions, box, rule: body.rule || 'initial'};
     renderExtent();
   }
 
@@ -1789,14 +1786,14 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
           : '');
     sayPreview('.new-pdc-preview-box', `${box.map(value => Number(value).toFixed(2)).join(' × ')} nm — the box the build `
       + 'writes, before equilibration changes it' + bandSentence);
-    // The starting box the form states *is* the box this picture draws: a blank field shows those three numbers as
-    // its placeholder, and a typed number is written as itself whenever it can hold the system. Where it cannot, the
-    // build widens the cell and the answer carries a sentence per axis; the note under the box states it here.
+    // The starting box a blank field derives *is* the box this picture draws: each empty axis shows those three
+    // numbers as its placeholder, so Auto (which writes exactly these) cannot surprise a reader by restoring a
+    // different cell. A stated axis is written as itself whenever it can hold the system; the queue refuses one that
+    // cannot, with both numbers.
     for (const [name, value] of [['initial_x_nm', box[0]], ['initial_y_nm', box[1]], ['initial_z_nm', box[2]]]) {
       const input = field(name);
       if (input && Number.isFinite(Number(value))) input.placeholder = Number(value).toFixed(2);
     }
-    say('.new-pdc-box-note', (basis.box_notes || []).join(' '));
     sayPreview('.new-pdc-preview-cost', costSentence(cost, basis));
     sayPreview('.new-pdc-preview-solvent', basis.solvent_reason || 'not drawn');
     sayPreview('.new-pdc-preview-kept', keptSentence(cost, basis));
@@ -1878,11 +1875,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       response = await fetch('/api/pdc/preview/placement?' + previewQuery(inputs),
                              {signal: previewController.signal});
     } catch (error) {
-      if (error.name === 'AbortError' || mine !== previewRequest) return;   // superseded: the newer question owns the card
+      if (error.name === 'AbortError' || mine !== previewRequest) return null;   // superseded: the newer question owns the card
       previewFrame = {inputs, refused: true, unreadable: true};
       renderPreviewRefusal('the coordinator did not answer, so there is nothing to draw.', null,
                            'No picture: the preview request failed.');
-      return;
+      return null;
     }
     // The answer is read as text and parsed here, rather than through `response.json().catch(() => ({}))`. That
     // catch turned a body this panel cannot read into `{}`, and an empty object has no `valid` -- so the card
@@ -1899,18 +1896,18 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     }
     // An answer to an older question is dropped rather than put on screen: the reader may have moved the count
     // while the coarse-graining ran, and a slow earlier frame landing on a newer question is how a panel lies.
-    if (mine !== previewRequest) return;
+    if (mine !== previewRequest) return null;
     if (unreadable) {
       previewFrame = {inputs, refused: true, unreadable: true};
       renderPreviewRefusal(`the server's reply (status ${response.status}) is not JSON this panel can parse, so it `
         + 'is no verdict on these inputs and nothing was drawn.', null,
         'No picture: the answer could not be read.');
-      return;
+      return null;
     }
     if (!response.ok) {
       previewFrame = {inputs, refused: true, body};
       renderPreviewRefusal(body.error || `the preview was refused (status ${response.status}).`, null);
-      return;
+      return null;
     }
     // The body is kept, not only its verdict: the preview's shape line reads `basis.conformations` from it.
     previewFrame = {inputs, refused: !body.valid, body};
@@ -1919,6 +1916,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     // with no frame at all.
     if (body.valid || body.pdb) renderPreviewFrame(body);
     else renderPreviewRefusal((body.reasons || []).join(' ') || reasonlessRefusal(body), body);
+    return body;
   }
 
   // A cheap change re-derives once a frame exists, debounced so a typed count is one request. An expensive change
@@ -2214,9 +2212,11 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
                       'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own four inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm']) field(name)?.addEventListener('input', scheduleExtent);
-  // One Auto for the starting box: the extent route's own suggested x, y and z, written into their fields as a reader
-  // typing them would -- the box line, the preview's staleness, the summary and the gate then follow the same
-  // `input`/`change` events. x/y are the derived footprint plus the margin, so pressing Auto never shrinks a box.
+  // One Auto for the starting box: it derives the preview and writes the box that preview draws, into the three
+  // fields exactly as a reader typing them would -- the box line, the preview's staleness, the summary and the gate
+  // then follow the same `input`/`change` events. This is the preview's own number rather than the extent route's
+  // belt-less footprint, because only a placement can measure the belt's radial reach; a cell Auto wrote is therefore
+  // always the one the picture showed.
   pdcNode('.pdc-auto-box')?.addEventListener('click', async () => {
     if (!field('protein').value) {
       notice('Choose a protein: an empty micelle has no structure to measure a box from.');
@@ -2225,20 +2225,20 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const button = pdcNode('.pdc-auto-box');
     if (button) button.disabled = true;
     try {
-      await loadExtent();
-      if (extentState.kind === 'answer') {
-        for (const [name, value] of Object.entries({initial_x_nm: extentState.autoX,
-                                                    initial_y_nm: extentState.autoY,
-                                                    initial_z_nm: extentState.autoZ})) {
-          if (!Number.isFinite(value)) continue;
-          const input = field(name);
-          if (!input) continue;
-          input.value = String(value);
-          input.dispatchEvent(new Event('input', {bubbles: true}));
-          input.dispatchEvent(new Event('change', {bubbles: true}));
-        }
-      } else if (extentState.kind === 'refused') {
-        notice(extentState.reason);
+      const answer = await derivePreview();
+      const box = answer?.basis?.box_nm;
+      if (!Array.isArray(box) || box.length !== 3 || !box.every(value => Number.isFinite(Number(value)))) {
+        notice((answer?.reasons || [])[0]
+          || 'The preview draws no box for these inputs, so there is no measured cell to fill in.');
+        return;
+      }
+      for (const [name, value] of [['initial_x_nm', box[0]], ['initial_y_nm', box[1]],
+                                   ['initial_z_nm', box[2]]]) {
+        const input = field(name);
+        if (!input) continue;
+        input.value = String(Number(value));
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        input.dispatchEvent(new Event('change', {bubbles: true}));
       }
     } finally {
       syncAutoButton();

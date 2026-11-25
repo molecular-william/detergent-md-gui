@@ -205,8 +205,13 @@ def library_mapping() -> dict:
 
 
 def mapping_candidate(dashboard, molecule_id: str = 'DDM', name: str = 'mapping_candidate_fixture.json',
-                     beads=None) -> str:
-    """A saved candidate in the workspace's own mapping store, named the way the panel offers one."""
+                     beads=None, connections=None) -> str:
+    """A saved candidate in the workspace's own mapping store, named the way the panel offers one.
+
+    `connections` is the mapping's bond list over the physical bead names, or None for this default molecule's own;
+    an explicit empty list is a mapping that states no connectivity at all, which a reader has to refuse rather than
+    guess a free end from.
+    """
     directory = dashboard.paths.mapping_drafts
     directory.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text(json.dumps({
@@ -218,7 +223,7 @@ def mapping_candidate(dashboard, molecule_id: str = 'DDM', name: str = 'mapping_
             {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'atoms': [],
              'virtual_site': {'function': 1, 'parents': ['TAIL2', 'S1A']}},
         ],
-        'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'S1A']],
+        'connections': ([['TAIL1', 'TAIL2'], ['TAIL2', 'S1A']] if connections is None else connections),
         'provenance': {'origin': 'manual', 'algorithm': None, 'references': []},
         'status': 'candidate-unvalidated', 'martini_version': '3'}))
     return name

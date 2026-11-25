@@ -36,12 +36,12 @@ MODELS = {'molecule': 'DDM', 'models': [{'file': MAPPING_FILE, 'name': 'DDM draf
                                          'label': 'DDM draft · 11 beads · derived terms'}]}
 
 METHOD = ('Flat-area estimate from the deposited structure, no simulation. Per-atom solvent-accessible area by '
-          'Shrake-Rupley (biotite.structure.sasa), summed over the transmembrane slab, divided by the area one '
-          'detergent head bead covers.')
+          'Shrake-Rupley (biotite.structure.sasa), summed over the transmembrane slab, divided by the hemispheric '
+          'area of the detergent\u2019s free-end tail beads.')
 #: The short form the panel's bubble shows, beside the long method above: the panel reads the summary, the route keeps
 #: the full statement for anyone checking the number.
-SUMMARY = ('Apolar area of the transmembrane slab divided by the area of one detergent head bead (pi r^2, with r from '
-           'its Martini 3 size class). No simulation.')
+SUMMARY = ('Apolar area of the transmembrane slab divided by the hemispheric area of one detergent\u2019s free-end '
+           'tail beads (2 * pi * sum r^2, each r from its Martini 3 size class). No simulation.')
 CAVEAT = ('This is a sizing aid and not a verdict: it treats the protein as a flat surface, with no curvature, '
           'packing or shape, so it says the requested count is roughly the right order and never that the micelle '
           'forms.')
@@ -49,10 +49,11 @@ CAVEAT = ('This is a sizing aid and not a verdict: it treats the protein as a fl
 # The three refusals the route states, each in the route's own words.
 REFUSALS = {
     'membrane': "1qj8 states no membrane annotation, so it has no transmembrane slab to size a belt against",
-    'mapping': "DDM has no saved CG mapping, so its head bead's size class -- and with it the area one detergent "
+    'mapping': "DDM has no saved CG mapping, so its free-end tail beads -- and with them the area one detergent "
                "covers -- cannot be resolved",
-    'head': 'the saved mapping mapping_candidate_fixture.json names no head bead this can size: the detergent '
-            'mapping names no head bead: every physical bead is of the aliphatic carbon series',
+    'coverage': 'the saved mapping mapping_candidate_fixture.json has no coverage area this can size: the detergent '
+                'mapping has no free-end tail bead: every tail bead is bonded to more than one partner, so the '
+                'area one detergent covers cannot be read',
 }
 
 
@@ -61,7 +62,8 @@ def estimate_body(requested=150, fraction=0.797, needed=188.2):
     return {'protein': {'name': '1qj8', 'id': PROTEIN['id'], 'source': 'packaged', 'half_thickness_nm': 1.35},
             'molecule_id': 'DDM', 'mappings': [MAPPING_FILE],
             'slab': {'axis': 'z', 'centre_nm': 0.0, 'half_thickness_nm': 1.35},
-            'atoms': 1200, 'apolar_area_nm2': 41.2, 'head_radius_nm': 0.264, 'head_area_nm2': 0.2187,
+            'atoms': 1200, 'apolar_area_nm2': 41.2, 'coverage_area_nm2': 0.4378,
+            'coverage_radii_nm': [0.264], 'tail_ends': 1,
             'requested': requested, 'needed': needed, 'fraction': fraction,
             'method': METHOD, 'method_summary': SUMMARY, 'caveat': CAVEAT}
 
@@ -109,16 +111,19 @@ def test_the_estimate_renders_the_servers_numbers_its_method_and_its_caveat(dash
 
     expect(page.locator('.new-pdc-verdict')).to_contain_text('150 detergents cover about 80% of the apolar slab')
     expect(page.locator('.new-pdc-apolar')).to_have_text('41.2 nm²')
-    expect(page.locator('.new-pdc-head')).to_have_text('0.219 nm²')
+    expect(page.locator('.new-pdc-coverage')).to_have_text('0.438 nm²')
+    expect(page.locator('.new-pdc-estimate-table')).to_contain_text('Apolar area one detergent covers')
     expect(page.locator('.new-pdc-need')).to_have_text('188 detergents')
     expect(page.locator('.new-pdc-have')).to_have_text('79.7%')
     # The bubble carries the short form; the caveat is the route's own sentence, unchanged.
-    expect(page.locator('.new-pdc-method')).to_contain_text('head bead')
+    expect(page.locator('.new-pdc-method')).to_contain_text('free-end tail bead')
     expect(page.locator('.new-pdc-caveat')).to_contain_text('flat surface')
     expect(page.locator('.new-pdc-shortfall')).to_contain_text('expect bare patches')
 
     assert asked, 'the panel never asked the route it renders'
     assert 'aggregation_number=150' in asked[-1] and 'molecule_id=DDM' in asked[-1], asked
+    # The area comes from the mapping the run will build from, so the selected model travels with every question.
+    assert any(f'mapping={MAPPING_FILE}' in url for url in asked), asked
     assert 'not built' not in page.locator('#new-belt-block').inner_text(), 'the retired sentence is still on the panel'
     assert errors == [], errors
 
@@ -147,7 +152,7 @@ def test_every_refusal_renders_the_servers_own_reason_and_never_a_blank_block(da
 
     # The route's other two refusals travel the same way: whatever the reason is, those are the words shown, and no
     # number is invented beside them.
-    for value, reason in ((200, REFUSALS['mapping']), (250, REFUSALS['head'])):
+    for value, reason in ((200, REFUSALS['mapping']), (250, REFUSALS['coverage'])):
         served['body'] = {'error': reason}
         move_count(page, value)
         expect(verdict).to_contain_text(reason)
@@ -263,7 +268,7 @@ def test_the_method_lives_in_a_bubble_the_reader_opens_and_closes(dashboard, liv
     button.click()
     expect(tip).to_be_visible()
     expect(button).to_have_attribute('aria-expanded', 'true')
-    expect(page.locator('.new-pdc-method')).to_contain_text('head bead')
+    expect(page.locator('.new-pdc-method')).to_contain_text('free-end tail bead')
     expect(page.locator('.new-pdc-caveat')).to_contain_text('flat surface')
     # The number and the verdict stay where they were: the bubble explains them, it is not a second pane.
     expect(page.locator('.new-pdc-verdict')).to_be_visible()

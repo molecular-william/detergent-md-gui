@@ -1,10 +1,10 @@
-"""T10: the fields that read as a pair share a row, and the count slider is gone.
+"""T10: the fields that read as a pair share a row, and the belt group is three across.
 
-The panel pairs three controls -- Detergent with Detergent template, Protein with Download from OPM, Initialisation
-style with Detergents in the micelle -- and drops the coarse count range slider. A pair that merely *exists* proves
-nothing: two block labels stack and every assertion about presence still holds. So this measures, the way the
-two-column test in `test_pdc_new_run_browser.py` measures: the two controls of a pair share a y within a pixel or two,
-and both sit inside the left column.
+The panel pairs two controls -- Detergent with Detergent template, Protein with Download from OPM -- and drops the
+coarse count range slider. A pair that merely *exists* proves nothing: two block labels stack and every assertion
+about presence still holds. So this measures, the way the two-column test in `test_pdc_new_run_browser.py` measures:
+the two controls of a pair share a y within a pixel or two, and both sit inside the left column. Detergent belt and
+sampling was a pair of its own until the 2026-11-25 change; it is one three-column grid now, measured below.
 
 The two duration pairs this file used to measure are gone with their row: the CG NVT, NPT, assessment and extension
 durations are the first field of their own stage editor now, and `test_pdc_new_run_browser.py` measures that layout.
@@ -43,8 +43,7 @@ TRIMER_CATALOG = {**CATALOG, 'proteins': [TRIMER]}
 # grid children, because those are the row; a control's own top can drift a few pixels with the inline line box
 # above it (a tall select against a short input) without the row itself moving.
 PAIRS = (('new-pdc-detergent-pair', 'Detergent · Detergent template', '#new-detergent', '#new-template'),
-         ('new-pdc-protein-pair', 'Protein · Download from OPM', '#new-protein', '#new-protein-id'),
-         ('new-pdc-config-pair', 'Initialisation style · Detergents in the micelle', '#new-placement', '#new-count'))
+         ('new-pdc-protein-pair', 'Protein · Download from OPM', '#new-protein', '#new-protein-id'))
 # A row is shared when the two cells' tops agree within the rounding of a sub-pixel layout.
 TOLERANCE_PX = 2
 # The download row's three controls are different element kinds -- a text input, a button and checkbox inputs -- so
@@ -81,15 +80,16 @@ def pair_rows(page):
 
 
 def belt_rows(page):
-    """The belt's four settings as one grid: each cell's box, and the column they must sit inside."""
+    """The belt group's seven controls as one grid: each cell's box, and the column they must sit inside."""
     return page.evaluate("""() => {
       const column = document.querySelector('.new-run-inputs').getBoundingClientRect();
-      const grid = document.querySelector('#new-belt-block .new-pdc-belt-grid');
+      const grid = document.querySelector('.new-pdc-belt-grid');
       if (!grid) return null;
       return {
-        kids: Array.from(grid.children).map(child => {
+        kids: Array.from(grid.children).filter(child => !child.hidden).map(child => {
           const r = child.getBoundingClientRect();
-          return {name: child.querySelector('input')?.name, x: r.x, y: r.y, width: r.width, height: r.height};
+          return {name: child.querySelector('input,select')?.name, x: r.x, y: r.y,
+                  width: r.width, height: r.height};
         }),
         column: {x: column.x, y: column.y, width: column.width, height: column.height},
       };
@@ -143,27 +143,33 @@ def test_every_pair_shares_a_row_inside_the_column(dashboard, live_page):
     assert errors == [], errors
 
 
-def test_the_belt_settings_are_two_rows_of_two(dashboard, live_page):
-    """The four belt numbers share one two-column grid: gap · body-bead distance, then axial window · vertical spread.
+def test_the_belt_group_is_one_three_column_grid(dashboard, live_page):
+    """Detergent belt and sampling is one grid of seven controls, three to a row.
 
-    A grid that fell back to one column still renders all four controls, so this measures the row geometry: each
-    pair's tops agree within the same tolerance as the card's own pairs, and the second pair starts a new row.
+    A grid that fell back to one column still renders every control, so this measures the geometry: the cells of a
+    row share a top within the card's own tolerance, each three-cell row starts one line lower, and every cell stays
+    inside the left column. The five belt numbers are hidden for an empty micelle and in self-assembly, so the
+    protein is chosen first.
     """
     page, errors = live_page
     serve(page)
     open_panel(page, live_page.base_url)
-    expect(page.locator('#new-belt-block')).to_be_visible()
+    expect(page.locator('.new-pdc-belt-grid')).to_be_visible()
 
     rows = belt_rows(page)
-    assert rows is not None, 'the belt settings are not rendered as a grid'
+    assert rows is not None, 'the belt group is not rendered as a grid'
     kids = rows['kids']
-    assert [kid['name'] for kid in kids] == ['belt_gap_nm', 'min_body_gap_nm',
-                                             'belt_axial_window_nm', 'belt_vertical_half_nm'], kids
-    for first, second in ((kids[0], kids[1]), (kids[2], kids[3])):
-        delta = abs(first['y'] - second['y'])
-        assert delta <= TOLERANCE_PX, \
-            f'{first["name"]} and {second["name"]} are stacked, not paired: y {first["y"]} vs {second["y"]} (Δ{delta})'
-    assert kids[2]['y'] > kids[0]['y'] + TOLERANCE_PX, f'the second belt row is not below the first: {kids}'
+    assert [kid['name'] for kid in kids] == ['pdc_placement_mode', 'aggregation_number', 'belt_gap_nm',
+                                             'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
+                                             'belt_offset_nm'], kids
+    for start in (0, 3):
+        row = kids[start:start + 3]
+        for first, second in zip(row, row[1:]):
+            delta = abs(first['y'] - second['y'])
+            assert delta <= TOLERANCE_PX, \
+                f'{first["name"]} and {second["name"]} are not on one row: y {first["y"]} vs {second["y"]} (Δ{delta})'
+    assert kids[3]['y'] > kids[0]['y'] + TOLERANCE_PX, f'the second belt row is not below the first: {kids}'
+    assert kids[6]['y'] > kids[3]['y'] + TOLERANCE_PX, f'the third belt row is not below the second: {kids}'
     column = rows['column']
     for kid in kids:
         assert kid['x'] >= column['x'] - 1, f'{kid["name"]} leaves the column on the left: {kid} vs {column}'

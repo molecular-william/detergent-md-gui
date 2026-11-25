@@ -31,7 +31,8 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
-                 'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread': 2.0,
+                 'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_half_nm': 4.0,
+                 'belt_vertical_spread': 2.0, 'belt_offset_nm': 0.0,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
@@ -62,7 +63,8 @@ STAGE_SETTING_NAMES = (
     'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
     'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
-    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
+    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm', 'belt_offset_nm',
+    'initial_x_nm', 'initial_y_nm',
     'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
 )
@@ -132,12 +134,11 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     expect(page.locator('#new-protein-id')).to_be_visible()
     expect(page.locator('#new-import')).to_be_visible()
     expect(page.locator('#new-count')).to_be_visible()
-    # The stage settings are editors now: minimisation, NVT and NPT open on the values a reader most often changes,
-    # and the one CG production editor (assessment and extension together) opens on request -- so its durations are
-    # reached, not merely present.
+    # The stage settings are editors now, and every one of them starts collapsed so the form opens as a summary a
+    # reader scans before opening the stage whose numbers they mean to change.
     expect(page.locator('#run-form .new-pdc-stages')).to_be_visible()
-    for stage in ('minimisation', 'nvt', 'npt'):
-        assert page.locator(f'#run-form details[data-stage={stage}]').evaluate('el => el.open'), stage
+    for stage in ('minimisation', 'nvt', 'npt', 'production'):
+        assert not page.locator(f'#run-form details[data-stage={stage}]').evaluate('el => el.open'), stage
     page.locator('#run-form details[data-stage=production] summary').click()
     expect(page.locator('#new-assessment-ns')).to_be_visible()
     expect(page.locator('#new-extension-ns')).to_be_visible()
@@ -149,9 +150,14 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     for name in ('box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm',
                  'aggregation_number', 'pdc_placement_mode', 'remove_out_of_micelle', 'backmap'):
         assert fieldset.locator(f'[name={name}]').count() == 1, f'{name} is not in the merged settings card'
-    for label in ('Initial x box (nm - dimension)', 'Initial y box (nm - dimension)',
-                  'Initial z box (nm - dimension)', 'Box margin (nm - each face)', 'Vertical spread'):
-        assert fieldset.locator('label', has_text=label).count() == 1, f'{label} is not in the merged card'
+    # Matched on the control's own label text, not a page-wide substring: each label now carries the server's
+    # explanation in its info tooltip, and those sentences mention the other controls by name.
+    for name, start in (('initial_x_nm', 'Initial box x'), ('initial_y_nm', 'Initial box y'),
+                        ('initial_z_nm', 'Initial box z'), ('box_margin_nm', 'Box margin'),
+                        ('belt_vertical_half_nm', 'Vertical spread')):
+        label = control_label(page, name)
+        head = label.evaluate("el => el.firstChild?.textContent?.trim() || ''")
+        assert head.startswith(start), f'{name} is labelled {head!r}, not {start!r}'
     for name in ('pdc_seed', 'salt_molar', 'box_margin_nm', 'initial_z_nm', 'contact_nm',
                  'selection_threshold_fraction', 'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision',
                  'nstcomm', 'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
@@ -181,6 +187,33 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     workflow = page.locator('.new-run-settings .card').nth(1)
     expect(workflow).to_contain_text('What this run will do')
     expect(workflow.locator('.new-pdc-placed-node text.title')).to_have_text('1 · Build the micelle')
+    assert errors == [], errors
+
+
+def test_the_belt_and_box_labels_carry_their_unit_and_the_explanation_is_in_the_info_icon(dashboard, live_page):
+    """A label says the name and its unit; what the number does is the server-sent info button's tooltip.
+
+    The belt's five numbers and the four starting-box controls are measured, because those are the labels the user
+    asked to shorten: a subtext like "nm · between detergents" is gone, replaced by "nm" beside the name with the
+    sentence in the button. The old paragraph under the starting box and its per-axis note line are gone too.
+    """
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
+                 'belt_offset_nm', 'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'box_margin_nm'):
+        label = control_label(page, name)
+        assert label.locator('.hint').inner_text().strip() == 'nm', name
+        assert label.locator('button.info-btn').count() == 1, f'{name} has no info button'
+        assert len(label.locator('.setting-tip').inner_text().strip()) > 10, f'{name} has no explanation'
+        assert '·' not in label.locator('.hint').inner_text(), f'{name} still carries a folded explanation'
+
+    assert page.locator('#run-form').get_by_text(
+        'The starting box, and the cell the preview draws', exact=False).count() == 0
+    assert page.locator('.new-pdc-box-note').count() == 0
+
     assert errors == [], errors
 
 
@@ -382,13 +415,13 @@ def test_the_stage_settings_start_on_the_catalogues_own_numbers(dashboard, live_
                  ('pdc_production_ref_p', 'pdc_production_tau_p', 'pdc_production_compressibility')) == \
         (1.0, 12.0, 4.5e-5)
     assert values['mdrun_update'] == 'auto'
-    # The four reviewed-profile timesteps, the starting box (blank is the derived cell), the vertical spread (blank
-    # is twice the detergent's length), the belt offset and the run label are the only blanks.
+    # The four reviewed-profile timesteps, the three starting-box axes (blank is the derived cell) and the run label
+    # are the only blanks; the belt's five numbers now all open on a stated default.
     # The label is a run name, not a setting, and its suggestion lands after the panel's own fetch: it is excluded
     # rather than raced.
     assert {name for name, value in values.items() if value in ('', None) and name != 'label'} == {
         'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
-        'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'belt_vertical_half_nm', 'belt_offset_nm'}, values
+        'initial_x_nm', 'initial_y_nm', 'initial_z_nm'}, values
     assert errors == [], errors
 
 
@@ -410,7 +443,8 @@ def test_each_stage_editor_states_what_it_holds_even_while_closed(dashboard, liv
     assert facts['production'] == '100 ns assessment · 900 ns extension', facts
 
     # The three boxes of a dynamics stage: the duration and its own timestep imply the step count, at the same
-    # arithmetic the adapter prepares with (steps = duration / dt).
+    # arithmetic the adapter prepares with (steps = duration / dt). The editor opens first.
+    page.locator('#run-form details[data-stage=nvt] summary').click()
     page.locator('[name=pdc_nvt_ps]').fill('250')
     page.locator('[name=pdc_nvt_dt_fs]').fill('5')
     expect(page.locator('.new-pdc-stage-facts[data-stage=nvt]')).to_have_text('250 ps · 5 fs · 50 000 steps · free')
@@ -515,20 +549,26 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
-    # The vertical spread is nm now, and blank is the derived band (twice the detergent's own length), so it has no
-    # catalogue default to restore and no Default button.
-    expect(vertical).to_have_value('')
-    expect(vertical).to_have_attribute('placeholder', '2 × detergent length')
+    # The vertical spread is a stated nm with a 4 nm default now, so it opens on 4 and its Default button restores it
+    # beside the other four.
+    expect(vertical).to_have_value('4')
+    expect(vertical).not_to_have_attribute('placeholder', re.compile(r'detergent'))
     gap.fill('0.8')
     body.fill('0.5')
     axial.fill('1.2')
     vertical.fill('2.5')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
         control_label(page, name).locator('button.pdc-default').click()
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
-    expect(vertical).to_have_value('2.5'), 'the stated nm survives the other Default buttons'
+    expect(vertical).to_have_value('4')
+
+    offset = page.locator('[name=belt_offset_nm]')
+    expect(offset).to_have_value('0')
+    offset.fill('0.5')
+    control_label(page, 'belt_offset_nm').locator('button.pdc-default').click()
+    expect(offset).to_have_value('0')
 
     # They act on a pre-assembled belt: self-assembly hides them, lattice brings them back, and the values still post
     # either way (the adapter ignores them outside a belt).
@@ -685,8 +725,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
     page.locator('#new-count').press('Tab')
     page.locator('[name=label]').fill('pdc panel test')
     # Each dynamics stage carries its own timestep beside its duration; stated, all four post under the adapter's
-    # advertised names. The one CG production editor is closed until a reader opens it.
-    page.locator('#run-form details[data-stage=production] summary').click()
+    # advertised names. Every editor starts collapsed, so each one is opened before its controls are touched.
+    for stage in ('minimisation', 'nvt', 'npt', 'production'):
+        page.locator(f'#run-form details[data-stage={stage}] summary').click()
     page.locator('[name=pdc_nvt_dt_fs]').fill('10')
     page.locator('[name=pdc_npt_dt_fs]').fill('10')
     page.locator('[name=pdc_assessment_dt_fs]').fill('20')
@@ -729,8 +770,9 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'pdc_assessment_ns': 100, 'pdc_extension_ns': 900, 'pdc_seed': 20260928,
         'salt_molar': 0.15, 'box_margin_nm': 2.0, 'contact_nm': 0.6,
         'belt_gap_nm': 0.0,
-        # The vertical spread is blank in this form (2 x the detergent's length, the retired default), so it is
-        # absent from the payload rather than restated: an omitted setting is the adapter's own default.
+        # The form opens on the belt's stated defaults now, so all five numbers post: the vertical spread is the 4 nm
+        # default and the offset is 0.
+        'belt_vertical_half_nm': 4.0, 'belt_offset_nm': 0.0,
         'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
@@ -1082,6 +1124,8 @@ def test_every_stage_setting_carries_an_info_button_with_the_servers_sentence(da
     serve_catalogue(page, proteins=CATALOG['proteins'])
     serve_devices(page, {})
     open_panel(page, live_page.base_url)
+    # Every stage editor starts collapsed, so the controls whose buttons this case clicks are opened first.
+    page.evaluate("() => document.querySelectorAll('#run-form details.stage-editor').forEach(el => { el.open = true; })")
 
     for name in STAGE_SETTING_NAMES:
         label = control_label(page, name)
@@ -1135,21 +1179,31 @@ def test_the_starting_box_fields_mirror_the_preview_box_as_placeholders(dashboar
     assert errors == [], errors
 
 
-AUTO_EXTENT = {**EXTENT, 'auto_initial_x_nm': 7.2, 'auto_initial_y_nm': 8.8, 'auto_initial_z_nm': 10.4}
+#: The box the preview route answers with, distinct from `EXTENT`'s belt-less box on purpose: Auto must write these
+#: numbers and not the extent route's.
+PREVIEW_BOX = [12.34, 13.56, 14.78]
 
 
-def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_numbers(dashboard, live_page):
-    """One Auto for the starting cell: the extent route's suggested x, y and z fill all three fields.
+def _serve_preview(page, *, box=PREVIEW_BOX, valid=True, reasons=()):
+    page.route(re.compile(r'/api/pdc/preview/placement'), lambda route: route.fulfill(json={
+        'valid': valid, 'reasons': list(reasons), 'pdb': '',
+        'basis': {'box_nm': box, 'beads': 1500, 'protein_residues': 0,
+                  'placement_mode': 'lattice', 'aggregation_number': 150, 'seed': 20261123,
+                  'template': 'micelle_template.json', 'solvent_reason': 'not drawn'},
+        'cost': {}}))
 
-    It is a measurement, not a default -- the stated 6 nm z and blank x/y are replaced -- and an empty micelle has no
-    structure to measure, so the button says so by being disabled. The three fields stay blank until Auto is
-    pressed -- their placeholders belong to the preview's box, not to this protein-footprint measurement -- and Auto
-    writes the measured numbers into them, where they act as floors.
+
+def test_the_initial_box_auto_button_writes_the_box_the_preview_draws(dashboard, live_page):
+    """One Auto for the starting cell, and it writes the preview's own box rather than a second measurement.
+
+    A belt widens x and y to its radial reach, so the extent route's footprint-plus-margin is not the cell the
+    picture draws; Auto derives the preview and writes its `basis.box_nm` exactly, which is what the placeholders
+    still show while the fields are blank. An empty micelle has no structure to measure, so the button is disabled.
     """
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     serve_devices(page, {})
-    page.route(re.compile(r'/extent'), lambda route: route.fulfill(json=AUTO_EXTENT))
+    _serve_preview(page)
     open_panel(page, live_page.base_url)
 
     expect(page.locator('.pdc-auto-box')).to_be_disabled()
@@ -1157,11 +1211,26 @@ def test_the_initial_box_auto_button_measures_the_protein_and_writes_all_three_n
     expect(page.locator('.pdc-auto-box')).to_be_enabled()
     for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
         expect(page.locator(f'[name={name}]')).to_have_value('')
-        expect(page.locator(f'[name={name}]')).not_to_have_attribute('placeholder', re.compile(r'\d'))
     page.locator('.pdc-auto-box').click()
-    expect(page.locator('[name=initial_x_nm]')).to_have_value('7.2')
-    expect(page.locator('[name=initial_y_nm]')).to_have_value('8.8')
-    expect(page.locator('[name=initial_z_nm]')).to_have_value('10.4')
+    expect(page.locator('[name=initial_x_nm]')).to_have_value('12.34')
+    expect(page.locator('[name=initial_y_nm]')).to_have_value('13.56')
+    expect(page.locator('[name=initial_z_nm]')).to_have_value('14.78')
+    assert errors == [], errors
+
+
+def test_the_auto_button_says_why_when_the_preview_draws_no_box(dashboard, live_page):
+    """No picture means no measured cell: the fields are left alone and the builder's own reason is on screen."""
+    page, errors = live_page
+    serve_catalogue(page, proteins=CATALOG['proteins'])
+    serve_devices(page, {})
+    _serve_preview(page, box=None, valid=False, reasons=['the placement refuses this belt'])
+    open_panel(page, live_page.base_url)
+    page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
+
+    page.locator('.pdc-auto-box').click()
+    expect(page.locator('#notice')).to_contain_text('the placement refuses this belt')
+    for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
+        expect(page.locator(f'[name={name}]')).to_have_value('')
     assert errors == [], errors
 
 

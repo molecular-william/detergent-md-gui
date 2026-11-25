@@ -43,28 +43,28 @@ def test_only_atoms_in_the_slab_and_in_apolar_residues_are_added(positions, area
 
 # --- steps 4 and 5: the count and the fraction ----------------------------------------------------------------
 
-def test_the_count_is_the_apolar_area_over_the_head_area():
+def test_the_count_is_the_apolar_area_over_the_coverage_area():
     radius = 0.264
-    head_area = math.pi * radius ** 2
+    coverage = 2 * math.pi * radius ** 2
 
-    numbers = encapsulation.counts(apolar_area_nm2=1000.0, head_radius_nm=radius, requested=200)
+    numbers = encapsulation.counts(apolar_area_nm2=1000.0, coverage_area_nm2=coverage, requested=200)
 
-    assert numbers['head_area_nm2'] == pytest.approx(head_area)
-    assert numbers['needed'] == pytest.approx(1000.0 / head_area)
+    assert numbers['coverage_area_nm2'] == pytest.approx(coverage)
+    assert numbers['needed'] == pytest.approx(1000.0 / coverage)
     assert numbers['requested'] == 200
-    assert numbers['fraction'] == pytest.approx(200 * head_area / 1000.0)
+    assert numbers['fraction'] == pytest.approx(200 * coverage / 1000.0)
 
 
 def test_the_fraction_is_the_requested_count_over_the_needed_one():
     """The two reported numbers are reciprocals of one another, so a reader can check either against the other."""
-    numbers = encapsulation.counts(apolar_area_nm2=500.0, head_radius_nm=0.230, requested=150)
+    numbers = encapsulation.counts(apolar_area_nm2=500.0, coverage_area_nm2=0.3324, requested=150)
 
     assert numbers['fraction'] == pytest.approx(150.0 / numbers['needed'])
 
 
-def test_an_area_with_no_head_to_divide_it_by_is_refused():
-    with pytest.raises(ValueError, match='head radius'):
-        encapsulation.counts(apolar_area_nm2=100.0, head_radius_nm=0.0, requested=10)
+def test_an_area_with_no_coverage_to_divide_it_by_is_refused():
+    with pytest.raises(ValueError, match='coverage area'):
+        encapsulation.counts(apolar_area_nm2=100.0, coverage_area_nm2=0.0, requested=10)
 
 
 # --- step 1 and the whole estimate: structures whose area is known by construction -----------------------------
@@ -75,7 +75,7 @@ def test_an_isolated_apolar_atom_contributes_its_own_sphere_area():
 
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0]], [radius], [True],
                                      centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
     assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(radius), rel=1e-6)
 
@@ -89,7 +89,7 @@ def test_an_atom_the_mask_excludes_adds_nothing_to_the_apolar_area(positions, ap
     counted atom's own sphere and only that."""
     numbers = encapsulation.estimate(positions, [0.264, 0.264], apolar,
                                      centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
     assert numbers['apolar_area_nm2'] == pytest.approx(sphere_area(0.264), rel=1e-6)
 
@@ -102,28 +102,31 @@ def test_the_whole_structure_occludes_even_where_the_slab_stops():
     """
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [0.0, 0.0, 0.3]], [0.264, 0.264], [True, True],
                                      centre_nm=0.0, half_thickness_nm=0.2,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
     assert numbers['apolar_area_nm2'] < sphere_area(0.264), 'the out-of-slab atom must still occlude'
 
 
 def test_the_reported_numbers_are_the_plan_s_five_steps_and_agree_with_the_area_they_report():
-    """The invariant: the count is the reported area over the reported head area, not some other pair of numbers."""
+    """The invariant: the count is the reported area over the reported coverage area, not some other pair."""
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [6.0, 0.0, 0.0]], [0.264, 0.230], [True, True],
                                      centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=120, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230], requested=120, probe_nm=PROBE)
 
-    for key in ('apolar_area_nm2', 'head_radius_nm', 'head_area_nm2', 'needed', 'requested', 'fraction'):
+    for key in ('apolar_area_nm2', 'coverage_area_nm2', 'coverage_radii_nm', 'tail_ends', 'needed', 'requested',
+                'fraction'):
         assert key in numbers, key
-    assert numbers['head_area_nm2'] == pytest.approx(math.pi * numbers['head_radius_nm'] ** 2)
-    assert numbers['needed'] == pytest.approx(numbers['apolar_area_nm2'] / numbers['head_area_nm2'])
+    assert numbers['coverage_area_nm2'] == pytest.approx(2 * math.pi * 0.230 ** 2)
+    assert numbers['coverage_radii_nm'] == [0.230] and numbers['tail_ends'] == 1
+    assert numbers['needed'] == pytest.approx(numbers['apolar_area_nm2'] / numbers['coverage_area_nm2'])
     assert numbers['fraction'] == pytest.approx(numbers['requested'] / numbers['needed'])
 
 
 def test_the_estimate_carries_its_method_and_its_caveat():
     """The panel renders what the server decided: the conventions travel with the number."""
     assert 'Shrake-Rupley' in encapsulation.ESTIMATE_METHOD
-    assert 'largest head bead' in encapsulation.ESTIMATE_METHOD
+    assert 'free-end tail bead' in encapsulation.ESTIMATE_METHOD
+    assert '2 * pi * sum(r^2)' in encapsulation.ESTIMATE_METHOD
     assert 'A, V, L, I, M, F, W, P' in encapsulation.ESTIMATE_METHOD
     assert 'roughly the right order' in encapsulation.ESTIMATE_CAVEAT
     assert 'flat surface' in encapsulation.ESTIMATE_CAVEAT
@@ -134,23 +137,25 @@ def test_a_structure_with_no_apolar_surface_in_the_slab_is_refused_rather_than_d
     with pytest.raises(ValueError, match='apolar'):
         encapsulation.estimate([[0.0, 0.0, 0.0]], [0.264], [False],
                                centre_nm=0.0, half_thickness_nm=1.0,
-                               head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                               coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
 
-def test_a_multi_bead_head_group_is_represented_by_its_largest_bead():
-    """The convention the method string names: the footprint is the largest head bead's cross-section."""
+def test_a_branched_detergent_sums_both_of_its_tail_ends():
+    """LMNG presents two hemispheres, so its coverage is twice one S bead's -- the branching the method names."""
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0]], [0.264], [True],
                                      centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.191, 0.264, 0.230], requested=10, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230, 0.230], requested=10, probe_nm=PROBE)
 
-    assert numbers['head_radius_nm'] == 0.264
+    assert numbers['tail_ends'] == 2
+    assert numbers['coverage_area_nm2'] == pytest.approx(4 * math.pi * 0.230 ** 2)
+    assert numbers['needed'] == pytest.approx(numbers['apolar_area_nm2'] / numbers['coverage_area_nm2'])
 
 
-def test_an_estimate_with_no_head_bead_to_size_against_is_refused():
-    with pytest.raises(ValueError, match='head'):
+def test_an_estimate_with_no_free_end_tail_bead_to_size_against_is_refused():
+    with pytest.raises(ValueError, match='free-end tail bead'):
         encapsulation.estimate([[0.0, 0.0, 0.0]], [0.264], [True],
                                centre_nm=0.0, half_thickness_nm=1.0,
-                               head_radii_nm=[], requested=10, probe_nm=PROBE)
+                               coverage_radii_nm=[], requested=10, probe_nm=PROBE)
 
 
 # --- reading the structure: elements and residues -------------------------------------------------------------
@@ -206,7 +211,7 @@ def test_modified_residues_inside_the_slab_add_the_area_their_parents_earn(resid
     numbers = encapsulation.estimate([[0.0, 0.0, 0.0], [9.0, 0.0, 0.0]], [0.264, 0.264],
                                      encapsulation.apolar_mask(residues),
                                      centre_nm=0.0, half_thickness_nm=1.0,
-                                     head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                                     coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
     assert numbers['apolar_area_nm2'] == pytest.approx(spheres * sphere_area(0.264), rel=1e-6)
 
@@ -215,7 +220,7 @@ def test_the_short_method_states_the_two_areas_and_that_nothing_was_simulated():
     """The panel's bubble says what was divided and that it was geometry; the long method stays the route's own."""
     summary = encapsulation.ESTIMATE_SUMMARY
 
-    assert 'apolar' in summary.lower() and 'head bead' in summary
+    assert 'apolar' in summary.lower() and 'free-end tail bead' in summary
     assert 'No simulation' in summary
     assert len(summary.split()) <= 45, 'the bubble is the short form, not a paragraph in a tooltip'
     assert len(summary) < len(encapsulation.ESTIMATE_METHOD) / 2
@@ -244,23 +249,83 @@ def test_a_structure_is_read_in_nanometres_with_a_radius_per_atom(tmp_path):
     assert atoms['radii_nm'] == [0.161, 0.175]
 
 
-# --- where the head bead's size class comes from: the mapping and the force field -------------------------------
+# --- where the free-end tail beads come from: the mapping's own beads and connections ---------------------------
 
-def test_head_beads_are_the_physical_beads_that_are_not_the_aliphatic_carbon_family():
-    """The same rule the placement uses to orient a molecule (pdc_build.py): C, SC and TC beads are the tail, the
-    rest are the head. A ring virtual site is not a bead with a size, so it is not a head either."""
-    mapping = {'beads': [
+# DDM-like: a linear tail TAIL1-TAIL2-TAIL3 bonded on into the head at TAIL3, so TAIL3 is not an end and TAIL1 is.
+DDM_MAPPING = {
+    'beads': [
         {'name': 'TAIL1', 'type': 'C1', 'size': 'R'},
-        {'name': 'TAIL2', 'type': 'SC2', 'size': 'S'},
+        {'name': 'TAIL2', 'type': 'C1', 'size': 'R'},
+        {'name': 'TAIL3', 'type': 'C1', 'size': 'R'},
         {'name': 'S1A', 'type': 'SP1r', 'size': 'S'},
-        {'name': 'S1VS', 'type': 'TC4', 'size': 'T', 'virtual_site': {'function': 1, 'parents': ['TAIL1', 'S1A']}},
-        {'name': 'S1C', 'type': 'SN6', 'size': 'S'},
-    ]}
+        {'name': 'S1VS', 'type': 'TC4', 'size': 'T',
+         'virtual_site': {'function': 1, 'parents': ['S1A', 'TAIL3']}},
+    ],
+    'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'TAIL3'], ['S1A', 'TAIL3'], ['S1VS', 'S1A']],
+}
+# LMNG-like: one tail bead branches into two leaves, each a small bead, so both ends present a hemisphere.
+LMNG_MAPPING = {
+    'beads': [
+        {'name': 'HEAD', 'type': 'P1', 'size': 'R'},
+        {'name': 'TAIL1', 'type': 'C1', 'size': 'R'},
+        {'name': 'TAIL2', 'type': 'SC1', 'size': 'S'},
+        {'name': 'TAIL3', 'type': 'SC1', 'size': 'S'},
+    ],
+    'connections': [['HEAD', 'TAIL1'], ['TAIL1', 'TAIL2'], ['TAIL1', 'TAIL3']],
+}
 
-    assert [bead['name'] for bead in encapsulation.head_beads(mapping)] == ['S1A', 'S1C']
+
+def test_a_single_end_detergent_has_one_free_end_tail_bead():
+    """DDM's linear tail: degree one is TAIL1, and the ring virtual site is not a tail bead even at degree one."""
+    ends = encapsulation.edge_tail_beads(DDM_MAPPING)
+
+    assert [bead['name'] for bead in ends] == ['TAIL1']
+    assert encapsulation.mapping_coverage_radii(DDM_MAPPING) == [0.264]
 
 
-def test_the_head_bead_s_size_class_is_the_one_the_mapping_records():
+def test_a_branched_detergent_has_two_free_end_tail_beads():
+    """LMNG's two leaves: both are ends of class S, so the coverage sums both hemispheres, not just the largest."""
+    ends = encapsulation.edge_tail_beads(LMNG_MAPPING)
+
+    assert [bead['name'] for bead in ends] == ['TAIL2', 'TAIL3']
+    assert encapsulation.mapping_coverage_radii(LMNG_MAPPING) == [0.230, 0.230]
+
+
+def test_the_coverage_area_is_two_pi_times_the_sum_of_the_squared_radii():
+    """The decided arithmetic, pinned by hand against the two reference detergents.
+
+    The reference numbers are quoted to four decimals (DDM 0.4378, LMNG 0.6648); the exact 2*pi*r^2 is 0.437913 for
+    DDM's R bead, so the hand number is checked with a tolerance a four-decimal quote allows.
+    """
+    assert encapsulation.coverage_area_nm2([0.264]) == pytest.approx(2 * math.pi * 0.264 ** 2)
+    assert encapsulation.coverage_area_nm2([0.230, 0.230]) == pytest.approx(4 * math.pi * 0.230 ** 2)
+    assert encapsulation.coverage_area_nm2([0.264]) == pytest.approx(0.4378, abs=2e-4)
+    assert encapsulation.coverage_area_nm2([0.230, 0.230]) == pytest.approx(0.6648, abs=2e-4)
+
+
+def test_a_mapping_that_states_no_connections_is_refused_with_a_reason():
+    """With no connectivity there is no way to tell an end from a bonded-through bead, so nothing is guessed."""
+    with pytest.raises(ValueError, match='connections'):
+        encapsulation.edge_tail_beads({'beads': DDM_MAPPING['beads']})
+    with pytest.raises(ValueError, match='connections'):
+        encapsulation.edge_tail_beads({'beads': DDM_MAPPING['beads'], 'connections': []})
+
+
+def test_a_mapping_with_no_free_end_tail_bead_is_refused_with_a_reason():
+    """Every tail bead bonded on both sides is a ring, not a chain with ends: there is no hemisphere to sum."""
+    ring = {'beads': [{'name': f'TAIL{index}', 'type': 'C1', 'size': 'R'} for index in (1, 2, 3)],
+            'connections': [['TAIL1', 'TAIL2'], ['TAIL2', 'TAIL3'], ['TAIL3', 'TAIL1']]}
+
+    with pytest.raises(ValueError, match='free-end tail'):
+        encapsulation.edge_tail_beads(ring)
+
+
+def test_an_empty_coverage_area_is_refused_rather_than_divided_by():
+    with pytest.raises(ValueError, match='free-end tail'):
+        encapsulation.coverage_area_nm2([])
+
+
+def test_the_tail_bead_s_size_class_is_the_one_the_mapping_records():
     assert encapsulation.size_class({'name': 'S1C', 'type': 'SN6', 'size': 'S'}) == 'S'
     assert encapsulation.size_radius_nm('R') == 0.264
     assert encapsulation.size_radius_nm('S') == 0.230
@@ -275,24 +340,16 @@ def test_a_bead_that_records_no_size_falls_back_to_the_size_prefix_its_martini_t
     assert encapsulation.size_class({'name': 'H', 'type': 'P1'}) == 'R'
 
 
-def test_a_head_bead_whose_size_class_this_repository_carries_no_radius_for_is_refused():
+def test_a_tail_bead_whose_size_class_this_repository_carries_no_radius_for_is_refused():
     """The mapping can only state R, S or T, and the repository carries a radius for exactly those three. Anything
     else is a class nothing here can turn into a radius, and the route must say so rather than pick one."""
     with pytest.raises(ValueError, match='no radius'):
         encapsulation.size_radius_nm('N')
 
 
-def test_the_head_radii_come_from_the_mappings_own_head_beads():
-    mapping = {'beads': [{'name': 'TAIL1', 'type': 'C1', 'size': 'R'},
-                         {'name': 'S1A', 'type': 'SP1r', 'size': 'S'},
-                         {'name': 'S1C', 'type': 'TN5', 'size': 'T'}]}
-
-    assert encapsulation.mapping_head_radii(mapping) == [0.230, 0.191]
-
-
-def test_a_mapping_with_no_head_bead_is_refused_with_a_reason():
-    with pytest.raises(ValueError, match='head'):
-        encapsulation.mapping_head_radii({'beads': [{'name': 'TAIL1', 'type': 'C1', 'size': 'R'}]})
+def test_the_coverage_radii_come_from_the_mappings_own_free_end_tail_beads():
+    assert encapsulation.mapping_coverage_radii(DDM_MAPPING) == [0.264]
+    assert encapsulation.mapping_coverage_radii(LMNG_MAPPING) == [0.230, 0.230]
 
 
 # --- the selection: a structure can be an assembly, and only some of it is simulated ---------------------------------
@@ -373,7 +430,7 @@ def test_the_selection_is_the_area_of_the_chosen_chains_and_not_of_the_others(tm
         return encapsulation.estimate(atoms['positions_nm'], atoms['radii_nm'],
                                       encapsulation.apolar_mask(atoms['residues']),
                                       centre_nm=0.0, half_thickness_nm=1.0,
-                                      head_radii_nm=[0.230], requested=10, probe_nm=PROBE)
+                                      coverage_radii_nm=[0.230], requested=10, probe_nm=PROBE)
 
     everything = sized(encapsulation.read_structure(path))
     one = sized(encapsulation.read_structure(path, chains=['B']))

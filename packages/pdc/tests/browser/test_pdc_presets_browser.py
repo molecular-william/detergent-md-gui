@@ -139,9 +139,12 @@ def test_save_posts_the_run_type_and_the_controls_as_they_stand(dashboard, live_
     page.on('dialog', lambda dialog: dialog.accept('Workspace standard'))
     open_panel(page, live_page.base_url)
 
+    # Every stage editor starts collapsed, so the two legs this case edits are opened first.
+    page.locator('#run-form details[data-stage=nvt] summary').click()
+    page.locator('#run-form details[data-stage=npt] summary').click()
+    page.locator('#run-form details[data-stage=production] summary').click()
     page.locator('[name=pdc_nvt_ps]').fill('140')
     page.locator('[name=pdc_nvt_dt_fs]').fill('7')
-    page.locator('#run-form details[data-stage=production] summary').click()
     page.locator('[name=pdc_production_ref_t]').fill('310')
     page.locator('[name=pdc_npt_tau_t]').fill('0.6')
     page.locator('#preset-save').click()

@@ -96,6 +96,25 @@ def test_the_belt_packing_settings_are_advertised_and_bounded():
             pdc.normalize_settings({'belt_axial_window_nm': outside})
 
 
+def test_the_vertical_spread_is_a_four_nanometre_default_and_an_old_multiple_still_wins():
+    """The belt band is 4 nm unless a payload written before 2026-11-24 states the retired multiple instead.
+
+    The nm setting is the defaulted one, and a stated one is the band's exact half-height. The retired
+    `belt_vertical_spread` (a multiple of the detergent's length) is still read for an old run, clone or preset: its
+    payload states that key and no nm key, and the injected 4.0 must not overwrite the band it was placed with.
+    """
+    assert pdc.DEFAULTS['belt_vertical_half_nm'] == 4.0
+    assert pdc.SETTING_SPECS['belt_vertical_half_nm'] == ('Vertical spread (nm)', 0.5, 10.0)
+    assert pdc.normalize_settings({})['belt_vertical_half_nm'] == 4.0
+    assert pdc.normalize_settings({'belt_vertical_half_nm': 2.5})['belt_vertical_half_nm'] == 2.5
+    # An old payload states the multiple and no nm key: the band is that multiple, and no 4.0 is invented beside it.
+    old = pdc.normalize_settings({'belt_vertical_spread': 1.1})
+    assert old['belt_vertical_spread'] == 1.1 and 'belt_vertical_half_nm' not in old, old
+    # A payload that states both is the new run: the nm setting wins, as `pdc_build` reads it.
+    both = pdc.normalize_settings({'belt_vertical_spread': 1.1, 'belt_vertical_half_nm': 3.0})
+    assert both['belt_vertical_half_nm'] == 3.0 and both['belt_vertical_spread'] == 1.1
+
+
 def test_the_generated_label_names_the_choices_it_was_built_from():
     """The panel's label field, filled from the same numbers the run is built with -- not a second vocabulary."""
     assert pdc.generated_label('DDM', {'aggregation_number': 192}) == 'DDM_micelle_192_1conf_1us'

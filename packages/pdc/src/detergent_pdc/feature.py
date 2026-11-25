@@ -77,6 +77,11 @@ def _box_warnings(payload):
 
     state = paths.current()
     defaults = pdc_adapter.DEFAULTS
+    # The belt band the run will be placed with: the adapter's default, unless the payload names the retired multiple
+    # without the nm key -- the same rule `pdc._numbers` applies, so admission measures the box the run would write.
+    half_band = number('belt_vertical_half_nm')
+    if half_band is None and payload.get('belt_vertical_spread') in (None, ''):
+        half_band = float(defaults['belt_vertical_half_nm'])
     answer = pdc_preview.preview(
         project_root=str(state.project_root), cache_root=state.workspace / pdc_preview.CACHE_DIRECTORY,
         template=template, seed=choices['seed'], protein=payload.get('protein') or None,
@@ -92,7 +97,7 @@ def _box_warnings(payload):
         min_body_gap_nm=number('min_body_gap_nm', float(defaults['min_body_gap_nm'])),
         belt_axial_window_nm=number('belt_axial_window_nm', float(defaults['belt_axial_window_nm'])),
         belt_vertical_spread=number('belt_vertical_spread', float(defaults['belt_vertical_spread'])),
-        belt_vertical_half_nm=number('belt_vertical_half_nm'),
+        belt_vertical_half_nm=half_band,
         belt_offset_nm=number('belt_offset_nm', float(defaults['belt_offset_nm'])),
         # The library changes which bodies are stamped, never the belt's measured reach or the cell it needs.
         conformation_library=None)

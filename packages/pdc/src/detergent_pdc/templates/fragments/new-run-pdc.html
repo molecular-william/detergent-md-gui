@@ -81,53 +81,51 @@
         profile's own; one stated here overrides it for this run only, and the manifest records what was used.</p>
       <section class="new-option-group new-pdc-config" aria-labelledby="new-config-title">
         <h4 class="new-option-title new-pdc-config-title" id="new-config-title">Detergent belt and sampling</h4>
-      <div class="new-pdc-pair new-pdc-config-pair">
+      {# One three-column grid for every control in the group: the style and the count, then the five belt numbers. A
+         belt number's subtext is its unit only; what it does is the info button `setting_help.HELP` attaches. The five
+         belt-only labels carry `data-belt-only` because the group stays on screen for an empty micelle and in
+         self-assembly, where the adapter ignores them -- hidden, not disabled, so the values still post. #}
+      <div class="new-pdc-belt-grid">
         <label>Initialisation style<select name="pdc_placement_mode" id="new-placement"><option value="lattice">Pre-assembled micelle · CHARMM-GUI</option><option value="self-assembly">Self-assembly · MemProtMD</option></select></label>
         <label><span class="new-pdc-count-label" id="new-count-label">Detergents in the belt</span>
           <span class="setting-control">
             <input name="aggregation_number" id="new-count" type="number" min="1" max="1000" step="1">
           </span>
         </label>
+        {# The gap between the measured membrane surface and the detergents' bodies. Belt-only: an empty micelle and
+           self-assembly hide every `data-belt-only` label. #}
+        <label data-belt-only>Belt–protein gap <span class="hint">nm</span>
+          <span class="setting-control">
+            <input name="belt_gap_nm" type="number" min="0" max="5" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
+          </span>
+        </label>
+        <label data-belt-only>Minimum body-bead distance <span class="hint">nm</span>
+          <span class="setting-control">
+            <input name="min_body_gap_nm" type="number" min="0" max="2" step="0.05">
+            <button type="button" class="secondary pdc-default" data-field="min_body_gap_nm">Default</button>
+          </span>
+        </label>
+        <label data-belt-only>Local surface axial window <span class="hint">nm</span>
+          <span class="setting-control">
+            <input name="belt_axial_window_nm" type="number" min="0.1" max="5" step="0.05">
+            <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
+          </span>
+        </label>
+        <label data-belt-only>Vertical spread <span class="hint">nm</span>
+          <span class="setting-control">
+            <input name="belt_vertical_half_nm" type="number" min="0.5" max="10" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="belt_vertical_half_nm">Default</button>
+          </span>
+        </label>
+        <label data-belt-only>Belt vertical offset <span class="hint">nm</span>
+          <span class="setting-control">
+            <input name="belt_offset_nm" type="number" min="-2" max="2" step="0.1">
+            <button type="button" class="secondary pdc-default" data-field="belt_offset_nm">Default</button>
+          </span>
+        </label>
       </div>
       <div class="new-pdc-belt-block" id="new-belt-block">
-        {# The gap between the measured membrane surface and the detergents' bodies: a belt setting, so it lives inside
-           the belt block and disappears with an empty micelle. Hidden -- not disabled -- in self-assembly, where the
-           adapter ignores it, because the value still posts and nothing about the payload changes. #}
-        {# The four belt numbers are two rows of two: the two packing distances, then the two surface/band
-           numbers. A grid of their own rather than a `.new-pdc-pair`, which the pairing test measures as exactly one
-           row of two cells. #}
-        <div class="new-pdc-belt-grid">
-          <label>Belt–protein gap <span class="hint">nm · added clearance</span>
-            <span class="setting-control">
-              <input name="belt_gap_nm" type="number" min="0" max="5" step="0.1">
-              <button type="button" class="secondary pdc-default" data-field="belt_gap_nm">Default</button>
-            </span>
-          </label>
-          <label>Minimum body-bead distance <span class="hint">nm · between detergents</span>
-            <span class="setting-control">
-              <input name="min_body_gap_nm" type="number" min="0" max="2" step="0.05">
-              <button type="button" class="secondary pdc-default" data-field="min_body_gap_nm">Default</button>
-            </span>
-          </label>
-          <label>Local surface axial window <span class="hint">nm · per belt site</span>
-            <span class="setting-control">
-              <input name="belt_axial_window_nm" type="number" min="0.1" max="5" step="0.05">
-              <button type="button" class="secondary pdc-default" data-field="belt_axial_window_nm">Default</button>
-            </span>
-          </label>
-          <label>Vertical spread <span class="hint">nm · half-height · blank: 2 × detergent length</span>
-            <span class="setting-control">
-              <input name="belt_vertical_half_nm" type="number" min="0.5" max="10" step="0.1"
-                     placeholder="2 × detergent length">
-            </span>
-          </label>
-        </div>
-          <label>Belt vertical offset <span class="hint">nm · along the membrane normal</span>
-            <span class="setting-control">
-              <input name="belt_offset_nm" type="number" min="-2" max="2" step="0.1">
-              <button type="button" class="secondary pdc-default" data-field="belt_offset_nm">Default</button>
-            </span>
-          </label>
         <div class="new-pdc-estimate-card" role="status" aria-live="polite">
           {# The estimate states its number and folds its method into the dashboard's own info button: a real
              button, so it is focusable and announced, showing its tooltip on hover, keyboard focus or a tap
@@ -148,7 +146,7 @@
           <p class="hint new-pdc-shortfall"></p>
           <table class="new-pdc-estimate-table" hidden><tbody>
             <tr><td>Apolar area of the transmembrane slab</td><td><strong class="new-pdc-apolar">—</strong></td></tr>
-            <tr><td>Head-group area of one detergent bead</td><td><strong class="new-pdc-head">—</strong></td></tr>
+            <tr><td>Apolar area one detergent covers</td><td><strong class="new-pdc-coverage">—</strong></td></tr>
             <tr><td>Estimated need</td><td><strong class="new-pdc-need">—</strong></td></tr>
             <tr><td>What you are asking for</td><td><strong class="new-pdc-have">—</strong> of that area</td></tr>
           </tbody></table>
@@ -174,42 +172,36 @@
       <section class="new-option-group">
         <h4 class="new-option-title">Starting box</h4>
       {# The starting cell, stated here rather than derived invisibly. A stated x, y or z is the cell's exact
-         dimension: a blank field is the derived value (x and y the protein's footprint plus the margin), and a
-         number that cannot hold the protein or the belt is refused with both numbers rather than widened. The grid
-         is its own class, not a `.new-pdc-pair`, which the pairing test measures as exactly one row of two cells. #}
+         dimension; a blank axis is the box the preview draws. The long explanation lives in each control's info
+         button (`setting_help.HELP`), so the labels carry their unit and nothing else. A value too small to hold the
+         system is refused at the queue with both numbers. #}
       <div class="new-pdc-box-grid">
-        <label>Initial x box (nm - dimension) <span class="hint">blank: the box the preview draws</span>
+        <label>Initial box x <span class="hint">nm</span>
           <span class="setting-control">
             <input name="initial_x_nm" type="number" min="1" max="50" step="0.1">
           </span>
         </label>
-        <label>Initial y box (nm - dimension) <span class="hint">blank: the box the preview draws</span>
+        <label>Initial box y <span class="hint">nm</span>
           <span class="setting-control">
             <input name="initial_y_nm" type="number" min="1" max="50" step="0.1">
           </span>
         </label>
-        <label>Initial z box (nm - dimension)
+        <label>Initial box z <span class="hint">nm</span>
           <span class="setting-control">
             <input name="initial_z_nm" type="number" min="1" max="50" step="0.1">
-            <button type="button" class="secondary pdc-auto-box" title="Measure the selected protein and fill the initial x, y and z boxes from it">Auto</button>
+            <button type="button" class="secondary pdc-auto-box" title="Measure the preview's own box and fill the initial box x, y and z fields from it">Auto</button>
           </span>
         </label>
-        <label>Box margin (nm - each face)
+        <label>Box margin <span class="hint">nm</span>
           <span class="setting-control">
             <input name="box_margin_nm" type="number" min="0.5" max="10" step="0.1">
             <button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button>
           </span>
         </label>
       </div>
-      <p class="hint">The starting box, and the cell the preview draws. A blank field is the derived box (x and y
-        are the protein's footprint plus the margin, z the clearance its furthest atom needs); a stated number is the
-        cell's dimension, and the preview and the run draw it exactly whenever it can hold the protein and belt. A
-        number too small to hold them is widened to what the system needs, and the reason is stated here rather than
-        cutting the system.</p>
-      <p class="hint new-pdc-box-note" role="status"></p>
       </section>
       <h4 class="new-option-title">Stages</h4>
-      <details class="stage-editor" data-stage="minimisation" open>
+      <details class="stage-editor" data-stage="minimisation">
         <summary><span class="stage-name">Energy minimisation</span><span class="stage-facts new-pdc-stage-facts"
           data-stage="minimisation"></span></summary>
         <div class="stage-body"><div class="settings-grid">
@@ -227,7 +219,7 @@
             <button type="button" class="secondary pdc-default" data-field="pdc_posres_min">Default</button></span></label>
         </div></div>
       </details>
-      <details class="stage-editor" data-stage="nvt" open>
+      <details class="stage-editor" data-stage="nvt">
         <summary><span class="stage-name">NVT equilibration</span><span class="stage-facts new-pdc-stage-facts"
           data-stage="nvt"></span></summary>
         <div class="stage-body">
@@ -263,7 +255,7 @@
             holds the temperature stated here, for this leg only; the barostat arrives with NPT.</p>
         </div>
       </details>
-      <details class="stage-editor" data-stage="npt" open>
+      <details class="stage-editor" data-stage="npt">
         <summary><span class="stage-name">NPT equilibration</span><span class="stage-facts new-pdc-stage-facts"
           data-stage="npt"></span></summary>
         <div class="stage-body">

@@ -2,9 +2,9 @@
 
 Before a protein-detergent run, this says whether the number of detergents the reader asked for is the right order
 of magnitude for the protein's apolar surface in the membrane. Five steps: per-atom solvent-accessible area of the
-protein; restrict to the transmembrane slab; sum the slab's apolar surface; divide by the area one detergent's head
-bead covers; report the count the surface implies, the count that was asked for, and what fraction of the surface
-that count would cover.
+protein; restrict to the transmembrane slab; sum the slab's apolar surface; divide by the area one detergent's
+free-end tail beads cover; report the count the surface implies, the count that was asked for, and what fraction of
+the surface that count would cover.
 
 What it is not is as important as what it is. It treats the protein as a flat surface -- no curvature, no packing,
 no shape -- so it says "N detergents is roughly the right order" and never "the micelle forms". The run's own
@@ -90,10 +90,12 @@ ESTIMATE_METHOD = (
     'eight) is folded into the apolar set as if it were the parent -- MSE, FME and MED (methionine), NLE (leucine), '
     'NVA (valine), ABA and AIB (alanine), and the D-forms DAL, DVA, DLE, DIL, DPN, DPR, DTR -- while a modified '
     'residue whose parent is polar, or that adds a polar group such as a hydroxyl or a phosphate, is not apolar. '
-    'head_area = pi * r_head^2, where r_head is the radius of '
-    'the largest head bead of the detergent mapping\u2019s head group -- the convention taken for a multi-bead head '
-    'group -- from its Martini 3 size class (R 0.264, S 0.230, T 0.191 nm). '
-    'needed = apolar_area / head_area; fraction = requested * head_area / apolar_area. '
+    'coverage_area = 2 * pi * sum(r^2) over the detergent mapping\u2019s free-end tail beads, the hemisphere each '
+    'end presents to the slab: a tail bead is a C, SC or TC bead that is not a virtual site, and it is a free end '
+    'when the mapping\u2019s connections leave it with exactly one partner, which is how DDM contributes one end and '
+    'a branched detergent such as LMNG contributes two. Each r is that bead\u2019s Martini 3 size class (R 0.264, '
+    'S 0.230, T 0.191 nm). A mapping that states no connections cannot say which tail bead is an end and is refused. '
+    'needed = apolar_area / coverage_area; fraction = requested * coverage_area / apolar_area. '
     'When the caller narrows to a strict subset of the chains the '
     'structure declares, the structure is filtered to those chains before the surface is computed, so the number '
     'describes the subunit that will be simulated and not the whole deposited file; naming every chain is the whole '
@@ -107,12 +109,12 @@ ESTIMATE_CAVEAT = (
 )
 
 #: The short form of the method, for the panel's info bubble. The paragraph above stays the route's own statement --
-#: it names the probe, the residue rule and the head-bead convention a reader checking the number needs -- and this is
+#: it names the probe, the residue rule and the free-end tail beads a reader checking the number needs -- and this is
 #: what a reader who is only sizing a belt sees: the two quantities that were divided, and that nothing was simulated.
 ESTIMATE_SUMMARY = (
-    'Apolar area of the transmembrane slab -- the solvent-accessible surface of the deposited structure, restricted to '
-    'the apolar atoms inside the slab -- divided by the area of one detergent head bead (pi r^2, with r from its '
-    'Martini 3 size class). No simulation.'
+    'Apolar area of the transmembrane slab -- the deposited structure\u2019s apolar solvent-accessible surface '
+    'inside the slab -- divided by the hemispheric area of one detergent\u2019s free-end tail beads '
+    '(2 * pi * sum r^2, each r from its Martini 3 size class). No simulation.'
 )
 
 
@@ -175,37 +177,34 @@ def slab_area(areas_nm2, positions_nm, apolar, *, centre_nm, half_thickness_nm):
     return float(np.nansum(areas[inside & apolar]))
 
 
-def counts(apolar_area_nm2, head_radius_nm, requested):
+def counts(apolar_area_nm2, coverage_area_nm2, requested):
     """Steps 4 and 5: the count the area implies, and the fraction of the area the requested count covers.
 
     `needed` and `fraction` are reciprocals through `requested`, so a reader can check one against the other.
     """
     area = float(apolar_area_nm2)
-    radius = float(head_radius_nm)
-    if not radius > 0:
-        raise ValueError('the estimate needs a positive head radius to divide by')
+    coverage = float(coverage_area_nm2)
+    if not coverage > 0:
+        raise ValueError('the estimate needs a positive coverage area to divide by')
     if not area > 0:
         raise ValueError('the estimate needs a positive apolar area to divide')
-    head_area = math.pi * radius ** 2
     count = int(requested)
-    return {'head_area_nm2': head_area, 'needed': area / head_area, 'requested': count,
-            'fraction': count * head_area / area}
+    return {'coverage_area_nm2': coverage, 'needed': area / coverage, 'requested': count,
+            'fraction': count * coverage / area}
 
 
-def estimate(positions_nm, radii_nm, apolar, *, centre_nm, half_thickness_nm, head_radii_nm, requested,
+def estimate(positions_nm, radii_nm, apolar, *, centre_nm, half_thickness_nm, coverage_radii_nm, requested,
              probe_nm=PROBE_NM, points=POINT_NUMBER, residues=None):
-    """The whole estimate: the numbers the panel shows, from a structure and the detergent's head radii.
+    """The whole estimate: the numbers the panel shows, from a structure and the detergent's free-end tail radii.
 
     `positions_nm` and `radii_nm` are the protein's atoms and their radii, `apolar` the per-atom mask, and the slab
     is `|z - centre| <= half_thickness`. The surface is computed over the *whole* structure -- an atom outside the
-    slab still shadows one inside it -- and the slab decides only which areas are summed. `head_radii_nm` are the
-    radii of the detergent mapping's head beads; the largest of them sets the footprint, which is the convention
-    `ESTIMATE_METHOD` names.
+    slab still shadows one inside it -- and the slab decides only which areas are summed. `coverage_radii_nm` are the
+    radii of the detergent mapping's free-end tail beads, one per end; their hemispheres are summed, which is the
+    convention `ESTIMATE_METHOD` names.
     """
-    heads = [float(radius) for radius in (head_radii_nm or [])]
-    if not heads:
-        raise ValueError('the estimate needs the detergent mapping\u2019s head bead: none was resolved, so there is '
-                         'no head radius to size the belt with')
+    tails = [float(radius) for radius in (coverage_radii_nm or [])]
+    coverage = coverage_area_nm2(tails)
     positions = np.asarray(positions_nm, dtype=float)
     radii = np.asarray(radii_nm, dtype=float)
     areas = _atom_sasa_nm2(positions, radii, probe_nm, points, residues)
@@ -213,8 +212,9 @@ def estimate(positions_nm, radii_nm, apolar, *, centre_nm, half_thickness_nm, he
     if not area > 0:
         raise ValueError('the transmembrane slab holds no apolar surface, so there is nothing to size a belt '
                          'against')
-    numbers = counts(area, max(heads), requested)
-    return {'apolar_area_nm2': area, 'head_radius_nm': max(heads), 'atoms': int(len(positions)), **numbers}
+    numbers = counts(area, coverage, requested)
+    return {'apolar_area_nm2': area, 'coverage_radii_nm': tails, 'tail_ends': len(tails),
+            'atoms': int(len(positions)), **numbers}
 
 
 def _atom_sasa_nm2(positions_nm, radii_nm, probe_nm, points, residues=None):
@@ -242,17 +242,50 @@ def _atom_sasa_nm2(positions_nm, radii_nm, probe_nm, points, residues=None):
     return np.nan_to_num(areas, nan=0.0) / (_ANGSTROM ** 2)
 
 
-# --- where the head bead's size class comes from: the detergent's own mapping ----------------------------------
+# --- where the free-end tail beads come from: the detergent's own mapping ---------------------------------------
 
-def head_beads(mapping):
-    """A detergent mapping's head-group beads: its physical beads that are not the aliphatic carbon family.
+def edge_tail_beads(mapping):
+    """A detergent mapping's free-end tail beads: its tail beads of degree one in the mapping's connections.
 
-    The same rule the placement uses to orient a molecule (`pdc_placement.tail_bead`): a C, SC or TC bead is the
-    tail, everything else is the head. A ring virtual site is not a bead with a size of its own, so it is not a head
-    either.
+    The tail rule is the placement's own (`pdc_placement.tail_bead`): a C, SC or TC bead that is not a virtual site.
+    `connections` is a list of `[name_a, name_b]` pairs over the physical bead names, and a bead's degree is how many
+    pairs name it; degree one means the chain stops there, so that bead presents its hemisphere to the slab. A
+    branched detergent such as LMNG has two such leaves and both are returned.
+
+    A mapping that states no connections cannot say which tail bead is an end, and one whose tail beads are all
+    bonded on both sides has no end at all: both are refused with a sentence rather than guessed at, because a made-up
+    end is indistinguishable from a measured one once it is in the area.
     """
-    return [bead for bead in (mapping.get('beads') or [])
-            if not bead.get('virtual_site') and not tail_bead(bead)]
+    connections = mapping.get('connections')
+    if not connections:
+        raise ValueError('the detergent mapping states no connections, so no tail bead can be read as a free end: '
+                         'the area one detergent covers needs the mapping\u2019s connectivity')
+    degree = {}
+    for pair in connections:
+        for name in pair:
+            degree[str(name)] = degree.get(str(name), 0) + 1
+    ends = [bead for bead in (mapping.get('beads') or [])
+            if tail_bead(bead) and degree.get(str(bead.get('name')), 0) == 1]
+    if not ends:
+        raise ValueError('the detergent mapping has no free-end tail bead: every tail bead is bonded to more than '
+                         'one partner, so the area one detergent covers cannot be read')
+    return ends
+
+
+def coverage_area_nm2(radii_nm):
+    """The area one detergent covers on the slab: 2 * pi * sum(r^2), one hemisphere per free-end tail bead.
+
+    A branched detergent sums every end's hemisphere; the radii are the mapping's own size-class radii, so a bead
+    whose class this repository carries no radius for never reaches here.
+    """
+    radii = [float(radius) for radius in (radii_nm or [])]
+    if not radii:
+        raise ValueError('the estimate needs the detergent mapping\u2019s free-end tail beads: none was resolved, so '
+                         'there is no coverage area to size the belt with')
+    for radius in radii:
+        if not radius > 0:
+            raise ValueError(f'the estimate needs a positive coverage radius to sum, not {radius!r}')
+    return 2 * math.pi * sum(radius ** 2 for radius in radii)
 
 
 def size_class(bead):
@@ -329,14 +362,10 @@ def unknown_chains(available, requested):
     return sorted({str(chain) for chain in (requested or [])} - present)
 
 
-def mapping_head_radii(mapping):
-    """Every head bead's radius, in nanometres, from the detergent mapping's own size classes.
+def mapping_coverage_radii(mapping):
+    """Every free-end tail bead's radius, in nanometres, from the detergent mapping's own size classes.
 
-    A mapping that names no head bead cannot answer, and says so rather than returning an empty list a caller might
-    read as "no head surface".
+    One radius per end, so a branched detergent returns two and `coverage_area_nm2` sums both hemispheres. A mapping
+    the connectivity rule cannot read is refused by `edge_tail_beads` with its own sentence.
     """
-    beads = head_beads(mapping)
-    if not beads:
-        raise ValueError('the detergent mapping names no head bead: every physical bead is of the aliphatic carbon '
-                         'family (C, SC, TC), so there is no head size class to resolve')
-    return [size_radius_nm(size_class(bead)) for bead in beads]
+    return [size_radius_nm(size_class(bead)) for bead in edge_tail_beads(mapping)]
