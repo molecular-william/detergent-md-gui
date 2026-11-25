@@ -683,11 +683,15 @@ def preview_choices(source):
                                              float(pdc.DEFAULTS['belt_axial_window_nm']))
     choices['belt_vertical_spread'] = number('belt_vertical_spread',
                                              float(pdc.DEFAULTS['belt_vertical_spread']))
-    # The belt's vertical half-height in nm: the adapter's default unless a caller names the retired multiple without
-    # this key (an old payload or preset), which is the same rule `pdc._numbers` applies to a run's settings.
+    # The belt's vertical spread is stated as the band's **total** height, and the placement reads its half. The
+    # retired half-height and multiple are still accepted: a caller that names one and not the total keeps it, which
+    # is the same rule `pdc._numbers` applies to a run's settings.
+    total = number('belt_vertical_spread_nm', None)
     half = number('belt_vertical_half_nm', None)
-    if half is None and not (source.args.get('belt_vertical_spread') or '').strip():
-        half = float(pdc.DEFAULTS['belt_vertical_half_nm'])
+    if total is not None:
+        half = total / 2.0
+    elif half is None and not (source.args.get('belt_vertical_spread') or '').strip():
+        half = float(pdc.DEFAULTS['belt_vertical_spread_nm']) / 2.0
     choices['belt_vertical_half_nm'] = half
     choices['belt_offset_nm'] = number('belt_offset_nm', float(pdc.DEFAULTS['belt_offset_nm']))
     return choices

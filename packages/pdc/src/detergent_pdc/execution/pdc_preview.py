@@ -534,7 +534,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
             belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
             belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
-            belt_vertical_half_nm=pdc_adapter.DEFAULTS['belt_vertical_half_nm'],
+            belt_vertical_half_nm=pdc_adapter.DEFAULTS['belt_vertical_spread_nm'] / 2.0,
             belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
@@ -579,9 +579,10 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     unstated gap keeps the frame a build has always written and `0.0` is byte-identical to it. `min_body_gap_nm` and
     `belt_axial_window_nm` are the belt's packing and local-surface settings, forwarded the same way and recorded in
     `basis`; both reach only a belt, exactly as in the build. `belt_vertical_half_nm` is the band's half-height, and
-    an omitted value is the run's own 4 nm default (the adapter's `DEFAULTS`, so the preview and the build describe
-    the same band); `None` is reserved for a caller replaying an old payload, which asks for the retired multiple of
-    the detergent's length.
+    an omitted value is half the run's own 4 nm total (the adapter's `DEFAULTS['belt_vertical_spread_nm']`, so the
+    preview and the build describe the same band); `None` is reserved for a caller replaying an old payload, which
+    asks for the retired multiple of the detergent's length. The route converts the form's total to this half before
+    it calls here.
 
     `initial_x_nm`/`initial_y_nm`/`initial_z_nm` are the run's stated starting cell, passed to the same box rule the
     build uses (`pdc_box.initial_box`/`membrane_box`/`extended_box`). A stated number is the cell's exact dimension
@@ -822,7 +823,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   'min_body_gap_nm': band.get('min_body_gap_nm'),
                   'axial_window_nm': band.get('axial_window_nm'),
                   'vertical_spread': band.get('vertical_spread'),
+                  'vertical_spread_nm': band.get('vertical_spread_nm'),
                   'vertical_half_nm': band.get('vertical_half_nm'),
+                  # What the far-head repair did: the belt's median sideways distance, the threshold, the trial
+                  # heights and how many heads moved or kept their original position.
+                  'radial_repair': band.get('radial_repair'),
                   # The sphere's measured radius (a belt's is `band_radius_nm` above), and which number decided it --
                   # the protein's own extent or the radius setting used as a floor. A run that selects one subunit
                   # measures a smaller shell, and these two fields are where that shows.

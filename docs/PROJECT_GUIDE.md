@@ -1096,10 +1096,12 @@ A pdc belt is a **cylinder** about the membrane frame's normal when the protein 
 measured **locally per site** -- the furthest in-slab atom within `BELT_LOCAL_ANGLE_DEG` (10 deg) of that site's
 heading **and** `belt_axial_window_nm` of its height (default 0.75 nm), plus `belt_gap_nm`, floored by
 `belt_floor_nm` (0) -- and each detergent is placed at its own closest point on that local surface with its head
-outward and its tail tilted 15 deg toward the axis, over a vertical band whose half-height is
-`belt_vertical_half_nm` in nm, defaulting to 4.0 nm (the retired `belt_vertical_spread`, a multiple of the detergent
-length, is read only for a pre-2026-11-24 payload that states it without the nm key) (`_belt_cylinder`,
-`SHAPE_CYLINDER`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
+outward and its tail tilted 15 deg toward the axis, over a vertical band whose **total height** is
+`belt_vertical_spread_nm` in nm, defaulting to 4.0 nm (so the band spans +/-2 nm about the mid-plane; the retired
+`belt_vertical_half_nm` half-height and the oldest `belt_vertical_spread` multiple of the detergent length are read
+only for an old payload or preset that states one without the total) (`_belt_cylinder`, `SHAPE_CYLINDER`; the
+placement reads the half-height, which is what the record's `vertical_half_band_nm` states beside
+`vertical_spread_nm`). A single global radius is kept in the record as the cylinder's `slab_radius_nm`; the belt's
 `radius_nm` is the mean of the local surfaces, with `radius_min_nm`/`radius_max_nm` beside it, so one protruding helix
 steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
 angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then
@@ -1109,7 +1111,13 @@ the absolute heights just above and below the band (`BELT_TRIAL_BEYOND_NM`: +-(h
 1.0) nm, at its base heading, local surface re-measured) before it is left empty; the user's 2026-11-25 decision,
 so a slot the protein blocks is placed just off the band instead of lost. The record's `placed_axial_max_nm` is the
 tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band, and `volume_nm3` uses the
-larger of the two. A rejected
+larger of the two. **The far heads are then reclaimed**, the user's 2026-11-25 decision: a placed head more than
+`BELT_FAR_RADIAL_NM` (0.75 nm) beyond the belt's own median sideways distance is retried at its own heading up to
+1.5 nm higher or lower (the six `BELT_RECLAIM_HEIGHT_NM` steps, clipped to the band), and the first candidate that
+clears every gate and lands back inside the belt replaces it; a head with no such neighbour keeps the draw's
+position, so the count never drops. The band's `radial_repair` records the median, the threshold, the trial heights
+and how many heads moved or stayed far. This exists because one side chain reaching into the membrane can push a
+whole detergent out: the local surface is the sector's maximum, not the average. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,
 which the preview's red rings and a refusal's count read. The placement's `problems` list is the same
 measurements as display marks (empty slot, head/body clearance, overlap; 200-mark cap, `problems_truncated`). `min_body_gap_nm` (default 0.3 nm) is a

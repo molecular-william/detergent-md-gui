@@ -59,13 +59,14 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             # measured. Both are belt-only; the sphere and self-assembly never read them, and they mirror
             # `pdc_placement`'s constants.
             'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
-            # The belt's vertical half-height in nm: the band spans this far either side of the cylinder's mid-plane.
-            # 4.0 is the run's default (the user's 2026-11-25 decision); the retired multiple below is still read for a
-            # payload written before 2026-11-24, and `_numbers` keeps it when that payload states it without the nm
-            # key, so older runs, clones and presets keep the band they were placed with.
-            'belt_vertical_half_nm': 4.0,
-            # The retired spelling of the same band as a multiple of the detergent's own length. 1.1 was the old
-            # reviewed value; 2.0 widened the band so the belt covered more of the membrane.
+            # The belt's vertical spread in nm: the band's **total** height, so 4.0 spans +/-2 nm about the
+            # cylinder's mid-plane (the user's 2026-11-25 clarification). The two retired spellings below are still
+            # read for a payload written before this change -- the half-height and the oldest multiple of the
+            # detergent's length -- and `_numbers` keeps either when a payload states it without this key, so an
+            # older run, clone or preset keeps the band it was placed with.
+            'belt_vertical_spread_nm': 4.0,
+            # The retired multiple of the detergent's own length. 1.1 was the old reviewed value; 2.0 widened the
+            # band so the belt covered more of the membrane.
             'belt_vertical_spread': 2.0,
             # A uniform translation of the belt along the membrane normal; 0 is the reviewed placement.
             'belt_offset_nm': 0.0,
@@ -178,12 +179,11 @@ SETTING_SPECS = {
     # half-height over which one site's local protein surface is measured.
     'min_body_gap_nm': ('Minimum body-bead distance (nm)', 0.0, 2.0),
     'belt_axial_window_nm': ('Local surface axial window (nm)', 0.1, 5.0),
-    # The belt's vertical half-height in nm. 4.0 is the adapter default (2026-11-25); the retired multiple below is
-    # still read for a run or preset written before 2026-11-24, and only wins when the payload names it without this
-    # key. A stated number is the band's exact half-height either side of the cylinder's mid-plane.
-    'belt_vertical_half_nm': ('Vertical spread (nm)', 0.5, 10.0),
-    # The retired spelling: a multiple of the detergent's own length. Still advertised so an old payload, clone or
-    # preset validates; only read when `belt_vertical_half_nm` states nothing.
+    # The belt's vertical spread in nm, the band's **total** height (4 nm = +/-2 nm about the mid-plane), which is
+    # what the form states and what the 2026-11-25 default means. Two retired spellings stay advertised so an old
+    # payload, clone or preset still validates: the half-height, and the oldest multiple of the detergent length.
+    'belt_vertical_spread_nm': ('Vertical spread (nm)', 1.0, 20.0),
+    'belt_vertical_half_nm': ('Vertical spread (nm - half-height, retired)', 0.5, 10.0),
     'belt_vertical_spread': ('Vertical spread (x detergent length - retired)', 0.5, 5.0),
     'belt_offset_nm': ('Belt vertical offset (nm)', -2.0, 2.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
@@ -981,11 +981,12 @@ def _numbers(supplied: dict, *, ignore_unknown: bool) -> dict:
         aliases=_ALIASES, ignore_unknown=ignore_unknown, object_message='PDC settings must be an object',
         unknown_prefix='Unknown PDC setting: ', bool_message='PDC settings must be numeric',
         integrals=_INTEGRAL_MESSAGES, integral_in_loop=True)
-    # A payload written before the nm band existed states the retired multiple and no nm key. The 4.0 default must not
+    # A payload written before the total-height band states a retired spelling and no total. The 4.0 default must not
     # overwrite it: an old run, clone or preset keeps the band it was placed with, and only a payload that states the
-    # nm key (every new form does) gets 4.0.
-    if 'belt_vertical_spread' in supplied and 'belt_vertical_half_nm' not in supplied:
-        numbers.pop('belt_vertical_half_nm', None)
+    # new key (every new form does) gets 4.0 total. A payload that states both is a new one, and the total wins.
+    if 'belt_vertical_spread_nm' not in supplied and (
+            'belt_vertical_half_nm' in supplied or 'belt_vertical_spread' in supplied):
+        numbers.pop('belt_vertical_spread_nm', None)
     _refuse_a_zero_step_leg(numbers)
     return numbers
 

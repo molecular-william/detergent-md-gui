@@ -96,23 +96,28 @@ def test_the_belt_packing_settings_are_advertised_and_bounded():
             pdc.normalize_settings({'belt_axial_window_nm': outside})
 
 
-def test_the_vertical_spread_is_a_four_nanometre_default_and_an_old_multiple_still_wins():
-    """The belt band is 4 nm unless a payload written before 2026-11-24 states the retired multiple instead.
+def test_the_vertical_spread_is_a_four_nanometre_total_and_the_old_spellings_still_win():
+    """The band's total height is 4 nm unless a payload states a retired spelling instead.
 
-    The nm setting is the defaulted one, and a stated one is the band's exact half-height. The retired
-    `belt_vertical_spread` (a multiple of the detergent's length) is still read for an old run, clone or preset: its
-    payload states that key and no nm key, and the injected 4.0 must not overwrite the band it was placed with.
+    `belt_vertical_spread_nm` is the form's setting and the band's total height (4 nm = +/-2 nm about the mid-plane);
+    the placement halves it. The half-height and the oldest multiple of the detergent length are still read for a run,
+    clone or preset written before they were retired: such a payload states one of those and no total, and the
+    injected 4.0 must not overwrite the band it was placed with.
     """
-    assert pdc.DEFAULTS['belt_vertical_half_nm'] == 4.0
-    assert pdc.SETTING_SPECS['belt_vertical_half_nm'] == ('Vertical spread (nm)', 0.5, 10.0)
-    assert pdc.normalize_settings({})['belt_vertical_half_nm'] == 4.0
-    assert pdc.normalize_settings({'belt_vertical_half_nm': 2.5})['belt_vertical_half_nm'] == 2.5
-    # An old payload states the multiple and no nm key: the band is that multiple, and no 4.0 is invented beside it.
-    old = pdc.normalize_settings({'belt_vertical_spread': 1.1})
-    assert old['belt_vertical_spread'] == 1.1 and 'belt_vertical_half_nm' not in old, old
-    # A payload that states both is the new run: the nm setting wins, as `pdc_build` reads it.
-    both = pdc.normalize_settings({'belt_vertical_spread': 1.1, 'belt_vertical_half_nm': 3.0})
-    assert both['belt_vertical_half_nm'] == 3.0 and both['belt_vertical_spread'] == 1.1
+    assert pdc.DEFAULTS['belt_vertical_spread_nm'] == 4.0
+    assert pdc.SETTING_SPECS['belt_vertical_spread_nm'] == ('Vertical spread (nm)', 1.0, 20.0)
+    assert pdc.SETTING_SPECS['belt_vertical_half_nm'][0].startswith('Vertical spread')
+    assert pdc.normalize_settings({})['belt_vertical_spread_nm'] == 4.0
+    assert pdc.normalize_settings({'belt_vertical_spread_nm': 7.0})['belt_vertical_spread_nm'] == 7.0
+    # An old payload states the half-height and no total: its half is kept, and no 4.0 total is invented beside it.
+    old_half = pdc.normalize_settings({'belt_vertical_half_nm': 2.5})
+    assert old_half['belt_vertical_half_nm'] == 2.5 and 'belt_vertical_spread_nm' not in old_half, old_half
+    # The oldest payload states the multiple and neither nm key.
+    old_multiple = pdc.normalize_settings({'belt_vertical_spread': 1.1})
+    assert old_multiple['belt_vertical_spread'] == 1.1 and 'belt_vertical_spread_nm' not in old_multiple, old_multiple
+    # A payload that states both is a new run: the total is what the build halves and the old key is only provenance.
+    both = pdc.normalize_settings({'belt_vertical_spread': 1.1, 'belt_vertical_spread_nm': 3.0})
+    assert both['belt_vertical_spread_nm'] == 3.0 and both['belt_vertical_spread'] == 1.1
 
 
 def test_the_generated_label_names_the_choices_it_was_built_from():

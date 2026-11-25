@@ -77,11 +77,15 @@ def _box_warnings(payload):
 
     state = paths.current()
     defaults = pdc_adapter.DEFAULTS
-    # The belt band the run will be placed with: the adapter's default, unless the payload names the retired multiple
-    # without the nm key -- the same rule `pdc._numbers` applies, so admission measures the box the run would write.
+    # The belt band the run will be placed with: the total spread is halved for the placement, and a payload naming a
+    # retired half-height or multiple without the total keeps it -- the same rule `pdc._numbers` applies, so
+    # admission measures the box the run would write.
+    total_spread = number('belt_vertical_spread_nm')
     half_band = number('belt_vertical_half_nm')
-    if half_band is None and payload.get('belt_vertical_spread') in (None, ''):
-        half_band = float(defaults['belt_vertical_half_nm'])
+    if total_spread is not None:
+        half_band = total_spread / 2.0
+    elif half_band is None and payload.get('belt_vertical_spread') in (None, ''):
+        half_band = float(defaults['belt_vertical_spread_nm']) / 2.0
     answer = pdc_preview.preview(
         project_root=str(state.project_root), cache_root=state.workspace / pdc_preview.CACHE_DIRECTORY,
         template=template, seed=choices['seed'], protein=payload.get('protein') or None,

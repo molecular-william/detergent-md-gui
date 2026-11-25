@@ -31,7 +31,7 @@ CATALOG = {
                   'source': 'packaged', 'half_thickness_nm': 1.35}],
     'defaults': {'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900, 'salt_molar': 0.15,
                  'box_margin_nm': 2.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
-                 'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_half_nm': 4.0,
+                 'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread_nm': 4.0,
                  'belt_vertical_spread': 2.0, 'belt_offset_nm': 0.0,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
@@ -63,7 +63,7 @@ STAGE_SETTING_NAMES = (
     'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
     'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
-    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm', 'belt_offset_nm',
+    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm', 'belt_offset_nm',
     'initial_x_nm', 'initial_y_nm',
     'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
@@ -154,7 +154,7 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     # explanation in its info tooltip, and those sentences mention the other controls by name.
     for name, start in (('initial_x_nm', 'Initial box x'), ('initial_y_nm', 'Initial box y'),
                         ('initial_z_nm', 'Initial box z'), ('box_margin_nm', 'Box margin'),
-                        ('belt_vertical_half_nm', 'Vertical spread')):
+                        ('belt_vertical_spread_nm', 'Vertical spread')):
         label = control_label(page, name)
         head = label.evaluate("el => el.firstChild?.textContent?.trim() || ''")
         assert head.startswith(start), f'{name} is labelled {head!r}, not {start!r}'
@@ -202,7 +202,7 @@ def test_the_belt_and_box_labels_carry_their_unit_and_the_explanation_is_in_the_
     open_panel(page, live_page.base_url)
     page.locator('#new-protein').select_option('molecules/1qj8/1qj8.pdb')
 
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm',
                  'belt_offset_nm', 'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'box_margin_nm'):
         label = control_label(page, name)
         assert label.locator('.hint').inner_text().strip() == 'nm', name
@@ -545,7 +545,7 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     gap = page.locator('[name=belt_gap_nm]')
     body = page.locator('[name=min_body_gap_nm]')
     axial = page.locator('[name=belt_axial_window_nm]')
-    vertical = page.locator('[name=belt_vertical_half_nm]')
+    vertical = page.locator('[name=belt_vertical_spread_nm]')
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
@@ -557,7 +557,7 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     body.fill('0.5')
     axial.fill('1.2')
     vertical.fill('2.5')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
         control_label(page, name).locator('button.pdc-default').click()
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
@@ -572,10 +572,10 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
 
     # They act on a pre-assembled belt: self-assembly hides them, lattice brings them back, and the values still post
     # either way (the adapter ignores them outside a belt).
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
         expect(control_label(page, name)).to_be_visible()
     page.locator('#new-placement').select_option('self-assembly')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
         expect(control_label(page, name)).to_be_hidden()
     page.locator('#new-placement').select_option('lattice')
 
@@ -587,7 +587,7 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
         page.locator('.new-pdc-preview-derive').click()
     url = captured.value.url
     assert ('belt_gap_nm=0.5' in url and 'min_body_gap_nm=0.4' in url
-            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_half_nm=2.2' in url), url
+            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_spread_nm=2.2' in url), url
     assert errors == [], errors
 
 
@@ -772,7 +772,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'belt_gap_nm': 0.0,
         # The form opens on the belt's stated defaults now, so all five numbers post: the vertical spread is the 4 nm
         # default and the offset is 0.
-        'belt_vertical_half_nm': 4.0, 'belt_offset_nm': 0.0,
+        'belt_vertical_spread_nm': 4.0, 'belt_offset_nm': 0.0,
         'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
@@ -1248,7 +1248,7 @@ def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard,
              'settings': {'initial_x_nm': 12.0, 'initial_y_nm': 13.0, 'initial_z_nm': 20.0,
                           'aggregation_number': 320, 'pdc_placement_mode': 'self-assembly',
                           'backmap': True, 'remove_out_of_micelle': True,
-                          'belt_vertical_half_nm': 3.5, 'box_margin_nm': 2.0}}
+                          'belt_vertical_spread_nm': 3.5, 'box_margin_nm': 2.0}}
 
     def answer(route):
         if route.request.method == 'POST':
@@ -1269,7 +1269,7 @@ def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard,
     page.locator('#new-count').fill('320')
     page.locator('[name=remove_out_of_micelle]').check()
     page.locator('[name=backmap]').check()
-    page.locator('[name=belt_vertical_half_nm]').fill('3.5')
+    page.locator('[name=belt_vertical_spread_nm]').fill('3.5')
     page.locator('[name=label]').fill('a different label')
     page.locator('#preset-save').click()
 
@@ -1277,14 +1277,14 @@ def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard,
     assert settings['initial_x_nm'] == '12' and settings['initial_y_nm'] == '13'
     assert settings['initial_z_nm'] == '20' and settings['aggregation_number'] == '320'
     assert settings['remove_out_of_micelle'] is True and settings['backmap'] is True
-    assert settings['belt_vertical_half_nm'] == '3.5'
+    assert settings['belt_vertical_spread_nm'] == '3.5'
     assert settings['pdc_placement_mode'] == 'lattice'
     assert 'label' not in settings, 'the run label is not a setting'
 
     # Another run's form, then Load: the stored values land on the merged controls, ticks included.
     page.locator('#new-count').fill('150')
     page.locator('[name=initial_x_nm]').fill('')
-    page.locator('[name=belt_vertical_half_nm]').fill('')
+    page.locator('[name=belt_vertical_spread_nm]').fill('')
     page.locator('[name=backmap]').uncheck()
     page.locator('[name=remove_out_of_micelle]').uncheck()
     page.locator('.preset-select').select_option('preset-box')
@@ -1294,7 +1294,7 @@ def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard,
     expect(page.locator('[name=initial_x_nm]')).to_have_value('12')
     expect(page.locator('[name=initial_y_nm]')).to_have_value('13')
     expect(page.locator('[name=initial_z_nm]')).to_have_value('20')
-    expect(page.locator('[name=belt_vertical_half_nm]')).to_have_value('3.5')
+    expect(page.locator('[name=belt_vertical_spread_nm]')).to_have_value('3.5')
     expect(page.locator('[name=backmap]')).to_be_checked()
     expect(page.locator('[name=remove_out_of_micelle]')).to_be_checked()
     expect(page.locator('#new-placement')).to_have_value('self-assembly')

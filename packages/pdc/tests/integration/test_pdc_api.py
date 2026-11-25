@@ -57,12 +57,15 @@ def test_the_catalogue_carries_the_stage_settings_help(dashboard):
     """The panel draws one info button per key from this map, so a control with no sentence has no explanation."""
     body = dashboard.client.get('/api/pdc/catalog').get_json()
 
-    assert {'pdc_seed', 'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'belt_offset_nm', 'nstlog'} <= set(body['help'])
+    assert {'pdc_seed', 'initial_x_nm', 'initial_y_nm', 'initial_z_nm', 'belt_offset_nm',
+            'belt_vertical_spread_nm'} <= set(body['help'])
     assert body['help_sources'] == settings_help.SOURCES
     # The blank-field rule lives in the info bubble now; the label carries only its unit.
     assert 'blank is the box the preview draws' in body['help']['initial_x_nm']
     assert 'blank is the box the preview draws' in body['help']['initial_z_nm']
-    assert '4 nm is the default' in body['help']['belt_vertical_half_nm']
+    assert '4 nm is the default' in body['help']['belt_vertical_spread_nm']
+    assert 'total height' in body['help']['belt_vertical_spread_nm']
+    assert 'retired' in body['help']['belt_vertical_half_nm']
 
 
 def test_the_protein_list_is_what_the_repository_holds(dashboard):

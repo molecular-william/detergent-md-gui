@@ -1,6 +1,9 @@
 # PDC New run: belt form, slab coverage and blocked-slot placement
 
-Status: built (2026-11-25; checks in the execution record below)
+Status: built (2026-11-25; checks in the execution record below). **Partially superseded the same day:**
+the 4 nm vertical spread is the band's **total** height (see
+`docs/plans/2026-11-25-pdc-belt-outlier-repair.md`), so its default is now 2 nm of half-height internally,
+and the far-head repair was added on top of this slice.
 
 ## What the user asked for
 

@@ -160,7 +160,7 @@ def test_the_belt_group_is_one_three_column_grid(dashboard, live_page):
     assert rows is not None, 'the belt group is not rendered as a grid'
     kids = rows['kids']
     assert [kid['name'] for kid in kids] == ['pdc_placement_mode', 'aggregation_number', 'belt_gap_nm',
-                                             'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_half_nm',
+                                             'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm',
                                              'belt_offset_nm'], kids
     for start in (0, 3):
         row = kids[start:start + 3]

@@ -244,16 +244,28 @@ def test_the_build_widens_the_belt_box_in_x_and_y_and_records_the_growth(tmp_pat
     assert report['box_widening_nm'][0] > 0
 
 
-def test_a_stated_vertical_half_height_reaches_the_band_and_the_report(tmp_path):
-    """The panel's nm setting is the band's own number: it is not a multiple of the detergent's length."""
+def test_a_stated_total_vertical_spread_is_halved_into_the_band_and_the_report(tmp_path):
+    """The form states the band's total height; the placement reads its half, not a multiple of the length."""
+    stage = stage_directory(prepared(tmp_path, settings={'belt_vertical_spread_nm': 7.0}))
+    write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
+
+    assert pdc_build.build(stage) == 3
+    band = report_of(stage)['placement_band']
+
+    assert band['vertical_spread_nm'] == 7.0
+    assert band['vertical_half_nm'] == 3.5
+    assert band['vertical_half_band_nm'] == 3.5, 'the total is halved, not used as the half-height'
+
+
+def test_a_retired_half_height_still_reaches_the_band(tmp_path):
+    """A run or preset written before the total-height setting keeps the band it was placed with."""
     stage = stage_directory(prepared(tmp_path, settings={'belt_vertical_half_nm': 3.5}))
     write_cg_pdb(stage / pdc_build.CG_DIRECTORY / 'protein_cg.pdb', CG_BEADS)
 
     assert pdc_build.build(stage) == 3
     band = report_of(stage)['placement_band']
 
-    assert band['vertical_half_nm'] == 3.5
-    assert band['vertical_half_band_nm'] == 3.5, 'a stated half-height is used as itself, not times the length'
+    assert band['vertical_half_nm'] == 3.5 and band['vertical_half_band_nm'] == 3.5
 
 
 def test_a_self_assembled_build_keeps_the_box_its_generator_sampled_in(tmp_path):

@@ -10,6 +10,30 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc belt: the vertical spread is the band's total height, and side-chain outliers are retried (2026-11-25, later
+  the same day).** Plan and the user's four answers: `docs/plans/2026-11-25-pdc-belt-outlier-repair.md`. The 4 nm
+  default is the band's **total** height now (`belt_vertical_spread_nm`; 4 nm spans ±2 nm about the mid-plane, and the
+  build halves it), superseding the half-height reading in the entry below. The retired `belt_vertical_half_nm` and
+  `belt_vertical_spread` are still read for an old payload, clone or preset, and a stated total wins over either;
+  `_numbers`, `pdc_build._belt_half_height`, `preview_choices` and `feature._box_warnings` apply one rule, so a run,
+  its preview and its admission measure the same band. `_belt_cylinder` records `vertical_spread_nm` beside
+  `vertical_half_band_nm`, and the form field is the total (1–20 nm, Default 4).
+  A placed head more than `BELT_FAR_RADIAL_NM` (0.75 nm) beyond the belt's own median sideways distance is now
+  retried at its own heading at ±0.5, ±1.0 and ±1.5 nm (clipped to the band, local surface re-measured); it moves
+  only when every gate passes **and** it lands back inside the belt, otherwise it keeps the draw's position, so the
+  count never drops (`radial_repair` in the band record). Measured on 2ydo chain A, NG, 155 detergents, seed 20261125:
+  the 4 nm total band places **144** (11 slots rejected, so the preview refuses that count; its capacity bisection
+  reports **18**, a count all three of its seeds accept — valid but very conservative, because the golden-angle
+  ladder's fit is not monotonic in the count, so "use the measured count" is not a good answer for this system), and
+  the ±1.5 retry moved **none** of the 16 NG / 7 DDM heads still outside the belt — the neighbours' bodies and the
+  minimum body gap block every candidate; at the old ±4 nm half-band the same retry moved 1 NG / 3 DDM. At a count
+  that does fit (18 detergents) the same preview places all 18, the repair moves 1 and leaves none far. If
+  the outliers should really move, the next levers are ±2.5 nm plus a small heading turn (a dry run moved 8/11 NG and
+  7/8 DDM at the tall band), an inward radial nudge down to the median, or keeping 155 with the taller band.
+  Checks: fast tier **3,213 passed / 1 xfailed**; full browser tier **430 passed** (`-n 16 --dist worksteal`); pdc fast
+  area 874 / 1 xfailed; ruff clean. New unit tests pin the total→half conversion, the retired spellings and the
+  repair's moved/kept cases; the browser cases use the total field and its 4 nm default.
+
 - **pdc New run: belt/box labels, one three-column belt grid, collapsed editors, 4 nm spread, tail-hemisphere
   coverage, preview-exact Auto, and an out-of-band belt fallback (2026-11-25, the user's decisions).** Plan and the
   user's answers: `docs/plans/2026-11-25-pdc-belt-form-coverage-and-placement.md`.
@@ -17,7 +41,9 @@ state, what is next, what is open, and the measurements and incidents a reader h
   body-bead distance, axial window, vertical spread, vertical offset); each belt label's subtext is the unit only
   (`nm`) and the explanation is the server-sent info button (`setting_help.HELP`). The five belt-only cells carry
   `data-belt-only` and hide in self-assembly and for an empty micelle. **Vertical spread** is `belt_vertical_half_nm`
-  in nm with a 4.0 default (`pdc.DEFAULTS`), a Default button and no retired placeholder; a pre-2026-11-24 payload
+  in nm with a 4.0 default (`pdc.DEFAULTS`), a Default button and no retired placeholder (**superseded later the same
+  day: it is now `belt_vertical_spread_nm`, the band's total height, default 4 nm total — see the entry above**); a
+  pre-2026-11-24 payload
   that states `belt_vertical_spread` and no nm key keeps that multiple (`_numbers` drops the injected 4.0), and
   `feature._box_warnings`/`preview_choices`/`pdc_preview.preview` apply the same default so admission, preview and
   build describe one band. **Starting box** labels are `Initial box x/y/z` and `Box margin` with `nm` subtext; the

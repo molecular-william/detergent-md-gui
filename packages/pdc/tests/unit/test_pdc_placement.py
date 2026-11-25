@@ -1341,7 +1341,7 @@ def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
     assert pdc_placement.body_clearance(base_candidate, base_direction, profile, protein) < \
         pdc_placement.BEAD_CLEARANCE_NM
 
-    centers, directions, drawn, rejected, passes, rejected_slots = pdc_placement._cylinder_sites(
+    centers, directions, drawn, rejected, passes, rejected_slots, reclaim = pdc_placement._cylinder_sites(
         1, 3, cylinder, lambda heading, height: 1.0, length, half_band, protein,
         pdc_placement.MIN_CLEARANCE_NM, profile)
 
@@ -1359,6 +1359,76 @@ def test_a_slot_whose_base_fails_a_gate_is_moved_by_a_bounded_trial(tmp_path):
     beads = pdc_placement.body_beads(moved, directions[0], profile)
     assert float(np.linalg.norm(beads[:, None, :] - protein[None, :, :], axis=2).min()) >= \
         pdc_placement.BEAD_CLEARANCE_NM
+    assert reclaim['moved'] == 0 and reclaim['still_far'] == 0, 'the only site is not compared with a belt'
+
+
+def test_a_head_far_outside_the_belt_is_retried_at_a_nearby_height():
+    """A head beyond the belt's median by `BELT_FAR_RADIAL_NM` is re-tried up to 1.5 nm higher/lower.
+
+    The first ladder site's local surface is far larger than the other two, so its head lands well outside the belt
+    the other two define. One of the bounded trial heights sees the small surface; the site is accepted there, back
+    inside the belt, and the record says so. This is the user's 2026-11-25 repair, pinned without a real protein.
+    """
+    from micelle.packing import golden_angle_directions
+
+    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
+    count, seed, length, half_band = 3, 5, 0.5, 2.0
+    ladder = golden_angle_directions(count, seed)
+    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
+    heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
+    far_heading, far_height = float(headings[0]), float(heights[0])
+
+    def surface_at(heading, height):
+        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
+        if same and abs(float(height) - far_height) < 1.5 - 1e-9:
+            return 3.0
+        return 1.0
+
+    # A protein point far away from every trial: the gates have nothing to refuse, so only the repair's own radius
+    # condition decides, which is what this test is about.
+    protein = np.asarray([[0.0, 0.0, 50.0]])
+    centers, directions, drawn, rejected, passes, slots, reclaim = pdc_placement._cylinder_sites(
+        count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
+        profile=None, min_body_gap_nm=0.0)
+
+    assert len(centers) == count and rejected == 0
+    assert reclaim['moved'] == 1 and reclaim['still_far'] == 0, reclaim
+    assert reclaim['threshold_nm'] == pytest.approx(reclaim['median_radius_nm'] + pdc_placement.BELT_FAR_RADIAL_NM)
+    moved = centers[0]
+    candidates = [float(np.clip(far_height + offset, -half_band, half_band)) for offset in (1.5, -1.5)]
+    axis = np.asarray(cylinder['axis'], dtype=float)
+    assert any(abs(float(moved @ axis) - height) < 1e-9 for height in candidates), \
+        'the first in-band height that brings the head back inside the belt is the one used'
+    radial = moved - float(moved @ axis) * axis
+    assert float(np.linalg.norm(radial)) == pytest.approx(1.0 + length), 'the re-tried head is in the belt'
+
+
+def test_a_head_with_no_nearby_legal_height_keeps_its_original_position():
+    """The repair never drops a detergent: no legal nearby height means the draw's own position stands."""
+    from micelle.packing import golden_angle_directions
+
+    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
+    count, seed, length, half_band = 3, 5, 0.5, 2.0
+    ladder = golden_angle_directions(count, seed)
+    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
+    far_heading = float(headings[0])
+
+    def surface_at(heading, height):
+        # The far sector is far at every height: no 1.5 nm nudge can bring this head inside the belt.
+        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
+        return 3.0 if same else 1.0
+
+    protein = np.asarray([[0.0, 0.0, 50.0]])
+    centers, directions, drawn, rejected, passes, slots, reclaim = pdc_placement._cylinder_sites(
+        count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
+        profile=None, min_body_gap_nm=0.0)
+
+    assert len(centers) == count and rejected == 0
+    assert reclaim['moved'] == 0 and reclaim['still_far'] == 1, reclaim
+    relative = centers[0] - np.asarray(cylinder['origin'])
+    axis = np.asarray(cylinder['axis'], dtype=float)
+    radial = relative - float(relative @ axis) * axis
+    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), 'the original far head is kept'
 
 
 def _blocked_in_band_protein(count, seed, half_band, length_nm, slab_half_nm):

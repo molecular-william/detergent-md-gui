@@ -618,6 +618,20 @@ def prepared_protein(stage: Path) -> Path | None:
     return path if path.is_file() else None
 
 
+def _belt_half_height(settings):
+    """The belt's half-height the placement reads, from the run's own spellings.
+
+    `belt_vertical_spread_nm` is the band's total height (4 nm is +/-2 nm), `belt_vertical_half_nm` is the retired
+    half-height and `belt_vertical_spread` the oldest multiple of the detergent length. The total wins when stated,
+    so a new run's number is honoured; an old payload keeps the band it was placed with. `None` means no half-height
+    is stated at all, which the placement reads as the oldest multiple.
+    """
+    total = settings.get('belt_vertical_spread_nm')
+    if total is not None:
+        return float(total) / 2.0
+    return settings.get('belt_vertical_half_nm')
+
+
 def build(stage: Path) -> int:
     settings = topology_reader.read_settings(stage / SETTINGS_NAME)
     # The CG protein's own directory, created for every build -- including one with no protein, which coarse-grains
@@ -721,7 +735,7 @@ def build(stage: Path) -> int:
                                                vertical_spread=settings.get(
                                                    'belt_vertical_spread',
                                                    pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD),
-                                               vertical_half_nm=settings.get('belt_vertical_half_nm'),
+                                               vertical_half_nm=_belt_half_height(settings),
                                                belt_offset_nm=settings.get('belt_offset_nm', 0.0),
                                                body_profile=body_profile)
     report.update({

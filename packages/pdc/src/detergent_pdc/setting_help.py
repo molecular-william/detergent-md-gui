@@ -78,14 +78,18 @@ _MIN_BODY_GAP = ('the minimum distance between any bead of one detergent body an
                  'not GROMACS), in nm: the belt refuses a site whose molecule would come closer than this to an already '
                  'placed one, so two detergents cannot interpenetrate. 0 disables the gate; the sphere and '
                  'self-assembly paths do not read it')
-_BELT_VERTICAL_HALF = ('the belt\u2019s vertical half-height in nm (dashboard text, not GROMACS): the band spans '
-                       'this far either side of the cylinder\u2019s mid-plane, and 4 nm is the default. A slot the '
-                       'protein blocks is retried slightly above or below this band before it is left empty. Belt-only; '
-                       'the sphere and self-assembly do not read it')
-_BELT_VERTICAL_SPREAD = ('the retired spelling of the belt\u2019s vertical half-height as a multiple of the detergent\u2019s '
+_BELT_VERTICAL_SPREAD_NM = ('the belt\u2019s vertical spread in nm (dashboard text, not GROMACS), the band\u2019s '
+                            'total height: 4 nm is the default, so the band spans 2 nm either side of the cylinder\u2019s '
+                            'mid-plane. A slot the protein blocks is retried just above or below the band before it is '
+                            'left empty, and a head that ends much farther out than the belt\u2019s own radius is retried '
+                            'up to 1.5 nm higher or lower. Belt-only; the sphere and self-assembly do not read it')
+_BELT_VERTICAL_HALF = ('the retired spelling of the belt\u2019s vertical spread as a half-height in nm (dashboard text, '
+                       'not GROMACS): read only for a run or preset written before the total-height setting existed '
+                       'that states it without that setting; a stated total supersedes it')
+_BELT_VERTICAL_SPREAD = ('the oldest spelling of the belt\u2019s vertical spread, as a multiple of the detergent\u2019s '
                          'own length (dashboard text, not GROMACS): read only for a run or preset written before '
-                         '2026-11-24 that states it without the nm setting, and superseded by that setting whenever it '
-                         'is stated')
+                         '2026-11-24 that states it without either nm setting, and superseded whenever one of those is '
+                         'stated')
 _BELT_OFFSET = ('a uniform translation of the belt along the membrane normal, in nm (dashboard text, not GROMACS): 0 '
                 'is the reviewed placement, and a positive value moves the whole belt higher without moving the '
                 'protein or the cell. Belt-only; the sphere and self-assembly do not read it')
@@ -159,6 +163,7 @@ HELP = {
     'belt_gap_nm': _BELT_GAP,
     'min_body_gap_nm': _MIN_BODY_GAP,
     'belt_axial_window_nm': _BELT_AXIAL_WINDOW,
+    'belt_vertical_spread_nm': _BELT_VERTICAL_SPREAD_NM,
     'belt_vertical_half_nm': _BELT_VERTICAL_HALF,
     'belt_vertical_spread': _BELT_VERTICAL_SPREAD,
     'belt_offset_nm': _BELT_OFFSET,
