@@ -41,6 +41,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
   and is recorded `skipped` from `skipped_stages`.
 - Migrations (`cli/migrate_run_layout.py`, `migrate_run_types.py`, `migrate_named_analyses.py`, `migrate_named_records.py`, `migrate_molecule_versions.py`, `migrate_mapping_identities.py`, `migrate_reference_pins.py`, `repair_reference_edition.py`) rewrite records once, verify their output, keep a `--rollback` ledger, and are never re-run by hand on already-migrated data.
 - A run's status ends `completed`, `failed`, `cancelled` or `blocked`; `complete` is the last stage label.
+- A failed run whose stopped stage has a checkpoint continues automatically up to three times (`auto_resume_count`);
+  a resume always queues exclusively for its GPU (`gpu_sharing='queue'`) and is held when the device is full. A
+  cancelled run, no checkpoint, or the fourth failure is left for a person.
 
 ## Invariants
 - One name is one saved mapping (`records/<slug>.json`): `save_draft` refuses a name another model holds (409 with

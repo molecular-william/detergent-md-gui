@@ -101,6 +101,9 @@ def preset_record(value):
 class Coordinator:
     """One application's jobs, worker ownership, admission and recovery."""
 
+    #: How many times a failed but resumable run is continued automatically before it is left for a person.
+    AUTO_RESUME_LIMIT = 3
+
     def __init__(self, app, selected_paths):
         self.app = app
         self.ROOT = selected_paths.project_root
@@ -176,8 +179,16 @@ class Coordinator:
             if any(other.get('reference_run_id') == jid
                    for other in self.database().all() if other.get('id') != jid):
                 raise DependencyRetained('The run has retained consumers; resume the consumers or clone this run')
-            # A recorded `queue` choice does not lift the ceiling for a resume/continue: only creation can hold.
-            self.admit_device(job, honor_queue=False)
+            # A resumed run always queues for its GPU and never shares it, whatever the run was launched with: a
+            # resume is a rerun, and the person asking for it is not asking to co-run with a new one. Forcing the
+            # choice before admission is what makes it win over a recorded `share`.
+            settings = dict(job.get('settings') or {})
+            settings['gpu_sharing'] = 'queue'
+            job['settings'] = settings
+            # The claim is taken on a copy: `_hold_for_gpu` marks the row it is given as queued, and the failure
+            # rollback below must still see the run's terminal status.
+            resume_job = dict(job)
+            self.admit_device(resume_job, honor_queue=True)
             try:
                 resources.check_worker(self.run_path(job), self.RUNS, self.limits())
             except (OSError, ValueError) as exc:
@@ -194,20 +205,32 @@ class Coordinator:
                     raise
                 except (OSError, ValueError, KeyError) as exc:
                     raise RunConflict(str(exc))
+                # The preparation is done; only then is the device claim taken, so a held run has a real manifest
+                # and a checkpoint to start from when a slot opens.
+                held = self._hold_for_gpu(resume_job)
                 try:
                     updated = self.database().update(jid, status='queued', stage='queued', started_at=None, ended_at=None,
                                               error=None, command=None, resume_count=prepared['resume_count'],
                                               resume_from=prepared.get('resume_from'), resume_requested_at=prepared.get('resume_requested_at'),
                                               resume_in_place=True, reference_eligible=False,
                                               analyses=prepared.get('analyses', job.get('analyses', [])),
-                                              resume_history=prepared.get('resume_history', []))
+                                              resume_history=prepared.get('resume_history', []),
+                                              settings=settings, gpu_queue=resume_job.get('gpu_queue') if held else None)
                 except Exception:
                     workflow.recover_resume_journal(path, job)
                     raise
                 workflow.recover_resume_journal(path, updated)
+                if dict(prepared.get('settings') or {}) != settings:
+                    # The resume's scheduling choice is the run's record too: it must not still say `share`.
+                    prepared['settings'] = settings
+                    files.atomic_json(path / 'manifest.json', prepared)
                 worker = self.Worker()
             finally:
                 lease.close()
+            if held:
+                # `queue` when the device is full: wait with the marker, and start now if a slot has opened.
+                self.start_queued()
+                return updated
             try:
                 self._start_run(jid, worker)
             except Exception as exc:
@@ -215,6 +238,40 @@ class Coordinator:
                 self.start_queued()
                 raise
             return updated
+
+
+    def _auto_resume(self, jid, record):
+        """Continue a failed, resumable run from its checkpoint automatically, at most three times.
+
+        Only a run the UI would offer Resume for is resumed: the stopped stage must have a checkpoint on disk. The
+        attempt goes through `continue_in_place`, so it is prepared in place, queued for its GPU and recorded as
+        exclusive (`gpu_sharing='queue'`), never shared. The allowance lives on the row (`auto_resume_count`); a
+        failure that never started gives it back, and the fourth failure leaves the run for a person.
+        """
+        if (record or {}).get('status') != 'failed':
+            return
+        job = self.lookup(jid)
+        if job.get('status') != 'failed':
+            return
+        attempts = int(job.get('auto_resume_count') or 0)
+        if attempts >= self.AUTO_RESUME_LIMIT:
+            return
+        try:
+            path = self.run_path(job)
+            metadata = json.loads((path / 'manifest.json').read_text())
+            if workflow.continue_plan(path, metadata=metadata) is None:
+                return
+        except (OSError, ValueError):
+            return
+        try:
+            self.database().update(jid, auto_resume_count=attempts + 1)
+            self.continue_in_place(jid)
+        except Exception as exc:
+            try:
+                self.database().update(jid, auto_resume_count=attempts)
+            except KeyError:
+                pass
+            self.app.logger.warning('Auto-resume of %s could not start: %s', jid, exc)
 
 
     def lease(self, path):
@@ -352,20 +409,23 @@ class Coordinator:
                     pass
 
     def _held_queue_row(self, job):
-        """A `queue` run waiting for its device: queued, carrying the marker, with no run directory yet.
+        """A `queue` run waiting for its device: queued, carrying the marker, with no unstarted run yet.
 
-        The marker is what tells it apart from a row whose worker died mid-run, which `reconcile` still fails. It
-        has never started, so there is nothing to fail: it resumes waiting and `start_queued` starts it when a slot
-        opens.
+        A created run has no directory, and a resumed one already has its prepared directory: both have never
+        started, so neither is a worker that died. The marker is what tells them apart from a row whose worker died
+        mid-run, which `reconcile` still fails. They keep waiting, and `start_queued` starts them when a slot opens.
         """
         if job.get('status') != 'queued' or not isinstance(job.get('gpu_queue'), dict):
             return False
+        if job.get('resume_in_place'):
+            return True
         try:
             return not self.run_path(job).is_dir()
         except (InvalidRunId, RunConflict):
             return False
 
     def reconcile(self):
+        failed = []
         for job in self.database().all():
             updates = {}
             try:
@@ -393,7 +453,12 @@ class Coordinator:
                     if task.get('directory'):
                         attempt = self.run_path(job)/task['directory']
                         if attempt.is_dir(): files.atomic_json(attempt/'manifest.json',task)
-            if updates: self.database().update(job['id'], **updates)
+            if updates:
+                self.database().update(job['id'], **updates)
+                if updates.get('status') == 'failed':
+                    failed.append(job['id'])
+        for jid in failed:
+            self._auto_resume(jid, {'status': 'failed'})
 
 
     def ensure_service(self):
@@ -611,6 +676,7 @@ class Coordinator:
             if created:
                 with log.open('a') as fp:
                     fp.write(f'\nRun failed: {exc}\n')
+            self._auto_resume(jid, record)
 
 
     def create_job(self, detergent, method, label='', retry_of=None, profile='standard', settings=None, reference_run_id=None, mapping_candidate=None, mapping_snapshot=None, temporary_validation=False, molecule_id=None, molecule_snapshot=None, run_type=None, composition_id=None, protein=None, template=None, settings_preset=None, parameterization=None):

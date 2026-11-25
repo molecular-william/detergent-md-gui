@@ -366,7 +366,11 @@ Run admission is per GPU: `Coordinator.admit_device` reads the device the run's 
 refuses a start only while that device already holds `max_concurrent_runs` active runs, answering "This GPU is busy.
 Either wait for the run to stop or choose a free GPU." A run on another device starts alongside; a host that reports
 no devices answers as device 0, so its runs stay one at a time. `max_concurrent_runs` is therefore a ceiling per
-device, not across the host.
+device, not across the host. The launch buttons state the choice: an ordinary start records `gpu_sharing='queue'`,
+and **Start & share** records `'share'`, which buys one slot beyond the ceiling; `queue` is never refused for capacity.
+**A resumed run always queues and never shares**: `Coordinator._queue_in_place` forces `gpu_sharing='queue'`, and when
+its device is full the prepared run is held (queued, `gpu_queue`, no worker) until `start_queued` finds a slot.
+`reconcile` treats a held resume as never-started, not as a worker that died.
 
 Background polling updates individual status fields every ten seconds. Forms, expanded details, mapping edits, and scroll position are not rebuilt. Terminal runs can be manually deleted from their run card; active workers are protected. Tabs, form values, and mapping drafts are remembered in browser storage. Elapsed time is reported only when recorded; ETA is shown only when present in current GROMACS output. Legacy runs without timestamps show "Not recorded".
 
@@ -767,6 +771,12 @@ Delete is available only for completed, failed, or cancelled runs. The server ch
 Cancellation sets "Cancelling…" until the worker confirms process termination. The worker terminates only subprocess groups it created, escalating to kill when necessary. Saved PIDs from older sessions are never signalled. Runs whose workers are not owned by the current server cannot be controlled by it.
 
 Two controls resume an existing run ID, and they are not the same work. **Resume** (the toolbar button beside Delete) is offered only for a `failed` or `cancelled` run whose stopped stage left its own mdrun checkpoint: it keeps that stage directory, hands the stage `MDRUN_CONTINUE=<checkpoint>` and the script runs `mdrun -cpi <checkpoint> -append` (no `grompp`) against the existing `.tpr`, so the trajectory, log and energy file grow. The rule is the stage's **last** mdrun: a stage that died before that mdrun started has no such checkpoint, so Resume is hidden and the button is not offered. **Restart from stage** is the older in-place resume: the selected and downstream stage directories must exist and must not be symlinks, they are archived, and their current launchers, inputs and outputs are executed as found. Both run the same lease, dependency and resource checks; Retry and Clone create new run IDs after readiness checks; original logs and simulation outputs stay intact. In-place resume records its prior manifest and job metadata in `resume_history/` without replacing current stage directories. Job updates use SQLite transactions; immutable model and review records use atomic JSON replacement. Stage failures and cancellations are recorded in manifests.
+**A failed run that the Resume button would offer is continued automatically, up to three times.** After a failed
+attempt (and after recovery marks a run failed because the dashboard restarted mid-attempt), `Coordinator._auto_resume`
+checks `workflow.continue_plan`: if the stopped stage has a checkpoint on disk it continues in place exactly as Resume
+does, increments the row's `auto_resume_count`, and queues the attempt through the same `_queue_in_place` path (so it
+always queues exclusively for its GPU). A cancelled run, a run with no checkpoint, and a fourth failure are left for a
+person. An attempt that cannot start gives its allowance back; the run's manifest history records each continue.
 
 Each cycle of a dynamics leg writes `<deffnm>.cpt` (and backs the previous save up as `<deffnm>_prev.cpt`); minimisation writes none. `mdrun_cpt` (minutes, `SETTING_SPECS`, default **10**) sets the cadence and is emitted as `-cpt` by the one flag builder, `aa.mdrun_command_flags`; every run records it (the AA, pdc and osmotic defaults), so the cadence is the run's own number and the forms prefill 10. Ten minutes is the project's choice: a leg that dies loses at most that much sampling to a Restart.
 

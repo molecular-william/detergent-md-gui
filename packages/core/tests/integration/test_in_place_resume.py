@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from dashboard import files
-from dashboard.execution import devices, workflow
+from dashboard.execution import workflow
 
 
 def _stage_run(root):
@@ -198,7 +198,7 @@ def test_missing_upstream_output_does_not_block_current_file_resume(resume_servi
     assert not (root / 'stages/first/result.txt').exists()
 
 
-@pytest.mark.parametrize('blocker', ['worker', 'analysis', 'external', 'consumer', 'capacity', 'quota'])
+@pytest.mark.parametrize('blocker', ['worker', 'analysis', 'external', 'consumer', 'quota'])
 def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, monkeypatch, blocker):
     from dashboard.execution.coordination import resources
     client, owner, root, job = resume_service
@@ -207,25 +207,40 @@ def test_resume_admission_preserves_terminal_run_on_rejection(resume_service, mo
     if blocker == 'analysis': owner.ANALYSIS_WORKERS[(job['id'], 'analysis')] = owner.Worker()
     if blocker == 'external': lease = owner.lease(root/'.worker.lock')
     if blocker == 'consumer': owner.database().insert_many([{'id': '222222222222', 'reference_run_id': job['id'], 'status': 'completed'}])
-    if blocker == 'capacity':
-        # State the capacity this case is about rather than inheriting the project's: the point is a full house,
-        # and how many runs make a house full is the config's business, not this test's.
-        monkeypatch.setattr(owner, 'limits', lambda: dict(resources.DEFAULTS, max_concurrent_runs=1))
-        owner.WORKERS['222222222222'] = owner.Worker()
     if blocker == 'quota': monkeypatch.setattr(owner, 'limits', lambda: dict(resources.DEFAULTS, max_run_bytes=1))
     before = files.hashes(root)
     try:
         response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
         assert response.status_code == 409, response.json
-        if blocker == 'capacity':
-            # The refusal names the contended resource: a device when the host reports one, the host itself when it
-            # does not. Which one this test sees is the host's answer, not the test's, so both are accepted by kind.
-            expected = 'This GPU is busy' if devices.present() else 'A simulation is already running'
-            assert expected in response.json['error'], response.json
         assert owner.lookup(job['id']) == job
         assert files.hashes(root) == before
     finally:
         if lease: lease.close()
+
+
+def test_a_resume_queues_for_a_busy_gpu_and_never_shares(resume_service, monkeypatch):
+    """Capacity is no longer a refusal for a resume: it waits for its own GPU, recorded as queue, never share."""
+    from dashboard.execution.coordination import resources
+    client, owner, root, job = resume_service
+    owner.database().update(job['id'], settings={'mdrun_gpu': 0, 'gpu_sharing': 'share'})
+    monkeypatch.setattr(owner, 'limits', lambda: dict(resources.DEFAULTS, max_concurrent_runs=1))
+    owner.WORKERS['busy'] = owner.Worker()
+
+    response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
+
+    assert response.status_code == 200, response.json
+    row = owner.lookup(job['id'])
+    assert row['status'] == 'queued' and row['stage'] == 'queued'
+    assert row['settings']['gpu_sharing'] == 'queue', 'a resume is never shared'
+    assert row['gpu_queue']['device'] == 0
+    assert job['id'] not in owner.WORKERS, 'a held resume has no worker yet'
+    manifest = json.loads((root/'manifest.json').read_text())
+    assert manifest['settings']['gpu_sharing'] == 'queue', 'the run record says queue too'
+    # The slot frees: the queued resume starts, and its marker is cleared.
+    owner.WORKERS.pop('busy')
+    owner.start_queued()
+    assert job['id'] in owner.WORKERS
+    assert owner.lookup(job['id']).get('gpu_queue') is None
 
 
 def test_resume_supersedes_analysis_but_retains_evidence(resume_service):

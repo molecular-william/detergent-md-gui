@@ -10,6 +10,28 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **Runs: a failed but resumable run continues itself up to three times, and every resume queues exclusively for its
+  GPU (2026-11-26).** The user's request: no manual Resume for a failure that has a checkpoint, and a resumed run must
+  always queue for the GPU, never share it.
+  Auto-resume: after a failed attempt (`run_job`'s exception hook, once the terminal row and lease are written) and
+  after `reconcile` marks an interrupted run failed, `Coordinator._auto_resume` checks `workflow.continue_plan` -- the
+  same test the Resume button uses -- and calls `continue_in_place`. The allowance is the row's `auto_resume_count`
+  (`AUTO_RESUME_LIMIT = 3`), incremented before the attempt and given back if the attempt never started. A cancelled
+  run, a run with no checkpoint, and a fourth failure are left for a person; each continue still records its own
+  `resume_history` entry and stage logs.
+  Resume queueing: `_queue_in_place` forces `settings.gpu_sharing = 'queue'` (a recorded `share` is overridden), admits
+  through the queue (`admit_device(honor_queue=True)`), and, when the device is full, holds the prepared run with
+  `gpu_queue` and no worker until `start_queued` finds a slot. The forced choice is written to the job row and the
+  run's manifest. `_held_queue_row` recognises a held resume by `resume_in_place` (its directory already exists), so a
+  dashboard restart does not mark it failed. Capacity is no longer a refusal for a resume; the old capacity-rejection
+  test was replaced by a busy-GPU queue test. The admission/hold decision runs on a copy of the row: `_hold_for_gpu`
+  marks its argument queued, and the database-failure rollback must still see the failed status (the rollback test now
+  passes for that reason).
+  Tests: the three auto-continues then a left-failed fourth; no checkpoint skipped; cancelled skipped; a real failing
+  stage's failure hook queues the next continue; a resume of a `share` run on a busy GPU is held with
+  `gpu_sharing='queue'` and starts when the slot frees. Checks: core fast area 2,041 passed; full fast tier **3,217 passed / 1 xfailed**; full browser tier
+  **430 passed**; ruff clean. Dashboard restarted after the commit.
+
 - **pdc placement: the capacity search is gone and the outside-band searches are one pass (2026-11-25, the user's
   decision after the simplification review).** Plan: `docs/plans/2026-11-25-pdc-placement-simplification.md`.
   Capacity: `capacity()`, `_capacity_sentence`, `measure_capacity`, the `capacity_aggregation` report/basis field and

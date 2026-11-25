@@ -149,3 +149,72 @@ def test_the_resume_route_dispatches_on_the_presence_of_stage(continue_service, 
     assert client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'}).status_code == 200
 
     assert calls == [('continue', '123456abcdef'), ('restart', '123456abcdef', 'second')]
+
+
+def _release_queued(owner, jid):
+    """Drop the queued attempt's worker and row so the next failure can be simulated, as the lease would."""
+    worker = owner.WORKERS.pop(jid, None)
+    if worker is not None and worker.lease_file:
+        worker.lease_file.close()
+    owner.database().update(jid, status='failed', stage='second')
+
+
+def test_a_failed_resumable_run_is_continued_automatically_three_times(continue_service):
+    """The failure hook's allowance: three automatic continues, then the run is left for a person."""
+    client, owner, root, job, checkpoint = continue_service
+
+    for attempt in (1, 2, 3):
+        owner._auto_resume(job['id'], {'status': 'failed'})
+        row = owner.lookup(job['id'])
+        assert row['status'] == 'queued', row
+        assert row['auto_resume_count'] == attempt
+        assert row['resume_from'] == 'second', 'the continued stage travels on the row'
+        assert json.loads((root/'manifest.json').read_text())['resume_mode'] == 'continue'
+        assert row['settings']['gpu_sharing'] == 'queue', 'an automatic resume is never shared'
+        _release_queued(owner, job['id'])
+
+    # The fourth failure gets no fourth attempt: the row is already failed and stays that way.
+    owner._auto_resume(job['id'], {'status': 'failed'})
+    row = owner.lookup(job['id'])
+    assert row['status'] == 'failed'
+    assert row['auto_resume_count'] == 3
+    assert job['id'] not in owner.WORKERS
+
+
+def test_auto_resume_skips_a_run_with_no_checkpoint(continue_service):
+    """Resume-able means what the Resume button means: a stopped stage with a checkpoint on disk."""
+    client, owner, root, job, checkpoint = continue_service
+    checkpoint.unlink()
+
+    owner._auto_resume(job['id'], {'status': 'failed'})
+
+    row = owner.lookup(job['id'])
+    assert row['status'] == 'failed'
+    assert not row.get('auto_resume_count')
+    assert job['id'] not in owner.WORKERS
+
+
+def test_only_a_failed_status_is_continued_automatically(continue_service):
+    """A cancelled run is the person's decision, not a failure to retry."""
+    client, owner, root, job, checkpoint = continue_service
+
+    owner._auto_resume(job['id'], {'status': 'cancelled'})
+
+    assert owner.lookup(job['id'])['status'] == 'failed'
+    assert not owner.lookup(job['id']).get('auto_resume_count')
+
+
+def test_a_failure_in_the_worker_continues_the_run_without_a_person(continue_service):
+    """The hook is in the failed attempt itself: the stage fails, and the row is queued again by itself."""
+    client, owner, root, job, checkpoint = continue_service
+    assert client.post('/api/jobs/123456abcdef/resume', json={}).status_code == 200
+    (root / 'stages/second/run.sh').write_text('exit 7\n')
+
+    owner.run_job(job['id'], owner.WORKERS[job['id']])
+
+    row = owner.lookup(job['id'])
+    assert row['status'] == 'queued', (row.get('error'), row)
+    assert row['auto_resume_count'] == 1
+    assert row['resume_from'] == 'second'
+    assert json.loads((root/'manifest.json').read_text())['resume_mode'] == 'continue'
+    assert job['id'] in owner.WORKERS
