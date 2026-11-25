@@ -535,7 +535,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
             belt_axial_window_nm=pdc_placement.DEFAULT_BELT_AXIAL_WINDOW_NM,
             belt_vertical_spread=pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD,
             belt_vertical_half_nm=pdc_adapter.DEFAULTS['belt_vertical_spread_nm'] / 2.0,
-            belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM):
+            belt_offset_nm=pdc_placement.DEFAULT_BELT_OFFSET_NM,
+            far_radial_nm=pdc_placement.BELT_FAR_RADIAL_NM):
     """The placement these inputs would build, as `{valid, step, reasons, pdb, basis, cost}`.
 
     `project_root` resolves `template`, `protein` and the molecule tree a mapping is derived against -- the same root
@@ -582,7 +583,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     an omitted value is half the run's own 4 nm total (the adapter's `DEFAULTS['belt_vertical_spread_nm']`, so the
     preview and the build describe the same band); `None` is reserved for a caller replaying an old payload, which
     asks for the retired multiple of the detergent's length. The route converts the form's total to this half before
-    it calls here.
+    it calls here. `far_radial_nm` is the run's outlier distance: a placed head this far beyond the belt's median is
+    re-tried by the placement, and 0 turns that repair off.
 
     `initial_x_nm`/`initial_y_nm`/`initial_z_nm` are the run's stated starting cell, passed to the same box rule the
     build uses (`pdc_box.initial_box`/`membrane_box`/`extended_box`). A stated number is the cell's exact dimension
@@ -795,6 +797,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                                               vertical_spread=float(belt_vertical_spread),
                                               vertical_half_nm=belt_vertical_half_nm,
                                               belt_offset_nm=float(belt_offset_nm),
+                                              far_radial_nm=float(far_radial_nm),
                                               body_profile=body_profile)
     cost['placement_seconds'] = round(time.perf_counter() - started_placement, 3)
     # The belt's own radius, and the numbers it was derived from. A belt's surface follows the protein locally, so

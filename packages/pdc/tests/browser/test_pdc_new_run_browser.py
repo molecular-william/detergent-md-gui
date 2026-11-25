@@ -33,6 +33,7 @@ CATALOG = {
                  'box_margin_nm': 2.0, 'contact_nm': 0.6, 'belt_gap_nm': 0.0,
                  'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75, 'belt_vertical_spread_nm': 4.0,
                  'belt_vertical_spread': 2.0, 'belt_offset_nm': 0.0,
+                 'belt_outlier_distance_nm': 0.75,
                  'selection_threshold_fraction': 0.1,
                  'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,
                  'verlet_buffer_tolerance': 0.005, 'rlist': 1.35, 'rcoulomb': 1.1, 'rvdw': 1.1,
@@ -64,6 +65,7 @@ STAGE_SETTING_NAMES = (
     'verlet_buffer_tolerance', 'rlist', 'rcoulomb', 'rvdw',
     'salt_molar', 'pdc_seed', 'box_margin_nm', 'initial_z_nm', 'contact_nm', 'belt_gap_nm',
     'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm', 'belt_offset_nm',
+    'belt_outlier_distance_nm',
     'initial_x_nm', 'initial_y_nm',
     'selection_threshold_fraction',
     'protein_vsite', 'mdrun_gpu', 'mdrun_ntomp', 'mdrun_ranks', 'mdrun_cpt', 'mdrun_nb', 'mdrun_update',
@@ -154,7 +156,8 @@ def test_the_panel_asks_for_the_pdc_inputs_and_for_nothing_else(dashboard, live_
     # explanation in its info tooltip, and those sentences mention the other controls by name.
     for name, start in (('initial_x_nm', 'Initial box x'), ('initial_y_nm', 'Initial box y'),
                         ('initial_z_nm', 'Initial box z'), ('box_margin_nm', 'Box margin'),
-                        ('belt_vertical_spread_nm', 'Vertical spread')):
+                        ('belt_vertical_spread_nm', 'Vertical spread'),
+                        ('belt_outlier_distance_nm', 'Outlier distance')):
         label = control_label(page, name)
         head = label.evaluate("el => el.firstChild?.textContent?.trim() || ''")
         assert head.startswith(start), f'{name} is labelled {head!r}, not {start!r}'
@@ -354,7 +357,7 @@ def test_the_groups_are_sections_inside_the_run_and_stage_settings(dashboard, li
     # Seven: the run configuration and the starting box were folded in on 2026-11-24, and joined by the five groups
     # the retired Other run options fold used to hold.
     assert groups.count() == 7, 'the option groups are not sections of the fieldset'
-    assert page.locator('#run-form .new-option-group [name]').count() == 34, 'a control was lost with the fold'
+    assert page.locator('#run-form .new-option-group [name]').count() == 35, 'a control was lost with the fold'
     for index in range(7):
         group = groups.nth(index)
         expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
@@ -533,8 +536,8 @@ def test_the_empty_micelle_branch_works_in_both_styles(dashboard, live_page):
 
 
 def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_belt(dashboard, live_page):
-    """The gap, body-bead distance and axial window are belt settings: defaults, Default buttons, hidden in
-    self-assembly, and carried in the preview query as the run's own settings."""
+    """The belt numbers are belt settings: defaults, Default buttons, hidden in self-assembly, and carried in the
+    preview query as the run's own settings (including the outlier distance)."""
     page, errors = live_page
     serve_catalogue(page, proteins=CATALOG['proteins'])
     page.route(re.compile(r'/api/pdc/preview/placement'),
@@ -546,6 +549,7 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     body = page.locator('[name=min_body_gap_nm]')
     axial = page.locator('[name=belt_axial_window_nm]')
     vertical = page.locator('[name=belt_vertical_spread_nm]')
+    outlier = page.locator('[name=belt_outlier_distance_nm]')
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
@@ -553,16 +557,20 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     # beside the other four.
     expect(vertical).to_have_value('4')
     expect(vertical).not_to_have_attribute('placeholder', re.compile(r'detergent'))
+    expect(outlier).to_have_value('0.75')
     gap.fill('0.8')
     body.fill('0.5')
     axial.fill('1.2')
     vertical.fill('2.5')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
+    outlier.fill('1.4')
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm',
+                 'belt_outlier_distance_nm'):
         control_label(page, name).locator('button.pdc-default').click()
     expect(gap).to_have_value('0')
     expect(body).to_have_value('0.3')
     expect(axial).to_have_value('0.75')
     expect(vertical).to_have_value('4')
+    expect(outlier).to_have_value('0.75')
 
     offset = page.locator('[name=belt_offset_nm]')
     expect(offset).to_have_value('0')
@@ -572,10 +580,12 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
 
     # They act on a pre-assembled belt: self-assembly hides them, lattice brings them back, and the values still post
     # either way (the adapter ignores them outside a belt).
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm',
+                 'belt_outlier_distance_nm'):
         expect(control_label(page, name)).to_be_visible()
     page.locator('#new-placement').select_option('self-assembly')
-    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm'):
+    for name in ('belt_gap_nm', 'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm',
+                 'belt_outlier_distance_nm'):
         expect(control_label(page, name)).to_be_hidden()
     page.locator('#new-placement').select_option('lattice')
 
@@ -583,11 +593,13 @@ def test_the_belt_packing_controls_start_on_their_defaults_and_only_show_for_a_b
     body.fill('0.4')
     axial.fill('1.1')
     vertical.fill('2.2')
+    outlier.fill('1.2')
     with page.expect_request(re.compile(r'/api/pdc/preview/placement')) as captured:
         page.locator('.new-pdc-preview-derive').click()
     url = captured.value.url
     assert ('belt_gap_nm=0.5' in url and 'min_body_gap_nm=0.4' in url
-            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_spread_nm=2.2' in url), url
+            and 'belt_axial_window_nm=1.1' in url and 'belt_vertical_spread_nm=2.2' in url
+            and 'belt_outlier_distance_nm=1.2' in url), url
     assert errors == [], errors
 
 
@@ -772,7 +784,7 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'belt_gap_nm': 0.0,
         # The form opens on the belt's stated defaults now, so all five numbers post: the vertical spread is the 4 nm
         # default and the offset is 0.
-        'belt_vertical_spread_nm': 4.0, 'belt_offset_nm': 0.0,
+        'belt_vertical_spread_nm': 4.0, 'belt_offset_nm': 0.0, 'belt_outlier_distance_nm': 0.75,
         'min_body_gap_nm': 0.3, 'belt_axial_window_nm': 0.75,
         'selection_threshold_fraction': 0.1,
         'nstlog': 100, 'nstenergy': 100, 'nstxtcout': 100, 'xtc_precision': 1000, 'nstcomm': 100,

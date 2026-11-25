@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc belt: the outlier distance is a form setting (2026-11-25, later again).** `belt_outlier_distance_nm`
+  (default 0.75 nm, form 0-5 nm, Default button) is the distance beyond the belt's own median sideways distance at
+  which the far-head repair retries a head; **0 turns the repair off**. It is a belt-only cell in the same
+  three-column grid and travels through `_numbers`, `pdc_build`, `preview_choices` and `feature._box_warnings` into
+  `place_detergents(far_radial_nm=)` and on to `capacity`, `_belt_cylinder`, `_cylinder_sites` and
+  `_reclaim_far_sites`, so the preview, admission and the build retry the same heads. The band's `radial_repair`
+  records the stated `distance_nm` and the absolute `threshold_nm` it becomes; a threshold of 0 records
+  `threshold_nm: null`. The setting does not change the retry heights (still the fixed +-0.5/1.0/1.5 nm steps), so the
+  measured outcome of the previous entry stands: at 2ydo+NG with the 4 nm total band the retry still moves none of
+  the 16 NG heads outside the belt. Checks: fast tier **3,216 passed / 1 xfailed**; full browser tier **430 passed**;
+  pdc fast area 877 / 1 xfailed; ruff clean. New tests pin the default/bounds/off case, the parameter's effect on the
+  same synthetic far head, and the form control's default, Default button, self-assembly hiding and preview query.
+
 - **pdc belt: the vertical spread is the band's total height, and side-chain outliers are retried (2026-11-25, later
   the same day).** Plan and the user's four answers: `docs/plans/2026-11-25-pdc-belt-outlier-repair.md`. The 4 nm
   default is the band's **total** height now (`belt_vertical_spread_nm`; 4 nm spans ±2 nm about the mid-plane, and the

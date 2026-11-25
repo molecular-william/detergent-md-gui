@@ -56,7 +56,8 @@ The measurements and the packing rule the module owns, and records:
   either way, inside the band), and the first candidate that clears every gate and lands back inside the belt replaces
   it; one with no such neighbour keeps the draw's position, so the count never drops. The band records what happened
   (`radial_repair`), and a side chain that reaches into the membrane is why this exists: the sector maximum can stand
-  a whole detergent well outside its neighbours.
+  a whole detergent well outside its neighbours. The trigger distance is the run's `belt_outlier_distance_nm`
+  (`BELT_FAR_RADIAL_NM` is its default; 0 turns the repair off).
 * the **capacity** is measured against those same gates when a count cannot be placed, so a refusal can say what the
   shape would hold. The requested number is never scaled (`capacity`).
 """
@@ -657,7 +658,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                      min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
                      belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
                      vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None,
-                     belt_offset_nm=DEFAULT_BELT_OFFSET_NM):
+                     belt_offset_nm=DEFAULT_BELT_OFFSET_NM, far_radial_nm=BELT_FAR_RADIAL_NM):
     """Place `aggregation_number` detergents around the protein (or around nothing, for an empty micelle).
 
     Deterministic in the seed through whichever generator the mode names, and gated before anything runs: the
@@ -726,6 +727,8 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         raise ValueError('the belt vertical half-height must be positive')
     if belt_axial_window_nm <= 0:
         raise ValueError('the belt axial window must be positive')
+    if float(far_radial_nm) < 0:
+        raise ValueError('the outlier distance cannot be negative')
     belt_gap_nm = float(belt_gap_nm)
     belt_floor_nm = float(belt_floor_nm)
     min_body_gap_nm = float(min_body_gap_nm)
@@ -769,7 +772,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
             band, belt_reason = _belt_cylinder(points, aggregation_number, seed, frame, min_clearance_nm,
                                                belt_floor_nm, profile, belt_gap_nm,
                                                min_body_gap_nm, belt_axial_window_nm, belt_length_nm,
-                                               vertical_spread, vertical_half_nm)
+                                               vertical_spread, vertical_half_nm, float(far_radial_nm))
         if band is None:
             shell = _sphere_shell(points, template, profile, radius_nm, min_clearance_nm)
             centers, directions = pack_micelle(points, template, aggregation_number, seed,
@@ -840,6 +843,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                         belt_axial_window_nm=belt_axial_window_nm,
                                         body_profile=body_profile, vertical_spread=vertical_spread,
                                         vertical_half_nm=vertical_half_nm,
+                                        far_radial_nm=float(far_radial_nm),
                                         initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
         if 0 < capacity_aggregation['count'] < aggregation_number:
             issues.append(_capacity_sentence(capacity_aggregation))
@@ -992,7 +996,8 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
              seeds=(1, 2, 3), belt_gap_nm=0.0,
              belt_floor_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
              belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, body_profile=_UNSET,
-             vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None) -> dict:
+             vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None,
+             far_radial_nm=BELT_FAR_RADIAL_NM) -> dict:
     """The largest count every seed places validly, by bisection over the placer's own gate.
 
     A bisection between 1 and `requested`, `ceil(log2(requested))` placements per seed and no geometry written down
@@ -1028,7 +1033,7 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
                                     min_body_gap_nm=min_body_gap_nm,
                                     belt_axial_window_nm=belt_axial_window_nm,
                                     body_profile=body_profile, vertical_spread=vertical_spread,
-                                    vertical_half_nm=vertical_half_nm)['valid']
+                                    vertical_half_nm=vertical_half_nm, far_radial_nm=far_radial_nm)['valid']
                    for seed in seeds)
 
     if fits(requested):
@@ -1046,7 +1051,7 @@ def capacity(points, template, requested, *, mode=DEFAULT_PLACEMENT_MODE, radius
 def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, profile=None,
                    belt_gap_nm=0.0, min_body_gap_nm=DEFAULT_MIN_BODY_GAP_NM,
                    belt_axial_window_nm=DEFAULT_BELT_AXIAL_WINDOW_NM, belt_length_nm=_UNSET,
-                   vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None):
+                   vertical_spread=VERTICAL_SPREAD, vertical_half_nm=None, far_radial_nm=BELT_FAR_RADIAL_NM):
     """The belt about the protein's transmembrane cylinder, and why it is the sphere instead, or `None`.
 
     The cylinder is measured from the protein atoms the frame's slab holds, about the **frame's own normal**: their
@@ -1160,7 +1165,7 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
 
     centers, directions, drawn, rejected, passes, rejected_slots, reclaim = _cylinder_sites(
         count, seed, cylinder, surface_at, length, half_band, points, min_clearance_nm, profile,
-        min_body_gap_nm)
+        min_body_gap_nm, float(far_radial_nm))
     # The surface each placed head actually stood off. The head is `length` beyond its local surface along the
     # outward normal, so the radial distance of the head site minus that length is the surface it used.
     if len(centers):
@@ -1355,12 +1360,14 @@ def _belt_gate_distance(reason, min_clearance_nm, min_body_gap_nm) -> float:
 
 
 def _reclaim_far_sites(centers, directions, *, origin, axis, across, up, half_band, length, surface_at,
-                       profile, protein_points, min_clearance_nm, min_body_gap_nm, reach):
+                       profile, protein_points, min_clearance_nm, min_body_gap_nm, reach,
+                       far_threshold_nm=BELT_FAR_RADIAL_NM):
     """Re-place heads the belt's own median distance says are too far out, one bounded vertical nudge each.
 
     The belt's sideways distances are measured from the cylinder axis; the median is the belt's own radius. A head
-    further than `BELT_FAR_RADIAL_NM` beyond that median is re-tried at its own heading at the heights in
-    `BELT_RECLAIM_HEIGHT_NM` (up to 1.5 nm either way, clipped to the band), re-measuring the local surface at each.
+    further than `far_threshold_nm` (the run's `belt_outlier_distance_nm`, default `BELT_FAR_RADIAL_NM`) beyond that
+    median is re-tried at its own heading at the heights in `BELT_RECLAIM_HEIGHT_NM` (up to 1.5 nm either way,
+    clipped to the band), re-measuring the local surface at each. A threshold of 0 turns the repair off.
     A candidate replaces the site only when every gate passes **and** its head lands back inside the belt; otherwise
     the site keeps the draw's position, so the requested count is never reduced.
 
@@ -1370,15 +1377,21 @@ def _reclaim_far_sites(centers, directions, *, origin, axis, across, up, half_ba
     """
     if len(centers) < 2:
         return (np.asarray(centers, dtype=float), np.asarray(directions, dtype=float),
-                {'median_radius_nm': None, 'threshold_nm': None, 'heights_nm': list(BELT_RECLAIM_HEIGHT_NM),
-                 'moved': 0, 'still_far': 0})
+                {'median_radius_nm': None, 'threshold_nm': None, 'distance_nm': float(far_threshold_nm),
+                 'heights_nm': list(BELT_RECLAIM_HEIGHT_NM), 'moved': 0, 'still_far': 0})
     centers = np.asarray(centers, dtype=float)
     directions = np.asarray(directions, dtype=float)
     relative = centers - origin
     heights = relative @ axis
     radial = np.linalg.norm(relative - np.outer(heights, axis), axis=1)
     median = float(np.median(radial))
-    threshold = median + BELT_FAR_RADIAL_NM
+    if float(far_threshold_nm) <= 0:
+        # 0 turns the repair off: every site keeps the position the draw gave it, and the record says so.
+        return (centers, directions,
+                {'median_radius_nm': round(median, 6), 'threshold_nm': None,
+                 'distance_nm': round(float(far_threshold_nm), 6),
+                 'heights_nm': list(BELT_RECLAIM_HEIGHT_NM), 'moved': 0, 'still_far': 0})
+    threshold = median + float(far_threshold_nm)
     bodies = [body_beads(center, direction, profile) for center, direction in zip(centers, directions)]
     far = [index for index in range(len(centers)) if radial[index] > threshold]
     moved = 0
@@ -1412,11 +1425,12 @@ def _reclaim_far_sites(centers, directions, *, origin, axis, across, up, half_ba
                 break
     return (centers, directions,
             {'median_radius_nm': round(median, 6), 'threshold_nm': round(threshold, 6),
+             'distance_nm': round(float(far_threshold_nm), 6),
              'heights_nm': list(BELT_RECLAIM_HEIGHT_NM), 'moved': moved, 'still_far': len(far) - moved})
 
 
 def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protein_points,
-                    min_clearance_nm, profile=None, min_body_gap_nm=0.0):
+                    min_clearance_nm, profile=None, min_body_gap_nm=0.0, far_radial_nm=BELT_FAR_RADIAL_NM):
     """`count` head sites outside the cylinder's **local** lateral surface, one per golden-angle ladder slot.
 
     The ladder is `pack_micelle`'s (`golden_angle_directions`), so both lattice shapes are one arrangement: its
@@ -1541,7 +1555,7 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     centers, directions, reclaim = _reclaim_far_sites(
         kept, kept_directions, origin=origin, axis=axis, across=across, up=up, half_band=half_band, length=length,
         surface_at=surface_at, profile=profile, protein_points=protein_points, min_clearance_nm=min_clearance_nm,
-        min_body_gap_nm=min_body_gap_nm, reach=reach)
+        min_body_gap_nm=min_body_gap_nm, reach=reach, far_threshold_nm=float(far_radial_nm))
     return centers, directions, drawn, rejected, passes, rejected_slots, reclaim
 
 

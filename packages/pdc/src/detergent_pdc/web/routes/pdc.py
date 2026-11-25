@@ -694,6 +694,10 @@ def preview_choices(source):
         half = float(pdc.DEFAULTS['belt_vertical_spread_nm']) / 2.0
     choices['belt_vertical_half_nm'] = half
     choices['belt_offset_nm'] = number('belt_offset_nm', float(pdc.DEFAULTS['belt_offset_nm']))
+    # The far-head repair's trigger distance, in nm; 0 turns the repair off. Forwarded to the same placement a run
+    # uses, so the picture and the run retry the same heads.
+    choices['belt_outlier_distance_nm'] = number(
+        'belt_outlier_distance_nm', float(pdc.DEFAULTS['belt_outlier_distance_nm']))
     return choices
 
 
@@ -797,6 +801,7 @@ def pdc_preview_placement():
             belt_vertical_spread=choices['belt_vertical_spread'],
             belt_vertical_half_nm=choices['belt_vertical_half_nm'],
             belt_offset_nm=choices['belt_offset_nm'],
+            far_radial_nm=choices['belt_outlier_distance_nm'],
             prepare_protein=choices['prepare_protein'],
             # The detergent's bodies this derive would stamp, when the form names a library; the preview resolves
             # and matches it against the mapping's own model, and reports the resolved key rather than coordinates.

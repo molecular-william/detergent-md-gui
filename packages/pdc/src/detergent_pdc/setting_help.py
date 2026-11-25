@@ -93,6 +93,10 @@ _BELT_VERTICAL_SPREAD = ('the oldest spelling of the belt\u2019s vertical spread
 _BELT_OFFSET = ('a uniform translation of the belt along the membrane normal, in nm (dashboard text, not GROMACS): 0 '
                 'is the reviewed placement, and a positive value moves the whole belt higher without moving the '
                 'protein or the cell. Belt-only; the sphere and self-assembly do not read it')
+_BELT_OUTLIER_DISTANCE = ('how far beyond the belt\u2019s own median sideways distance a placed head has to be before '
+                          'it is treated as an outlier (dashboard text, not GROMACS), in nm: such a head is retried up '
+                          'to 1.5 nm higher or lower, and stays where it is if no nearby spot passes the gates. 0.75 nm '
+                          'is the default; 0 turns the retry off. Belt-only; the sphere and self-assembly do not read it')
 _BELT_AXIAL_WINDOW = ('the axial half-window used to measure a belt site\u2019s local protein surface (dashboard text, '
                       'not GROMACS), in nm: only in-slab atoms within this distance of the site\u2019s height set its '
                       'radius, so a helix at another height does not push the site outward; smaller is tighter, and a '
@@ -167,6 +171,7 @@ HELP = {
     'belt_vertical_half_nm': _BELT_VERTICAL_HALF,
     'belt_vertical_spread': _BELT_VERTICAL_SPREAD,
     'belt_offset_nm': _BELT_OFFSET,
+    'belt_outlier_distance_nm': _BELT_OUTLIER_DISTANCE,
     'selection_threshold_fraction': _THRESHOLD,
     'protein_vsite': _VSITE,
     'mdrun_gpu': CORE_HELP['mdrun_gpu'],

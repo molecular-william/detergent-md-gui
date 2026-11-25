@@ -28,6 +28,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const NUMBERS = ['aggregation_number', 'pdc_nvt_ps', 'pdc_npt_ps', 'pdc_assessment_ns', 'pdc_extension_ns', 'pdc_seed', 'salt_molar',
                    'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'contact_nm', 'selection_threshold_fraction', 'belt_gap_nm',
                    'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm', 'belt_offset_nm',
+                   'belt_outlier_distance_nm',
                    'nstlog', 'nstenergy', 'nstxtcout', 'xtc_precision', 'nstcomm',
                    'pdc_nvt_dt_fs', 'pdc_npt_dt_fs', 'pdc_assessment_dt_fs', 'pdc_extension_dt_fs',
                    'pdc_minimisation_steps', 'pdc_minimisation_emtol', 'pdc_minimisation_emstep',
@@ -1267,6 +1268,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             bodyGap: field('min_body_gap_nm').value || '',
             axialWindow: field('belt_axial_window_nm').value || '',
             verticalSpread: field('belt_vertical_spread_nm').value || '',
+            outlierDistance: field('belt_outlier_distance_nm').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             initial_x: field('initial_x_nm').value || '', initial_y: field('initial_y_nm').value || '',
             offset: field('belt_offset_nm').value || '',
@@ -1280,6 +1282,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
                                   inputs.initial_x, inputs.initial_y,
                                   inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
+                                  inputs.outlierDistance,
                                   inputs.template].join('|');
 
   function seconds(value) {
@@ -1409,6 +1412,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
     if (inputs.axialWindow) query.set('belt_axial_window_nm', inputs.axialWindow);
     if (inputs.verticalSpread) query.set('belt_vertical_spread_nm', inputs.verticalSpread);
+    // The outlier distance is a belt-only setting; the preview sends it so its re-placements are the run's.
+    if (inputs.outlierDistance !== '') query.set('belt_outlier_distance_nm', inputs.outlierDistance);
     // The shape spec travels as JSON, URL-encoded by `URLSearchParams`: `single` has no spec and sends nothing,
     // exactly as the submit payload does not.
     if (inputs.shape) query.set('conformation_library', inputs.shape);
@@ -2209,7 +2214,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // only mark the frame stale.
   field('aggregation_number').addEventListener('input', previewMoved);
   for (const name of ['pdc_seed', 'box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm', 'belt_gap_nm',
-                      'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm', 'belt_offset_nm']) field(name)?.addEventListener('input', previewMoved);
+                      'min_body_gap_nm', 'belt_axial_window_nm', 'belt_vertical_spread_nm', 'belt_offset_nm',
+                      'belt_outlier_distance_nm']) field(name)?.addEventListener('input', previewMoved);
   // The box's own four inputs also move the estimate of the initial box, which is measured from them.
   for (const name of ['box_margin_nm', 'initial_z_nm', 'initial_x_nm', 'initial_y_nm']) field(name)?.addEventListener('input', scheduleExtent);
   // One Auto for the starting box: it derives the preview and writes the box that preview draws, into the three

@@ -70,6 +70,10 @@ DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100,
             'belt_vertical_spread': 2.0,
             # A uniform translation of the belt along the membrane normal; 0 is the reviewed placement.
             'belt_offset_nm': 0.0,
+            # How far beyond the belt's own median sideways distance a placed head has to be before the far-head
+            # repair re-tries it, in nm. 0.75 nm is the default; 0 disables the repair. The retry heights themselves
+            # are the module's fixed 0.5/1.0/1.5 nm steps, not a setting.
+            'belt_outlier_distance_nm': 0.75,
             'minimisation_steps': 200000, 'nvt_ps': 500, 'npt_ps': 4500,
             # The CG production legs' own numbers. They are written from `pdc-assessment-v1`/`pdc-extension-v1`,
             # whose reviewed profile leaves exactly these to the run; the equilibration and restart profiles keep
@@ -186,6 +190,9 @@ SETTING_SPECS = {
     'belt_vertical_half_nm': ('Vertical spread (nm - half-height, retired)', 0.5, 10.0),
     'belt_vertical_spread': ('Vertical spread (x detergent length - retired)', 0.5, 5.0),
     'belt_offset_nm': ('Belt vertical offset (nm)', -2.0, 2.0),
+    # The far-head repair's trigger: a placed head this far beyond the belt's median sideways distance is re-tried.
+    # 0 turns the repair off; the bounds keep it a meaningful distance rather than a fraction of the molecule.
+    'belt_outlier_distance_nm': ('Outlier distance (nm)', 0.0, 5.0),
     'selection_threshold_fraction': ('Removal threshold (fraction)', 0.0, 1.0),
     # The CG production legs' output cadence and cut-offs. The reviewed profiles leave these to the run; the
     # equilibration and restart profiles keep their own values. The production neighbour list, temperature and

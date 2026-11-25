@@ -103,6 +103,9 @@ def _box_warnings(payload):
         belt_vertical_spread=number('belt_vertical_spread', float(defaults['belt_vertical_spread'])),
         belt_vertical_half_nm=half_band,
         belt_offset_nm=number('belt_offset_nm', float(defaults['belt_offset_nm'])),
+        # The far-head repair can only pull a head inward or leave it, so the box it needs is never larger than the
+        # one without the repair; forwarding it keeps admission's placement the run's own.
+        far_radial_nm=number('belt_outlier_distance_nm', float(defaults['belt_outlier_distance_nm'])),
         # The library changes which bodies are stamped, never the belt's measured reach or the cell it needs.
         conformation_library=None)
     return list((answer.get('basis') or {}).get('box_notes') or [])

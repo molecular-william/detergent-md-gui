@@ -120,6 +120,18 @@ def test_the_vertical_spread_is_a_four_nanometre_total_and_the_old_spellings_sti
     assert both['belt_vertical_spread_nm'] == 3.0 and both['belt_vertical_spread'] == 1.1
 
 
+def test_the_outlier_distance_is_advertised_defaulted_and_can_be_turned_off():
+    """The far-head repair's trigger is a run setting: 0.75 nm by default, 0 = no repair, range-checked."""
+    assert pdc.DEFAULTS['belt_outlier_distance_nm'] == 0.75
+    assert pdc.SETTING_SPECS['belt_outlier_distance_nm'] == ('Outlier distance (nm)', 0.0, 5.0)
+    assert pdc.normalize_settings({})['belt_outlier_distance_nm'] == 0.75
+    assert pdc.normalize_settings({'belt_outlier_distance_nm': 1.5})['belt_outlier_distance_nm'] == 1.5
+    assert pdc.normalize_settings({'belt_outlier_distance_nm': 0})['belt_outlier_distance_nm'] == 0.0
+    for outside in (-0.1, 5.1):
+        with pytest.raises(ValueError, match='belt_outlier_distance_nm'):
+            pdc.normalize_settings({'belt_outlier_distance_nm': outside})
+
+
 def test_the_generated_label_names_the_choices_it_was_built_from():
     """The panel's label field, filled from the same numbers the run is built with -- not a second vocabulary."""
     assert pdc.generated_label('DDM', {'aggregation_number': 192}) == 'DDM_micelle_192_1conf_1us'

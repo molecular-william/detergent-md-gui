@@ -1403,6 +1403,57 @@ def test_a_head_far_outside_the_belt_is_retried_at_a_nearby_height():
     assert float(np.linalg.norm(radial)) == pytest.approx(1.0 + length), 'the re-tried head is in the belt'
 
 
+def test_the_outlier_distance_sets_the_retry_trigger_and_zero_turns_it_off():
+    """The same far head: the default distance retries it, a larger one ignores it, and 0 disables the repair.
+
+    The setting is the run's `belt_outlier_distance_nm`; the record carries both the distance stated and the
+    absolute threshold it becomes (the belt's median plus that distance).
+    """
+    from micelle.packing import golden_angle_directions
+
+    cylinder = {'axis': [0.0, 0.0, 1.0], 'origin': [0.0, 0.0, 0.0]}
+    count, seed, length, half_band = 3, 5, 0.5, 2.0
+    ladder = golden_angle_directions(count, seed)
+    headings = np.arctan2(ladder[:, 1], ladder[:, 0])
+    heights = np.sin(0.5 * np.pi * ladder[:, 2]) * half_band
+    far_heading, far_height = float(headings[0]), float(heights[0])
+
+    def surface_at(heading, height):
+        same = abs(float(np.angle(np.exp(1j * (heading - far_heading))))) < 1e-6
+        if same and abs(float(height) - far_height) < 1.5 - 1e-9:
+            return 3.0
+        return 1.0
+
+    protein = np.asarray([[0.0, 0.0, 50.0]])
+
+    def place(far_radial_nm):
+        return pdc_placement._cylinder_sites(
+            count, seed, cylinder, surface_at, length, half_band, protein, pdc_placement.MIN_CLEARANCE_NM,
+            profile=None, min_body_gap_nm=0.0, far_radial_nm=far_radial_nm)
+
+    _, _, _, _, _, _, default = place(pdc_placement.BELT_FAR_RADIAL_NM)
+    assert default['moved'] == 1 and default['still_far'] == 0
+    assert default['distance_nm'] == pytest.approx(pdc_placement.BELT_FAR_RADIAL_NM)
+
+    centers, _, _, _, _, _, wide = place(10.0)
+    assert wide['moved'] == 0 and wide['still_far'] == 0, 'no head is beyond a 10 nm trigger'
+    assert wide['distance_nm'] == pytest.approx(10.0)
+    radial = centers[0] - float(centers[0] @ np.asarray(cylinder['axis'])) * np.asarray(cylinder['axis'])
+    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), 'the far head is left where it was'
+
+    centers, _, _, _, _, _, off = place(0.0)
+    assert off['moved'] == 0 and off['still_far'] == 0 and off['threshold_nm'] is None, off
+    assert off['distance_nm'] == 0.0
+    radial = centers[0] - float(centers[0] @ np.asarray(cylinder['axis'])) * np.asarray(cylinder['axis'])
+    assert float(np.linalg.norm(radial)) == pytest.approx(3.0 + length), '0 disables the repair'
+
+
+def test_a_negative_outlier_distance_is_refused(tmp_path):
+    with pytest.raises(ValueError, match='outlier distance'):
+        pdc_placement.place_detergents(_asymmetric_protein(), _template(tmp_path), 6, seed=4, frame=_frame(),
+                                       far_radial_nm=-0.1)
+
+
 def test_a_head_with_no_nearby_legal_height_keeps_its_original_position():
     """The repair never drops a detergent: no legal nearby height means the draw's own position stands."""
     from micelle.packing import golden_angle_directions

@@ -58,3 +58,13 @@ still outside the belt: the neighbours' bodies and the minimum body gap block ev
 land outside the belt even when legal. At the old ±4 nm band the same retry moved 1 NG and 3 DDM heads. Next levers,
 if wanted: allow up to ±2.5 nm plus a small sideways turn (a dry run moved 8 of 11 NG and 7 of 8 DDM at the tall
 band), allow an inward radial nudge down to the median, or keep 155 by using the taller band.
+
+## Follow-up (2026-11-25, later): the outlier distance is a form setting
+
+The trigger was a module constant (0.75 nm); the user asked for an input box. It is now
+`belt_outlier_distance_nm` (default 0.75 nm, advertised range 0-5, form 0-5 nm with a Default button, 0 = repair
+off). It is stored on the run, listed in the form's belt grid, sent with the preview query, used by admission, and
+threaded to `place_detergents(far_radial_nm=)`, `capacity`, `_belt_cylinder`, `_cylinder_sites` and
+`_reclaim_far_sites`; the band record's `radial_repair` states the distance and the absolute threshold. The retry
+heights are unchanged (still the fixed 1.5 nm limit), so this adds control without changing the measured outcome of
+the previous section.

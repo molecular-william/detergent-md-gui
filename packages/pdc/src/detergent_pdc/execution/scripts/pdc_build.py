@@ -737,6 +737,9 @@ def build(stage: Path) -> int:
                                                    pdc_placement.DEFAULT_BELT_VERTICAL_SPREAD),
                                                vertical_half_nm=_belt_half_height(settings),
                                                belt_offset_nm=settings.get('belt_offset_nm', 0.0),
+                                               far_radial_nm=settings.get(
+                                                   'belt_outlier_distance_nm',
+                                                   pdc_placement.BELT_FAR_RADIAL_NM),
                                                body_profile=body_profile)
     report.update({
         'cg_command': command,

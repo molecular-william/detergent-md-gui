@@ -614,7 +614,8 @@ Its **Stage settings** are one `fieldset.run-settings` with four editors — min
 folded *Other run options* block: output cadence, neighbour search and cutoffs, salt/seed/box, back-map and
 execution. Every editor starts collapsed, and the facts line in its summary still states what it holds. Every grid is
 three controls across at desktop width, two below 1100 px and one on a phone; **Detergent belt and sampling** is one
-three-column grid holding the placement style, the count and the five belt numbers, whose labels carry only their
+three-column grid holding the placement style, the count and the six belt numbers (gap, minimum body-bead
+distance, axial window, vertical spread, vertical offset and the outlier distance), whose labels carry only their
 unit (`nm`) with the explanation in the setting's info button (`setting_help.HELP`). A dynamics
 editor opens with **Duration · Timestep · Steps**: the count carries no `name` (it is derived, never posted) and
 editing it back-solves the duration; a blank timestep is the reviewed profile's own dt (5 fs equilibration, 20 fs
@@ -1112,10 +1113,11 @@ the absolute heights just above and below the band (`BELT_TRIAL_BEYOND_NM`: +-(h
 so a slot the protein blocks is placed just off the band instead of lost. The record's `placed_axial_max_nm` is the
 tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band, and `volume_nm3` uses the
 larger of the two. **The far heads are then reclaimed**, the user's 2026-11-25 decision: a placed head more than
-`BELT_FAR_RADIAL_NM` (0.75 nm) beyond the belt's own median sideways distance is retried at its own heading up to
-1.5 nm higher or lower (the six `BELT_RECLAIM_HEIGHT_NM` steps, clipped to the band), and the first candidate that
-clears every gate and lands back inside the belt replaces it; a head with no such neighbour keeps the draw's
-position, so the count never drops. The band's `radial_repair` records the median, the threshold, the trial heights
+`belt_outlier_distance_nm` (default 0.75 nm; 0 turns the repair off) beyond the belt's own median sideways distance
+is retried at its own heading up to 1.5 nm higher or lower (the six `BELT_RECLAIM_HEIGHT_NM` steps, clipped to the
+band), and the first candidate that clears every gate and lands back inside the belt replaces it; a head with no such
+neighbour keeps the draw's position, so the count never drops. The trigger travels from the form through the preview
+and admission to the build; `BELT_FAR_RADIAL_NM` is only the default. The band's `radial_repair` records the median, the threshold, the trial heights
 and how many heads moved or stayed far. This exists because one side chain reaching into the membrane can push a
 whole detergent out: the local surface is the sector's maximum, not the average. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,
