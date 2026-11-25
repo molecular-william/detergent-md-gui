@@ -451,9 +451,10 @@ def _bead_gate_sentence(profile) -> str | None:
             'only and not against the detergent\'s own beads')
 
 
-def body_clearance(site, direction, profile, points) -> float:
+def body_clearance(site, direction, profile, points, twist=0.0) -> float:
     """The closest approach of one placed detergent's own beads to any protein point, in nm.
 
+    `twist` is the conformation library's drawn azimuth, so a body the stage stamps is measured as it will stand.
     `inf` when there is nothing to measure against (no protein, or a template with no profile) -- which is the value
     that reads as "this gate has nothing to say", not the value that reads as "clear".
     """
@@ -467,7 +468,7 @@ def body_clearance(site, direction, profile, points) -> float:
     if not len(near):
         return float('inf')
     # Both sides in the site's own frame, so the comparison is bead-to-point and not offset-to-offset.
-    beads = body_beads(site, direction, profile) - np.asarray(site, dtype=float)
+    beads = body_beads(site, direction, profile, twist) - np.asarray(site, dtype=float)
     gap = beads[:, None, :] - near[None, :, :]
     return float(np.sqrt((gap * gap).sum(axis=2)).min())
 
@@ -790,24 +791,7 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
                                              initial_y_nm=initial_y_nm, profile=profile)
 
     if band is not None:
-        # Raise the whole belt along the membrane normal, protein and cell unchanged. The site gate already ran at
-        # the unshifted positions; the final head/body clearance checks below re-run against the shifted sites, so a
-        # belt raised into the protein is refused rather than drawn.
-        offset = float(belt_offset_nm)
-        if abs(offset) > 1e-12:
-            axis = np.asarray(band['record']['cylinder']['axis'], dtype=float)
-            centers = np.asarray(centers, dtype=float) + offset * axis
-            # The belt is drawn raised, so every rejected slot's own base is raised with it: an empty-slot ring
-            # must sit where that slot would have stood in the frame the returned centres are in.
-            for slot in band['record'].get('rejected_slots', ()):
-                slot['position_nm'] = [round(float(value), 6)
-                                       for value in np.asarray(slot['position_nm'], dtype=float) + offset * axis]
-                slot['height_nm'] = round(float(slot['height_nm']) + offset, 6)
-            # The box's z is measured from this reach; a translated belt reaches at least the old reach plus the
-            # translation, so take the conservative bound rather than leave the top of the belt outside the cell.
-            band['record']['belt_reach_nm'] = round(float(band['record'].get('belt_reach_nm') or 0.0)
-                                                     + abs(offset), 6)
-        band['record']['belt_offset_nm'] = round(offset, 6)
+        centers = _translate_belt(band, centers, belt_offset_nm)
     # The conformations this build stamps are drawn before the final gates: the parking pass has to know the body each
     # site will carry, because a library body can reach closer to the protein than the template the site was gated
     # with. The draw depends only on the seed and the count, so drawing it here changes nothing else.
@@ -817,24 +801,10 @@ def place_detergents(protein_points, template, aggregation_number, seed, *, radi
         drawn = {'key': str(conformations.key), 'size': int(conformations.size),
                  'entries': entries, 'twists': twists}
     if band is not None and not unplaced and len(centers):
-        # The belt is now in its final place (the offset applied), so this is where a protruding or too-close head is
-        # parked above or below the band; the final gates below then measure the moved geometry.
-        band_record = band['record']
-        axis = np.asarray(band_record['cylinder']['axis'], dtype=float)
-        across, up = _plane_basis(axis)
-        half_band = float(band_record['vertical_half_band_nm'])
-        centers, directions, parked = _park_problem_sites(
-            centers, directions, origin=np.asarray(band_record['cylinder']['origin_nm'], dtype=float),
-            axis=axis, across=across, up=up, half_band_nm=half_band,
-            offset_nm=float(band_record['belt_offset_nm']),
-            length_nm=float(band_record['detergent_length_nm']), surface_at=band['surface_at'],
-            profile=profile, protein_points=points, min_clearance_nm=min_clearance_nm,
-            min_body_gap_nm=min_body_gap_nm, far_radial_nm=float(far_radial_nm),
-            conformations=conformations, drawn=drawn)
-        band_record['radial_repair'] = parked
-        _refresh_band_geometry(band_record, centers, directions, profile,
-                               float(band_record['detergent_length_nm']), half_band,
-                               conformations=conformations, drawn=drawn)
+        centers, directions = _park_belt_problems(
+            band, centers, directions, profile=profile, protein_points=points,
+            min_clearance_nm=min_clearance_nm, min_body_gap_nm=min_body_gap_nm,
+            far_radial_nm=float(far_radial_nm), conformations=conformations, drawn=drawn)
     validation = None
     issues = []
     if not unplaced:
@@ -1192,40 +1162,12 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
     centers, directions, drawn, rejected, passes, rejected_slots = _cylinder_sites(
         count, seed, cylinder, surface_at, length, half_band, points, min_clearance_nm, profile,
         min_body_gap_nm)
-    # The surface each placed head actually stood off. The head is `length` beyond its local surface along the
-    # outward normal, so the radial distance of the head site minus that length is the surface it used.
-    if len(centers):
-        relative_centres = np.asarray(centers, dtype=float) - origin
-        axial_centres = relative_centres @ axis
-        surfaces = np.linalg.norm(relative_centres - np.outer(axial_centres, axis), axis=1) - float(length)
-        # The band the draw actually occupies, not the one the request stated: a slot the protein blocked may have
-        # been accepted just outside `[-half_band, half_band]`, so the record states the tallest placed centre.
-        placed_axial_max = float(np.abs(axial_centres).max())
-    else:
-        surfaces = np.empty(0, dtype=float)
-        placed_axial_max = 0.0
-    mean_surface = float(surfaces.mean()) if surfaces.size else float(belt_floor_nm)
-    min_surface = float(surfaces.min()) if surfaces.size else float(belt_floor_nm)
-    max_surface = float(surfaces.max()) if surfaces.size else float(belt_floor_nm)
-    # The box's own reach: the furthest bead of the stamped bodies along the frame normal, not only the head sites,
-    # so a tilted cylinder whose tails lean past their heads is still inside the box the build will write.
-    if not len(centers):
-        belt_reach = 0.0
-    elif profile is not None:
-        body = np.concatenate([body_beads(site, direction, profile)
-                               for site, direction in zip(centers, directions)])
-        belt_reach = float(np.abs(body @ frame_axis).max())
-    else:
-        belt_reach = float(np.abs(centers @ frame_axis).max()) + float(length)
     record = {
         'shape': SHAPE_CYLINDER,
         'cylinder': {
             'axis': [float(value) for value in cylinder['axis']],
             'origin_nm': [float(value) for value in cylinder['origin']],
             'radius_nm': round(float(cylinder['radius_nm']), 6),
-            'surface_radius_nm': round(mean_surface, 6),
-            'surface_radius_min_nm': round(min_surface, 6),
-            'surface_radius_max_nm': round(max_surface, 6),
             'height_nm': round(float(cylinder['height_nm']), 6),
             'atom_count': int(cylinder['atom_count']),
             'axis_source': cylinder['axis_source'],
@@ -1234,9 +1176,6 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
             'axial_extent_nm': round(float(cylinder['axial_extent_nm']), 6),
         },
         'slab_radius_nm': round(float(cylinder['slab_radius_nm']), 6),
-        'radius_nm': round(mean_surface, 6),
-        'radius_min_nm': round(min_surface, 6),
-        'radius_max_nm': round(max_surface, 6),
         'radius_floor_nm': round(float(belt_floor_nm), 6),
         # The extra distance the run asked for between the measured surface and the belt, so the record states the
         # geometry that was actually built. It is the number the local surfaces above were computed with.
@@ -1244,27 +1183,16 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         # The two packing settings the geometry was drawn under, so a reader can reproduce a belt that looks unusual.
         'min_body_gap_nm': round(float(min_body_gap_nm), 6),
         'axial_window_nm': round(float(belt_axial_window_nm), 6),
-        'radius_source': RADIUS_MEASURED if max_surface > float(belt_floor_nm) + 1e-12 else RADIUS_FLOOR,
         'detergent_length_nm': round(float(length), 6),
-        'belt_reach_nm': round(belt_reach, 6),
         # The band the run stated: the total height the form offers (`vertical_spread_nm`, 4 nm by default) and the
         # half-height the placement reads from it. A retired multiple leaves both derived from the detergent length.
         'vertical_spread_nm': round(2.0 * float(half_band), 6),
         'vertical_half_band_nm': round(float(half_band), 6),
-        # The tallest placed centre's axial distance from the cylinder origin. It equals `vertical_half_band_nm` unless
-        # the out-of-band fallback was used, which is exactly what a reader needs to see the taller band.
-        'placed_axial_max_nm': round(placed_axial_max, 6),
         'vertical_spread': round(float(vertical_spread), 6),
         'vertical_half_nm': None if vertical_half_nm is None else round(float(vertical_half_nm), 6),
         'tilt_deg': TILT_DEGREES,
         'orientation': {'policy': ORIENTATION_CYLINDER_TILTED, 'tilt_deg': TILT_DEGREES,
                         'axis_source': cylinder['axis_source']},
-        # The cylindrical shell the detergents occupy, so the belt's density and the sphere's are the same
-        # measurement of a different shape and the panel can print either. The mean local surface is the one number
-        # that stands for a surface which varies with angle. The height is the band actually occupied, so a belt that
-        # used the out-of-band fallback does not report a volume smaller than the one it fills.
-        'volume_nm3': round(np.pi * ((mean_surface + length) ** 2 - mean_surface ** 2)
-                            * (2.0 * max(float(half_band), placed_axial_max)), 6),
         'detergents_drawn': drawn, 'rejected': rejected, 'passes': passes,
         # One record per slot the gates left empty, with the slot's own base geometry and the gate it failed. This
         # is what a refusal's count and the preview's empty-slot rings read; it is not a second placement.
@@ -1272,6 +1200,11 @@ def _belt_cylinder(points, count, seed, frame, min_clearance_nm, belt_floor_nm, 
         'axis': [float(value) for value in cylinder['axis']],
         'plane_low_nm': float(bounds[0]), 'plane_high_nm': float(bounds[1]), 'source': frame.source,
     }
+    # One implementation of the geometry numbers (radius stats, reach, volume) fills them here and again after the
+    # parking pass in `place_detergents`; a second copy in this function is what would let the two drift.
+    _refresh_band_geometry(record, centers, directions, profile, float(length), float(half_band))
+    record['radius_source'] = (RADIUS_MEASURED if record['radius_max_nm'] > record['radius_floor_nm'] + 1e-12
+                               else RADIUS_FLOOR)
     return {'centers': centers, 'directions': directions, 'record': record, 'surface_at': surface_at}, None
 
 
@@ -1328,6 +1261,20 @@ def _transmembrane_cylinder(inside, frame_axis, bounds):
     }
 
 
+def _belt_site(origin, axis, across, up, heading, height, radius_nm):
+    """The head site and body direction for one (heading, height, radius) on the belt's cylinder.
+
+    The head stands `radius_nm` out along the heading; the body is tilted `TILT_DEGREES` about the local tangent
+    away from the mid-plane, so the tail the build hangs back dips towards it. Both the slot draw and the parking of
+    problem heads build their candidates here, so the two cannot disagree about what a site at a height means.
+    """
+    outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
+    candidate = origin + float(radius_nm) * outward + float(height) * axis
+    lean = 1.0 if height >= 0.0 else -1.0
+    direction = float(np.cos(TILT_RADIANS)) * outward + lean * float(np.sin(TILT_RADIANS)) * axis
+    return candidate, direction
+
+
 def _belt_trials():
     """The bounded **in-band** local offsets one belt slot may try, in order: height first, then heading, then radially.
 
@@ -1347,7 +1294,7 @@ def _belt_trials():
 
 
 def _belt_trial_verdict(candidate, direction, profile, protein_points, kept, kept_beads,
-                        min_clearance_nm, min_body_gap_nm, reach):
+                        min_clearance_nm, min_body_gap_nm):
     """Why one belt trial is refused, or `None` and the body its acceptance keeps.
 
     Every gate is authoritative and checked in the order the docstring states: the head site's clearance, the
@@ -1362,6 +1309,7 @@ def _belt_trial_verdict(candidate, direction, profile, protein_points, kept, kep
     if body_clearance(candidate, direction, profile, protein_points) < BEAD_CLEARANCE_NM:
         return 'body-clearance', None
     beads = body_beads(candidate, direction, profile)
+    reach = float(profile['reach_nm']) if profile is not None else 0.0
     if min_body_gap_nm > 0 and kept_beads.size:
         # Only a kept bead inside the gate plus the molecule's own reach can be within the gate of this body, so the
         # comparison stays small even for a full belt of a many-atom molecule.
@@ -1379,6 +1327,47 @@ def _belt_gate_distance(reason, min_clearance_nm, min_body_gap_nm) -> float:
     """The gate distance a rejected slot's ring states: the number the refusal was measured against."""
     return {'head-clearance': float(min_clearance_nm), 'site-spacing': float(MIN_DISTANCE_NM),
             'body-clearance': float(BEAD_CLEARANCE_NM), 'body-gap': float(min_body_gap_nm)}.get(reason, 0.0)
+
+
+def _translate_belt(band, centers, offset_nm):
+    """Move the whole belt along its axis, carrying its rejected slots and box reach with it.
+
+    The site gate ran at the unshifted positions; the final clearance checks and the parking pass run against the
+    returned centres. A rejected slot's own base is raised too, because its ring must sit where that slot would have
+    stood in the frame the caller receives. `BELT_OFFSET_NM` of zero is byte-identical to no translation.
+    """
+    offset = float(offset_nm)
+    if abs(offset) > 1e-12:
+        axis = np.asarray(band['record']['cylinder']['axis'], dtype=float)
+        centers = np.asarray(centers, dtype=float) + offset * axis
+        for slot in band['record'].get('rejected_slots', ()):
+            slot['position_nm'] = [round(float(value), 6)
+                                   for value in np.asarray(slot['position_nm'], dtype=float) + offset * axis]
+            slot['height_nm'] = round(float(slot['height_nm']) + offset, 6)
+        # The box's z is measured from this reach; a translated belt reaches at least the old reach plus the
+        # translation, so take the conservative bound rather than leave the belt outside the cell.
+        band['record']['belt_reach_nm'] = round(float(band['record'].get('belt_reach_nm') or 0.0) + abs(offset), 6)
+    band['record']['belt_offset_nm'] = round(offset, 6)
+    return centers
+
+
+def _park_belt_problems(band, centers, directions, *, profile, protein_points, min_clearance_nm, min_body_gap_nm,
+                        far_radial_nm, conformations, drawn):
+    """Park the belt's problem heads and refresh the record from the geometry that is finally placed."""
+    record = band['record']
+    axis = np.asarray(record['cylinder']['axis'], dtype=float)
+    across, up = _plane_basis(axis)
+    half_band = float(record['vertical_half_band_nm'])
+    centers, directions, parked = _park_problem_sites(
+        centers, directions, origin=np.asarray(record['cylinder']['origin_nm'], dtype=float),
+        axis=axis, across=across, up=up, half_band_nm=half_band, offset_nm=float(record['belt_offset_nm']),
+        length_nm=float(record['detergent_length_nm']), surface_at=band['surface_at'], profile=profile,
+        protein_points=protein_points, min_clearance_nm=min_clearance_nm, min_body_gap_nm=min_body_gap_nm,
+        far_radial_nm=far_radial_nm, conformations=conformations, drawn=drawn)
+    record['radial_repair'] = parked
+    _refresh_band_geometry(record, centers, directions, profile, float(record['detergent_length_nm']), half_band,
+                           conformations=conformations, drawn=drawn)
+    return centers, directions
 
 
 def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_band_nm, offset_nm, length_nm,
@@ -1409,21 +1398,15 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
     median = float(np.median(radial))
     far_threshold = (median + float(far_radial_nm)) if float(far_radial_nm) > 0 else None
     template_bodies = [body_beads(center, direction, profile) for center, direction in zip(centers, directions)]
-    drawn_bodies = None
-    if conformations is not None and drawn is not None:
-        drawn_bodies = [body_beads(center, direction, conformations.profiles[drawn['entries'][index]],
-                                   drawn['twists'][index])
-                        for index, (center, direction) in enumerate(zip(centers, directions))]
-
-    def gap_to_protein(beads):
-        """The closest approach of one body to the protein, or infinity when there is nothing to measure."""
-        if beads is None or not len(beads) or protein_points is None or not len(protein_points):
-            return float('inf')
-        return float(np.linalg.norm(np.asarray(protein_points)[:, None, :] - np.asarray(beads)[None, :, :],
-                                    axis=2).min())
 
     def head_gap(center):
         return float(np.linalg.norm(np.asarray(protein_points) - center, axis=1).min())
+
+    def drawn_gap(index, center, direction):
+        if conformations is None or drawn is None:
+            return None
+        return body_clearance(center, direction, conformations.profiles[drawn['entries'][index]],
+                              protein_points, drawn['twists'][index])
 
     def problem_sets(radial_values, head_gaps, template_gaps, drawn_gaps):
         far = set() if far_threshold is None else {
@@ -1435,8 +1418,10 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
         return far, close
 
     head_gaps = [head_gap(center) for center in centers]
-    template_gaps = [gap_to_protein(beads) for beads in template_bodies]
-    drawn_gaps = None if drawn_bodies is None else [gap_to_protein(beads) for beads in drawn_bodies]
+    template_gaps = [body_clearance(center, direction, profile, protein_points)
+                     for center, direction in zip(centers, directions)]
+    drawn_gaps = ([drawn_gap(index, center, direction) for index, (center, direction) in enumerate(zip(centers, directions))]
+                  if conformations is not None and drawn is not None else None)
     far_initial, close_initial = problem_sets(radial, head_gaps, template_gaps, drawn_gaps)
     inside_heights = BELT_PARK_INSIDE_NM
     outside_steps = BELT_PARK_OUTSIDE_NM
@@ -1457,19 +1442,16 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
             """The accepted (candidate, direction, height, radial, beads) at this heading and height, or None."""
             if abs(height - base) < 1e-9:
                 return None
-            trial_outward = float(np.cos(trial_heading)) * across + float(np.sin(trial_heading)) * up
             radius = surface_at(trial_heading, height) + float(length_nm)
-            candidate = origin + radius * trial_outward + height * axis
-            lean = 1.0 if height >= 0.0 else -1.0
-            direction = float(np.cos(TILT_RADIANS)) * trial_outward + lean * float(np.sin(TILT_RADIANS)) * axis
+            candidate, direction = _belt_site(origin, axis, across, up, trial_heading, height, radius)
             reason, beads = _belt_trial_verdict(
                 candidate, direction, profile, protein_points, other_centers, other_beads,
-                min_clearance_nm, min_body_gap_nm, float(profile['reach_nm']) if profile is not None else 0.0)
+                min_clearance_nm, min_body_gap_nm)
             if reason is not None:
                 return None
-            if drawn_bodies is not None and gap_to_protein(
-                    body_beads(candidate, direction, conformations.profiles[drawn['entries'][index]],
-                               drawn['twists'][index])) < BEAD_CLEARANCE_NM:
+            if conformations is not None and drawn is not None and body_clearance(
+                    candidate, direction, conformations.profiles[drawn['entries'][index]], protein_points,
+                    drawn['twists'][index]) < BEAD_CLEARANCE_NM:
                 return None
             placed = candidate - origin
             new_radial = float(np.linalg.norm(placed - (placed @ axis) * axis))
@@ -1517,13 +1499,12 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
         heights[index] = height
         radial[index] = new_radial
         template_bodies[index] = beads
-        if drawn_bodies is not None:
-            drawn_bodies[index] = body_beads(candidate, direction, conformations.profiles[drawn['entries'][index]],
-                                             drawn['twists'][index])
         moved += 1
     head_gaps = [head_gap(center) for center in centers]
-    template_gaps = [gap_to_protein(beads) for beads in template_bodies]
-    drawn_gaps = None if drawn_bodies is None else [gap_to_protein(beads) for beads in drawn_bodies]
+    template_gaps = [body_clearance(center, direction, profile, protein_points)
+                     for center, direction in zip(centers, directions)]
+    drawn_gaps = ([drawn_gap(index, center, direction) for index, (center, direction) in enumerate(zip(centers, directions))]
+                  if conformations is not None and drawn is not None else None)
     far_after, close_after = problem_sets(radial, head_gaps, template_gaps, drawn_gaps)
     return centers, directions, {
         'distance_nm': round(float(far_radial_nm), 6),
@@ -1565,7 +1546,9 @@ def _refresh_band_geometry(record, centers, directions, profile, length_nm, half
     record['cylinder']['surface_radius_min_nm'] = round(min_surface, 6)
     record['cylinder']['surface_radius_max_nm'] = round(max_surface, 6)
     record['placed_axial_max_nm'] = round(placed_axial_max, 6)
-    if profile is not None:
+    if not len(centers):
+        belt_reach = 0.0
+    elif profile is not None:
         body = np.concatenate([body_beads(center, direction, profile) for center, direction in zip(centers, directions)])
         belt_reach = float(np.abs(body @ frame_axis).max())
     else:
@@ -1625,8 +1608,6 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
     axis = np.asarray(cylinder['axis'], dtype=float)
     origin = np.asarray(cylinder['origin'], dtype=float)
     across, up = _plane_basis(axis)
-    cosine, sine = float(np.cos(TILT_RADIANS)), float(np.sin(TILT_RADIANS))
-    reach = float(profile['reach_nm']) if profile is not None else 0.0
     kept: list[np.ndarray] = []
     kept_directions: list[np.ndarray] = []
     kept_beads = np.empty((0, 3), dtype=float)
@@ -1644,13 +1625,10 @@ def _cylinder_sites(count, seed, cylinder, surface_at, length, half_band, protei
         The local surface is re-measured at the trial's own (heading, height), and the tilt's sign comes from that
         height, so an out-of-band height leans away from the mid-plane exactly as an in-band one does.
         """
-        outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
         radius = surface_at(heading, height) + float(radial_offset) + length
-        candidate = origin + radius * outward + height * axis
-        lean = 1.0 if height >= 0.0 else -1.0
-        direction = cosine * outward + lean * sine * axis
+        candidate, direction = _belt_site(origin, axis, across, up, heading, height, radius)
         reason, beads = _belt_trial_verdict(candidate, direction, profile, protein_points, kept,
-                                            kept_beads, min_clearance_nm, min_body_gap_nm, reach)
+                                            kept_beads, min_clearance_nm, min_body_gap_nm)
         if reason is not None:
             return None, reason
         return (candidate, direction, beads), None

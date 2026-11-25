@@ -10,6 +10,23 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc placement: duplicate geometry and candidate code removed; two bigger simplifications proposed (2026-11-25).**
+  Plan and the analysis: `docs/plans/2026-11-25-pdc-placement-simplification.md`. Built, with no behaviour change
+  (exact 2ydo+NG case identical: 19 moved, 8 inside, 5 above / 6 below, 0 far/0 too-close, same radius/reach):
+  `_refresh_band_geometry` is now the one implementation of the band's surface mean/min/max, reach and volume
+  (`_belt_cylinder` calls it instead of repeating ~20 lines); `_belt_site` builds a head site and its tilted direction
+  for both the slot draw and the parking; `_belt_trial_verdict` derives the molecule reach from the profile instead of
+  taking it as a parameter; the parking uses the twist-aware `body_clearance` for the template and drawn bodies
+  instead of its own distance matrix and drawn-bead list; and `_translate_belt` / `_park_belt_problems` are named
+  steps out of `place_detergents`. Module 1,794 -> 1,772 lines, `place_detergents` ~300 -> ~268.
+  Two structural proposals are **not built** because they change behaviour and need a decision: (1) delete the
+  `capacity()` bisection, whose "if N fits, N-1 fits" assumption the golden-angle ladder breaks (it reports 18 on a
+  placement that keeps 144), and report the kept count instead; (2) replace the slot draw's
+  `BELT_TRIAL_BEYOND_NM` fallback and the parking's outside search with one outside-band pass that also retries
+  empty slots. Details and trade-offs are in the plan.
+  Checks: fast tier **3,218 passed / 1 xfailed**; full browser tier **430 passed**; pdc fast area 879 / 1 xfailed;
+  ruff clean.
+
 - **pdc belt: parked detergents are split evenly between the two sides of the band (2026-11-25, right after the
   parking pass).** The first parking pass tried the heights above the band before those below, so on the exact
   2ydo+NG case **all 11** heads parked outside the band went above it. `_park_problem_sites` now chooses the side the
