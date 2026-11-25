@@ -426,7 +426,6 @@ def test_a_chain_selection_measures_its_own_shell(dashboard, monkeypatch):
     assert part_basis['radius_floor_nm'] == both['basis']['radius_floor_nm'], 'the setting is the same floor'
     # The density the panel prints comes from the same volume, and the count is still the user's 20.
     assert part_basis['aggregation_number'] == 20 and part_basis['estimated_density_per_nm3'] > 0
-    assert part_basis['capacity_aggregation'] is None, 'the count fits, so there is nothing to report'
 
 
 def axially_local_ring(radius_nm=1.0, protrusion_nm=3.0, half_thickness_nm=1.48):

@@ -61,10 +61,10 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for` is the
   only list, and a `cg` revision run owes exactly that list's kinds; one with nothing to do records `skipped`, never a
   fabricated pass.
-- A pdc belt is a **cylinder** about the membrane normal: its surface is measured locally per site
-  (`BELT_LOCAL_ANGLE_DEG` 10 deg, axial `belt_axial_window_nm`, plus `belt_gap_nm`); `min_body_gap_nm` gates body
-  against body, and every slot that fails a gate tries its bounded local offsets, recording its base if still empty.
-  No membrane keeps a sphere, `radius_nm` being radius and floor (`pdc_placement._belt_cylinder`; GUIDE *Shapes*).
+- A pdc belt is a **cylinder** about the membrane normal: surface measured locally per site
+  (`BELT_LOCAL_ANGLE_DEG` 10 deg, axial `belt_axial_window_nm`, `belt_gap_nm`); `min_body_gap_nm` gates body
+  against body; failed slots try local offsets, then one outside-band pass retries empty slots and far/too-close
+  heads above/below; a refusal names the kept count (`pdc_placement._belt_cylinder`; GUIDE *Shapes*).
 - A placement the gates refuse is still previewed when it produced centres: `valid: false` with the dry frame and
   `basis.problems` (the red rings/beads), never the valid path's key; a refusal with nothing to draw has no `pdb`,
   and the run still refuses (`pdc_preview.preview`).

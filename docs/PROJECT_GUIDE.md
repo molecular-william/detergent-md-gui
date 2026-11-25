@@ -1107,27 +1107,26 @@ placement reads the half-height, which is what the record's `vertical_half_band_
 steps its own arc out instead of standing the whole belt off the bundle. Each golden-angle slot keeps its
 angular/height position: the draw makes one ladder pass and tries bounded local offsets (height, then heading, then
 radial) rather than relocating a rejected slot to another ladder phase. **Every** slot that fails a gate tries
-that in-band ladder -- the base position is its first trial -- and a slot whose in-band trials all fail then samples
-the absolute heights just above and below the band (`BELT_TRIAL_BEYOND_NM`: +-(half-band + 0.5) then +-(half-band +
-1.0) nm, at its base heading, local surface re-measured) before it is left empty; the user's 2026-11-25 decision,
-so a slot the protein blocks is placed just off the band instead of lost. The record's `placed_axial_max_nm` is the
-tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band, and `volume_nm3` uses the
-larger of the two. **Problem heads are then parked above or below the band**, the user's 2026-11-25 decision:
-after the belt's vertical translation, a placed head is a problem when it is more than `belt_outlier_distance_nm`
-(default 0.75 nm; 0 turns this **far** criterion off) beyond the belt's own median sideways distance, or when its head
-or its carried body -- the template, and the drawn library body when there is a library -- is closer to the protein
-than its gate. It is retried at its own heading at the small in-band heights first (`BELT_PARK_INSIDE_NM`) and then
-at the heights just above and below the band (`BELT_PARK_OUTSIDE_NM`, up to 2.5 nm beyond each face); the first
-candidate that clears every gate, keeps the drawn body clear and (when the far criterion is on) lands back inside the
-belt replaces it, and the record's radius/reach/volume are recomputed from the moved geometry. The outside search
-picks the side the belt has used less so far (a tie goes to the head's own side of the midpoint), and the preferred
-side tries the placement's small heading turns before the search falls back to the other side -- so the parked
-detergents are split between the two sides instead of stacking on the first one. A head with no such place keeps the
-draw's position, so the count never drops. The trigger travels from the form through the preview and
-admission to the build; `BELT_FAR_RADIAL_NM` is only the default, and `belt_outlier_distance_nm` of 0 does not stop a
-too-close head being parked, because leaving it would refuse the run. The band's `radial_repair` records the median,
-the threshold, the heights and heading turns tried, how many heads moved inside or were parked above/below, and how
-many far/too-close heads remain. This exists because
+that in-band ladder -- the base position is its first trial -- and a slot whose in-band trials all fail is recorded
+empty with its own base geometry. **One outside-band pass then places both the empty slots and the problem heads**,
+the user's 2026-11-25 decision: the slots are filled first (the count gate is what refuses a run), at their own
+headings, just above or below the band; a placed head is a problem when it is more than `belt_outlier_distance_nm`
+(default 0.75 nm; 0 turns this **far** criterion off) beyond the belt's own median sideways distance, or when its
+head or its carried body -- the template, and the drawn library body when there is a library -- is closer to the
+protein than its gate, and it is moved the same way after the small in-band heights (`BELT_PARK_INSIDE_NM`) fail. The
+search tries the two faces, the `BELT_PARK_OUTSIDE_NM` heights (0.5 to 2.5 nm beyond each) and the placement's small
+heading turns, and picks the side the belt has used less so far (a tie goes to the head's own side of the midpoint),
+so the placed detergents are split between the two sides instead of stacking on the first one. A candidate must pass
+every gate, keep the drawn body clear and (when the far criterion is on) land inside the belt. A slot or head with
+no such place stays empty or keeps the draw's position, so the count never silently changes. The record's
+`placed_axial_max_nm` is the tallest placed site's axial distance, `vertical_half_band_nm` stays the requested band,
+`volume_nm3` uses the larger of the two, and `radial_repair` states the median, the threshold, how many slots were
+filled, the side split, how many heads moved inside, and how many far/too-close heads remain. The trigger travels
+from the form through the preview and admission to the build; `BELT_FAR_RADIAL_NM` is only the default, and
+`belt_outlier_distance_nm` of 0 does not stop a too-close head being parked, because leaving it would refuse the
+run. A refusal's count sentence states the number the placement kept ("this placement keeps N of the M detergents
+asked for"); the old capacity search is retired, because its bisection assumed a smaller count always fits and that is
+false for this ladder. This exists because
 one side chain reaching into the membrane can push a whole detergent out -- the local surface is the sector's
 maximum, not the average -- and because the belt's translation can leave a head inside the clearance. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,

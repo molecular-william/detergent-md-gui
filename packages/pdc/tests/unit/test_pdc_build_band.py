@@ -426,5 +426,3 @@ def test_the_report_carries_the_shell_it_measured_and_the_orientation_policy(tmp
     assert shell['radius_source'] == pdc_placement.RADIUS_MEASURED
     assert shell['radius_nm'] > shell['radius_floor_nm'] == 3.0
     assert report['orientation_policy'] == pdc_placement.ORIENTATION_RADIAL
-    # A build the gates accepted measured no capacity: the field is there, and `None` is its answer.
-    assert report['placement_capacity'] is None

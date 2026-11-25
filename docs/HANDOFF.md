@@ -10,6 +10,24 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc placement: the capacity search is gone and the outside-band searches are one pass (2026-11-25, the user's
+  decision after the simplification review).** Plan: `docs/plans/2026-11-25-pdc-placement-simplification.md`.
+  Capacity: `capacity()`, `_capacity_sentence`, `measure_capacity`, the `capacity_aggregation` report/basis field and
+  the panel's "Use the measured count" button are removed. The bisection assumed a smaller count always fits, which
+  this ladder does not (it answered 18 where the placement keeps 144); the count refusal now says "this placement
+  keeps N of the M detergents asked for", and nothing promises a maximum.
+  Outside pass: `_cylinder_sites` leaves a slot whose in-band trials fail empty (with its base in `rejected_slots`);
+  `_park_problem_sites` then runs **one** outside-band pass -- `_outside_site` (side with fewer placements, the
+  `BELT_PARK_OUTSIDE_NM` heights, the small heading turns) and `_gated_site` (every gate, the drawn body, the far
+  threshold) -- filling the empty slots first and parking the far/too-close heads after. `BELT_TRIAL_BEYOND_NM` is
+  gone; the band record's `rejected`/`rejected_slots` drop filled slots and `radial_repair.filled` counts them.
+  Conformations are drawn for every slot the ladder may offer and trimmed to the placed count, so a filled slot has
+  its own entry (the existing sites keep the stream prefix).
+  Measured: the exact 2ydo+NG case has no empty slots, so it is unchanged (0 filled, 19 moved, 8 inside, 5 above/6
+  below, valid). A solid 2.4 nm ring with 0.4 nm molecules now fills **all 280** slots (the draw alone kept 255); at
+  600 it fills 288 and still refuses with 517 placed. Checks: fast tier 3,213 passed / 1 xfailed; full browser tier
+  430 passed; pdc fast area 874 / 1 xfailed; ruff clean. Dashboard restarted with no jobs active.
+
 - **pdc placement: duplicate geometry and candidate code removed; two bigger simplifications proposed (2026-11-25).**
   Plan and the analysis: `docs/plans/2026-11-25-pdc-placement-simplification.md`. Built, with no behaviour change
   (exact 2ydo+NG case identical: 19 moved, 8 inside, 5 above / 6 below, 0 far/0 too-close, same radius/reach):

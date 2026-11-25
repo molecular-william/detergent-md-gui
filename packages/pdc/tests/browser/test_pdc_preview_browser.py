@@ -128,7 +128,7 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
            seed=20261013, shell: float | None = None, radius_source: str | None = None,
            body_profile: dict | None = None, body_profile_reason: str | None = None,
            bead_clearance: float | None = None, density: float | None = None,
-           capacity: dict | None = None, protein_residues: int = 2,
+           protein_residues: int = 2,
            structure: dict | None = None, centring: dict | None = None, problems: list | None = None,
            solvent_reason: str = 'not drawn: the picture is the dry system the build writes',
            detergents_placed: int | None = None, detergents_requested: int | None = None):
@@ -154,7 +154,6 @@ def answer(pdb=None, *, valid=True, reasons=(), protein_beads=542, beads=1024, c
                   'shell_radius_nm': shell, 'radius_source': radius_source,
                   'body_profile': body_profile, 'body_profile_reason': body_profile_reason,
                   'bead_clearance_nm': bead_clearance, 'estimated_density_per_nm3': density,
-                  'capacity_aggregation': capacity,
                   # A refused placement's marks, in the frame that is written, and the count it placed -- the
                   # card's red banner, legend and "N of M" sentence read these and nothing else.
                   'problems': problems,
@@ -542,48 +541,28 @@ def test_the_empty_micelle_derives_with_no_coarse_graining_at_all(dashboard, liv
     assert errors == [], errors
 
 
-def test_the_preview_shows_the_shell_it_measured_and_the_count_that_fits(dashboard, live_page):
-    """The measured shell and the capacity control, on one answer -- and the control queues nothing.
+def test_the_preview_shows_the_shell_it_measured_and_the_body_the_gate_read(dashboard, live_page):
+    """The measured shell and the detergent body, on one answer.
 
-    Three facts the placement now records reached no card before: `shell_radius_nm` with the `radius_source` that
-    decided it, the detergent's own `body_profile` as the clearance gate read it, and -- when the requested count
-    fails the gate -- `capacity_aggregation`, the count the shape would hold. A reader asking for 150 molecules that
-    do not fit is told what does fit, and the button writes that number into the count field rather than into a
-    request of its own: the field's own `input` listener is what re-derives, so no POST is issued and nothing is
-    queued. The request list is this file's own, and the POSTs are counted on the page's own event stream.
+    Three facts the placement now records: `shell_radius_nm` with the `radius_source` that decided it, the
+    detergent's own `body_profile` as the clearance gate read it, and the closest bead clearance. They reach the
+    card's shell sentence; nothing but the placement's own numbers is printed.
     """
     page, errors = live_page
-    requests, posts = [], []
-    page.on('request', lambda request: posts.append(request.url) if request.method == 'POST' else None)
     serve(page, answer(placement_pdb(), placement_shape='sphere', band=None, shell=4.87, radius_source='measured',
                        body_profile={'bead_count': 11, 'length_nm': 2.1431, 'radial_nm': 0.4021, 'reach_nm': 2.2103,
                                      'head_source': 'polar-atoms', 'source': 'coordinates'},
-                       bead_clearance=0.4123, density=0.3512,
-                       capacity={'count': 24, 'seeds': [1, 2, 3], 'requested': 150}), requests)
+                       bead_clearance=0.4123, density=0.3512))
     open_panel(page, live_page.base_url)
     derive(page)
     loaded_atoms(page, 2 + MOLECULES * len(DDM_BEADS))
 
-    # The shell's sentence: the radius, which number decided it, the body the gate measured the clearance over, the
-    # number itself, and the crowding -- joined, with nothing printed for a fact the answer did not carry.
     expect(page.locator('.new-pdc-preview-shell')).to_be_visible()
     expect(page.locator('.new-pdc-preview-shell')).to_have_text(
         'the shell is 4.87 nm - measured from the protein this selection includes - clearance measured against all '
         '11 beads of the detergent - closest bead to the protein 0.41 nm - 0.35 detergents per nm3')
-    # The capacity: what fits, and over how many seeds the placer measured it.
-    expect(page.locator('.new-pdc-preview-capacity')).to_be_visible()
-    expect(page.locator('.new-pdc-preview-capacity')).to_have_text(
-        'The placement measured what fits: about 24 detergents, over 3 seeds, at the 0.25 nm overlap gate.')
-    button = page.locator('.new-pdc-preview-use-capacity')
-    expect(button).to_be_visible()
-    expect(button).to_have_text('Use 24')
-
-    button.click()
-    expect(page.locator('#new-count')).to_have_value('24')
-    page.wait_for_timeout(600)
-    assert posts == [], f'the control issued a request of its own: {posts}'
-    # The re-derive is the count field's own: the frame is asked about the number the button wrote.
-    assert any('aggregation_number=24' in url for url in requests), requests
+    assert page.locator('.new-pdc-preview-capacity').count() == 0, 'the capacity search is retired'
+    assert page.locator('.new-pdc-preview-use-capacity').count() == 0
     assert errors == [], errors
 
 

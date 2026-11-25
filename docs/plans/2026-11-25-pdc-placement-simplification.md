@@ -1,7 +1,7 @@
 # PDC placement: simplify the belt algorithm
 
-Status: partially built (2026-11-25). The behaviour-preserving refactors below are in; the two structural proposals
-need the user's decision because they change what a refusal says or how an empty slot is reclaimed.
+Status: built (2026-11-25). The behaviour-preserving refactors and both structural simplifications the user chose
+are in.
 
 ## What the algorithm is now
 
@@ -39,25 +39,31 @@ Verified identical on the exact 2ydo + NG case: 19 moved, 8 inside, 5 above / 6 
 radius and reach. Checks: fast tier 3,218 passed / 1 xfailed; browser 430 passed; pdc fast area 879 / 1 xfailed; ruff
 clean.
 
-## Proposal 1 (needs a decision): delete the capacity bisection
+## Built: the capacity search is deleted
 
-`capacity()` bisects between 1 and the requested count, assuming "if N fits, N-1 fits". The golden-angle ladder
-breaks that: on the exact case 155 detergents place 144 (so 155 does not fit), but the bisection reports **18** -- a
-count that does fit on its three seeds, but far below what the shape keeps. It is also the most expensive path (many
-recursive placements) and its "use the measured count" button sets a count that changes the ladder, so the new count
-may not fit either.
+`capacity()` bisected between 1 and the requested count, assuming "if N fits, N-1 fits". The golden-angle ladder
+breaks that: on the exact case 155 detergents place 144, but the bisection answered **18** -- a count that fits, but
+far below what the shape keeps -- at the cost of many recursive placements. `capacity()`, `_capacity_sentence`,
+`measure_capacity`, the `capacity_aggregation` report/basis field and the panel's "Use the measured count" button are
+gone. The count gate's sentence now names the number the placement kept: "this placement keeps 144 of the 155
+detergents asked for". The preview's refusal carries that sentence; nothing claims a largest count.
 
-Simplification: drop `capacity()` and report the count the requested placement actually kept (`len(centers)`), which
-the refusal already knows. The sentence becomes "this placement keeps N of M" and the button sets N. That removes the
-bisection, its recursive placements, and the false "largest count" claim. It changes the refusal wording and the
-number the button offers, so it is the user's call.
+## Built: one outside-band pass
 
-## Proposal 2 (needs a decision): one outside-band search instead of two
+The slot draw's `BELT_TRIAL_BEYOND_NM` fallback and the parking's outside search were two implementations of "find a
+place outside the band". Now:
 
-The slot draw's `BELT_TRIAL_BEYOND_NM` (a failed slot tries two heights just outside the band) and the parking pass's
-outside search (placed problem heads try two sides, heights and small heading turns) are two implementations of
-"find a place outside the band". A single pass could handle both: the draw records a failed slot as empty, and one
-"place outside the band" pass tries the empty slots and the placed problem heads with the same heights/turns and
-gates. That removes a constant, a trial list and a second outside-placement path, and would likely reclaim more empty
-slots because empty slots would get the same turns the parking has. It is a bigger change (a rejected slot becomes a
-candidate for placement, which the count gate then sees), so it goes behind a plan/decision before code.
+- `_cylinder_sites` leaves a slot whose in-band trials fail **empty**, with its base geometry in `rejected_slots`.
+- `_park_problem_sites` runs one outside-band pass. `_outside_site` is the search: the side with fewer placements so
+  far, the `BELT_PARK_OUTSIDE_NM` heights beyond each face, and the small heading turns; `_gated_site` is the one
+  acceptance check (all gates, the drawn body, the far threshold).
+- Empty slots are filled first (a complete count is what avoids a refusal), then the far/too-close placed heads are
+  parked. The band record's `rejected`/`rejected_slots` lose the slots that were filled, and `radial_repair.filled`
+  states how many.
+- Conformations are drawn for every slot the ladder may offer and trimmed to the placed count, so a filled slot has
+  its own entry and the existing sites keep their stream prefix.
+
+Measured: the exact 2ydo+NG case has no empty slots, so it is unchanged (0 filled, 19 moved, 8 inside, 5 above/6
+below). On a 280-slot ring (solid 2.4 nm protein, 0.4 nm molecule) the pass fills **all 280** (the draw alone kept
+255); at 600 it fills 288 and still refuses with 517 placed. Checks: fast tier 3,213 passed / 1 xfailed; browser 430
+passed; pdc fast area 874 / 1 xfailed; ruff clean.

@@ -472,11 +472,11 @@ def test_a_request_the_cylinder_cannot_hold_fails_the_count_gate_rather_than_bei
     """
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
     placed = pdc_placement.place_detergents(points, _template(tmp_path, length_nm=0.4), 600, seed=4,
-                                            frame=_frame(), radius_nm=2.4, measure_capacity=False)
+                                            frame=_frame(), radius_nm=2.4)
     band = placed['band']
 
     assert not placed['valid']
-    assert any(issue.startswith('aggregation count') for issue in placed['issues']), placed['issues']
+    assert any(issue.startswith('this placement keeps') for issue in placed['issues']), placed['issues']
     assert len(placed['centers']) < 600, 'the slots the gates refused are left empty'
     assert band['rejected'] == len(band['rejected_slots']) > 0
     assert band['detergents_drawn'] == band['rejected'] + len(placed['centers'])
@@ -486,7 +486,7 @@ def test_a_request_the_cylinder_cannot_hold_fails_the_count_gate_rather_than_bei
         assert slot['reason'] in ('head-clearance', 'body-clearance', 'site-spacing', 'body-gap')
         assert np.isfinite(slot['position_nm'] + slot['normal_nm'] + [slot['gate_nm']]).all()
     # The count sentence is the empty-slot marks' detail, verbatim; the rings come first.
-    count_issue = next(issue for issue in placed['issues'] if issue.startswith('aggregation count'))
+    count_issue = next(issue for issue in placed['issues'] if issue.startswith('this placement keeps'))
     empty = [mark for mark in placed['problems'] if mark['kind'] == 'empty-slot']
     assert empty and placed['problems'][:len(empty)] == empty
     assert all(mark['detail'] == count_issue and mark['molecule'] is None for mark in empty)
@@ -631,8 +631,6 @@ def test_the_belt_gap_moves_the_surface_out_by_exactly_the_gap(tmp_path):
     assert sphere_gapped['band'] is None
     with pytest.raises(ValueError, match='gap cannot be negative'):
         pdc_placement.place_detergents(points, template, 12, seed=4, frame=_frame(), belt_gap_nm=-0.5)
-    with pytest.raises(ValueError, match='gap cannot be negative'):
-        pdc_placement.capacity(points, template, 12, frame=_frame(), belt_gap_nm=-0.5)
 
 
 def test_an_empty_micelle_still_uses_the_radius_as_the_sphere_it_builds(tmp_path):
@@ -917,84 +915,15 @@ def test_the_belt_reports_its_own_density_the_same_way(tmp_path):
     assert placed['shell'] is None, 'a belt is not a sphere, so the sphere record is not written'
 
 
-# --- capacity: the number the user asked for never changes ------------------------------------------------
-
-
-def _short_molecule(tmp_path):
-    """A molecule 0.2 nm long, so a small protein cannot enlarge the shell by much."""
-    return shaped_template(tmp_path, [(0.0, 0.0, 0.0), (0.2, 0.0, 0.0)])
-
-
-def test_a_shell_too_small_reports_the_count_it_could_hold(tmp_path):
-    """Task 5's acceptance: a refusal measures what the shape holds, on every seed it reports."""
-    template = _short_molecule(tmp_path)
-    small_region = [[0.0, 0.0, 0.0]]
-
-    placed = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice', radius_nm=0.5)
-
-    assert not placed['valid']
-    measurement = placed['capacity_aggregation']
-    assert 0 < measurement['count'] < 150
-    assert measurement['requested'] == 150 and measurement['seeds'] == [1, 2, 3]
-    for seed in measurement['seeds']:
-        assert pdc_placement.place_detergents(small_region, template, measurement['count'], seed=seed,
-                                              mode='lattice', radius_nm=0.5)['valid']
-    assert any('the shell holds about' in issue for issue in placed['issues']), placed['issues']
-    assert f'{measurement["count"]}' in [issue for issue in placed['issues'] if 'shell holds' in issue][0]
-
-
-def test_one_more_than_the_capacity_is_refused(tmp_path):
-    """The measurement is a boundary and not a slogan: the count above it fails the gate it was measured over."""
-    template = _short_molecule(tmp_path)
-    small_region = [[0.0, 0.0, 0.0]]
-    measurement = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice',
-                                                radius_nm=0.5)['capacity_aggregation']
-
-    over = pdc_placement.place_detergents(small_region, template, measurement['count'] + 1, seed=1, mode='lattice',
-                                          radius_nm=0.5)
-
-    assert not over['valid'], 'a shell that holds N must refuse N + 1 on the seed that was measured'
-
-
-def test_a_shell_that_holds_the_full_count_reports_no_capacity(tmp_path):
-    """A succeeded placement has nothing to report, so the field is `None` and no clause is added."""
-    template = _short_molecule(tmp_path)
-    placed = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 8, seed=5, mode='lattice', radius_nm=1.0)
-
-    assert placed['valid'], placed['issues']
-    assert placed['capacity_aggregation'] is None
-    assert not any('shell holds' in issue for issue in placed['issues'])
-
-
-def test_the_capacity_measurement_does_not_measure_itself(tmp_path):
-    """`measure_capacity=False` is the inner call: the bisection's own placements report nothing."""
-    template = _short_molecule(tmp_path)
-    placed = pdc_placement.place_detergents([[0.0, 0.0, 0.0]], template, 150, seed=5, mode='lattice',
-                                            radius_nm=0.5, measure_capacity=False)
-
-    assert not placed['valid'] and placed['capacity_aggregation'] is None
-
-
-def test_the_capacity_is_the_placers_own_measurement_not_a_formula(tmp_path):
-    """It is `place_detergents` at the top of it: no second geometry, and the same number for a direct call."""
-    template = _short_molecule(tmp_path)
-    small_region = [[0.0, 0.0, 0.0]]
-
-    measured = pdc_placement.capacity(small_region, template, 150, mode='lattice', radius_nm=0.5)
-    placed = pdc_placement.place_detergents(small_region, template, 150, seed=5, mode='lattice', radius_nm=0.5)
-
-    assert measured == placed['capacity_aggregation']
-
-
-
 # --- a conformation library: the drawn body, its own stream, and the gate that measures it --------------------
 
 
 #: The sha256 of the placement record `place_detergents(None, _template(tmp_path), 2, seed=7)` produced before a
 #: conformation library existed, with the one new `conformations: None` key removed. This is every existing run's
 #: geometry: if it changes, a placement's own numbers moved. It also pins the preview's additive
-#: `problems`/`problems_truncated` keys (empty and zero here). Re-record it only when that is the intended change.
-UNTROUBLED_PLACEMENT_SHA256 = '3ddc78958e373fed001029a20911c0c0747f63f7a4e292af57f17a15b63a56aa'
+#: `problems`/`problems_truncated` keys (empty and zero here). Re-record it only when that is the intended change; it
+#: was re-recorded when the capacity search (and its `capacity_aggregation` key) was removed.
+UNTROUBLED_PLACEMENT_SHA256 = '7f68dc2b16716b192bf6520d5989615e6eeccdaf4c63a63c2a15850006f6cd1c'
 
 
 def drawn_profile(offsets):
@@ -1548,45 +1477,42 @@ def _blocked_in_band_protein(count, seed, half_band, length_nm, slab_half_nm):
     return np.asarray(ring + lid, dtype=float)
 
 
-def test_a_slot_the_protein_blocks_in_band_clears_at_the_next_height_above_the_band(tmp_path):
-    """A slot whose every in-band trial fails tries the absolute heights above/below the band before it is empty.
+def test_a_slot_the_protein_blocks_in_band_is_placed_outside_by_the_merged_pass(tmp_path):
+    """A slot whose every in-band trial fails is placed outside the band by the one outside-band pass.
 
     The protein's lid sits exactly on every in-band trial a positive-height slot can reach, so none of the base,
-    height, heading or radial trials clear the head gate. The documented first out-of-band height (+(half_band +
-    0.5)) is then tried at the slot's own heading, with no radial offset, and it clears -- and the record states the
-    taller band it actually occupies while `vertical_half_band_nm` stays the requested one.
+    height, heading or radial trials clear the head gate. The outside-band pass -- the same search the parking uses
+    -- tries the two faces, the `BELT_PARK_OUTSIDE_NM` heights and the small heading turns; the slot is placed, and
+    the record states the taller band it occupies while `vertical_half_band_nm` stays the requested one.
     """
     count, seed = 12, 4
     half_band = pdc_placement.VERTICAL_SPREAD * MOLECULE_LENGTH_NM
     points = _blocked_in_band_protein(count, seed, half_band, MOLECULE_LENGTH_NM, slab_half_nm=0.85)
     placed = pdc_placement.place_detergents(points, _template(tmp_path), count, seed=seed,
-                                            frame=_frame(half_thickness_nm=0.85), measure_capacity=False)
+                                            frame=_frame(half_thickness_nm=0.85))
     band = placed['band']
     axis = np.asarray(band['cylinder']['axis'], dtype=float)
     origin = np.asarray(band['cylinder']['origin_nm'], dtype=float)
     heights = (np.asarray(placed['centers'], dtype=float) - origin) @ axis
 
     assert placed['valid'], placed['issues']
-    assert len(placed['centers']) == count, 'the fallback placed the slots the in-band trials could not'
+    assert len(placed['centers']) == count, 'the outside-band pass placed the slots the in-band trials could not'
     assert band['vertical_half_band_nm'] == pytest.approx(half_band)
     assert band['placed_axial_max_nm'] > half_band, 'a placed centre stands outside the band the request stated'
     assert band['placed_axial_max_nm'] == pytest.approx(float(np.abs(heights).max()), abs=1e-6)
 
     outside = heights[np.abs(heights) > half_band + 1e-9]
     assert outside.size >= 1
-    assert np.allclose(outside, half_band + pdc_placement.BELT_TRIAL_BEYOND_NM[0]), \
-        'the first out-of-band height is the one that cleared, at the slot\'s own heading'
-    assert np.allclose((np.asarray(placed['directions']) @ axis)[np.abs(heights) > half_band + 1e-9],
+    allowed = np.array([sign * (half_band + step) for step in pdc_placement.BELT_PARK_OUTSIDE_NM
+                        for sign in (1.0, -1.0)])
+    assert all(np.min(np.abs(allowed - value)) < 1e-6 for value in outside), \
+        'every outside centre stands at one of the documented face-plus-step heights'
+    assert np.allclose(np.abs((np.asarray(placed['directions']) @ axis)[np.abs(heights) > half_band + 1e-9]),
                        np.sin(np.deg2rad(pdc_placement.TILT_DEGREES))), \
         'an out-of-band height takes its tilt sign from that height, as every trial does'
 
-    limit = half_band + max(pdc_placement.BELT_TRIAL_BEYOND_NM)
-    assert float(np.abs(heights).max()) <= limit + 1e-6, 'the fallback is bounded by its last documented height'
-    assert float(heights.min()) >= -limit - 1e-6, 'and it never leaves the band further on the other side'
-    mean, length = band['radius_nm'], band['detergent_length_nm']
-    assert band['volume_nm3'] == pytest.approx(
-        np.pi * ((mean + length) ** 2 - mean ** 2) * 2.0 * band['placed_axial_max_nm']), \
-        'the volume is the band actually occupied, not the requested half-band'
+    limit = half_band + max(pdc_placement.BELT_PARK_OUTSIDE_NM)
+    assert float(np.abs(heights).max()) <= limit + 1e-6, 'the outside search is bounded by its last documented height'
 
 
 def test_a_slot_with_nothing_blocking_it_still_places_inside_the_band(tmp_path):
@@ -1620,12 +1546,9 @@ def test_the_rejection_records_and_problems_are_deterministic_in_the_seed(tmp_pa
     """Same seed -> byte-identical rejected slots and marks; a different seed -> different geometry."""
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
     template = _template(tmp_path, length_nm=0.4)
-    first = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4,
-                                           measure_capacity=False)
-    again = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4,
-                                           measure_capacity=False)
-    other = pdc_placement.place_detergents(points, template, 600, seed=5, frame=_frame(), radius_nm=2.4,
-                                           measure_capacity=False)
+    first = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4)
+    again = pdc_placement.place_detergents(points, template, 600, seed=4, frame=_frame(), radius_nm=2.4)
+    other = pdc_placement.place_detergents(points, template, 600, seed=5, frame=_frame(), radius_nm=2.4)
 
     assert json.dumps(first['problems'], sort_keys=True) == json.dumps(again['problems'], sort_keys=True)
     assert first['band']['rejected_slots'] == again['band']['rejected_slots']
@@ -1638,7 +1561,7 @@ def test_an_empty_slot_ring_sits_at_the_rejected_slots_own_base_point(tmp_path):
     """The preview's ring is the slot's own geometry: base point, outward normal, and the failed gate's distance."""
     points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
     placed = pdc_placement.place_detergents(points, _template(tmp_path), 600, seed=4,
-                                            frame=_frame(), radius_nm=2.4, measure_capacity=False)
+                                            frame=_frame(), radius_nm=2.4)
     slots = placed['band']['rejected_slots']
     empty = [mark for mark in placed['problems'] if mark['kind'] == 'empty-slot']
 
@@ -1647,33 +1570,30 @@ def test_an_empty_slot_ring_sits_at_the_rejected_slots_own_base_point(tmp_path):
         assert mark['position_nm'] == slot['position_nm']
         assert mark['normal_nm'] == slot['normal_nm']
         assert mark['radius_nm'] == slot['gate_nm']
-        assert mark['molecule'] is None and mark['detail'].startswith('aggregation count')
+        assert mark['molecule'] is None and mark['detail'].startswith('this placement keeps')
 
 
-def test_a_rejected_slot_is_lifted_with_the_belt_so_its_ring_stays_on_the_drawn_belt(tmp_path):
-    """A raised belt raises its empty slots too: the ring sits where that slot would have stood after the offset.
+def test_translating_a_belt_lifts_its_centres_and_every_rejected_slot_together():
+    """`_translate_belt` is the one implementation of the offset: centres, rings and the recorded reach move together."""
+    band = {'record': {
+        'cylinder': {'axis': [0.0, 0.0, 1.0]},
+        'rejected_slots': [{'position_nm': [1.0, 2.0, 3.0], 'height_nm': 1.0, 'normal_nm': [0.0, 1.0, 0.0],
+                            'heading_rad': 0.5, 'reason': 'head-clearance', 'gate_nm': 0.4}],
+        'belt_reach_nm': 2.0,
+    }}
+    centers = np.asarray([[0.0, 0.0, 0.0], [1.0, 0.0, 0.5]])
 
-    The count is chosen so some slots stay empty even after the out-of-band fallback (280 holds 255), and few enough
-    that `MAX_PROBLEMS` does not truncate their rings.
-    """
-    points = [point for z in np.linspace(-0.9, 0.9, 5) for point in _ring(2.4, float(z), count=180)]
-    template = _template(tmp_path, length_nm=0.4)
-    level = pdc_placement.place_detergents(points, template, 280, seed=4, frame=_frame(), radius_nm=2.4,
-                                           measure_capacity=False)
-    lifted = pdc_placement.place_detergents(points, template, 280, seed=4, frame=_frame(), radius_nm=2.4,
-                                            belt_offset_nm=0.3, measure_capacity=False)
-    axis = np.asarray(level['band']['cylinder']['axis'], dtype=float)
-    before = level['band']['rejected_slots']
-    after = lifted['band']['rejected_slots']
+    moved = pdc_placement._translate_belt(band, centers, 0.3)
 
-    assert len(before) == len(after) > 0
-    for low, high in zip(before, after):
-        assert np.allclose(np.asarray(high['position_nm']) - np.asarray(low['position_nm']), 0.3 * axis, atol=5e-6)
-        assert high['height_nm'] == pytest.approx(low['height_nm'] + 0.3, abs=5e-6)
-        assert high['normal_nm'] == low['normal_nm']
-        assert high['reason'] == low['reason']
-    rings = [mark for mark in lifted['problems'] if mark['kind'] == 'empty-slot']
-    assert [mark['position_nm'] for mark in rings] == [slot['position_nm'] for slot in after]
+    assert np.allclose(moved, centers + 0.3 * np.array([0.0, 0.0, 1.0]))
+    slot = band['record']['rejected_slots'][0]
+    assert slot['position_nm'] == pytest.approx([1.0, 2.0, 3.3])
+    assert slot['height_nm'] == pytest.approx(1.3)
+    assert band['record']['belt_reach_nm'] == pytest.approx(2.3)
+    assert band['record']['belt_offset_nm'] == pytest.approx(0.3)
+    # Zero is no translation, and the centres are returned unchanged.
+    same = pdc_placement._translate_belt(band, centers, 0.0)
+    assert np.allclose(same, centers) and band['record']['belt_reach_nm'] == pytest.approx(2.3)
 
 
 def test_a_raised_belt_s_too_close_heads_are_parked_and_the_placement_is_valid(tmp_path):
@@ -1685,7 +1605,7 @@ def test_a_raised_belt_s_too_close_heads_are_parked_and_the_placement_is_valid(t
     """
     points = _ring(1.0, 0.0, count=12) + _ring(3.0, 2.0, count=24)
     placed = pdc_placement.place_detergents(points, _template(tmp_path), 12, seed=4, frame=_frame(),
-                                            radius_nm=1.0, belt_offset_nm=2.0, measure_capacity=False)
+                                            radius_nm=1.0, belt_offset_nm=2.0)
     repair = placed['band']['radial_repair']
 
     assert placed['valid'], placed['issues']

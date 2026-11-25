@@ -1687,36 +1687,10 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     return clauses;
   }
 
-  // The count the shape would hold, when the placement measured one: `0` is a measurement too -- nothing fits -- and
-  // is not a count a reader can use, so only a positive count reaches the paragraph and the button.
-  function measuredCapacity(basis) {
-    const measurement = basis?.capacity_aggregation;
-    const count = Number(measurement?.count);
-    if (!measurement || !Number.isFinite(count) || count <= 0) return null;
-    return {count, seeds: Array.isArray(measurement.seeds) ? measurement.seeds : []};
-  }
-
-  // The two paragraphs and the button, for an answer and for a refusal alike: a refusal's basis carries the same
-  // measurement (the gate measured what fits in order to write its own sentence), so the reader can see the number
-  // behind the refusal and take it without waiting for a second derive.
   function renderPreviewPlacement(basis) {
-    const shell = previewNode('.new-pdc-preview-shell'), capacity = previewNode('.new-pdc-preview-capacity');
-    const button = previewNode('.new-pdc-preview-use-capacity');
+    const shell = previewNode('.new-pdc-preview-shell');
     const clauses = shellClauses(basis);
     if (shell) { shell.hidden = !clauses.length; setText(shell, clauses.join(' - ')); }
-    const measured = measuredCapacity(basis);
-    if (capacity) {
-      capacity.hidden = !measured;
-      setText(capacity, measured
-        ? `The placement measured what fits: about ${measured.count} detergents, over ${measured.seeds.length} seeds, `
-          + 'at the 0.25 nm overlap gate.'
-        : '');
-    }
-    if (button) {
-      button.hidden = !measured;
-      setText(button, measured ? `Use ${measured.count}` : '');
-      if (measured) button.dataset.count = String(measured.count); else delete button.dataset.count;
-    }
   }
 
   // A refused placement with a frame: the builder's own reasons, the count it placed, and the mark legend, all
@@ -2255,16 +2229,6 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // coarse-grained from, as a layer under them. It sends nothing, is not in `previewInputs`, and leaves the state
   // line saying the frame on screen is the one this form asked for.
   pdcNode('.new-pdc-preview-ribbon input')?.addEventListener('change', () => { drawPreviewRibbon(); });
-  // The count the placement measured, put into the count field exactly as a reader typing it would: the field's own
-  // `input` listener re-derives the frame (and the estimate and the readiness gate with it), so this button queues
-  // nothing and starts no run.
-  pdcNode('.new-pdc-preview-use-capacity')?.addEventListener('click', event => {
-    const count = Number(event.currentTarget.dataset.count);
-    const input = field('aggregation_number');
-    if (!Number.isFinite(count) || count < 1 || !input) return;
-    input.value = String(count);
-    input.dispatchEvent(new Event('input', {bubbles: true}));
-  });
   // NGL sizes its drawing buffer when the stage is built and only recomputes it when asked, so a card that comes
   // back into view -- or a window that grows -- asks. Measured in the mock: a stage built at one width kept a 548 px
   // buffer inside a 759 px host until it was asked to resize.

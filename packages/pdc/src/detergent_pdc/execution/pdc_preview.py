@@ -849,8 +849,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
                   # measurement as a sentence; this is the number behind it, for the panel's "Use N" control.
                   'estimated_density_per_nm3': shape_record.get('estimated_density_per_nm3'),
                   'capacity_nm3_per_detergent': shape_record.get('capacity_nm3_per_detergent'),
-                  'volume_nm3': shape_record.get('volume_nm3'),
-                  'capacity_aggregation': placement.get('capacity_aggregation')})
+                  'volume_nm3': shape_record.get('volume_nm3')})
     if not placement['valid']:
         # A placement the gates refused is still drawn when it produced a geometry: its own frame, built by the same
         # machinery a valid derive uses, with the marks the gates recorded. The run still refuses -- the preview is
