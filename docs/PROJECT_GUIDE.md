@@ -1119,11 +1119,15 @@ or its carried body -- the template, and the drawn library body when there is a 
 than its gate. It is retried at its own heading at the small in-band heights first (`BELT_PARK_INSIDE_NM`) and then
 at the heights just above and below the band (`BELT_PARK_OUTSIDE_NM`, up to 2.5 nm beyond each face); the first
 candidate that clears every gate, keeps the drawn body clear and (when the far criterion is on) lands back inside the
-belt replaces it, and the record's radius/reach/volume are recomputed from the moved geometry. A head with no such
-place keeps the draw's position, so the count never drops. The trigger travels from the form through the preview and
+belt replaces it, and the record's radius/reach/volume are recomputed from the moved geometry. The outside search
+picks the side the belt has used less so far (a tie goes to the head's own side of the midpoint), and the preferred
+side tries the placement's small heading turns before the search falls back to the other side -- so the parked
+detergents are split between the two sides instead of stacking on the first one. A head with no such place keeps the
+draw's position, so the count never drops. The trigger travels from the form through the preview and
 admission to the build; `BELT_FAR_RADIAL_NM` is only the default, and `belt_outlier_distance_nm` of 0 does not stop a
 too-close head being parked, because leaving it would refuse the run. The band's `radial_repair` records the median,
-the threshold, the heights tried, how many heads moved and how many far/too-close heads remain. This exists because
+the threshold, the heights and heading turns tried, how many heads moved inside or were parked above/below, and how
+many far/too-close heads remain. This exists because
 one side chain reaching into the membrane can push a whole detergent out -- the local surface is the sector's
 maximum, not the average -- and because the belt's translation can leave a head inside the clearance. A rejected
 slot keeps its own base point, outward normal, heading, height and failed gate in the band's `rejected_slots`,

@@ -1381,8 +1381,8 @@ def _parking_scene(*, always_far=False):
     # The far sector's surface is large through the whole band and small outside it, so only the outside heights park
     # the far head; a test can instead make it large everywhere.
     def surface_at(heading, height):
-        same = abs(float(np.angle(np.exp(1j * heading)))) < 1e-6
-        if not same:
+        angle = abs(float(np.angle(np.exp(1j * heading))))
+        if angle >= (np.deg2rad(30.0) if always_far else 1e-6):
             return 1.0
         if always_far or abs(float(height)) < half_band:
             return 3.0
@@ -1419,6 +1419,38 @@ def test_a_protruding_head_is_parked_outside_the_band():
         'the first outside height that clears the belt is the one used'
     radial = relative - height * axis
     assert float(np.linalg.norm(radial)) == pytest.approx(1.0 + length), 'the parked head is back in the belt'
+
+
+def test_parked_heads_are_split_between_both_sides_of_the_band():
+    """Two far heads on opposite sides of the midpoint park on opposite sides, not both on the first side.
+
+    The side choice prefers the side with fewer parked heads so far; a tie goes to the head's own side of the belt's
+    midpoint. Both heads start at the midpoint, so the first goes above; the second then goes below because above is
+    the busier side.
+    """
+    axis = np.array([0.0, 0.0, 1.0])
+    across, up = pdc_placement._plane_basis(axis)
+    length, half_band = 0.5, 2.0
+    centers = np.asarray([[3.5, 0.0, 0.0], [0.0, 3.5, 0.0], [-1.5, 0.0, 0.0], [0.0, -1.5, 0.0]], dtype=float)
+    directions = np.asarray([across, up, -across, -up], dtype=float)
+    far_headings = (0.0, 0.5 * np.pi)
+
+    def surface_at(heading, height):
+        angle = abs(float(np.angle(np.exp(1j * heading))))
+        far = min(abs(angle - target) for target in far_headings) < 1e-6
+        return 3.0 if far and abs(float(height)) < half_band else 1.0
+
+    parked, _, record = _park(centers, directions, surface_at, axis, across, up, length, half_band,
+                              far_radial_nm=pdc_placement.BELT_FAR_RADIAL_NM,
+                              protein=np.asarray([[0.0, 0.0, 50.0]]))
+
+    assert record['far_initial'] == 2 and record['moved'] == 2, record
+    assert record['parked_above'] == 1 and record['parked_below'] == 1, record
+    assert record['still_far'] == 0
+    heights = parked - np.zeros(3)
+    heights = heights @ axis
+    assert float(heights[0]) > half_band, 'the first far head went above the band'
+    assert float(heights[1]) < -half_band, 'the second went below it'
 
 
 def test_the_outlier_distance_sets_the_parking_trigger_and_zero_turns_it_off():

@@ -52,3 +52,16 @@ Fast tier 3,216 passed / 1 xfailed; full browser tier 430 passed; pdc fast area 
 Unit tests pin the parked-outside-band case, the too-close case, the outlier distance's default/large/off behaviour
 and the no-legal-spot case; the surface-rule and vertical-translation tests run with the far criterion off so they
 measure the geometry they name. The mutation check keeps its documented 9 caught / 1 stale / 1 control.
+
+## Follow-up (2026-11-25, same session): balance the two sides
+
+The first version of the parking pass tried the heights above the band before the heights below, so on the exact
+2ydo case **all 11** heads parked outside the band went above it. The search now:
+
+- picks the side the belt has used less so far (ties go to the head's own side of the band midpoint);
+- gives the preferred side the placement's small heading turns (`BELT_TRIAL_HEADING_DEG`: ±6°, ±12°) after the
+  heights at the head's own angle, before falling back to the other side -- the lower side of 2ydo is blocked at the
+  exact angles but clears with a small turn;
+- records `moved_inside`, `parked_above`, `parked_below` and the heading turns.
+
+Result on the exact case: 8 moved inside, **5 parked above and 6 below**, still 0 far and 0 too-close, valid, 0.3 s.

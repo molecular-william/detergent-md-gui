@@ -1441,6 +1441,9 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
     inside_heights = BELT_PARK_INSIDE_NM
     outside_steps = BELT_PARK_OUTSIDE_NM
     moved = 0
+    moved_inside = parked_above = parked_below = 0
+    top = offset_nm + half_band_nm
+    bottom = offset_nm - half_band_nm
     for index in sorted(far_initial | close_initial):
         others = [other for other in range(len(centers)) if other != index]
         other_centers = [centers[other] for other in others]
@@ -1448,35 +1451,64 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
                        else np.empty((0, 3), dtype=float))
         offset = centers[index] - origin
         heading = float(np.arctan2(offset @ up, offset @ across))
-        outward = float(np.cos(heading)) * across + float(np.sin(heading)) * up
         base = float(heights[index])
-        trials = [float(np.clip(base + step, offset_nm - half_band_nm, offset_nm + half_band_nm))
-                  for step in inside_heights]
-        trials += [offset_nm + half_band_nm + step for step in outside_steps]
-        trials += [offset_nm - half_band_nm - step for step in outside_steps]
-        accepted = None
-        for height in trials:
+
+        def attempt(trial_heading, height):
+            """The accepted (candidate, direction, height, radial, beads) at this heading and height, or None."""
             if abs(height - base) < 1e-9:
-                continue
-            radius = surface_at(heading, height) + float(length_nm)
-            candidate = origin + radius * outward + height * axis
+                return None
+            trial_outward = float(np.cos(trial_heading)) * across + float(np.sin(trial_heading)) * up
+            radius = surface_at(trial_heading, height) + float(length_nm)
+            candidate = origin + radius * trial_outward + height * axis
             lean = 1.0 if height >= 0.0 else -1.0
-            direction = float(np.cos(TILT_RADIANS)) * outward + lean * float(np.sin(TILT_RADIANS)) * axis
+            direction = float(np.cos(TILT_RADIANS)) * trial_outward + lean * float(np.sin(TILT_RADIANS)) * axis
             reason, beads = _belt_trial_verdict(
                 candidate, direction, profile, protein_points, other_centers, other_beads,
                 min_clearance_nm, min_body_gap_nm, float(profile['reach_nm']) if profile is not None else 0.0)
             if reason is not None:
-                continue
+                return None
             if drawn_bodies is not None and gap_to_protein(
                     body_beads(candidate, direction, conformations.profiles[drawn['entries'][index]],
                                drawn['twists'][index])) < BEAD_CLEARANCE_NM:
-                continue
+                return None
             placed = candidate - origin
             new_radial = float(np.linalg.norm(placed - (placed @ axis) * axis))
             if far_threshold is not None and new_radial > far_threshold:
-                continue
-            accepted = (candidate, direction, height, new_radial, beads)
-            break
+                return None
+            return candidate, direction, height, new_radial, beads
+
+        accepted = None
+        for step in inside_heights:
+            accepted = attempt(heading, float(np.clip(base + step, bottom, top)))
+            if accepted is not None:
+                moved_inside += 1
+                break
+        if accepted is None:
+            # The outside heights are tried on the side the belt has used less so far: a side that took more parked
+            # heads is tried second. On a tie the site's own side of the belt's midpoint decides, so a head already
+            # above the band is parked above and one below it below. This is what keeps the parked detergents evenly
+            # split between the two sides instead of stacking them all on the first side the search names.
+            prefer_above = (parked_above < parked_below
+                            or (parked_above == parked_below and base >= offset_nm))
+            for above in ((True, False) if prefer_above else (False, True)):
+                face = top if above else bottom
+                # The same height can be blocked at the site's own angle while a neighbouring one is free, so the
+                # preferred side gets the small heading turns before the search falls back to the other side. The
+                # turn is one of the placement's own bounded heading trials, so the parked head stays near its slot.
+                for step in outside_steps:
+                    height = float(face + step if above else face - step)
+                    for turn in (0.0, *BELT_TRIAL_HEADING_DEG):
+                        accepted = attempt(heading + float(np.deg2rad(turn)), height)
+                        if accepted is not None:
+                            break
+                    if accepted is not None:
+                        break
+                if accepted is not None:
+                    if above:
+                        parked_above += 1
+                    else:
+                        parked_below += 1
+                    break
         if accepted is None:
             continue
         candidate, direction, height, new_radial, beads = accepted
@@ -1498,7 +1530,10 @@ def _park_problem_sites(centers, directions, *, origin, axis, across, up, half_b
         'median_radius_nm': round(median, 6),
         'threshold_nm': None if far_threshold is None else round(far_threshold, 6),
         'inside_heights_nm': list(inside_heights), 'outside_nm': list(outside_steps),
-        'moved': moved, 'far_initial': len(far_initial), 'still_far': len(far_after),
+        'heading_offsets_deg': [0.0, *BELT_TRIAL_HEADING_DEG],
+        'moved': moved, 'moved_inside': moved_inside,
+        'parked_above': parked_above, 'parked_below': parked_below,
+        'far_initial': len(far_initial), 'still_far': len(far_after),
         'too_close_initial': len(close_initial), 'still_too_close': len(close_after)}
 
 

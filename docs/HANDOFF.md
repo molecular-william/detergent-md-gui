@@ -10,6 +10,18 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc belt: parked detergents are split evenly between the two sides of the band (2026-11-25, right after the
+  parking pass).** The first parking pass tried the heights above the band before those below, so on the exact
+  2ydo+NG case **all 11** heads parked outside the band went above it. `_park_problem_sites` now chooses the side the
+  belt has used less so far (a tie goes to the head's own side of the band's midpoint) and gives the preferred side
+  the placement's small heading turns (`BELT_TRIAL_HEADING_DEG`, ±6°/±12°) after the heights at the head's own angle
+  before falling back to the other side: the lower side of 2ydo is blocked at the exact angle but clears with a small
+  turn. The band's `radial_repair` now also records `moved_inside`, `parked_above`, `parked_below` and
+  `heading_offsets_deg`. Exact case after: 8 moved inside, **5 parked above and 6 below**, 0 far, 0 too-close, valid,
+  placement 0.3 s. Checks: fast tier 3,218 passed / 1 xfailed; full browser tier 430 passed; pdc fast area 879 / 1
+  xfailed; ruff clean. A new unit test pins the two-sided split (two far heads at the midpoint park one above and one
+  below), and the no-legal-spot fixture now makes the far sector wide enough that a turn cannot escape it.
+
 - **pdc belt: protruding and too-close heads are parked above or below the band (2026-11-25, after looking at 2ydo +
   NG).** Plan: `docs/plans/2026-11-25-pdc-park-problem-heads.md`. The user still saw detergents sticking out of the
   belt and some too close to the protein; the previous ±1.5 nm in-band retry moved none of them at the band and
