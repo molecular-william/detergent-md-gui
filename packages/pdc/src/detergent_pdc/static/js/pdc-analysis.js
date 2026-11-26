@@ -60,11 +60,10 @@ const cell = (value) => String(value ?? '').replace(/[&<>"]/g, character => (
 const shortTime = (value) => String(value ?? '').replace('T', ' ').slice(0, 16);
 const extensionLeg = (body) => /^(?:08_extension|4_extension)$/.test(String(body?.leg?.stage_directory || ''));
 const pairLabel = ([first, second], curve = null) => {
-  if (first === 'protein' || first === 'receptor') {
-    const reference = curve?.reference === 'com' ? 'receptor COM' : first;
-    return `${reference} → ${second}`;
-  }
-  return `${first} – ${second}`;
+  const firstLabel = curve?.first_label || (first === 'protein' && curve?.reference === 'com' ? 'receptor COM' : first);
+  const secondLabel = curve?.second_label || second;
+  if (first === 'protein' || first === 'receptor') return `${firstLabel} → ${secondLabel}`;
+  return `${firstLabel} – ${secondLabel}`;
 };
 
 function newestTask(tasks, kind) {
@@ -591,6 +590,10 @@ export function createPdcAnalysis() {
     const noProtein = body.protein_present === false;
     const receptorCom = curves.some(curve => curve.reference === 'com');
     const rdfSampling = body.sampling?.rdf;
+    const rdfGroups = body.rdf_groups || {};
+    const groups = rdfGroups.head
+      ? ` Head = ${rdfGroups.head.definition}; tail = ${rdfGroups.tail?.definition || 'the recorded tail beads'}.`
+      : '';
     const window = rdfSampling
       ? ` Sampled from the ${rdfSampling.basis}`
         + (rdfSampling.basis === 'last 100 ns' ? '' : ` (${fixed(rdfSampling.window_ns, 0)} ns)`)
@@ -599,11 +602,11 @@ export function createPdcAnalysis() {
     const hint = (receptorCom
       ? `How crowded the detergent is at a distance from the receptor or from another detergent. <b>g(r) = 1</b>
          is the bulk average. The two protein rows use the receptor's centre of mass as one reference point and
-         report the strongest shell; head–head and tail–tail report their first contact peak. A pair this record
+         report the strongest shell; head–head and tail–tail report their first peak. A pair this record
          does not carry says “not measured”.`
       : `How crowded the other beads are at a distance from the protein or from each other. <b>g(r) = 1</b> is the
          bulk average. This record predates the receptor-centre rows; its protein rows use every protein bead. A pair
-         this record does not carry says “not measured”.`) + window;
+         this record does not carry says “not measured”.`) + groups + window;
     sub.append(subHead('Radial distribution', [['gmx rdf', 'kind'], ['data only', 'gmx']]));
     sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">${hint}</p>`);
     const rows = RDF_PAIRS.map(pair => {

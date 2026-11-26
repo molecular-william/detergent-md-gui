@@ -367,6 +367,9 @@ def sources(run_dir, payload=None):
     assessment = _assessment_path(run_dir)
     if assessment is not None:
         entries[str(assessment.relative_to(run_dir))] = assessment
+    model = run_dir / 'inputs' / 'detergent_CG.json'
+    if model.is_file():
+        entries[str(model.relative_to(run_dir))] = model
     return entries
 
 
@@ -455,6 +458,45 @@ def _head_selection(residue, tails):
 
 def _protein_selection(residue):
     return f'not resname {residue} {" ".join(SOLVENT_RESIDUES)}'
+
+def _head_com_selection(residue, tails):
+    """One head-group centre-of-mass position per detergent molecule."""
+    return f'res_com of ({_head_selection(residue, tails)})'
+
+
+def _tail_edge_selection(residue, edge_tail):
+    """The one edge-most tail bead per detergent molecule, or the whole tail group when the edge is unknown."""
+    return _tail_selection(residue, [edge_tail] if edge_tail else [])
+
+
+def edge_tail_bead(work, tails):
+    """`(edge bead name, source sentence, head bead names)` from the run's own detergent model geometry.
+
+    The edge-most tail bead is the recorded tail bead farthest from the centre of mass of the head beads in the
+    model the run prepared. It is a property of the molecule's recorded geometry, not of one trajectory frame; the
+    model is the same one the build stamped. `None` when the run stages no model or the model has no usable tail:
+    the caller then keeps the whole recorded tail group and says so.
+    """
+    path = Path(work) / 'inputs' / 'detergent_CG.json'
+    if not path.is_file():
+        return None, 'the run stages no detergent model, so the tail keeps every recorded tail bead', []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None, 'the run stages an unreadable detergent model, so the tail keeps every recorded tail bead', []
+    beads = [bead for bead in data.get('beads') or [] if bead.get('name')]
+    head = [bead for bead in beads if bead.get('name') not in tails]
+    tail = [bead for bead in beads if bead.get('name') in tails]
+    positions = {str(bead.get('name')): np.asarray(bead.get('position'), dtype=float)
+                 for bead in beads if bead.get('position') is not None}
+    if not head or not tail or any(str(bead.get('name')) not in positions for bead in head + tail):
+        return None, 'the detergent model has no usable head/tail geometry, so the tail keeps every recorded tail bead', []
+    centre = np.mean([positions[str(bead['name'])] for bead in head], axis=0)
+    edge = max(tail, key=lambda bead: float(np.linalg.norm(positions[str(bead['name'])] - centre)))
+    return (str(edge['name']),
+            'the tail bead farthest from the head-group centre of mass in the run\'s own detergent model',
+            [str(bead['name']) for bead in head])
+
 
 
 def _water_selection():
@@ -636,10 +678,10 @@ def _note(figure, text):
     figure.text(0.01, 0.005, text, fontsize=7.5, color='#5a697d')
 
 
-def _rdf_label(first, second, reference=None):
-    if first == 'protein':
-        return f'receptor COM→{second}' if reference == 'com' else f'protein→{second}'
-    return f'{first}–{second}'
+def _rdf_label(entry):
+    first = entry.get('first_label', entry['first'])
+    second = entry.get('second_label', entry['second'])
+    return f'{first}→{second}' if entry.get('first') in ('protein', 'receptor') else f'{first}–{second}'
 
 
 def draw_rdf_figure(path, rdf, thresholds, frames, window=None):
@@ -648,7 +690,7 @@ def draw_rdf_figure(path, rdf, thresholds, frames, window=None):
     axis = figure.subplots()
     for entry, colour in zip(rdf, RDF_COLOURS):
         axis.plot(entry['r_nm'], entry['g'], color=colour, linewidth=1.4,
-                  label=_rdf_label(entry['first'], entry['second'], entry.get('reference')))
+                  label=_rdf_label(entry))
         peak_r, peak_g = entry.get('first_peak_nm'), entry.get('first_peak_g')
         if peak_r is not None and peak_g is not None:
             axis.plot([peak_r], [peak_g], 'o', color=colour, markersize=4)
@@ -747,7 +789,7 @@ def write_figures(work, *, rdf, contact_groups, shape, aggregation, thresholds, 
 # ----------------------------------------------------------------------------------------------------------- the report
 
 def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf, contacts, figures, commands,
-                 caveats, protein_present):
+                 caveats, protein_present, rdf_groups=None):
     """The §3.4 v2 record, with its method paragraph and the two flags every report carries.
 
     Every v1 key is retained. The v2 additions are `thresholds` (the effective values the measurements used), the
@@ -764,6 +806,7 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
         'shape_nm': shape,
         'aggregation': aggregation,
         'rdf': rdf,
+        'rdf_groups': rdf_groups or {},
         'contacts': contacts,
         'figures': list(figures),
         'commands': commands,
@@ -772,7 +815,9 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
                    '(Rg) and the bead-contact pair counts read the whole-leg file, gmx rdf reads the final-window '
                    'file. The two '
                    "protein RDF rows use the receptor's centre of mass as one reference point and report the "
-                   'strongest shell; head–head and tail–tail report their first contact peak. The protein '
+                   'strongest shell; the head row samples the head-group centre of mass and the tail row the '
+                   'edge-most tail bead. Head–head is COM–COM with a 0.1 nm minimum, and tail–tail the edge bead. '
+                   'The protein '
                    'groups are gmx mindist -on; the water groups are the same pair counts from a periodic KD-tree '
                    'over the sample, with gmx mindist as the fallback for a triclinic box. The '
                    "micelle membership is the run's own criterion (pdc_assessment.assess_micelle: tail beads "
@@ -785,16 +830,18 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
     }
 
 
-def rdf_pairs(criterion, head_present):
+def rdf_pairs(criterion, head_present, edge_tail=None):
     """The RDF pairs this report states, in report order, as `(first, second, reference, selection, excl)`.
 
     Protein→head and protein→tail use the receptor's **center of mass** as one reference point, the literature-style
-    measurement of detergent organization around the receptor; head–head and tail–tail are the packing curves and
-    keep their group reference. A pair whose selection is empty is absent, never measured as zero.
+    measurement of detergent organization around the receptor. The head is the per-molecule centre of mass of the
+    head beads; the tail is the single edge-most tail bead when the model identifies one (`edge_tail`), else the
+    whole recorded tail group. Head–head is COM–COM, so it cannot use `-excl`; `_rdf_entries` gives it a short
+    `-cut` instead, which drops the r = 0 self pair. Tail–tail is an atom selection and keeps `-excl`.
     """
     residue, tails = criterion['detergent_residue'], criterion['tail_beads']
-    head = _head_selection(residue, tails)
-    tail = _tail_selection(residue, tails)
+    head = _head_com_selection(residue, tails)
+    tail = _tail_edge_selection(residue, edge_tail) if edge_tail else _tail_selection(residue, tails)
     receptor = f'com of {_protein_selection(residue)} pbc'
     pairs = []
     if criterion['protein_present']:
@@ -803,26 +850,29 @@ def rdf_pairs(criterion, head_present):
         if tails:
             pairs.append(('protein', 'tail', receptor, tail, False))
     if head_present:
-        pairs.append(('head', 'head', head, head, True))
+        pairs.append(('head', 'head', head, head, False))
     if tails:
         pairs.append(('tail', 'tail', tail, tail, True))
     return pairs
 
 
-def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present, sample=SAMPLE):
+def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present, sample=SAMPLE,
+                 edge_tail=None):
     """The radial distributions this report states.
 
-    The receptor-centre rows report the **strongest shell** (`strongest_peak`); the detergent–detergent rows report
-    their **first contact peak** (`first_peak`), because a receptor-centre curve can have a depletion bump below bulk
-    at short range that is not the shell a reader means.
+    The receptor rows report the **strongest shell** (`strongest_peak`); the detergent–detergent rows report their
+    **first contact peak** (`first_peak`). Head–head is COM–COM and cannot use `-excl`, so it drops the r = 0 self
+    pair with `-cut 0.1`; tail–tail is an atom selection and uses `-excl`.
     """
     entries = []
-    for first, second, reference, selection, excl in rdf_pairs(criterion, head_present):
+    tail_label = f'tail ({edge_tail})' if edge_tail else 'tail'
+    for first, second, reference, selection, excl in rdf_pairs(criterion, head_present, edge_tail):
         name = f'rdf-{first}-{second}.xvg'
+        extra = ['-excl'] if excl else (['-cut', '0.1'] if first == 'head' and second == 'head' else [])
         arguments = ['rdf', '-s', _work_name(work, structure), '-f', sample,
                      '-ref', reference, '-sel', selection,
                      '-bin', f'{thresholds["rdf_bin_nm"]:g}', '-rmax', f'{thresholds["rdf_rmax_nm"]:g}',
-                     '-norm', 'rdf', '-o', name, *(['-excl'] if excl else [])]
+                     '-norm', 'rdf', '-o', name, *extra]
         progress.report(f'pdc-structure: gmx rdf ({first}–{second})')
         _invoke(gmx, commands, f'gmx rdf ({first}–{second})', arguments, work)
         r_nm, columns = parse_xvg(work / name)
@@ -832,12 +882,16 @@ def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_pre
         g = columns[legend]
         peak_kind = 'strongest_shell' if first == 'protein' else 'first_peak'
         peak_r, peak_g = (strongest_peak(r_nm, g) if peak_kind == 'strongest_shell' else first_peak(r_nm, g))
+        first_label = ('receptor COM' if first == 'protein' else
+                       'head COM' if first == 'head' else tail_label)
+        second_label = ('head COM' if second == 'head' else tail_label)
         entries.append({'tool': 'gmx rdf', 'first': first, 'second': second,
-                        'reference': 'com' if first == 'protein' else 'group',
+                        'first_label': first_label, 'second_label': second_label,
+                        'reference': 'com' if first in ('protein', 'head') else 'atom',
                         'peak_kind': peak_kind,
                         'r_nm': [round(value, 4) for value in r_nm],
                         'g': [round(value, 6) for value in g],
-                        'norm': 'rdf', 'excl': excl,
+                        'norm': 'rdf', 'excl': excl, 'cut_nm': 0.1 if first == 'head' else None,
                         'normalization': 'gmx rdf -norm rdf (bulk density per selection)',
                         'bin_width_nm': thresholds['rdf_bin_nm'], 'r_max_nm': thresholds['rdf_rmax_nm'],
                         'first_peak_nm': peak_r, 'first_peak_g': peak_g})
@@ -979,6 +1033,7 @@ def run(work, payload=None):
     trajectory, structure = _leg(work)
     manifest = _manifest(work)
     criterion = _criterion(manifest, _staged_assessment(work))
+    edge_tail, edge_source, head_beads = edge_tail_bead(work, criterion['tail_beads'])
     run_input = _run_input(work, trajectory)
     source = run_input or structure
     header = trajectory_header.read(structure, trajectory)
@@ -1067,7 +1122,8 @@ def run(work, payload=None):
 
     head_present = measured['head_beads'] > 0
     water_present = measured['water_present']
-    rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present, rdf_sample)
+    rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present, rdf_sample,
+                       edge_tail)
     group_plan = contact_group_plan(criterion, head_present, water_present)
     groups = _contact_groups(work, gmx, commands, source, group_plan, thresholds,
                              water_series=measured.get('water_contacts'),
@@ -1133,6 +1189,17 @@ def run(work, payload=None):
                'tail_beads': sorted(criterion['tail_beads']),
                'detergent_residue': criterion['detergent_residue']}
 
+    rdf_groups = {
+        'head': {'definition': 'the centre of mass of the head-group beads (one point per molecule)',
+                 'beads': head_beads,
+                 'selection': _head_com_selection(criterion['detergent_residue'], criterion['tail_beads'])},
+        'tail': {'definition': (f'the edge-most tail bead ({edge_tail}) — the one farthest from the head-group '
+                                "centre of mass in the run's model" if edge_tail else edge_source),
+                 'bead': edge_tail,
+                 'selection': (_tail_edge_selection(criterion['detergent_residue'], edge_tail) if edge_tail else
+                               _tail_selection(criterion['detergent_residue'], criterion['tail_beads']))},
+    }
+
     caveats = [
         f'{measured["frames"]} frames of {header["frames"]} (stride {stride}): the {MAX_FRAMES}-frame bound is a '
         'cost bound, not a sampling-science claim, and frames that far apart are neither independent nor a '
@@ -1154,9 +1221,11 @@ def run(work, payload=None):
         'not one measurement.',
         'Bead contacts, not hydrogen bonds: a Martini bead has no hydrogen, so gmx hbond cannot run on this system.',
         "The two protein RDF rows use the receptor's centre of mass as a single reference point (the "
-        'literature-style measurement) and report the strongest shell; head–head and tail–tail use a group '
-        'reference and report their first contact peak. A receptor-centre curve can have a small depletion bump '
-        'below bulk at short range, which the first local maximum would otherwise mistake for the shell.',
+        'literature-style measurement) and report the strongest shell; the head row samples the head-group centre '
+        'of mass and the tail row the edge-most tail bead. Head–head is COM–COM with a 0.1 nm minimum (a COM '
+        'reference cannot use topology exclusions, so the r = 0 self pair is dropped by the minimum instead); '
+        'tail–tail uses the edge bead and topology exclusions. A receptor-centre curve can have a small depletion '
+        'bump below bulk at short range, which the first local maximum would otherwise mistake for the shell.',
         'The gyration-tensor eigenvalues, asphericity and relative shape anisotropy are the producer\'s own, '
         "unweighted calculation; gmx gyrate's axis components are a different quantity reported beside them.",
         'Molecules are brought into one periodic image around the first detergent molecule; an assembly wider than '
@@ -1202,7 +1271,7 @@ def run(work, payload=None):
     report = build_report(leg=leg, sampling=sampling, thresholds=thresholds, micelle=micelle,
                           shape=shape_summary, aggregation=aggregation, rdf=rdf, contacts=contacts,
                           figures=figures, commands=commands, caveats=caveats,
-                          protein_present=criterion['protein_present'])
+                          protein_present=criterion['protein_present'], rdf_groups=rdf_groups)
     files.atomic_json(work / RECORD, report)
     labels = [path.name for path in work.iterdir() if path.is_file() and path.name != 'manifest.json']
     return {'files': sorted(labels), 'figures': figures, 'thresholds': thresholds, 'leg': leg['name'],

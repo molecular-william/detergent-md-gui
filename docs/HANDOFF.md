@@ -10,6 +10,23 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc-structure RDF: head-group centre of mass and one edge-most tail bead (2026-11-26).** The user's request.
+  The RDF head is now the per-molecule **centre of mass of the head beads** (`res_com of (...)`, one point per
+  detergent) and the tail is the **single edge-most tail bead**, chosen as the recorded tail bead farthest from the
+  head-group centre of mass in the run's own `inputs/detergent_CG.json` (for OG: head beads S1A/S1B/S1C/S1VS, edge
+  bead **TAIL1**, which is farther than TAIL2). The model is now staged by the structure sources so the choice is
+  reproducible. Head–head is COM–COM and cannot use `-excl`, so it uses `-cut 0.1` to drop the r = 0 self pair;
+  tail–tail uses the edge bead with `-excl`. The record adds `rdf_groups` (definitions, beads, selections) and each
+  RDF row carries `first_label`/`second_label`, `reference` and `cut_nm`; the panel and Run view print those labels
+  and the group definitions. The RDF sample remains the final `min(100 ns, half the leg)` window (400 frames for the
+  500 ns run).
+  Direct producer on `OG_2ydo_123_libconf_500ns-4`: final-window 400-frame RDF sample, **80.84 s**; receptor
+  COM→head COM **2.60 nm / g 24.83**, receptor COM→tail (TAIL1) **1.65 nm / g 52.06**, head COM–head COM 0.65 nm /
+  22.87, tail (TAIL1)–tail 0.50 nm / 197.54. The live `pdc-structure` attempt is queued after the restart and
+  recorded below.
+  Checks: pdc-structure unit **32 passed**; full fast tier **3,231 passed / 1 xfailed**; full browser tier
+  **435 passed**; ruff clean.
+
 - **pdc-structure RDF: sample the final 100 ns or final 50%, whichever is shorter (2026-11-26).** The user's
   request. The RDF curves now read their own `rdf-sample.xtc`, extracted from the final
   `min(100 ns, half the leg)` window at a stride that gives at most 400 frames (a 500 ns leg: 400–500 ns, stride

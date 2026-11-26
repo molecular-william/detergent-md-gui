@@ -108,11 +108,11 @@ function cutoffLine(body) {
 }
 
 function rdfLabel(curve) {
-  if (curve.first === 'protein' || curve.first === 'receptor') {
-    const reference = curve.reference === 'com' ? 'receptor COM' : curve.first;
-    return `${reference}→${curve.second}`;
-  }
-  return `${curve.first}–${curve.second}`;
+  const firstLabel = curve.first_label || (curve.first === 'protein' && curve.reference === 'com'
+    ? 'receptor COM' : curve.first);
+  const secondLabel = curve.second_label || curve.second;
+  if (curve.first === 'protein' || curve.first === 'receptor') return `${firstLabel}→${secondLabel}`;
+  return `${firstLabel}–${secondLabel}`;
 }
 
 function publishedMarkup(body, job, queue) {

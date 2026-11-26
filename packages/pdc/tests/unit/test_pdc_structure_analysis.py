@@ -6,6 +6,7 @@ the five per-metric PNGs are pinned so a producer edit cannot quietly drop one.
 """
 from __future__ import annotations
 
+import json
 import math
 
 import numpy as np
@@ -198,11 +199,16 @@ def test_the_rdf_pairs_report_protein_tail_between_the_head_curve_and_the_packin
 
     assert [(first, second) for first, second, *_rest in pairs] == [
         ('protein', 'head'), ('protein', 'tail'), ('head', 'head'), ('tail', 'tail')]
-    assert [excl for *_rest, excl in pairs] == [False, False, True, True]
-    # The two protein rows use the receptor's centre of mass as one reference point; the packing rows keep a group.
+    assert [excl for *_rest, excl in pairs] == [False, False, False, True]
+    # The two protein rows use the receptor's centre of mass; the head is the head-group COM and the fallback tail
+    # is the whole recorded tail group. Head–head is COM–COM, so it cannot use -excl.
     assert pairs[0][2].startswith('com of ') and pairs[1][2].startswith('com of ')
-    assert pairs[2][2] == 'resname NG and not name T1 T2'
-    assert 'name T1 T2' in pairs[1][3] and 'not name T1 T2' in pairs[0][3]
+    assert pairs[2][2] == 'res_com of (resname NG and not name T1 T2)'
+    assert pairs[0][3] == 'res_com of (resname NG and not name T1 T2)'
+    assert 'name T1 T2' in pairs[1][3]
+    edge = structure.rdf_pairs(criterion, head_present=True, edge_tail='T2')
+    assert edge[1][3] == 'resname NG and name T2'
+    assert edge[3][3] == 'resname NG and name T2'
 
 
 def test_an_unmeasurable_rdf_pair_is_absent_rather_than_reported_as_zero():
@@ -438,7 +444,7 @@ def test_the_rdf_entries_include_protein_tail_and_use_the_payload_interval(tmp_p
 
     assert [(entry['first'], entry['second']) for entry in entries] == [
         ('protein', 'head'), ('protein', 'tail'), ('head', 'head'), ('tail', 'tail')]
-    assert [entry['reference'] for entry in entries] == ['com', 'com', 'group', 'group']
+    assert [entry['reference'] for entry in entries] == ['com', 'com', 'com', 'atom']
     assert [entry['peak_kind'] for entry in entries] == [
         'strongest_shell', 'strongest_shell', 'first_peak', 'first_peak']
     assert {entry['bin_width_nm'] for entry in entries} == {0.1}
@@ -447,6 +453,28 @@ def test_the_rdf_entries_include_protein_tail_and_use_the_payload_interval(tmp_p
         assert call['arguments'][call['arguments'].index('-bin') + 1] == '0.1'
         assert call['arguments'][call['arguments'].index('-rmax') + 1] == '1.5'
     assert calls[0]['arguments'][calls[0]['arguments'].index('-ref') + 1].startswith('com of ')
+    rdf_calls = [call for call in calls if call['arguments'][0] == 'rdf']
+    assert '-excl' in rdf_calls[3]['arguments']
+    assert rdf_calls[2]['arguments'][rdf_calls[2]['arguments'].index('-cut') + 1] == '0.1'
+    assert '-excl' not in rdf_calls[2]['arguments']
+
+
+def test_the_edge_tail_is_the_recorded_tail_farthest_from_the_head_centre(tmp_path):
+    (tmp_path / 'inputs').mkdir()
+    (tmp_path / 'inputs' / 'detergent_CG.json').write_text(json.dumps({'beads': [
+        {'name': 'H1', 'position': [0.0, 0.0, 0.0]},
+        {'name': 'H2', 'position': [0.2, 0.0, 0.0]},
+        {'name': 'T1', 'position': [1.0, 0.0, 0.0]},
+        {'name': 'T2', 'position': [0.4, 0.0, 0.0]},
+    ]}))
+
+    edge, source, head = structure.edge_tail_bead(tmp_path, ['T1', 'T2'])
+
+    assert edge == 'T1'
+    assert 'farthest from the head-group centre of mass' in source
+    assert head == ['H1', 'H2']
+    assert structure.edge_tail_bead(tmp_path / 'missing', ['T1']) == (
+        None, 'the run stages no detergent model, so the tail keeps every recorded tail bead', [])
 
 
 def test_the_sample_is_clustered_on_the_detergent_before_any_tool_reads_it():
