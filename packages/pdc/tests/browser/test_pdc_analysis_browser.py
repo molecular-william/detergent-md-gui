@@ -391,8 +391,8 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
 
 
 def test_the_layout_separates_statistics_tables_and_figures(dashboard, live_page):
-    """Statistics left of Options; the micelle graphs full width; three tables and then three graphs in three equal
-    columns; the overview full width; method and downloads together."""
+    """Statistics left of a narrower Options; the micelle graphs full width; three tables in a row; RDF + protein
+    contacts in a row; water contacts + trajectory overview in a row; method and downloads together."""
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
     # A fallback leg so the record also carries a notice, which must span the body like the status line and caveat.
@@ -410,10 +410,12 @@ def test_the_layout_separates_statistics_tables_and_figures(dashboard, live_page
     expect(micelle).to_have_count(1)
     expect(protein).to_have_count(1)
     options = page.locator('.pdc-analysis-top > .analysis-options')
-    # Both statistics blocks sit left of the options; the protein block is one row below the micelle block.
+    # Both statistics blocks sit left of the options; the protein block is one row below the micelle block. The
+    # options table itself is capped narrower than the right-hand column.
     assert_right_of(micelle, options)
     assert_right_of(protein, options)
     assert protein.bounding_box()['y'] >= micelle.bounding_box()['y'] + micelle.bounding_box()['height'] - 1
+    assert options.bounding_box()['width'] <= 621, options.bounding_box()
 
     figure_rows = body.locator('.pdc-analysis-row.pdc-figure-row')
     expect(figure_rows).to_have_count(2)
@@ -436,24 +438,32 @@ def test_the_layout_separates_statistics_tables_and_figures(dashboard, live_page
     assert max(box['y'] for box in table_boxes) - min(box['y'] for box in table_boxes) <= 1
     assert max(box['width'] for box in table_boxes) - min(box['width'] for box in table_boxes) <= 1
 
-    # The graph row: RDF, protein contacts and water contacts, three equal columns and no table among them.
+    # The graph row: RDF and protein contacts, two equal columns and no table among them.
     analysis_row = figure_rows.nth(1)
-    assert grid_columns(analysis_row) == 3
+    assert grid_columns(analysis_row) == 2
     figures = analysis_row.locator('figure.analysis-figure')
-    expect(figures).to_have_count(3)
+    expect(figures).to_have_count(2)
     assert shares_a_row(figures.nth(0), figures.nth(1))
     assert_right_of(figures.nth(0), figures.nth(1))
-    assert_right_of(figures.nth(1), figures.nth(2))
-    figure_boxes = [figures.nth(index).bounding_box() for index in range(3)]
+    figure_boxes = [figures.nth(index).bounding_box() for index in range(2)]
     assert max(box['width'] for box in figure_boxes) - min(box['width'] for box in figure_boxes) <= 1
     expect(analysis_row.locator('table')).to_have_count(0)
 
-    # The trajectory overview spans the body; method and downloads share another row.
-    overview_row = body.locator('.pdc-analysis-row.columns-1')
+    # The water-bead graph and the trajectory overview share one two-column row.
+    overview_row = body.locator('.pdc-analysis-row.pdc-overview-row')
     expect(overview_row).to_have_count(1)
-    assert abs(overview_row.bounding_box()['width'] - body.bounding_box()['width']) <= 1
+    assert grid_columns(overview_row) == 2
+    last_figures = overview_row.locator('figure.analysis-figure')
+    expect(last_figures).to_have_count(2)
+    assert shares_a_row(last_figures.nth(0), last_figures.nth(1))
+    assert_right_of(last_figures.nth(0), last_figures.nth(1))
+    expect(last_figures.nth(0).locator('figcaption')).to_contain_text('Water–head')
     expect(overview_row).to_contain_text('Trajectory overview')
-    method_row = body.locator('.pdc-analysis-row.columns-2:not(.pdc-figure-row)')
+    last_boxes = [last_figures.nth(index).bounding_box() for index in range(2)]
+    assert max(box['width'] for box in last_boxes) - min(box['width'] for box in last_boxes) <= 1
+
+    # Method and downloads share their own row.
+    method_row = body.locator('.pdc-analysis-row.pdc-foot')
     expect(method_row.locator('.pds-sub', has_text='Method, sampling, cutoffs')).to_have_count(1)
     expect(method_row.locator('.downloads')).to_have_count(1)
 
@@ -480,23 +490,27 @@ def test_each_figure_row_is_equal_and_each_figure_is_separate_from_the_tables(da
     expect(micelle.nth(1).locator('figcaption')).to_contain_text('Largest cluster')
 
     analysis = body.locator('.pdc-analysis-row.pdc-figure-row').nth(1).locator('figure.analysis-figure')
-    expect(analysis).to_have_count(3)
+    expect(analysis).to_have_count(2)
     assert shares_a_row(analysis.nth(0), analysis.nth(1))
-    assert shares_a_row(analysis.nth(1), analysis.nth(2))
-    for index in range(3):
+    for index in range(2):
         expect(analysis.nth(index).locator('img')).to_have_attribute('loading', 'lazy')
     expect(analysis.nth(0).locator('figcaption')).to_contain_text('radial distribution')
     expect(analysis.nth(1).locator('figcaption')).to_contain_text('Protein–head')
-    expect(analysis.nth(2).locator('figcaption')).to_contain_text('Water–head')
 
-    overview = body.locator('.pdc-analysis-row.columns-1 figure.analysis-figure')
-    expect(overview).to_have_count(1)
-    expect(overview.locator('img')).to_have_attribute('loading', 'lazy')
+    overview_row = body.locator('.pdc-analysis-row.pdc-overview-row')
+    expect(overview_row).to_have_count(1)
+    overview_figures = overview_row.locator('figure.analysis-figure')
+    expect(overview_figures).to_have_count(2)
+    assert shares_a_row(overview_figures.nth(0), overview_figures.nth(1))
+    expect(overview_figures.nth(0).locator('figcaption')).to_contain_text('Water–head')
+    expect(overview_figures.nth(1).locator('img')).to_have_attribute('loading', 'lazy')
+    expect(overview_row).to_contain_text('Trajectory overview')
 
     # Tables and figures are different blocks: no table row carries a figure, and every figure is in a figure row.
     expect(body.locator('.pdc-analysis-row.columns-3:not(.pdc-figure-row) figure.analysis-figure')).to_have_count(0)
     assert body.locator('figure.analysis-figure').count() == body.locator(
-        '.pdc-analysis-row.pdc-figure-row figure.analysis-figure, .pdc-analysis-row.columns-1 figure').count()
+        '.pdc-analysis-row.pdc-figure-row figure.analysis-figure, '
+        '.pdc-analysis-row.pdc-overview-row figure.analysis-figure').count()
     assert errors == [], errors
 
 

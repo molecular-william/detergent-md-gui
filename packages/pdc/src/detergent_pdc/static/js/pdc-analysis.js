@@ -498,16 +498,19 @@ export function createPdcAnalysis() {
     return grid;
   }
 
+  function figureCell(job, path, caption) {
+    const cell = document.createElement('div');
+    cell.className = 'pdc-row-cell pdc-figure-cell';
+    cell.append(imageFigure(job, path, caption));
+    return cell;
+  }
+
   function figureRow(job, paths, specs) {
     // One row of figures, one equal column each. A figure the record does not carry is simply absent.
     const cells = [];
     for (const [name, caption] of specs) {
       const path = paths.get(name);
-      if (!path) continue;
-      const cell = document.createElement('div');
-      cell.className = 'pdc-row-cell pdc-figure-cell';
-      cell.append(imageFigure(job, path, caption));
-      cells.push(cell);
+      if (path) cells.push(figureCell(job, path, caption));
     }
     if (!cells.length) return null;
     const row = document.createElement('div');
@@ -828,12 +831,30 @@ export function createPdcAnalysis() {
     const analysisFigures = figureRow(current, paths, [
       [FIGURES.rdf, 'The four radial distribution curves on one axis.'],
       [FIGURES.proteinContacts, 'Protein–head and protein–tail contacts per sampled frame.'],
-      [FIGURES.waterContacts, 'Water–head and water–tail bead contacts per sampled frame.'],
     ]);
     if (analysisFigures) host.append(analysisFigures);
+    // The water-bead figure and the trajectory overview share one two-column row.
+    const waterPath = paths.get(FIGURES.waterContacts);
+    const waterCell = waterPath
+      ? figureCell(current, waterPath, 'Water–head and water–tail bead contacts per sampled frame.') : null;
     const overviewFigure = overviewFigureBlock(current);
-    if (overviewFigure) host.append(cellRow(1, [overviewFigure]));
-    host.append(cellRow(2, [methodsSection(current, record), downloadsSection(current, record, paths)]));
+    const lastCells = [];
+    if (waterCell) lastCells.push(waterCell);
+    if (overviewFigure) {
+      const cell = document.createElement('div');
+      cell.className = 'pdc-row-cell';
+      cell.append(overviewFigure);
+      lastCells.push(cell);
+    }
+    if (lastCells.length) {
+      const row = document.createElement('div');
+      row.className = `pdc-analysis-row pdc-overview-row columns-${lastCells.length}`;
+      row.append(...lastCells);
+      host.append(row);
+    }
+    const foot = cellRow(2, [methodsSection(current, record), downloadsSection(current, record, paths)]);
+    foot.classList.add('pdc-foot');
+    host.append(foot);
     const caveats = caveatsSection(record);
     if (caveats) host.append(caveats);
   }

@@ -57,19 +57,20 @@ state, what is next, what is open, and the measurements and incidents a reader h
   pymbar, no PBC-aware contact code).
   PDC analysis tab: the statistics column sits left of the thresholds (Micelle above the Protein shape and energy
   summary); the micelle shape and aggregation graphs span the card below the options; the radial-distribution,
-  contacts and energy-term tables share a three-column row; the radial, protein-contact and water-contact graphs
-  share a three-column row; the trajectory overview spans the card; method and downloads share a row;
-  notices/status/caveat span the card. One column at 900 px, and the three-column rows fall to two at 1200 px
-  (`pdc.html`, `pdc-analysis.js`, `pdc.css`; the browser tests assert the rows, equal widths and the table/figure
-  separation).
-  Checks: resume/continue/GPU tests **36 passed**; pdc-structure unit **29 passed**; PDC analysis browser **14
-  passed**; full fast tier **3,226 passed / 1 xfailed**; full browser tier **434 passed**; ruff clean on the
+  contacts and energy-term tables share a three-column row; the radial and protein-contact graphs share a
+  two-column row; the water-bead graph and the trajectory overview share a two-column row; method and downloads
+  share a row; notices/status/caveat span the card. The options table is capped at **620 px** with a two-by-two
+  field grid, and the statistics use three columns at desktop width. One column at 900 px, and the three-column
+  rows fall to two at 1200 px (`pdc.html`, `pdc-analysis.js`, `pdc.css`; the browser tests assert the rows, equal
+  widths, the 620 px cap and the table/figure separation).
+  Checks: resume/continue/GPU tests **36 passed**; pdc-structure unit **30 passed**; PDC analysis browser **14
+  passed**; full fast tier **3,227 passed / 1 xfailed**; full browser tier **434 passed**; ruff clean on the
   changed Python. The dashboard was restarted at 11:35 HKT with no jobs active (transient unit, as before); a live
   attempt `0005-20261126` (code `b967c22`) completed in **64.43 s** end to end with the same contact/RDF/shape
-  numbers and no `mindist` leftovers. The live panel at 1440 px measured options beside the 376 px statistics column,
-  664 + 664 px micelle graphs, 438 px each for the three tables and for the three radial/contact graphs, a 1342 px
-  overview and 664 + 664 px method/downloads; screenshot
-  `docs/design/drafts/2026-11-26-pdc-analysis-layout-v3.png`.
+  numbers and no `mindist` leftovers. The live panel at 1440 px measured a 664 px statistics column beside the
+  **620 px** options table, 664 + 664 px micelle graphs, 438 px each for the three tables, 664 px each for the
+  radial/protein and water/overview rows, and 664 + 664 px method/downloads; screenshot
+  `docs/design/drafts/2026-11-26-pdc-analysis-layout-v4.png`.
 
 - **pdc: the New run form offers the validation panel's unit cells (2026-11-26).** Plan:
   `docs/plans/2026-11-26-pdc-cell-shapes.md`. The user's request, and their direction to take the cells from the
