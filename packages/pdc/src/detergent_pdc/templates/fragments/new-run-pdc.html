@@ -204,7 +204,22 @@
             <button type="button" class="secondary pdc-default" data-field="box_margin_nm">Default</button>
           </span>
         </label>
+        <label>Box shape
+          <span class="setting-control">
+            <select name="box_shape">
+              <option value="rectangular" selected>Rectangular · current</option>
+              <option value="cubic">Cube · 1.000 d³</option>
+              <option value="dodecahedron">Rhombic dodecahedron (xy-square) · 0.707 d³</option>
+              <option value="dodecahedron-hexagon">Rhombic dodecahedron (xy-hexagon) · 0.707 d³</option>
+              <option value="octahedron">Truncated octahedron · 0.770 d³</option>
+            </select>
+            <button type="button" class="secondary pdc-default" data-field="box_shape">Default</button>
+          </span>
+        </label>
       </div>
+      <p class="hint new-pdc-box-shape-note" hidden>A shaped cell derives its one edge d from the protein or belt
+        and the margin: all three cell vectors have length d, so the three initial lengths above are the rectangular
+        cell's and do not apply.</p>
       </section>
       <h4 class="new-option-title">Stages</h4>
       <details class="stage-editor" data-stage="minimisation">

@@ -17,7 +17,7 @@ from pathlib import Path
 import detergent_pdc
 import numpy as np
 import pytest
-from detergent_pdc.execution.adapters import pdc, pdc_placement
+from detergent_pdc.execution.adapters import pdc, pdc_box, pdc_placement
 from detergent_pdc.execution.scripts import pdc_build, topology
 
 from tests.harness.pdc_fixtures import candidate_file, system_stage, write_cg_pdb
@@ -484,3 +484,33 @@ def test_the_anchor_is_the_protein_extents_or_the_detergent_centroid():
     shift, kind, anchor = pdc_build.centre_shift([], [[1.0, 2.0, 3.0], [3.0, 4.0, 5.0]], [10.0, 10.0, 10.0])
     assert kind == 'detergent initial positions'
     assert anchor == [2.0, 3.0, 4.0] and shift == [3.0, 2.0, 1.0]
+
+
+def test_a_shaped_cell_writes_nine_box_values_and_centres_on_the_cell(tmp_path):
+    """A validation-panel cell: one derived edge d, the GROMACS vectors, and the system at the cell's own centre."""
+    stage = prepared_stage(tmp_path)
+    settings_path = stage / pdc.SETTINGS_NAME
+    settings = json.loads(settings_path.read_text())
+    settings['box_shape'] = 'octahedron'
+    settings_path.write_text(json.dumps(settings))
+
+    assert pdc_build.build(stage) == 0
+    report = json.loads((stage / pdc.REPORT_NAME).read_text())
+    vectors = np.asarray(report['box_vectors_nm'], dtype=float)
+    assert report['box_shape'] == 'octahedron'
+    assert len(report['box_nm']) == 3 and len(set(report['box_nm'])) == 1, 'every shaped vector has length d'
+    assert report['box_minimum_image_nm'] == pytest.approx(report['box_nm'][0])
+    assert np.allclose(np.linalg.norm(vectors, axis=1), report['box_nm'], atol=1e-5)
+    assert np.isclose(abs(float(np.linalg.det(vectors))), 0.76980036 * report['box_nm'][0] ** 3, rtol=1e-4)
+
+    lines = (stage / 'system.gro').read_text().splitlines()
+    values = [float(value) for value in lines[-1].split()]
+    assert len(values) == 9, 'a shaped cell writes the nine-value .gro box'
+    written = np.asarray([[values[0], values[3], values[4]],
+                          [values[5], values[1], values[6]],
+                          [values[7], values[8], values[2]]])
+    assert np.allclose(written, vectors, atol=1e-5)
+    protein = np.asarray([[float(line[20 + 8 * axis:28 + 8 * axis]) for axis in range(3)]
+                          for line in lines[2:5]])
+    centre = (protein.min(axis=0) + protein.max(axis=0)) / 2
+    assert np.allclose(centre, pdc_box.centre_nm(vectors), atol=1e-3)

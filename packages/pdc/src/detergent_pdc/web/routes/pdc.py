@@ -698,6 +698,13 @@ def preview_choices(source):
     # uses, so the picture and the run retry the same heads.
     choices['belt_outlier_distance_nm'] = number(
         'belt_outlier_distance_nm', float(pdc.DEFAULTS['belt_outlier_distance_nm']))
+    # The cell shape is a choice, not a number: read the form's spelling, else the adapter's own default, and refuse
+    # an unknown value here so the preview and the queued run answer with the same sentence.
+    shape = (source.args.get('box_shape') or '').strip() or pdc.DEFAULTS['box_shape']
+    if shape not in pdc.CHOICE_SPECS['box_shape'][1]:
+        raise ValueError('the pdc box shape must be one of ' + ', '.join(pdc.CHOICE_SPECS['box_shape'][1])
+                         + f', not {shape!r}')
+    choices['box_shape'] = shape
     return choices
 
 
@@ -796,6 +803,7 @@ def pdc_preview_placement():
             aggregation_number=choices['aggregation_number'], placement_mode=choices['placement_mode'],
             seed=choices['seed'], box_margin_nm=choices['box_margin_nm'], initial_z_nm=choices['initial_z_nm'],
             initial_x_nm=choices['initial_x_nm'], initial_y_nm=choices['initial_y_nm'],
+            box_shape=choices['box_shape'],
             belt_gap_nm=choices['belt_gap_nm'],
             min_body_gap_nm=choices['min_body_gap_nm'], belt_axial_window_nm=choices['belt_axial_window_nm'],
             belt_vertical_spread=choices['belt_vertical_spread'],

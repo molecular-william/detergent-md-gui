@@ -357,7 +357,7 @@ def test_the_groups_are_sections_inside_the_run_and_stage_settings(dashboard, li
     # Seven: the run configuration and the starting box were folded in on 2026-11-24, and joined by the five groups
     # the retired Other run options fold used to hold.
     assert groups.count() == 7, 'the option groups are not sections of the fieldset'
-    assert page.locator('#run-form .new-option-group [name]').count() == 35, 'a control was lost with the fold'
+    assert page.locator('#run-form .new-option-group [name]').count() == 36, 'a control was lost with the fold'
     for index in range(7):
         group = groups.nth(index)
         expect(group.locator(':scope > h4.new-option-title')).to_be_visible()
@@ -772,6 +772,8 @@ def test_the_panel_queues_the_payload_the_pdc_adapter_reads(dashboard, live_page
         'backmap': False, 'remove_out_of_micelle': False,
         # The launch button's own choice, like the validation panel's: Queue is the default action.
         'gpu_sharing': 'queue',
+        # The cell shape a run states: the historical rectangular box is the default, and it travels as a choice.
+        'box_shape': 'rectangular',
         # The back-map's pdb2gmx choice is stated always, like the back-map toggle: a run that asked for virtual sites
         # must not be readable as one that used the default.
         'protein_vsite': 'none',
@@ -1312,3 +1314,27 @@ def test_a_preset_carries_the_box_the_count_and_the_pipeline_switches(dashboard,
     expect(page.locator('#new-placement')).to_have_value('self-assembly')
     assert errors == [], errors
 
+
+
+def test_a_shaped_cell_hides_the_rectangular_lengths_and_is_a_choice(dashboard, live_page):
+    """A shaped cell has one derived edge, so the three rectangular lengths and their Auto are not its inputs."""
+    page, errors = live_page
+    open_panel(page, live_page.base_url)
+    shape = page.locator('[name=box_shape]')
+    expect(shape).to_have_value('rectangular')
+    for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
+        expect(page.locator(f'label:has([name={name}])')).to_be_visible()
+
+    shape.select_option('octahedron')
+
+    for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
+        expect(page.locator(f'label:has([name={name}])')).to_be_hidden()
+    expect(page.locator('.new-pdc-box-shape-note')).to_be_visible()
+    expect(page.locator('.pdc-auto-box')).to_be_disabled()
+
+    shape.select_option('rectangular')
+
+    for name in ('initial_x_nm', 'initial_y_nm', 'initial_z_nm'):
+        expect(page.locator(f'label:has([name={name}])')).to_be_visible()
+    expect(page.locator('.new-pdc-box-shape-note')).to_be_hidden()
+    assert errors == [], errors

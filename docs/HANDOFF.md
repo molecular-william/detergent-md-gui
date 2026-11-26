@@ -10,6 +10,29 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc: the New run form offers the validation panel's unit cells (2026-11-26).** Plan:
+  `docs/plans/2026-11-26-pdc-cell-shapes.md`. The user's request, and their direction to take the cells from the
+  detergent-validation New run panel. The `Box shape` choice now offers the historical **rectangular** cell (default,
+  unchanged) plus the four the validation panel has: cube (1.000 d³), rhombic dodecahedron xy-square and xy-hexagon
+  (0.707 d³) and truncated octahedron (0.770 d³). Every shaped cell has |a|=|b|=|c|=d, so a run picks the same
+  minimum image distance with less solvent; a shaped run ignores the three Initial box lengths (the form hides them
+  and their Auto) and derives `d = max(required x, y, z)` from the protein/belt and the Box margin. The pressure
+  coupling is untouched, per the user.
+  The cell is `pdc_box.cell`: exact GROMACS vectors from the measured 2026.3 `editconf` boxes, `lengths` = |a|,|b|,|c|
+  and `minimum_image_nm`. The build centres on the cell centre `(a+b+c)/2` (`pdc_box.centre_nm`), writes the
+  nine-value `.gro` box line, and records `box_vectors_nm`/`box_minimum_image_nm`/`box_shape`; `box_nm` stays the
+  three vector lengths (all d for a shape), so the analysis's `min(box_nm)/2` cut-off bound is still exactly d/2. The
+  preview carries the same basis and vectors, wraps molecules by their fractional cell coordinate, checks marks in
+  fractional coordinates, and draws the parallelepiped from `box_vectors_nm`; the panel's basis line names the cell
+  and its d. Insane already passes a three- or nine-value box unchanged (`-box` and `-pbc keep`).
+  Tests: `pdc_box.cell` vectors/volumes/validation; a shaped build's nine-value box, centring and report; a shaped
+  preview's vectors/minimum image; the route's shape query and unknown-shape 400; the form's default, hidden
+  lengths/Auto and note; the payload's `box_shape`; the rectangular pinned placement/box tests unchanged.
+  Checks: full fast tier **3,223 passed / 1 xfailed**; full browser tier **431 passed**; pdc fast area 880 /
+  1 xfailed; ruff clean. Dashboard restarted with no active runs.
+  Open: the shape rides the run's settings, not its manifest's own top-level key; a shaped run's pressure coupling is
+  whatever the form states (isotropic by default), as the user asked to leave it alone.
+
 - **Runs: a failed but resumable run continues itself up to three times, and every resume queues exclusively for its
   GPU (2026-11-26).** The user's request: no manual Resume for a failure that has a checkpoint, and a resumed run must
   always queue for the GPU, never share it.

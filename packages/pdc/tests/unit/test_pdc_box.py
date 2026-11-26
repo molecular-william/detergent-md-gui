@@ -4,6 +4,7 @@ The requests were 20 A of margin in x and y, a 60 A starting box in z, and then 
 ends up at least 20 A from the system. Those are claims about numbers, so they are tested as numbers rather than
 through a run.
 """
+import numpy as np
 import pytest
 from detergent_pdc.execution.adapters import pdc_box
 
@@ -214,3 +215,36 @@ def test_auto_initial_z_refuses_input_it_cannot_compute():
     with pytest.raises(ValueError, match='positive'):
         pdc_box.auto_initial_z([[0.0, 0.0, 0.0]], margin_nm=-1.0)
 
+
+
+def test_the_rectangular_cell_is_the_historical_box():
+    """The default cell is exactly the three independent edges: no existing run's box moves."""
+    cell = pdc_box.cell('rectangular', [18.0, 18.0, 13.0])
+
+    assert cell['shape'] == 'rectangular'
+    assert cell['vectors'] == [[18.0, 0.0, 0.0], [0.0, 18.0, 0.0], [0.0, 0.0, 13.0]]
+    assert cell['lengths'] == [18.0, 18.0, 13.0]
+    assert cell['minimum_image_nm'] == 13.0
+
+
+def test_every_shaped_cell_has_three_equal_vectors_and_the_gromacs_volume():
+    """The four validation shapes, sized by the same minimum image distance d = max(required)."""
+    volumes = {'cubic': 1.0, 'dodecahedron': 0.70710678, 'dodecahedron-hexagon': 0.70710678,
+               'octahedron': 0.76980036}
+    for shape, factor in volumes.items():
+        cell = pdc_box.cell(shape, [10.0, 10.0, 8.0])
+        a, b, c = (np.asarray(vector) for vector in cell['vectors'])
+        assert cell['lengths'] == [10.0, 10.0, 10.0], shape
+        assert cell['minimum_image_nm'] == 10.0
+        assert abs(float(np.linalg.det(np.asarray(cell['vectors']))) - factor * 1000.0) < 0.01, shape
+        # The minimum image distance is the vector length: every |v| is d, and the volume is the only difference.
+        assert np.allclose([np.linalg.norm(vector) for vector in (a, b, c)], 10.0)
+
+
+def test_an_unknown_or_non_positive_cell_is_refused():
+    with pytest.raises(ValueError, match='unknown box shape'):
+        pdc_box.cell('dodecahedron-square', [10.0, 10.0, 10.0])
+    with pytest.raises(ValueError, match='positive'):
+        pdc_box.cell('cubic', [10.0, 0.0, 10.0])
+    with pytest.raises(ValueError, match='three extents'):
+        pdc_box.cell('cubic', [10.0, 10.0])

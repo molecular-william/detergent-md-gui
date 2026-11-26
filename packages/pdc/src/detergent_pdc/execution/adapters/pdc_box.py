@@ -21,11 +21,60 @@ The density a placement was built at is its shape's, not its cell's: a lattice b
 leaves the recorded density where it was. Self-assembly is the one generator that samples inside the box it is
 given, so its box is the placement's own and this module does not widen it.
 """
-
+import math
 
 #: How far a stated dimension may sit below the derived one and still count as equal, covering the rounding both
 #: sides apply (six places) without accepting a box that genuinely cuts the system.
 TOLERANCE_NM = 1e-6
+
+#: The unit cells a PDC run may write. `rectangular` is the historical cell, three independent edge lengths; the four
+#: after it are the validation panel's shapes, every vector of length d and the same minimum image distance, so a run
+#: gets the same cut-off room with less solvent. The values are `aabase.SHAPES`' spelling on purpose: one vocabulary
+#: for a cell in both workspaces.
+SHAPES = ('rectangular', 'cubic', 'dodecahedron', 'dodecahedron-hexagon', 'octahedron')
+DEFAULT_SHAPE = 'rectangular'
+
+
+def cell(shape, lengths):
+    """The three box vectors for a shape and the rectangular lengths it has to contain.
+
+    A rectangular cell keeps its three independent edges. Every other shape has |a| = |b| = |c| = d, so its one
+    number is the minimum image distance: `d = max(lengths)`, the smallest single edge that can hold the rectangular
+    requirement the box rules derived. The vectors are the ones GROMACS `editconf` writes for `-bt dodecahedron`,
+    `-bt triclinic -angles 60 60 60` and `-bt octahedron`; measured on the installed 2026.3 build.
+    """
+    if shape not in SHAPES:
+        raise ValueError(f'unknown box shape {shape!r}; known: {", ".join(SHAPES)}')
+    try:
+        values = [float(value) for value in lengths]
+    except (TypeError, ValueError) as exc:
+        raise ValueError('box extents must be numbers') from exc
+    if len(values) != 3:
+        raise ValueError('a box needs three extents')
+    if any(value <= 0 for value in values):
+        raise ValueError('box extents must be positive')
+    if shape == DEFAULT_SHAPE:
+        vectors = [[values[0], 0.0, 0.0], [0.0, values[1], 0.0], [0.0, 0.0, values[2]]]
+        minimum = min(values)
+    else:
+        d = max(values)
+        sqrt2, sqrt3 = math.sqrt(2.0), math.sqrt(3.0)
+        if shape == 'cubic':
+            vectors = [[d, 0.0, 0.0], [0.0, d, 0.0], [0.0, 0.0, d]]
+        elif shape == 'dodecahedron':
+            vectors = [[d, 0.0, 0.0], [0.0, d, 0.0], [d / 2.0, d / 2.0, d / sqrt2]]
+        elif shape == 'dodecahedron-hexagon':
+            vectors = [[d, 0.0, 0.0], [d / 2.0, d * sqrt3 / 2.0, 0.0],
+                       [d / 2.0, d / (2.0 * sqrt3), d * math.sqrt(2.0 / 3.0)]]
+        else:
+            vectors = [[d, 0.0, 0.0], [d / 3.0, 2.0 * sqrt2 * d / 3.0, 0.0],
+                       [-d / 3.0, sqrt2 * d / 3.0, d * math.sqrt(2.0 / 3.0)]]
+        minimum = d
+    return {'shape': shape,
+            'vectors': [[round(float(value), 6) for value in vector] for vector in vectors],
+            'lengths': [round(math.sqrt(sum(float(value) * float(value) for value in vector)), 6)
+                        for vector in vectors],
+            'minimum_image_nm': round(float(minimum), 6)}
 
 
 def _cell(stated, required, axis):
@@ -190,3 +239,15 @@ def membrane_box(points, half_thickness_nm, margin_nm=2.0, initial_z_nm=None, be
     return [_cell(initial_x_nm, required[0], 'x'),
             _cell(initial_y_nm, required[1], 'y'),
             _cell(initial_z_nm, required[2], 'z')]
+
+
+def centre_nm(box):
+    """The Cartesian centre of a cell: half the sum of its three vectors, or half the edges of a rectangular one.
+
+    A triclinic cell's centre is not half its edge lengths: the second and third vectors lean, so their half-sum is
+    where the system has to be before the wrap folds it into 0..1 in every direction. Rectangular boxes keep their
+    historical `[x/2, y/2, z/2]` answer.
+    """
+    if len(box) == 3 and all(hasattr(value, '__len__') for value in box):
+        return [round(sum(float(vector[index]) for vector in box) / 2.0, 6) for index in range(3)]
+    return [round(float(box[index]) / 2.0, 6) for index in range(3)]

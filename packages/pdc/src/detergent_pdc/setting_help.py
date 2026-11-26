@@ -102,6 +102,12 @@ _BELT_AXIAL_WINDOW = ('the axial half-window used to measure a belt site\u2019s 
                       'radius, so a helix at another height does not push the site outward; smaller is tighter, and a '
                       'site above or below a protrusion can sit closer to the bundle. The sphere and self-assembly '
                       'paths do not read it')
+_BOX_SHAPE = ('the periodic cell the build writes (dashboard text, not GROMACS). Rectangular keeps the historical '
+              'box with three independent edge lengths. The other four are the validation panel\u2019s cells, every '
+              'vector of length d: cube (1.000 d\u00b3), rhombic dodecahedron xy-square and xy-hexagon (0.707 d\u00b3 '
+              'each) and truncated octahedron (0.770 d\u00b3), so they enclose the same system with less solvent. A '
+              'shaped cell derives d from the protein or belt and the margin; the three initial lengths belong to the '
+              'rectangular cell and are hidden for a shape')
 _THRESHOLD = ('the fraction of detergents removed from outside the micelle above which the extension records the '
               'removal as above threshold (dashboard text, not GROMACS): it records how much the removal took, not '
               'the criterion -- that is the largest tail-bead contact cluster')
@@ -160,6 +166,7 @@ HELP = {
     'salt_molar': _SALT,
     'pdc_seed': _SEED,
     'box_margin_nm': _BOX_MARGIN,
+    'box_shape': _BOX_SHAPE,
     'initial_x_nm': _INITIAL_XY.format(axis='x'),
     'initial_y_nm': _INITIAL_XY.format(axis='y'),
     'initial_z_nm': _INITIAL_Z,

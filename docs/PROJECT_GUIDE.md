@@ -675,6 +675,16 @@ initial box, so a stated x/y is the cell its cloud is drawn in.
 Both lines are hidden for an empty micelle, and the panel re-asks when the
 protein, its chain ticks, the box margin or any initial box value changes.
 
+The Starting box group also states the **cell shape** (`box_shape`): the historical `rectangular` box (the default,
+unchanged) or the validation panel's four single-edge cells -- cube (1.000 d³), the two rhombic dodecahedra
+(0.707 d³) and the truncated octahedron (0.770 d³). A shaped cell **ignores the three Initial box lengths**
+(the form hides them and their Auto) and derives one minimum image distance `d = max(required x, y, z)` from the
+protein or belt and the Box margin; every vector has length d, the same cut-off room with less solvent. The exact
+GROMACS vectors are `pdc_box.cell`'s (measured from `editconf` on 2026.3), the build centres on `(a+b+c)/2` and
+writes the nine-value .gro box, and the preview carries `box_vectors_nm`/`box_minimum_image_nm`, wraps each molecule
+by its fractional cell coordinate and draws the parallelepiped. The shape never changes the run's pressure-coupling
+type (that stays the form's own choice), and a run without `box_shape` is rectangular byte for byte.
+
 The pdc New run form's third card is **Detergent shape** (`CHOICE_SPECS['conformation_library']`): one rigid
 conformation, a library built from micelle-only runs, or a stored library. A **stored library for the selected
 detergent's residue is the default when one exists** (2026-11-23) -- the card selects it and the run's label says

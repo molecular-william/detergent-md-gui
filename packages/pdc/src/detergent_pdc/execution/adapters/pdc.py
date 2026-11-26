@@ -14,7 +14,7 @@ from dashboard.execution.mdp import PROFILES, write_mdp
 from dashboard.execution.settings import normalize
 from dashboard.execution.stages import Stage
 from detergent_pdc import setting_help
-from detergent_pdc.execution.adapters import pdc_import, pdc_placement, pdc_preparation
+from detergent_pdc.execution.adapters import pdc_box, pdc_import, pdc_placement, pdc_preparation
 
 # The coarse-grained parameters a pdc topology has to carry, from the published Martini 3 lipid set: the bead types
 # (which the detergent's own beads need defined), the solvents file that defines water as `W`, and the ions file that
@@ -48,6 +48,8 @@ INPUTS_DIRECTORY = run_inputs.INPUTS_DIRECTORY
 
 DEFAULTS = {'salt_molar': 0.15, 'aggregation_number': 150, 'assessment_ns': 100, 'extension_ns': 900,
             'selection_threshold_fraction': 0.10, 'attempts_max': 3, 'box_margin_nm': 2.0,
+            # The historical rectangular cell, or one of the validation panel's four single-edge shapes.
+            'box_shape': pdc_box.DEFAULT_SHAPE,
             # No `initial_z_nm` entry: a blank starting-box z is "nothing stated" -- the build's insertion box keeps
             # its reviewed 6.0 nm, and the box the stage writes derives its own z. A stated z is a floor.
             'contact_nm': 0.6,
@@ -512,6 +514,10 @@ def validate_payload(payload):
     # The back-map's pdb2gmx choice. Also a string choice in `CHOICE_SPECS` (where `normalize_settings` checks it),
     # but `prepare` and the preview read this function's return value, so it is validated here too: a value the
     # wrapper cannot pass would otherwise reach the stage and fail there.
+    shape = payload.get('box_shape', DEFAULTS['box_shape'])
+    if shape not in CHOICE_SPECS['box_shape'][1]:
+        raise ValueError('the pdc box shape must be one of ' + ', '.join(CHOICE_SPECS['box_shape'][1])
+                         + f', not {shape!r}')
     vsite = payload.get('protein_vsite', DEFAULTS['protein_vsite'])
     if vsite not in CHOICE_SPECS['protein_vsite'][1]:
         raise ValueError('the pdc protein virtual-site choice must be one of '
@@ -1599,6 +1605,7 @@ def _protocol_prepare(run_dir, metadata):
 # protein happens to name, the second is a boolean -- so their options are declared empty or as the two booleans, and
 # their values are checked in `validate_payload` and `prepare` where the protein and the builder are known.
 CHOICE_SPECS = {'pdc_placement_mode': ('Initialisation', ('lattice', 'self-assembly')),
+                'box_shape': ('Box shape', pdc_box.SHAPES),
                 # How a run behaves when its device already holds a run. Advertised so `runs.py:queue` keeps it;
                 # absent keeps the coordinator's historical refusal, and the two choices are its own admission
                 # policy rather than MD. The values are `cg.CHOICE_SPECS`' own spelling, because one coordinator

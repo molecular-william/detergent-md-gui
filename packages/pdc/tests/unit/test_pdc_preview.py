@@ -984,3 +984,18 @@ def test_the_cell_still_contains_every_atom_after_centring_the_protein(tmp_path,
         values = [point[axis] for point in coordinates]
         assert min(values) >= origin[axis] - 1e-6, (axis, min(values), origin[axis])
         assert max(values) <= upper[axis] + 1e-6, (axis, max(values), upper[axis])
+
+
+def test_a_shaped_preview_carries_the_cell_vectors_the_build_writes(tmp_path):
+    """The preview's cell is the build's: one edge d, the shape's three vectors, and the same minimum image distance."""
+    answer = preview(tmp_path, mapping=None, aggregation_number=40, box_shape='dodecahedron')
+
+    assert answer['valid'], answer['reasons']
+    basis = answer['basis']
+    vectors = np.asarray(basis['box_vectors_nm'], dtype=float)
+    d = basis['box_minimum_image_nm']
+    assert basis['box_shape'] == 'dodecahedron'
+    assert basis['box_nm'] == pytest.approx([d, d, d])
+    assert np.allclose(np.linalg.norm(vectors, axis=1), d, atol=1e-6)
+    assert np.isclose(abs(float(np.linalg.det(vectors))), d ** 3 / np.sqrt(2), rtol=1e-6)
+    assert answer['pdb'] is not None

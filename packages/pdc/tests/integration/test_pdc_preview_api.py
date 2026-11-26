@@ -674,3 +674,27 @@ def test_a_malformed_library_specification_is_a_400_that_says_what_was_wrong(das
         response = preview_with_library(dashboard, spec)
         assert response.status_code == 400, (spec, response.status_code, response.get_json())
         assert response.get_json().get('error'), spec
+
+
+def test_a_shaped_cell_reaches_the_preview_and_ignores_the_rectangular_lengths(dashboard):
+    """The shape is the validation panel's four cells: one derived edge d, the vectors, and no rectangular lengths."""
+    mapping_candidate(dashboard)
+    body = get(dashboard, template=TEMPLATE, molecule_id='DDM',
+               mapping_candidate='mapping_candidate_fixture.json', aggregation_number=40,
+               placement_mode='lattice', pdc_seed=20261013, box_shape='octahedron',
+               initial_x_nm=20.0, initial_y_nm=21.0, initial_z_nm=40.0).get_json()
+
+    assert body['valid'] is True, body['reasons']
+    basis = body['basis']
+    assert basis['box_shape'] == 'octahedron'
+    assert len(set(basis['box_nm'])) == 1, 'the shaped cell has one edge d, not three stated lengths'
+    assert basis['box_minimum_image_nm'] == basis['box_nm'][0]
+    assert len(basis['box_vectors_nm']) == 3
+    assert any(abs(value) > 1e-9 for vector in basis['box_vectors_nm'] for value in vector[1:]), \
+        'the shaped cell is not the diagonal rectangular one'
+
+    refused = get(dashboard, template=TEMPLATE, molecule_id='DDM',
+                  mapping_candidate='mapping_candidate_fixture.json', aggregation_number=40,
+                  pdc_seed=20261013, box_shape='dodecahedron-square')
+    assert refused.status_code == 400
+    assert 'box shape' in refused.get_json()['error']

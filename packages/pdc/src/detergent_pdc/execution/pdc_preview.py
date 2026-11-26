@@ -55,6 +55,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import numpy as np
 from dashboard import files, paths
 from dashboard.analysis.runs import structures as pdc_view
 from detergent_pdc.execution.adapters import pdc as pdc_adapter
@@ -318,35 +319,53 @@ def detergent_model(mapping_path, molecule_root, project_root):
              'parameterization': adopted['parameterization'], 'source': source}, time.perf_counter() - started)
 
 
+def _cell_matrix(box):
+    """A cell as a 3x3 matrix: three vectors, or the three edges of a rectangular cell."""
+    array = np.asarray(box, dtype=float)
+    if array.ndim == 1:
+        if array.size != 3:
+            raise ValueError('a cell needs three vectors or three edges')
+        return np.diag(array)
+    if array.shape != (3, 3):
+        raise ValueError('a cell needs three vectors')
+    return array
+
+
 def _wrap(atoms, origin, box):
-    """Put every molecule in the primary cell the box edges draw, whole, and answer each molecule's own shift.
+    """Put every molecule in the primary cell the three box vectors draw, whole, and answer each molecule's shift.
 
     The preview's PDB has no periodic machinery, so a bead outside the drawn cell would look like a second, broken
     system. Wrapping each atom alone would cut a detergent molecule in half across a face; the molecule's centre
     decides the translation and every bead of it moves together. Wrapping is display-only: the run's own structure is
     not changed.
 
-    The shifts are keyed by the same `(residue, residue_id)` molecule key the grouping used. A refused placement's
-    marks are translated by these when they belong to a molecule, so a red bead lands on the bead the viewer has:
-    the placement's coordinates are its own frame, and the written frame has moved every molecule by its own shift.
+    The module is the cell's three vectors (`pdc_box.cell`), so a tilted face wraps the molecule by its fractional
+    coordinate rather than by an axis length. The shifts are keyed by the same `(residue, residue_id)` molecule key
+    the grouping used. A refused placement's marks are translated by these when they belong to a molecule, so a red
+    bead lands on the bead the viewer has: the placement's coordinates are its own frame, and the written frame has
+    moved every molecule by its own shift.
     """
-    lengths = [float(value) for value in box[:3]]
+    vectors = _cell_matrix(box)
+    inverse = np.linalg.inv(vectors)
+    origin = np.asarray(origin, dtype=float)
     molecules = {}
     for atom in atoms:
         molecules.setdefault((str(atom['residue']), int(atom['residue_id'])), []).append(atom)
     shifts = {}
     for key, beads in molecules.items():
-        centre = [sum(float(bead['position'][axis]) for bead in beads) / len(beads) for axis in range(3)]
-        shift = [round(float(origin[axis])
-                       + (centre[axis] - float(origin[axis])) % lengths[axis] - centre[axis], 5)
-                 for axis in range(3)]
+        centre = np.asarray([sum(float(bead['position'][axis]) for bead in beads) / len(beads)
+                             for axis in range(3)])
+        fractional = (centre - origin) @ inverse
+        shift = (-np.floor(fractional)) @ vectors
+        shift = [round(float(value), 5) for value in shift]
         shifts[key] = shift
         for bead in beads:
             bead['position'] = [round(float(bead['position'][axis]) + shift[axis], 5) for axis in range(3)]
     return atoms, shifts
 
 
-def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, initial_y_nm=None):
+def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, initial_y_nm=None,
+         shape=pdc_box.DEFAULT_SHAPE):
     """The box the build writes, by the build's own rule (`pdc_build.build`), and no second rule here.
 
     A band is the one case where the box is built in the membrane frame: z clears the protein and the slab it sits
@@ -360,18 +379,23 @@ def _box(points, placement, frame, margin_nm, initial_z_nm, initial_x_nm=None, i
     derived value exactly; the insertion box's own z keeps the reviewed default when nothing is stated.
     """
     insertion_z = 6.0 if initial_z_nm is None else initial_z_nm
+    if shape != pdc_box.DEFAULT_SHAPE:
+        # A shaped cell's one edge is derived; the three stated insertion numbers describe the rectangular cell.
+        initial_x_nm = initial_y_nm = initial_z_nm = None
     initial = pdc_box.initial_box(points or placement['centers'], margin_nm=margin_nm, initial_z_nm=insertion_z,
                                   initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
     if frame is not None and placement['band'] is not None:
         band = placement['band']
-        return pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm, margin_nm=margin_nm,
-                                    initial_z_nm=initial_z_nm,
-                                    belt_reach_nm=band.get('belt_reach_nm') or 0.0,
-                                    belt_radius_nm=(band.get('radius_max_nm') or 0.0)
-                                    + (band.get('detergent_length_nm') or 0.0),
-                                    initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
-    return pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm,
-                                initial_z_nm=initial_z_nm)
+        lengths = pdc_box.membrane_box(points, half_thickness_nm=frame.half_thickness_nm, margin_nm=margin_nm,
+                                       initial_z_nm=initial_z_nm,
+                                       belt_reach_nm=band.get('belt_reach_nm') or 0.0,
+                                       belt_radius_nm=(band.get('radius_max_nm') or 0.0)
+                                       + (band.get('detergent_length_nm') or 0.0),
+                                       initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm)
+    else:
+        lengths = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=margin_nm,
+                                       initial_z_nm=initial_z_nm)
+    return pdc_box.cell(shape, lengths)
 
 
 def _box_notes(box, initial_x_nm, initial_y_nm, initial_z_nm):
@@ -387,6 +411,15 @@ def _box_notes(box, initial_x_nm, initial_y_nm, initial_z_nm):
         notes.append(f'the stated {axis} box ({float(stated):g} nm) is smaller than this system needs '
                      f'({float(box[position]):g} nm); the cell is written at {float(box[position]):g} nm')
     return notes
+
+
+def _record_box(basis, box, initial_x_nm, initial_y_nm, initial_z_nm):
+    """Put the cell and its vector triplet on the basis, and the stated-dimension notes beside them."""
+    basis['box_nm'] = list(box['lengths'])
+    basis['box_vectors_nm'] = [list(vector) for vector in box['vectors']]
+    basis['box_minimum_image_nm'] = box['minimum_image_nm']
+    basis['box_shape'] = box['shape']
+    basis['box_notes'] = _box_notes(box['lengths'], initial_x_nm, initial_y_nm, initial_z_nm)
 
 
 def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergent_residue,
@@ -415,7 +448,8 @@ def _translated_problems(problems, truncated, *, shift_nm, wrap_shifts, detergen
             wrap = wrap_shifts.get(key)
             if wrap is not None:
                 moved = [round(value + delta, 5) for value, delta in zip(moved, wrap)]
-        if not all(-1e-6 <= value <= float(box[axis]) + 1e-6 for axis, value in enumerate(moved)):
+        fractional = np.asarray(moved) @ np.linalg.inv(_cell_matrix(box))
+        if not all(-1e-6 <= float(value) <= 1.0 + 1e-6 for value in fractional):
             dropped += 1
             continue
         # The protein beads a mark names are in the same original frame; the box is built around the protein, so
@@ -495,7 +529,8 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
     # decides where the cell sits.
     anchor_nm = [round(sum(float(atom['position'][axis]) for atom in atoms) / len(atoms), 6)
                  for axis in range(3)]
-    dry_shift = [round(float(box[axis]) / 2 - anchor_nm[axis], 6) for axis in range(3)]
+    centre_nm = pdc_box.centre_nm(box['vectors'])
+    dry_shift = [round(centre_nm[axis] - anchor_nm[axis], 6) for axis in range(3)]
     pdc_build.translate_atoms(atoms, dry_shift)
     basis['centring'] = {'anchor': 'system centre', 'anchor_nm': anchor_nm, 'shift_nm': dry_shift}
 
@@ -513,11 +548,12 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
     # equilibration leg's, and drawing it here both cost seconds and hid the belt (user's decision, 2026-11-23).
     basis['solvent_reason'] = 'not drawn: the picture is the dry system the build writes'
     basis['box_origin_nm'] = [0.0, 0.0, 0.0]
-    _, wrap_shifts = _wrap(atoms, basis['box_origin_nm'], box)
+    _, wrap_shifts = _wrap(atoms, basis['box_origin_nm'], box['vectors'])
     if problems is not None:
         basis['problems'], basis['problems_truncated'] = _translated_problems(
             problems, problems_truncated, shift_nm=dry_shift, wrap_shifts=wrap_shifts,
-            detergent_residue=detergent_residue, detergent_residue_offset=detergent_residue_offset, box=box)
+            detergent_residue=detergent_residue, detergent_residue_offset=detergent_residue_offset,
+            box=box['vectors'])
     cost['seconds'] = time.perf_counter() - started
     pdb = pdc_view.system_pdb(atoms, detergent_residue=detergent_residue, topology=topology,
                               include_water=False, title=title)
@@ -528,7 +564,7 @@ def _frame(*, beads, placement, box, model, library, record, cg, basis, cost, st
 def preview(*, project_root, cache_root, template, seed, protein=None, chains=None, mapping=None,
             molecule_id=None, aggregation_number=150, placement_mode=pdc_placement.DEFAULT_PLACEMENT_MODE,
             box_margin_nm=pdc_placement.DEFAULT_MARGIN_NM, initial_z_nm=None,
-            initial_x_nm=None, initial_y_nm=None,
+            initial_x_nm=None, initial_y_nm=None, box_shape=pdc_box.DEFAULT_SHAPE,
             radius_nm=pdc_placement.DEFAULT_RADIUS_NM, executable=None, prepare_protein=False,
             prepare_executable=None, conformation_library=None, workspace=None, belt_gap_nm=0.0,
             min_body_gap_nm=pdc_placement.DEFAULT_MIN_BODY_GAP_NM,
@@ -606,10 +642,16 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     seed = int(seed)
     aggregation_number = int(aggregation_number)
     margin = float(box_margin_nm)
+    if box_shape not in pdc_box.SHAPES:
+        raise ValueError(f'box shape must be one of {", ".join(pdc_box.SHAPES)}, not {box_shape!r}')
     stated_z = None if initial_z_nm is None else float(initial_z_nm)
     insertion_z = stated_z if stated_z is not None else pdc_placement.DEFAULT_INITIAL_Z_NM
     initial_x = None if initial_x_nm is None else float(initial_x_nm)
     initial_y = None if initial_y_nm is None else float(initial_y_nm)
+    if box_shape != pdc_box.DEFAULT_SHAPE:
+        # A shaped cell derives its one edge; the stated insertion numbers describe the rectangular cell.
+        stated_z = initial_x = initial_y = None
+        insertion_z = pdc_placement.DEFAULT_INITIAL_Z_NM
     radius = float(radius_nm)
     mode = pdc_placement.canonical_mode(placement_mode)
 
@@ -633,7 +675,8 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     basis = {'protein': Path(protein_path).stem if protein_path else None, 'chains': list(chains or []),
              'template': template_path.name, 'detergent': None, 'residue': None, 'mapping': None,
              'aggregation_number': aggregation_number, 'placement_mode': mode, 'seed': seed,
-             'beads': None, 'protein_beads': 0, 'box_nm': None, 'clearance_nm': None,
+             'beads': None, 'protein_beads': 0, 'box_nm': None, 'box_vectors_nm': None,
+             'box_minimum_image_nm': None, 'box_shape': None, 'clearance_nm': None,
              'solvent': None, 'solvent_reason': None, 'centring': None,
              'box_origin_nm': [0.0, 0.0, 0.0], 'belt_offset_nm': None,
              'placement_shape': None, 'band_radius_nm': None, 'band_radius_min_nm': None,
@@ -789,7 +832,7 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
     started_placement = time.perf_counter()
     placement = pdc_placement.place_detergents(points, record, aggregation_number, seed, radius_nm=radius, mode=mode,
                                               margin_nm=margin, initial_z_nm=insertion_z,
-                                              initial_x_nm=initial_x_nm, initial_y_nm=initial_y_nm,
+                                              initial_x_nm=initial_x, initial_y_nm=initial_y,
                                               frame=frame,
                                               conformations=conformations, belt_gap_nm=float(belt_gap_nm),
                                               min_body_gap_nm=float(min_body_gap_nm),
@@ -857,12 +900,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         # text-only answer.
         if placement['centers']:
             try:
-                box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+                box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y, shape=box_shape)
             except ValueError as error:
                 cost['seconds'] = time.perf_counter() - started
                 return _refusal('box', [str(error)], basis, cost, subject='the starting box')
-            basis['box_nm'] = list(box)
-            basis['box_notes'] = _box_notes(box, initial_x, initial_y, stated_z)
+            _record_box(basis, box, initial_x, initial_y, stated_z)
             basis['belt_offset_nm'] = float(belt_offset_nm)
             basis['detergents_placed'] = len(placement['centers'])
             basis['detergents_requested'] = aggregation_number
@@ -882,12 +924,11 @@ def preview(*, project_root, cache_root, template, seed, protein=None, chains=No
         return _refusal('placement', placement['issues'], basis, cost, subject=protein_path or f'{mode} placement')
 
     try:
-        box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y)
+        box = _box(points, placement, frame, margin, stated_z, initial_x, initial_y, shape=box_shape)
     except ValueError as error:
         cost['seconds'] = time.perf_counter() - started
         return _refusal('box', [str(error)], basis, cost, subject='the starting box')
-    basis['box_nm'] = list(box)
-    basis['box_notes'] = _box_notes(box, initial_x, initial_y, stated_z)
+    _record_box(basis, box, initial_x, initial_y, stated_z)
     basis['belt_offset_nm'] = float(belt_offset_nm)
     pdb, stamp_error = _frame(beads=beads, placement=placement, box=box, model=model, library=library,
                               record=record, cg=cg, basis=basis, cost=cost, started=started,

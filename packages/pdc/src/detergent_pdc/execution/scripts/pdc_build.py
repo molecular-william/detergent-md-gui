@@ -137,7 +137,8 @@ def centre_shift(points, detergent_positions, box):
         kind = 'detergent initial positions'
     else:
         return [0.0, 0.0, 0.0], 'no coordinates', [0.0, 0.0, 0.0]
-    shift = [round(float(box[index]) / 2 - anchor[index], 6) for index in range(3)]
+    centre = pdc_box.centre_nm(box)
+    shift = [round(centre[index] - anchor[index], 6) for index in range(3)]
     return shift, kind, anchor
 
 
@@ -717,7 +718,14 @@ def build(stage: Path) -> int:
     body_profile = pdc_placement.detergent_profile_from_model(model, template) if model is not None else None
     # A blank starting-box z states nothing: the insertion box keeps the reviewed 6.0 nm, and only a *stated* z is
     # a floor under the box the stage writes (the form's blank field posts no key).
-    stated_z = settings.get('initial_z_nm')
+    shape = settings.get('box_shape', pdc_box.DEFAULT_SHAPE)
+    if shape not in pdc_box.SHAPES:
+        raise SystemExit(f'box shape must be one of {", ".join(pdc_box.SHAPES)}, not {shape!r}')
+    # A shaped cell derives its one edge from the system and the margin, so the three stated insertion numbers -- which
+    # describe the rectangular cell's own edges -- do not apply to it.
+    stated_x = settings.get('initial_x_nm') if shape == pdc_box.DEFAULT_SHAPE else None
+    stated_y = settings.get('initial_y_nm') if shape == pdc_box.DEFAULT_SHAPE else None
+    stated_z = settings.get('initial_z_nm') if shape == pdc_box.DEFAULT_SHAPE else None
     insertion_z = float(stated_z) if stated_z is not None else pdc_placement.DEFAULT_INITIAL_Z_NM
     placement = pdc_placement.place_detergents(points, template, settings['aggregation_number'],
                                                settings['seed'], radius_nm=settings['radius_nm'], mode=mode,
@@ -775,8 +783,7 @@ def build(stage: Path) -> int:
     try:
         initial = pdc_box.initial_box(points or placement['centers'], margin_nm=settings['box_margin_nm'],
                                       initial_z_nm=insertion_z,
-                                      initial_x_nm=settings.get('initial_x_nm'),
-                                      initial_y_nm=settings.get('initial_y_nm'))
+                                      initial_x_nm=stated_x, initial_y_nm=stated_y)
     except ValueError as error:
         # A stated box that cannot hold the protein is the form's own mistake, not a placement failure: it is reported
         # as a refusal with that sentence, and no frame is written.
@@ -803,8 +810,7 @@ def build(stage: Path) -> int:
                                        belt_reach_nm=band.get('belt_reach_nm') or 0.0,
                                        belt_radius_nm=(band.get('radius_max_nm') or 0.0)
                                        + (band.get('detergent_length_nm') or 0.0),
-                                       initial_x_nm=settings.get('initial_x_nm'),
-                                       initial_y_nm=settings.get('initial_y_nm'))
+                                       initial_x_nm=stated_x, initial_y_nm=stated_y)
         else:
             box = pdc_box.extended_box(initial[:2], placement['centers'], margin_nm=settings['box_margin_nm'],
                                        initial_z_nm=stated_z)
@@ -812,6 +818,16 @@ def build(stage: Path) -> int:
         report.update({'valid': False, 'box_nm': None, 'box_nm_initial': initial, 'reasons': [str(error)]})
         write_report(stage, report)
         return 2
+    try:
+        cell = pdc_box.cell(shape, box)
+    except ValueError as error:
+        report.update({'valid': False, 'box_nm': None, 'box_nm_initial': initial, 'reasons': [str(error)]})
+        write_report(stage, report)
+        return 2
+    vectors = cell['vectors']
+    box = cell['lengths']
+    report.update({'box_vectors_nm': vectors, 'box_minimum_image_nm': cell['minimum_image_nm'],
+                   'box_shape': shape})
     # The x/y growth over the box the placement was built for, recorded beside the two boxes it relates. A belt's
     # density is its torus volume, so this widening leaves the measured density unchanged; a self-assembly cloud's
     # density was measured inside the initial box and no widening is made (`[0.0, 0.0]`).
@@ -819,7 +835,7 @@ def build(stage: Path) -> int:
                                  round(float(box[1]) - float(initial[1]), 6)]
     # A stated dimension too small to hold the system is widened, not refused: a stale preset's box cannot fail a
     # run, and the difference is recorded rather than left invisible. The preview carries the same sentences.
-    stated = {'x': settings.get('initial_x_nm'), 'y': settings.get('initial_y_nm'), 'z': stated_z}
+    stated = {'x': stated_x, 'y': stated_y, 'z': stated_z}
     report['box_notes'] = [f'the stated {axis} box ({float(value):g} nm) is smaller than this system needs '
                            f'({float(box[position]):g} nm); the cell is written at {float(box[position]):g} nm'
                            for position, axis in enumerate('xyz')
@@ -832,11 +848,12 @@ def build(stage: Path) -> int:
         # a `[ molecules ]` line naming a molecule whose bead count nothing knows cannot be written at all.
         atoms += [{'name': f'{template.residue[:2]}{index + 1:03d}', 'residue': template.residue,
                    'position': centre} for index, centre in enumerate(placement['centers'])]
-        shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], box)
+        shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], vectors)
         translate_atoms(atoms, shift)
         micelle_output.write_gro(stage / 'system.gro', atoms,
                                  title=f'protein-detergent complex ({template.name}, '
-                                       f'AN={settings["aggregation_number"]})', box=box)
+                                       f'AN={settings["aggregation_number"]})',
+                                 box=vectors if shape != pdc_box.DEFAULT_SHAPE else box)
         report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),
                        'placed_detergents': len(placement['centers']),
                        'centring': {'anchor': anchor_kind, 'anchor_nm': anchor_nm, 'shift_nm': shift},
@@ -865,11 +882,12 @@ def build(stage: Path) -> int:
     atoms += stamp(model, placement['centers'], placement['directions'],
                    first_residue=max([bead['residue_id'] for bead in beads], default=0) + 1,
                    entries=entries, twists=twists)
-    shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], box)
+    shift, anchor_kind, anchor_nm = centre_shift(points, [atom['position'] for atom in atoms[len(points):]], vectors)
     translate_atoms(atoms, shift)
     micelle_output.write_gro(stage / 'system.gro', atoms,
                              title=f'protein-detergent complex ({template.name}, '
-                                   f'AN={settings["aggregation_number"]}, {model["residue"]})', box=box)
+                                   f'AN={settings["aggregation_number"]}, {model["residue"]})',
+                             box=vectors if shape != pdc_box.DEFAULT_SHAPE else box)
     topologies = write_topologies(stage, protein_topology_path, stage / DETERGENT_TOPOLOGY,
                                   len(placement['centers']))
     report.update({'valid': True, 'box_nm': box, 'atoms': len(atoms),

@@ -361,10 +361,28 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     const button = pdcNode('.pdc-auto-box');
     if (!button) return;
     const hasProtein = !!field('protein').value;
-    button.disabled = !hasProtein;
-    button.title = hasProtein
-      ? "Fill the initial box x, y and z with the box the preview draws"
-      : 'Choose a protein: an empty micelle has no structure to measure a box from.';
+    const shaped = (field('box_shape')?.value || 'rectangular') !== 'rectangular';
+    button.disabled = !hasProtein || shaped;
+    button.title = shaped
+      ? 'A shaped cell derives its edge from the system and the margin; the three initial lengths belong to the rectangular cell.'
+      : (hasProtein
+          ? "Fill the initial box x, y and z with the box the preview draws"
+          : 'Choose a protein: an empty micelle has no structure to measure a box from.');
+  }
+
+  // A shaped cell has one derived edge, so the three rectangular lengths and their Auto are not its inputs: hiding
+  // them, rather than leaving three numbers that no longer describe the cell, is what the preview's basis line and
+  // the server's box rule both mean.
+  function syncBoxShape() {
+    const shaped = (field('box_shape')?.value || 'rectangular') !== 'rectangular';
+    for (const name of ['initial_x_nm', 'initial_y_nm', 'initial_z_nm']) {
+      const input = field(name);
+      const label = input?.closest('label');
+      if (label) label.hidden = shaped;
+    }
+    const note = pdcNode('.new-pdc-box-shape-note');
+    if (note) note.hidden = !shaped;
+    syncAutoButton();
   }
 
   // The detergent shape ------------------------------------------------------------------------------------------
@@ -1271,6 +1289,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
             outlierDistance: field('belt_outlier_distance_nm').value || '',
             margin: field('box_margin_nm').value || '', initial_z: field('initial_z_nm').value || '',
             initial_x: field('initial_x_nm').value || '', initial_y: field('initial_y_nm').value || '',
+            boxShape: field('box_shape')?.value || 'rectangular',
             offset: field('belt_offset_nm').value || '',
             prepare: preparing(), shape: shape ? JSON.stringify(shape) : ''};
   }
@@ -1280,7 +1299,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // a changed library is a different draw, and a build from runs can be the expensive part of the derive.
   const previewExpensive = inputs => `${inputs.protein}|${inputs.chains.join(',')}|${inputs.mapping}|${inputs.molecule}|${inputs.prepare}|${inputs.shape}`;
   const previewCheap = inputs => [inputs.count, inputs.mode, inputs.seed, inputs.margin, inputs.initial_z,
-                                  inputs.initial_x, inputs.initial_y,
+                                  inputs.initial_x, inputs.initial_y, inputs.boxShape,
                                   inputs.offset, inputs.gap, inputs.bodyGap, inputs.axialWindow, inputs.verticalSpread,
                                   inputs.outlierDistance,
                                   inputs.template].join('|');
@@ -1298,7 +1317,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       ? `${basis.protein}${(basis.chains || []).length ? ` chains ${basis.chains.join('+')}` : ''}`
       : 'no protein (empty micelle)';
     const style = basis?.placement_mode === 'self-assembly' ? 'self-assembly' : 'pre-assembled micelle';
-    return `${protein} · ${style} · ${basis?.aggregation_number} detergents · seed ${basis?.seed}`;
+    const cell = basis?.box_shape && basis.box_shape !== 'rectangular'
+      ? ` · ${basis.box_shape} cell · d ${Number(basis.box_minimum_image_nm).toFixed(2)} nm` : '';
+    return `${protein} · ${style} · ${basis?.aggregation_number} detergents · seed ${basis?.seed}${cell}`;
   }
 
   // The cost sentence is the server's own measurement, not the plan's headline: the numbers a reader sees are the
@@ -1407,6 +1428,9 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     if (inputs.initial_z) query.set('initial_z_nm', inputs.initial_z);
     if (inputs.initial_x) query.set('initial_x_nm', inputs.initial_x);
     if (inputs.initial_y) query.set('initial_y_nm', inputs.initial_y);
+    // A shaped cell is derived from the system, and the server ignores the three initial lengths for it; stating the
+    // shape in the query is what lets the preview be the run's own cell.
+    if (inputs.boxShape && inputs.boxShape !== 'rectangular') query.set('box_shape', inputs.boxShape);
     if (inputs.offset) query.set('belt_offset_nm', inputs.offset);
     if (inputs.gap) query.set('belt_gap_nm', inputs.gap);
     if (inputs.bodyGap) query.set('min_body_gap_nm', inputs.bodyGap);
@@ -1501,24 +1525,29 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // The box the build writes, as twelve lines. NGL's own `unitcell` representation needs a file-level cell record;
   // this is the span the preview already states numerically, drawn around the frame on screen. Box lengths are nm,
   // NGL's coordinates are Angstrom, so the edges are the nm length times ten.
-  function addPreviewBox(stage, boxNm, originNm) {
+  function addPreviewBox(stage, boxNm, originNm, vectorsNm) {
     const lengths = (boxNm || []).slice(0, 3).map(Number);
     const origin = (originNm || [0, 0, 0]).slice(0, 3).map(Number);
-    if (lengths.length !== 3 || lengths.some(value => !Number.isFinite(value) || value <= 0)) return null;
-    // The system is wrapped into the cell after centring, so the cell is always 0..length. The origin is kept
-    // explicit for the case a future placement writes a cell elsewhere; it is zero today.
-    const lo = origin.map(value => value * 10);
-    const hi = lengths.map((value, axis) => (origin[axis] + value) * 10);
-    const corners = [];
-    for (const z of [lo[2], hi[2]]) for (const y of [lo[1], hi[1]]) for (const x of [lo[0], hi[0]]) {
-      corners.push([x, y, z]);
+    const vectors = (Array.isArray(vectorsNm) && vectorsNm.length === 3
+      && vectorsNm.every(row => Array.isArray(row) && row.length === 3))
+      ? vectorsNm.map(row => row.map(Number)) : null;
+    if (!vectors && (lengths.length !== 3 || lengths.some(value => !Number.isFinite(value) || value <= 0))) return null;
+    // A corner is the origin plus one of the eight sums of the cell's three vectors; a rectangular cell is just the
+    // diagonal case. The origin is kept explicit for a cell written elsewhere; it is zero today.
+    const vectorsAngstrom = vectors
+      ? vectors.map(row => row.map(value => value * 10))
+      : [[lengths[0] * 10, 0, 0], [0, lengths[1] * 10, 0], [0, 0, lengths[2] * 10]];
+    const base = origin.map(value => value * 10);
+    const cornersExact = [];
+    for (const z of [0, 1]) for (const y of [0, 1]) for (const x of [0, 1]) {
+      cornersExact.push([0, 1, 2].map(axis => base[axis] + x * vectorsAngstrom[0][axis]
+        + y * vectorsAngstrom[1][axis] + z * vectorsAngstrom[2][axis]));
     }
-    // A corner's index is `x + 2y + 4z`; the twelve edges vary one bit.
     const shape = new NGL.Shape('unit cell');
     const colour = [0.34, 0.37, 0.42];
     for (let first = 0; first < 8; first += 1) for (let bit = 0; bit < 3; bit += 1) {
       const second = first | (1 << bit);
-      if (second !== first) shape.addCylinder(corners[first], corners[second], colour, 0.25);
+      if (second !== first) shape.addCylinder(cornersExact[first], cornersExact[second], colour, 0.25);
     }
     const box = stage.addComponentFromObject(shape);
     box.addRepresentation('buffer');
@@ -1610,6 +1639,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
     host.previewProteinResidues = Number(proteinResidues) || 0;
     host.previewBox = Array.isArray(basis?.box_nm) ? basis.box_nm : null;
     host.previewBoxOrigin = Array.isArray(basis?.box_origin_nm) ? basis.box_origin_nm : null;
+    host.previewBoxVectors = Array.isArray(basis?.box_vectors_nm) ? basis.box_vectors_nm : null;
     ribbonNote('');
     // Which draw this is. NGL resolves a `loadFile` whenever the file arrives, so a derive pressed while an earlier
     // frame is still loading would otherwise add the older picture on top of the newer one: a draw that is no longer
@@ -1651,7 +1681,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
         // Both of the module's answers go on the representation: the radius each bead's own size class gives it, and
         // the colour its type family gives it.
         drawPreviewRepresentations();
-        addPreviewBox(stage, host.previewBox, host.previewBoxOrigin);
+        addPreviewBox(stage, host.previewBox, host.previewBoxOrigin, host.previewBoxVectors);
         drawPreviewProblems(stage, basis);
         stage.autoView();
         stage.handleResize();
@@ -1938,6 +1968,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   }
   field('aggregation_number').addEventListener('input', loadEstimate);
   field('pdc_placement_mode')?.addEventListener('change', () => { store(); syncSummary(); checkReadiness(); previewMoved(); });
+  field('box_shape')?.addEventListener('change', () => { store(); syncBoxShape(); syncSummary(); checkReadiness(); previewMoved(); });
   // The shape source and its inputs: each is a different question for the preview, so an existing frame is marked
   // stale rather than redrawn -- resolving a library can read a whole trajectory. The stored list is not re-read
   // by this listener; it is read on mount, after a submit, and when the detergent changes.
@@ -2198,6 +2229,7 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
   // belt-less footprint, because only a placement can measure the belt's radial reach; a cell Auto wrote is therefore
   // always the one the picture showed.
   pdcNode('.pdc-auto-box')?.addEventListener('click', async () => {
+    if ((field('box_shape')?.value || 'rectangular') !== 'rectangular') return;
     if (!field('protein').value) {
       notice('Choose a protein: an empty micelle has no structure to measure a box from.');
       return;
@@ -2292,6 +2324,8 @@ function createPdcNewRun({ form, selectTab, refreshJobs }) {
       // Each launch button states its own choice, always: a run asked to share a device must not be readable as one
       // that asked to queue beside it.
       payload.gpu_sharing = sharing;
+      // The cell shape is a choice, stated always: a shaped run must not be readable as a rectangular one.
+      payload.box_shape = field('box_shape')?.value || 'rectangular';
       // Admission asks the preview's own box question before the job exists, and that can coarse-grain a protein it
       // has not cached yet: a queue POST therefore gets a longer deadline than the shared 10 s default.
       await api('/', {method: 'POST', headers: {'Content-Type': 'application/json'},
