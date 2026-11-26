@@ -17,6 +17,7 @@ import { $, api, artifactText, artifactUrl, pollMilliseconds } from '/static/js/
 
 const KIND = 'pdc-structure';
 const OVERVIEW = 'trajectory-overview';
+const INTERACTION = 'pdc-interaction-energy';
 const UNSETTLED = ('queued running').split(' ');
 
 //: The kind's own four thresholds, in the order the options disclosure states them. The keys are the producer's
@@ -180,7 +181,7 @@ const csvCell = (value) => {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
-function csvText(body, overview) {
+function csvText(body, overview, interaction) {
   const rows = [['section', 'metric', 'value', 'unit']];
   const add = (section, name, value, unit = '') => {
     if (value === null || value === undefined || value === '') return;
@@ -217,9 +218,12 @@ function csvText(body, overview) {
     add('overview', 'rmsd_mean', data.rmsd_nm?.mean, 'nm');
     add('overview', 'rmsf_mean', data.rmsf_nm?.mean, 'nm');
     add('overview', 'rg_mean', data.gyration_nm?.mean, 'nm');
-    for (const [term, summary] of Object.entries(data.energy?.components || {})) {
-      add('overview', `energy_${term}`, summary?.mean, 'kJ/mol');
-    }
+  }
+  for (const pair of interaction?.data?.pairs || []) {
+    const name = `${pair.first}_${pair.second}`;
+    add('interaction', `${name}_lj_sr_mean`, pair.lj_sr_mean_kj_mol, 'kJ/mol');
+    add('interaction', `${name}_coul_sr_mean`, pair.coul_sr_mean_kj_mol, 'kJ/mol');
+    add('interaction', `${name}_total_mean`, pair.total_mean_kj_mol, 'kJ/mol');
   }
   return `${rows.map(row => row.map(csvCell).join(',')).join('\n')}\n`;
 }
@@ -232,6 +236,7 @@ export function createPdcAnalysis() {
   let attempts = [];
   let record = null;
   let overview = null;
+  let interaction = null;
   let note = '';
   let busy = false;
   let token = 0;
@@ -327,6 +332,7 @@ export function createPdcAnalysis() {
     attempts = [];
     record = null;
     overview = null;
+    interaction = null;
     note = '';
     busy = false;
     updateControls();
@@ -373,8 +379,23 @@ export function createPdcAnalysis() {
     record = answer && typeof answer === 'object' ? answer : null;
     overview = await readOverview(job, attempts);
     if (mine !== token) return;
+    interaction = await readInteraction(job, attempts);
+    if (mine !== token) return;
     render();
     schedule(job, mine);
+  }
+
+  async function readInteraction(job, tasks) {
+    const task = newestTask(tasks, INTERACTION);
+    if (!task) return {missing: true};
+    if (UNSETTLED.includes(task.status)) return {missing: true, pending: task};
+    if (task.status !== 'completed') return {missing: true, failed: task};
+    try {
+      return {task, data: await api(`/api/jobs/${encodeURIComponent(job.id)}/${INTERACTION}`)};
+    } catch (error) {
+      if (error.status === 404) return {missing: true};
+      return {missing: true, error: `The interaction energy could not be read: ${error.message}`};
+    }
   }
 
   async function readOverview(job, tasks) {
@@ -399,7 +420,7 @@ export function createPdcAnalysis() {
   function schedule(job, mine) {
     clearTimer();
     if (!attempts.some(task => UNSETTLED.includes(task.status)
-            && (task.kind === KIND || task.kind === OVERVIEW))) return;
+            && (task.kind === KIND || task.kind === OVERVIEW || task.kind === INTERACTION))) return;
     timer = setTimeout(() => {
       timer = null;
       if (mine === token && current && current.id === job.id) refresh(mine).catch(() => {});
@@ -468,11 +489,11 @@ export function createPdcAnalysis() {
     const lines = [];
     if (note) lines.push(note);
     const pending = attempts.filter(task => UNSETTLED.includes(task.status)
-      && (task.kind === KIND || task.kind === OVERVIEW));
+      && (task.kind === KIND || task.kind === OVERVIEW || task.kind === INTERACTION));
     if (pending.length) {
       lines.push(pending.map(task => `${task.kind} ${task.status}`).join(' · '));
     }
-    for (const kind of [KIND, OVERVIEW]) {
+    for (const kind of [KIND, OVERVIEW, INTERACTION]) {
       const task = newestTask(attempts, kind);
       if (!task || UNSETTLED.includes(task.status) || task.status === 'completed') continue;
       lines.push(`The latest ${kind} attempt ${task.status}: ${task.error || 'no reason recorded'}.`);
@@ -632,15 +653,6 @@ export function createPdcAnalysis() {
     return button;
   }
 
-  function energyRows(data) {
-    const rows = [];
-    for (const [term, summary] of Object.entries(data.energy?.components || {})) {
-      if (number(summary?.mean) === null) continue;
-      rows.push([[term, false], [fixed(summary.mean, 1), true]]);
-    }
-    return rows;
-  }
-
   function overviewReason() {
     return overview?.error || (overview?.failed
       ? `The latest overview attempt ${overview.failed.status}: ${overview.failed.error || 'no reason recorded'}.`
@@ -675,22 +687,54 @@ export function createPdcAnalysis() {
     return sub;
   }
 
-  function overviewEnergyTable(job) {
+  function interactionButton(job) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary';
+    button.textContent = 'Compute interaction energy';
+    button.disabled = busy || attempts.some(task => task.kind === INTERACTION && UNSETTLED.includes(task.status));
+    button.onclick = () => queue(INTERACTION, {});
+    return button;
+  }
+
+  function interactionEnergyTable(job) {
     const sub = document.createElement('div');
     sub.className = 'pds-sub pdc-energy-table';
-    sub.append(subHead('Energy terms', [['protein shape and energy', 'kind']]));
-    if (!overview || overview.missing) {
-      sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Read from the run’s own trajectory-overview record.</p>
-        <div class="pds-empty"><b>Not computed.</b> ${cell(overviewReason() || 'This run has no trajectory overview yet.')}</div>`);
+    sub.append(subHead('Receptor interaction energy', [['pdc-interaction-energy', 'kind'],
+                                                       ['short-range · not a free energy', 'gmx']]));
+    if (!interaction || interaction.missing) {
+      const reason = interaction?.error || (interaction?.failed
+        ? `The latest interaction-energy attempt ${interaction.failed.status}: ${interaction.failed.error || 'no reason recorded'}.`
+        : null);
+      sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Short-range Lennard-Jones plus reaction-field Coulomb
+        between the receptor and the detergent, the receptor itself, and water — from a rerun of the sampled frames.</p>
+        <div class="pds-empty"><b>Not computed.</b> ${cell(reason || 'This run has no receptor interaction energy yet.')}</div>`);
+      if (interaction?.pending) {
+        sub.insertAdjacentHTML('beforeend',
+          `<p class="pds-meta"><span class="pds-dot"></span> The interaction-energy attempt is ${cell(interaction.pending.status)}.</p>`);
+      } else if (job.status === 'completed') {
+        sub.append(interactionButton(job));
+      }
       return sub;
     }
-    const data = overview.data || {};
-    const energies = energyRows(data);
-    if (energies.length) {
-      sub.append(table([['Energy term', false], ['Mean (kJ/mol)', true]], energies));
-    } else {
-      sub.insertAdjacentHTML('beforeend', '<p class="pds-hint">This overview reports no energy terms.</p>');
+    const data = interaction.data || {};
+    const pairs = Array.isArray(data.pairs) ? data.pairs : [];
+    if (!pairs.length) {
+      sub.insertAdjacentHTML('beforeend', '<div class="pds-empty"><b>No pair rows.</b> The record carries no receptor interaction pair.</div>');
+      return sub;
     }
+    const rows = pairs.map(pair => [
+      [pair.label || `${pair.first} – ${pair.second}`, false],
+      [number(pair.lj_sr_mean_kj_mol) === null ? '—' : fixed(pair.lj_sr_mean_kj_mol, 1), true],
+      [number(pair.coul_sr_mean_kj_mol) === null ? '—' : fixed(pair.coul_sr_mean_kj_mol, 1), true],
+      [number(pair.total_mean_kj_mol) === null ? '—' : fixed(pair.total_mean_kj_mol, 1), true],
+    ]);
+    sub.append(table([['Pair', false], ['LJ-SR (kJ/mol)', true], ['Coul-SR (kJ/mol)', true],
+                      ['Total (kJ/mol)', true]], rows));
+    sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Mean over ${cell(thousands(data.sampling?.frames_sampled))}
+      frames; SEM in the record. Short-range LJ and reaction-field Coulomb only; the rows are not additive to the
+      total potential and exclude bonded terms.</p>`);
+    if (data.energy_absent) sub.append(meta('Energy absent:', data.energy_absent));
     return sub;
   }
 
@@ -762,7 +806,7 @@ export function createPdcAnalysis() {
     link(host, 'pdc-structure.json',
          relative ? downloadUrl(job, relative) : objectUrl(JSON.stringify(body, null, 2), 'application/json'),
          {download: relative ? null : 'pdc-structure.json'});
-    link(host, 'pdc-analysis.csv', objectUrl(csvText(body, overview), 'text/csv'), {download: 'pdc-analysis.csv'});
+    link(host, 'pdc-analysis.csv', objectUrl(csvText(body, overview, interaction), 'text/csv'), {download: 'pdc-analysis.csv'});
     for (const [name, path] of paths) link(host, name, downloadUrl(job, path));
     if (overview?.data) {
       link(host, 'trajectory-overview.json', downloadUrl(job, overview.jsonPath));
@@ -827,7 +871,7 @@ export function createPdcAnalysis() {
       [FIGURES.aggregation, 'Largest cluster and free detergents per sampled frame.'],
     ]);
     if (micelleFigures) host.append(micelleFigures);
-    host.append(cellRow(3, [rdfTable(record), contactsTable(record), overviewEnergyTable(current)]));
+    host.append(cellRow(3, [rdfTable(record), contactsTable(record), interactionEnergyTable(current)]));
     const analysisFigures = figureRow(current, paths, [
       [FIGURES.rdf, 'The four radial distribution curves on one axis.'],
       [FIGURES.proteinContacts, 'Protein–head and protein–tail contacts per sampled frame.'],

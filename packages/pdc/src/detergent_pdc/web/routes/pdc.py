@@ -72,6 +72,31 @@ def pdc_structure_api(job_id):
                     'source': str(path.relative_to(c.RUNS))})
 
 
+@blueprint.get('/api/jobs/<job_id>/pdc-interaction-energy')
+def pdc_interaction_energy_api(job_id):
+    """The newest published receptor interaction-energy record, or a 404 saying it has never been computed.
+
+    The record's `pairs` are the three receptor rows; the route only reads the analysis's own artifact and never
+    derives an energy itself.
+    """
+    c = coordinator()
+    try:
+        job = c.lookup(job_id)
+    except (KeyError, OSError):
+        abort(404, 'unknown run')
+    if job.get('run_type') != 'pdc':
+        abort(400, 'only a protein-detergent run holds the production leg this analysis reads')
+    found = newest_published(c, job, 'pdc-interaction-energy', 'pdc-interaction-energy.json')
+    if found is None:
+        abort(404, 'No receptor interaction energy has been published for this run. It is queued by hand from '
+                   'the PDC analysis tab, and it reruns the bounded production sample with energy groups.')
+    attempt, published, path = found
+    return jsonify({**published,
+                    'attempt': attempt.name,
+                    'published_at': datetime.fromtimestamp(attempt.stat().st_mtime, timezone.utc).isoformat(),
+                    'source': str(path.relative_to(c.RUNS))})
+
+
 @blueprint.post('/api/pdc/<job_id>/whole-trajectory')
 def rebuild_whole_trajectory_api(job_id):
     """Queue one rebuild of `whole.xtc` from `run.xtc`; the panel polls the GET route for its state."""

@@ -10,6 +10,24 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc-interaction-energy: receptor–detergent, receptor–receptor and receptor–water energies (2026-11-26).**
+  The user asked to split the energy table. The run's `.edr` carries no `energygrps`, so the total energy terms cannot
+  be decomposed from it. Built the planned `pdc-interaction-energy` kind
+  (`docs/plans/2026-11-09-pdc-analyses-definitions.md` §4, with the user's choices: the three receptor pairs, W-only
+  water, the same 199-frame sample, replacing the total-energy table): extract the leg's sample, write an index with
+  `Protein`, `Detergent`, `Water` and `System` (the run's MDP uses `tc-grps`/`comm-grps = System`), `grompp` a rerun
+  `.tpr` from the run's own `mdout.mdp`/`system.top`/`system.gro` with `energygrps = Protein Detergent Water`,
+  `mdrun -rerun` the sample with `-nb cpu` (GROMACS does not support multiple energy groups on the GPU), and read the
+  six `LJ-SR`/`Coul-SR` cross terms with `gmx energy`. The panel's total-energy table is replaced by three rows:
+  Receptor – detergent, Receptor only (protein–protein nonbonded), Receptor – water; each with LJ-SR, Coul-SR and
+  total means over the sample. The record states that these are short-range force-field terms, exclude bonded and
+  long-range/free-energy contributions, and do not add up to the whole-system potential.
+  Direct producer on `OG_2ydo_123_libconf_500ns-4`: 199 frames, **43.1 s**; receptor–detergent **-1929.34 kJ/mol**,
+  receptor only **-5720.47** (LJ -5405.79, Coul -314.68), receptor–water **-6612.61**; Coulomb is zero for the
+  neutral detergent and W groups. The live attempt is queued after the restart and recorded below.
+  Checks: full fast tier **3,229 passed / 1 xfailed**; full browser tier **435 passed**; interaction-energy unit
+  **2 passed**; ruff clean. The panel's browser case pins the three rows and that the total-energy table is gone.
+
 - **pdc-structure RDF: the receptor rows use the receptor's centre of mass and report the strongest shell (2026-11-26).**
   The user's literature method: RDF of the detergent around the receptor's centre of mass. The two protein rows now
   use `-ref "com of <protein selection> pbc"` (one reference point per frame) with the head and tail selections kept

@@ -6,7 +6,7 @@ run's own production leg through its `source_hook`, so the chosen trajectory is 
 """
 from dashboard.analysis.kinds import Kind
 
-from .analysis.runs import structure
+from .analysis.runs import interaction_energy, structure
 
 KINDS = (
     Kind(
@@ -19,4 +19,15 @@ KINDS = (
         "nm, molecules, and bead counts",
         records_gmx_version=True,
         source_hook=structure.sources),
+    Kind(
+        'pdc-interaction-energy',
+        (),
+        interaction_energy.run,
+        "Interaction energy \u00b7 receptor—detergent, receptor—receptor, receptor—water",
+        "Short-range Lennard-Jones and reaction-field Coulomb energies between the receptor and the detergent, the "
+        "receptor itself, and water, from a bounded rerun of the sampled production frames. It is not a decomposition "
+        "of the total potential and not a binding free energy.",
+        "kJ/mol",
+        records_gmx_version=True,
+        source_hook=interaction_energy.sources),
 )

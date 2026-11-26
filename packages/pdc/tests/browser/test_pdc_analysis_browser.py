@@ -43,6 +43,7 @@ FIGURE_NAMES = ('pdc-structure-rdf.png', 'pdc-structure-contacts-protein.png',
                 'pdc-structure-aggregation.png')
 ATTEMPT = 'analyses/pdc-structure/0002-20261124'
 OVERVIEW_DIRECTORY = 'analyses/trajectory-overview/0001-20261123'
+INTERACTION_DIRECTORY = 'analyses/pdc-interaction-energy/0001-20261123'
 
 
 def figure_paths():
@@ -116,6 +117,21 @@ V2 = {
     'figures': figure_paths(),
 }
 
+INTERACTION = {
+    'kind': 'pdc-interaction-energy', 'schema_version': 1,
+    'sampling': {'frames_sampled': 199, 'frames_in_file': 20001},
+    'pairs': [
+        {'first': 'protein', 'second': 'detergent', 'label': 'Receptor – detergent',
+         'lj_sr_mean_kj_mol': -1929.3, 'coul_sr_mean_kj_mol': 0.0, 'total_mean_kj_mol': -1929.3},
+        {'first': 'protein', 'second': 'protein', 'label': 'Receptor only',
+         'lj_sr_mean_kj_mol': -5405.8, 'coul_sr_mean_kj_mol': -314.7, 'total_mean_kj_mol': -5720.5},
+        {'first': 'protein', 'second': 'water', 'label': 'Receptor – water',
+         'lj_sr_mean_kj_mol': -6612.6, 'coul_sr_mean_kj_mol': 0.0, 'total_mean_kj_mol': -6612.6},
+    ],
+    'energy_absent': None,
+}
+
+
 V1 = {
     'kind': 'pdc-structure', 'schema_version': 1,
     'leg': {'name': 'CG assessment MD', 'stage_directory': '06_assessment',
@@ -181,11 +197,12 @@ class Stub:
     the published overview the artifact route serves when a `completed` overview task names a directory.
     """
 
-    def __init__(self, page, *, record=None, tasks=(), overview_data=None):
+    def __init__(self, page, *, record=None, tasks=(), overview_data=None, interaction_data=None):
         self.page = page
         self.record = record
         self.tasks = list(tasks)
         self.overview_data = overview_data
+        self.interaction_data = interaction_data
         self.posts = []
         self.summary_reads = 0
         self.after_post = None
@@ -193,6 +210,7 @@ class Stub:
         page.route(re.compile(r'/api/jobs\?limit=100$'), lambda route: route.fulfill(json=JOBS))
         page.route(re.compile(rf'/api/jobs/{JOB}/pdc-structure$'), self.structure)
         page.route(re.compile(rf'/api/jobs/{JOB}/trajectory-overview$'), self.overview)
+        page.route(re.compile(rf'/api/jobs/{JOB}/pdc-interaction-energy$'), self.interaction)
         page.route(re.compile(rf'/api/jobs/{JOB}/analyses\?view=summary$'), self.summary)
         page.route(re.compile(rf'/api/jobs/{JOB}/artifacts/'), self.artifact)
 
@@ -218,6 +236,19 @@ class Stub:
             self.after_post('trajectory-overview')
         route.fulfill(status=202, json={'id': 'queued-2', 'kind': 'trajectory-overview',
                                         'status': 'queued'})
+
+    def interaction(self, route):
+        if route.request.method == 'POST':
+            self.posts.append(('pdc-interaction-energy', route.request.post_data_json or {}))
+            if self.after_post:
+                self.after_post('pdc-interaction-energy')
+            route.fulfill(status=202, json={'id': 'queued-3', 'kind': 'pdc-interaction-energy',
+                                            'status': 'queued'})
+            return
+        if self.interaction_data is None:
+            route.fulfill(status=404, json={'error': 'No receptor interaction energy has been published.'})
+        else:
+            route.fulfill(json=self.interaction_data)
 
     def summary(self, route):
         self.summary_reads += 1
@@ -252,6 +283,10 @@ def publish(stub, record, *, overview_data=None):
 
 def overview_task():
     return task('trajectory-overview', 'completed', directory=OVERVIEW_DIRECTORY)
+
+
+def interaction_task():
+    return task('pdc-interaction-energy', 'completed', directory=INTERACTION_DIRECTORY)
 
 
 def grid_columns(locator):
@@ -424,13 +459,14 @@ def test_the_layout_separates_statistics_tables_and_figures(dashboard, live_page
     expect(micelle_row.locator('figure.analysis-figure')).to_have_count(2)
     assert abs(micelle_row.bounding_box()['width'] - body.bounding_box()['width']) <= 1
 
-    # The table row: one cell each for radial distribution, contacts and the energy terms, with no figure among them.
+    # The table row: one cell each for radial distribution, contacts and receptor interaction energy, with no figure
+    # among them.
     table_row = body.locator('.pdc-analysis-row.columns-3:not(.pdc-figure-row)')
     assert grid_columns(table_row) == 3
     expect(table_row.locator('.pds-sub')).to_have_count(3)
     expect(table_row.locator('.pds-sub', has_text='Radial distribution')).to_have_count(1)
     expect(table_row.locator('.pds-sub', has_text='Contacts')).to_have_count(1)
-    expect(table_row.locator('.pds-sub', has_text='Energy terms')).to_have_count(1)
+    expect(table_row.locator('.pds-sub', has_text='Receptor interaction energy')).to_have_count(1)
     expect(table_row.locator('figure.analysis-figure')).to_have_count(0)
     table_cells = table_row.locator('.pdc-row-cell')
     expect(table_cells).to_have_count(3)
@@ -534,6 +570,26 @@ def test_a_narrow_window_stacks_every_row(dashboard, live_page):
     page.set_viewport_size({'width': 600, 'height': 1000})
     opt_grid = page.locator('.analysis-options .opt-grid')
     assert grid_columns(opt_grid) == 1, opt_grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+    assert errors == [], errors
+
+
+def test_the_receptor_interaction_table_replaces_the_total_energy_terms(dashboard, live_page):
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
+    page, errors = live_page
+    Stub(page, record=V2, tasks=[overview_task(), interaction_task()],
+         overview_data=OVERVIEW, interaction_data=INTERACTION)
+    page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
+    body = page.locator('#pdc-analysis-body')
+    expect(body).to_contain_text('Receptor interaction energy', timeout=30000)
+
+    table = body.locator('.pds-sub', has_text='Receptor interaction energy')
+    expect(table.locator('tr', has_text='Receptor – detergent')).to_contain_text('-1929.3')
+    expect(table.locator('tr', has_text='Receptor only')).to_contain_text('-5720.5')
+    expect(table.locator('tr', has_text='Receptor – water')).to_contain_text('-6612.6')
+    expect(table).to_contain_text('not additive')
+    expect(table.get_by_role('button', name='Compute interaction energy')).to_have_count(0)
+    # The whole-system energy table is gone; the receptor rows are the energy table now.
+    expect(body.locator('.pds-sub', has_text='Energy terms')).to_have_count(0)
     assert errors == [], errors
 
 
