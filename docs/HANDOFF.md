@@ -10,6 +10,22 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc-structure RDF: the receptor rows use the receptor's centre of mass and report the strongest shell (2026-11-26).**
+  The user's literature method: RDF of the detergent around the receptor's centre of mass. The two protein rows now
+  use `-ref "com of <protein selection> pbc"` (one reference point per frame) with the head and tail selections kept
+  separate; the detergent–detergent rows keep their group reference and first contact peak. A receptor-centre curve
+  can have a small below-bulk depletion bump at short range, so its reported value is the **strongest shell**
+  (`strongest_peak`), not the first local maximum; the record adds `reference` (`com`/`group`) and `peak_kind`
+  (`strongest_shell`/`first_peak`), and the panel labels the rows `receptor COM → head` / `receptor COM → tail`.
+  The RDF maximum default is now **8 nm** (payload range 0.5–8.0), cut to half the shortest box edge as before; for
+  `OG_2ydo_123_libconf_500ns-4` (box 15.72 × 15.72 × 12.77 nm) the effective `r_max` is **6.3927 nm**. A replay on
+  that run (199 frames, 0–500 ns, `pbc` receptor COM) gives receptor COM→head **2.5 nm / g 21.4**, receptor
+  COM→tail **1.65 nm / g 38.6**, head–head first peak 0.45 nm / 25.5 and tail–tail 0.50 nm / 124.2 (the two packing
+  curves are unchanged). The 2 nm default remains on the older stored records; a new attempt is needed to read the
+  new method.
+  Checks: pdc-structure unit **30 passed**, pdc analysis + Run view browser **14 passed**, producer replay **61.9 s**,
+  ruff clean. The live attempt on `OG_2ydo_123_libconf_500ns-4` is queued after the restart.
+
 - **pdc: a resumed run keeps the settings its prepare derived; `pdc-structure` counts water contacts with a KD-tree,
   and the PDC analysis tab is a two-column grid (2026-11-26).** The reported failure: three `pdc-structure` attempts
   on `OG_2ydo_130_libconf_500ns_2nm_gap` (0001–0003) failed with `ValueError: the run records no detergent residue, so

@@ -108,7 +108,11 @@ function cutoffLine(body) {
 }
 
 function rdfLabel(curve) {
-  return curve.first === 'protein' ? `${curve.first}→${curve.second}` : `${curve.first}–${curve.second}`;
+  if (curve.first === 'protein' || curve.first === 'receptor') {
+    const reference = curve.reference === 'com' ? 'receptor COM' : curve.first;
+    return `${reference}→${curve.second}`;
+  }
+  return `${curve.first}–${curve.second}`;
 }
 
 function publishedMarkup(body, job, queue) {
@@ -155,7 +159,7 @@ function publishedMarkup(body, job, queue) {
       aggregation numbers are not reported. See the caveats below.</p>`}
     ${(body.rdf || []).length ? `<h4 class="pds-heading">Radial distribution</h4>
       <div class="pds-figures">${(body.rdf || []).map(curve => figure(
-        `${cell(rdfLabel(curve))}, first peak`,
+        `${cell(rdfLabel(curve))}, ${curve.peak_kind === 'strongest_shell' ? 'strongest shell' : 'first peak'}`,
         number(curve.first_peak_nm) === null ? '—' : fixed(curve.first_peak_nm, 2), 'nm')).join('')}</div>` : ''}
     <h4 class="pds-heading">Contacts</h4>
     <div class="pds-figures">

@@ -71,16 +71,20 @@ V2 = {
     'aggregation': {'largest_mean': 141.0, 'cluster_count_mean': 2.0, 'free_mean': 3.0,
                     'size_distribution': {'bins': [141, 2, 3], 'counts': [180, 180, 20]}},
     'rdf': [
-        {'tool': 'gmx rdf', 'first': 'protein', 'second': 'head', 'r_nm': [0.05, 0.1],
+        {'tool': 'gmx rdf', 'first': 'protein', 'second': 'head', 'reference': 'com',
+         'peak_kind': 'strongest_shell', 'r_nm': [0.05, 0.1],
          'g': [0.1, 0.2], 'norm': 'rdf', 'excl': False, 'bin_width_nm': 0.05, 'r_max_nm': 2.0,
          'first_peak_nm': 1.18, 'first_peak_g': 1.31},
-        {'tool': 'gmx rdf', 'first': 'protein', 'second': 'tail', 'r_nm': [0.05, 0.1],
+        {'tool': 'gmx rdf', 'first': 'protein', 'second': 'tail', 'reference': 'com',
+         'peak_kind': 'strongest_shell', 'r_nm': [0.05, 0.1],
          'g': [0.1, 0.2], 'norm': 'rdf', 'excl': False, 'bin_width_nm': 0.05, 'r_max_nm': 2.0,
          'first_peak_nm': 0.96, 'first_peak_g': 1.95},
-        {'tool': 'gmx rdf', 'first': 'head', 'second': 'head', 'r_nm': [0.05, 0.1],
+        {'tool': 'gmx rdf', 'first': 'head', 'second': 'head', 'reference': 'group',
+         'peak_kind': 'first_peak', 'r_nm': [0.05, 0.1],
          'g': [0.1, 0.2], 'norm': 'rdf', 'excl': True, 'bin_width_nm': 0.05, 'r_max_nm': 2.0,
          'first_peak_nm': 0.71, 'first_peak_g': 2.10},
-        {'tool': 'gmx rdf', 'first': 'tail', 'second': 'tail', 'r_nm': [0.05, 0.1],
+        {'tool': 'gmx rdf', 'first': 'tail', 'second': 'tail', 'reference': 'group',
+         'peak_kind': 'first_peak', 'r_nm': [0.05, 0.1],
          'g': [0.1, 0.2], 'norm': 'rdf', 'excl': True, 'bin_width_nm': 0.05, 'r_max_nm': 2.0,
          'first_peak_nm': 0.54, 'first_peak_g': 2.45},
     ],
@@ -351,7 +355,9 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
     expect(stats.locator('.pds-fig', has_text='Radius of gyration')).to_contain_text('3.21')
     expect(stats.locator('.pds-fig', has_text='Largest cluster')).to_contain_text('141')
     rdf_table = body.locator('.pds-sub', has_text='Radial distribution')
-    expect(rdf_table.locator('tr', has_text='protein → tail')).to_contain_text('0.96')
+    expect(rdf_table.locator('tr', has_text='receptor COM → tail')).to_contain_text('0.96')
+    expect(rdf_table.locator('tr', has_text='receptor COM → head')).to_contain_text('1.18')
+    expect(rdf_table).to_contain_text('strongest shell')
     contacts_table = body.locator('.pds-sub', has_text='Contacts')
     expect(contacts_table.locator('tr', has_text='water – head')).to_contain_text('1842')
     expect(body).to_contain_text('scientifically_validated: false')

@@ -3,9 +3,9 @@
 The definitions are `docs/plans/2026-11-09-pdc-analyses-definitions.md` §3 and the report schema v2 is
 `docs/plans/2026-11-24-pdc-complex-data-panel.md` §3.4. The leg is the run's own segmenter's latest playable segment
 -- the extension when it ran, else the assessment. It is sampled once, with `gmx trjconv`, and every tool reads that
-one file: `gmx gyrate` for the radius of gyration, `gmx rdf` for the radial distributions (protein→head,
-protein→tail, head–head, tail–tail), `gmx select` + `gmx mindist -on` for the pooled protein–detergent contacts, the
-protein–head / protein–tail groups and the water–head / water–tail bead counts.
+one file: `gmx gyrate` for the radius of gyration, `gmx rdf` for the radial distributions (receptor COM→head,
+receptor COM→tail, head–head, tail–tail), `gmx select` + `gmx mindist -on` for the protein–detergent groups and the
+pooled contact, and the producer's periodic KD-tree for the water–head / water–tail bead counts.
 
 The micelle membership is not re-derived. It is the run's own criterion, `pdc_assessment.assess_micelle`, applied
 frame by frame: tail beads within the run's `contact_nm`, the largest connected cluster. The gyration tensor is the
@@ -59,11 +59,12 @@ MINDIST_DISTANCE = 'mindist-distance.out'
 MINDIST_DISTRIBUTION = 'mindist-distance-distribution.xvg'
 #: The extraction's own output, deleted after clustering so only the file every tool reads is published.
 RAW_SAMPLE = 'sample-raw.xtc'
-#: The radial distribution's own interval: 0.05 nm bins (the interval measured in §1.1) and 2 nm. Both are the
-#: analysis's choice, not the run's (Q8); `r_max` is cut to half the shortest box edge because a minimum-image
-#: distance beyond it is not unique. The payload can override both (`validate_payload`).
+#: The radial distribution's own interval: 0.05 nm bins, out to 8 nm as the literature-style receptor-centre
+#: measurement needs the detergent shell (~2-3 nm). Both are the analysis's choice, not the run's (Q8); `r_max` is
+#: cut to half the shortest box edge because a minimum-image distance beyond it is not unique. The payload can
+#: override both (`validate_payload`).
 BIN_WIDTH_NM = 0.05
-R_MAX_NM = 2.0
+R_MAX_NM = 8.0
 #: The bead-contact cutoff. The run's own micelle contact distance is the smallest defensible default: it is a
 #: number the run recorded and the distance its own criterion already calls a contact (Q8's cutoff is the user's).
 CONTACT_NM = pdc_assessment.CONTACT_NM
@@ -73,7 +74,7 @@ WATER_CUTOFF_NM = 0.6
 #: The only residue name the water contact groups count. Ions are not water, so `SOLVENT_RESIDUES` is not reused.
 WATER_RESIDUE = 'W'
 #: The allowed range of each payload threshold (plan §3.3). A blank field means the default.
-THRESHOLD_RANGES = {'rdf_bin_nm': (0.01, 0.20), 'rdf_rmax_nm': (0.5, 4.0),
+THRESHOLD_RANGES = {'rdf_bin_nm': (0.01, 0.20), 'rdf_rmax_nm': (0.5, 8.0),
                     'contact_nm': (0.2, 1.5), 'water_cutoff_nm': (0.2, 1.5)}
 #: One PNG per plotted metric, published beside the report and named there (`figures`).
 FIGURES = ('pdc-structure-rdf.png', 'pdc-structure-contacts-protein.png', 'pdc-structure-contacts-water.png',
@@ -183,6 +184,19 @@ def first_peak(r_nm, g):
     for index in range(1, len(values) - 1):
         if values[index] > 0 and values[index] >= values[index - 1] and values[index] >= values[index + 1]:
             return float(r_nm[index]), values[index]
+    best = int(np.argmax(values))
+    return float(r_nm[best]), values[best]
+
+
+def strongest_peak(r_nm, g):
+    """The global maximum of `g`, as `(r_nm, g)`: the shell maximum the receptor-centre rows report.
+
+    A receptor-centre RDF can have a small depletion bump below bulk at short range; calling that the "first peak"
+    would report the wrong thing. The strongest point is the detergent shell, and the record states that kind.
+    """
+    values = [float(value) for value in g]
+    if not values:
+        return None, None
     best = int(np.argmax(values))
     return float(r_nm[best]), values[best]
 
@@ -589,21 +603,23 @@ def _note(figure, text):
     figure.text(0.01, 0.005, text, fontsize=7.5, color='#5a697d')
 
 
-def _rdf_label(first, second):
-    return f'{first}→{second}' if first == 'protein' else f'{first}–{second}'
+def _rdf_label(first, second, reference=None):
+    if first == 'protein':
+        return f'receptor COM→{second}' if reference == 'com' else f'protein→{second}'
+    return f'{first}–{second}'
 
 
 def draw_rdf_figure(path, rdf, thresholds, frames):
-    """The four g(r) curves on one axis, first peaks marked, pair named in the legend."""
+    """The g(r) curves on one axis, each pair's reported peak marked and named in the legend."""
     figure = _figure((10, 6))
     axis = figure.subplots()
     for entry, colour in zip(rdf, RDF_COLOURS):
         axis.plot(entry['r_nm'], entry['g'], color=colour, linewidth=1.4,
-                  label=_rdf_label(entry['first'], entry['second']))
+                  label=_rdf_label(entry['first'], entry['second'], entry.get('reference')))
         peak_r, peak_g = entry.get('first_peak_nm'), entry.get('first_peak_g')
         if peak_r is not None and peak_g is not None:
             axis.plot([peak_r], [peak_g], 'o', color=colour, markersize=4)
-    axis.set(xlabel='r (nm)', ylabel='g(r)', title='Radial distribution · first peaks marked')
+    axis.set(xlabel='r (nm)', ylabel='g(r)', title='Radial distribution · reported peaks marked')
     axis.legend(frameon=False)
     axis.grid(alpha=.18)
     _note(figure, f'{frames} sampled frames · bin {thresholds["rdf_bin_nm"]:g} nm · '
@@ -716,7 +732,9 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
         'figures': list(figures),
         'commands': commands,
         'method': ('one bounded sample of one production leg: gmx trjconv extracted it once, and gmx gyrate (Rg), '
-                   'gmx rdf (radial distributions) and the bead-contact pair counts read that one file. The protein '
+                   'gmx rdf (radial distributions) and the bead-contact pair counts read that one file. The two '
+                   "protein RDF rows use the receptor's centre of mass as one reference point and report the "
+                   'strongest shell; head–head and tail–tail report their first contact peak. The protein '
                    'groups are gmx mindist -on; the water groups are the same pair counts from a periodic KD-tree '
                    'over the sample, with gmx mindist as the fallback for a triclinic box. The '
                    "micelle membership is the run's own criterion (pdc_assessment.assess_micelle: tail beads "
@@ -732,18 +750,20 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
 def rdf_pairs(criterion, head_present):
     """The RDF pairs this report states, in report order, as `(first, second, reference, selection, excl)`.
 
-    Protein→head and protein→tail are the papers' two interfaces; head–head and tail–tail are the packing the
-    existing record already reported. A pair whose selection is empty is absent, never measured as zero.
+    Protein→head and protein→tail use the receptor's **center of mass** as one reference point, the literature-style
+    measurement of detergent organization around the receptor; head–head and tail–tail are the packing curves and
+    keep their group reference. A pair whose selection is empty is absent, never measured as zero.
     """
     residue, tails = criterion['detergent_residue'], criterion['tail_beads']
     head = _head_selection(residue, tails)
     tail = _tail_selection(residue, tails)
+    receptor = f'com of {_protein_selection(residue)} pbc'
     pairs = []
     if criterion['protein_present']:
         if head_present:
-            pairs.append(('protein', 'head', _protein_selection(residue), head, False))
+            pairs.append(('protein', 'head', receptor, head, False))
         if tails:
-            pairs.append(('protein', 'tail', _protein_selection(residue), tail, False))
+            pairs.append(('protein', 'tail', receptor, tail, False))
     if head_present:
         pairs.append(('head', 'head', head, head, True))
     if tails:
@@ -752,7 +772,12 @@ def rdf_pairs(criterion, head_present):
 
 
 def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present):
-    """The radial distributions this report states: protein→head, protein→tail, head–head and tail–tail."""
+    """The radial distributions this report states.
+
+    The receptor-centre rows report the **strongest shell** (`strongest_peak`); the detergent–detergent rows report
+    their **first contact peak** (`first_peak`), because a receptor-centre curve can have a depletion bump below bulk
+    at short range that is not the shell a reader means.
+    """
     entries = []
     for first, second, reference, selection, excl in rdf_pairs(criterion, head_present):
         name = f'rdf-{first}-{second}.xvg'
@@ -767,8 +792,11 @@ def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_pre
             raise RuntimeError(f'gmx rdf wrote no dataset for {first}–{second}')
         legend = next(iter(columns))
         g = columns[legend]
-        peak_r, peak_g = first_peak(r_nm, g)
+        peak_kind = 'strongest_shell' if first == 'protein' else 'first_peak'
+        peak_r, peak_g = (strongest_peak(r_nm, g) if peak_kind == 'strongest_shell' else first_peak(r_nm, g))
         entries.append({'tool': 'gmx rdf', 'first': first, 'second': second,
+                        'reference': 'com' if first == 'protein' else 'group',
+                        'peak_kind': peak_kind,
                         'r_nm': [round(value, 4) for value in r_nm],
                         'g': [round(value, 6) for value in g],
                         'norm': 'rdf', 'excl': excl,
@@ -1065,6 +1093,10 @@ def run(work, payload=None):
         'beads; the gyration tensor is the producer\'s own unweighted eigenvalues, so the two Rg numbers are '
         'not one measurement.',
         'Bead contacts, not hydrogen bonds: a Martini bead has no hydrogen, so gmx hbond cannot run on this system.',
+        "The two protein RDF rows use the receptor's centre of mass as a single reference point (the "
+        'literature-style measurement) and report the strongest shell; head–head and tail–tail use a group '
+        'reference and report their first contact peak. A receptor-centre curve can have a small depletion bump '
+        'below bulk at short range, which the first local maximum would otherwise mistake for the shell.',
         'The gyration-tensor eigenvalues, asphericity and relative shape anisotropy are the producer\'s own, '
         "unweighted calculation; gmx gyrate's axis components are a different quantity reported beside them.",
         'Molecules are brought into one periodic image around the first detergent molecule; an assembly wider than '

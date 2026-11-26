@@ -106,6 +106,13 @@ def test_first_peak_is_the_first_interior_maximum_and_falls_back_to_the_global_o
     assert structure.first_peak([], []) == (None, None)
 
 
+def test_strongest_peak_ignores_a_short_range_depletion_bump():
+    """The receptor-centre curve can have a below-bulk bump first; the shell is the highest point."""
+    assert structure.strongest_peak([0, 1, 2, 3], [0, 0.3, 2.0, 0.4]) == (2.0, 2.0)
+    assert structure.strongest_peak([0, 1, 2, 3], [0.2, 0.3, 0.1, 0.05]) == (1.0, 0.3)
+    assert structure.strongest_peak([], []) == (None, None)
+
+
 def test_the_report_carries_every_field_the_schema_names_and_never_a_validation_label():
     thresholds = {'rdf_bin_nm': 0.05, 'rdf_rmax_nm': 2.0, 'contact_nm': 0.6, 'water_cutoff_nm': 0.6}
     report = structure.build_report(
@@ -126,8 +133,8 @@ def test_the_report_carries_every_field_the_schema_names_and_never_a_validation_
 
 def test_the_threshold_defaults_and_ranges_are_the_plan():
     assert (structure.BIN_WIDTH_NM, structure.R_MAX_NM, structure.CONTACT_NM, structure.WATER_CUTOFF_NM) \
-        == (0.05, 2.0, 0.6, 0.6)
-    assert structure.THRESHOLD_RANGES == {'rdf_bin_nm': (0.01, 0.20), 'rdf_rmax_nm': (0.5, 4.0),
+        == (0.05, 8.0, 0.6, 0.6)
+    assert structure.THRESHOLD_RANGES == {'rdf_bin_nm': (0.01, 0.20), 'rdf_rmax_nm': (0.5, 8.0),
                                          'contact_nm': (0.2, 1.5), 'water_cutoff_nm': (0.2, 1.5)}
     assert structure.FIGURES == ('pdc-structure-rdf.png', 'pdc-structure-contacts-protein.png',
                                  'pdc-structure-contacts-water.png', 'pdc-structure-shape.png',
@@ -144,16 +151,17 @@ def test_the_payload_accepts_blank_fields_and_returns_the_given_values_as_number
 
 
 def test_the_payload_refuses_a_value_beyond_its_range_an_unknown_key_or_a_non_number():
-    for bad in ({'rdf_bin_nm': 0.001}, {'rdf_bin_nm': 0.5}, {'rdf_rmax_nm': 0.4}, {'rdf_rmax_nm': 4.5},
+    for bad in ({'rdf_bin_nm': 0.001}, {'rdf_bin_nm': 0.5}, {'rdf_rmax_nm': 0.4}, {'rdf_rmax_nm': 8.5},
                 {'contact_nm': 0.1}, {'contact_nm': 2.0}, {'water_cutoff_nm': 0.1},
                 {'water_cutoff_nm': 2.0}, {'nonsense': 1}, {'contact_nm': 'abc'},
                 {'contact_nm': math.nan}, {'contact_nm': math.inf}):
         with pytest.raises(ValueError):
             structure.validate_payload(bad)
+    assert structure.validate_payload({'rdf_rmax_nm': 8.0}) == {'rdf_rmax_nm': 8.0}
 
 
 def test_the_thresholds_use_the_run_own_contact_as_the_default():
-    assert structure.resolve_thresholds({}, 0.75) == {'rdf_bin_nm': 0.05, 'rdf_rmax_nm': 2.0,
+    assert structure.resolve_thresholds({}, 0.75) == {'rdf_bin_nm': 0.05, 'rdf_rmax_nm': 8.0,
                                                       'contact_nm': 0.75, 'water_cutoff_nm': 0.6}
     given = structure.resolve_thresholds({'contact_nm': 0.8, 'rdf_rmax_nm': 1.5}, 0.6)
     assert given['contact_nm'] == 0.8 and given['rdf_rmax_nm'] == 1.5
@@ -177,6 +185,9 @@ def test_the_rdf_pairs_report_protein_tail_between_the_head_curve_and_the_packin
     assert [(first, second) for first, second, *_rest in pairs] == [
         ('protein', 'head'), ('protein', 'tail'), ('head', 'head'), ('tail', 'tail')]
     assert [excl for *_rest, excl in pairs] == [False, False, True, True]
+    # The two protein rows use the receptor's centre of mass as one reference point; the packing rows keep a group.
+    assert pairs[0][2].startswith('com of ') and pairs[1][2].startswith('com of ')
+    assert pairs[2][2] == 'resname NG and not name T1 T2'
     assert 'name T1 T2' in pairs[1][3] and 'not name T1 T2' in pairs[0][3]
 
 
@@ -413,11 +424,15 @@ def test_the_rdf_entries_include_protein_tail_and_use_the_payload_interval(tmp_p
 
     assert [(entry['first'], entry['second']) for entry in entries] == [
         ('protein', 'head'), ('protein', 'tail'), ('head', 'head'), ('tail', 'tail')]
+    assert [entry['reference'] for entry in entries] == ['com', 'com', 'group', 'group']
+    assert [entry['peak_kind'] for entry in entries] == [
+        'strongest_shell', 'strongest_shell', 'first_peak', 'first_peak']
     assert {entry['bin_width_nm'] for entry in entries} == {0.1}
     assert {entry['r_max_nm'] for entry in entries} == {1.5}
     for call in calls:
         assert call['arguments'][call['arguments'].index('-bin') + 1] == '0.1'
         assert call['arguments'][call['arguments'].index('-rmax') + 1] == '1.5'
+    assert calls[0]['arguments'][calls[0]['arguments'].index('-ref') + 1].startswith('com of ')
 
 
 def test_the_sample_is_clustered_on_the_detergent_before_any_tool_reads_it():
