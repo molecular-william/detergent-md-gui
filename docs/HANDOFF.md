@@ -14,8 +14,12 @@ state, what is next, what is open, and the measurements and incidents a reader h
   `readers.MAX_FRAMES` is now **400** (was 200), so `trajectory-overview`, `pdc-structure` and
   `pdc-interaction-energy` sample up to 400 frames; a 20,001-frame leg now takes 393 at stride 51 (was 199 at
   101). The conformation-library extractor keeps its own separate 200-frame bound. Existing records keep their
-  200-frame samples until a new attempt is computed; the live PDC attempts are queued after the restart and their
-  new sample counts are recorded below.
+  200-frame samples until a new attempt is computed. On `OG_2ydo_123_libconf_500ns-4` the live attempts are now
+  `pdc-structure/0003` (393 frames, stride 51, **87.15 s**; receptor COM→head 2.55 nm/g 21.0, receptor COM→tail
+  2.05 nm/g 37.0, head–head 0.45 nm/24.8, tail–tail 0.50 nm/124.9), `pdc-interaction-energy/0002` (393 frames,
+  **52.15 s**; receptor–detergent -1930.1 kJ/mol, receptor only -5709.7, receptor–water -6639.6) and
+  `trajectory-overview/0002` (393 frames, **12.0 s**); the panel screenshot is
+  `docs/design/drafts/2026-11-26-pdc-analysis-400frames.png`.
   Checks: shared/PDC unit tests pin the 400 bound and its strides; full fast tier **3,229 passed / 1 xfailed**;
   full browser tier **435 passed**; ruff clean.
 
