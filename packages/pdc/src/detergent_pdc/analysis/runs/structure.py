@@ -59,6 +59,10 @@ MINDIST_DISTANCE = 'mindist-distance.out'
 MINDIST_DISTRIBUTION = 'mindist-distance-distribution.xvg'
 #: The extraction's own output, deleted after clustering so only the file every tool reads is published.
 RAW_SAMPLE = 'sample-raw.xtc'
+#: The RDF curves' own sample: the final window of the leg, so they describe the late organization rather than the
+#: whole trajectory. The other measurements keep the whole-leg sample.
+RDF_SAMPLE = 'rdf-sample.xtc'
+RDF_WINDOW_NS = 100.0
 #: The radial distribution's own interval: 0.05 nm bins, out to 8 nm as the literature-style receptor-centre
 #: measurement needs the detergent shell (~2-3 nm). Both are the analysis's choice, not the run's (Q8); `r_max` is
 #: cut to half the shortest box edge because a minimum-image distance beyond it is not unique. The payload can
@@ -107,6 +111,35 @@ def parse_xvg(path):
 def stride_for(frames_in_file, max_frames=MAX_FRAMES):
     """The existing frame bound: one frame in every `stride`, at most `max_frames` frames."""
     return readers.frame_stride(frames_in_file, max_frames)
+
+
+def rdf_window(first_ns, span_ns, frame_dt_ps, max_frames=MAX_FRAMES):
+    """The final RDF window: `min(100 ns, half the leg)`, and the stride that samples at most `max_frames`.
+
+    The user asked for the shorter of the final 100 ns and the final half of the leg. The window is a *time* window;
+    `frames_in_window` is its frame count and `stride` is the frame stride that keeps the sample within the bound.
+    `None` when the leg states no usable time span, so the caller can fall back to the whole-leg sample.
+    """
+    try:
+        first_ns = float(first_ns)
+        span_ns = float(span_ns)
+        frame_dt_ps = float(frame_dt_ps)
+    except (TypeError, ValueError):
+        return None
+    if not (span_ns > 0 and frame_dt_ps > 0):
+        return None
+    window_ns = min(RDF_WINDOW_NS, span_ns / 2.0)
+    start_ns = first_ns + span_ns - window_ns
+    frames_in_window = max(1, int(round(window_ns * 1000.0 / frame_dt_ps)))
+    stride = max(1, math.ceil(frames_in_window / int(max_frames)))
+    end_ns = first_ns + span_ns
+    return {'window_ns': round(window_ns, 6), 'start_ns': round(start_ns, 6),
+            'end_ns': round(end_ns, 6),
+            # `trjconv -e` includes a frame exactly at the end; stop half a step short so the window's frame count
+            # is the one the stride was computed for (a 100 ns, 25 ps window is 4000 frames, not 4001).
+            'extraction_end_ns': round(end_ns - frame_dt_ps / 2000.0, 6),
+            'frames_in_window': frames_in_window, 'stride': stride,
+            'basis': ('last 100 ns' if RDF_WINDOW_NS <= span_ns / 2.0 else 'last 50% of the leg')}
 
 
 def sample_arguments(frames_in_file, first_ns, dt_ps):
@@ -609,7 +642,7 @@ def _rdf_label(first, second, reference=None):
     return f'{first}–{second}'
 
 
-def draw_rdf_figure(path, rdf, thresholds, frames):
+def draw_rdf_figure(path, rdf, thresholds, frames, window=None):
     """The g(r) curves on one axis, each pair's reported peak marked and named in the legend."""
     figure = _figure((10, 6))
     axis = figure.subplots()
@@ -622,7 +655,8 @@ def draw_rdf_figure(path, rdf, thresholds, frames):
     axis.set(xlabel='r (nm)', ylabel='g(r)', title='Radial distribution · reported peaks marked')
     axis.legend(frameon=False)
     axis.grid(alpha=.18)
-    _note(figure, f'{frames} sampled frames · bin {thresholds["rdf_bin_nm"]:g} nm · '
+    where = (f' · final {window["window_ns"]:g} ns' if window else '')
+    _note(figure, f'{frames} sampled frames{where} · bin {thresholds["rdf_bin_nm"]:g} nm · '
                   f'r_max {thresholds["rdf_rmax_nm"]:g} nm · gmx rdf -norm rdf')
     figure.savefig(path, dpi=150)
 
@@ -697,10 +731,12 @@ def draw_aggregation_figure(path, aggregation, frames):
     figure.savefig(path, dpi=150)
 
 
-def write_figures(work, *, rdf, contact_groups, shape, aggregation, thresholds, frames):
+def write_figures(work, *, rdf, contact_groups, shape, aggregation, thresholds, frames,
+                  rdf_frames=None, rdf_window=None):
     """Write the five per-metric PNGs and return their names, in the report's order."""
     work = Path(work)
-    draw_rdf_figure(work / FIGURES[0], rdf, thresholds, frames)
+    draw_rdf_figure(work / FIGURES[0], rdf, thresholds, rdf_frames if rdf_frames is not None else frames,
+                    rdf_window)
     draw_contact_figure(work / FIGURES[1], contact_groups, 'protein', 'Protein–detergent contacts', frames)
     draw_contact_figure(work / FIGURES[2], contact_groups, 'water', 'Water-bead contacts', frames)
     draw_shape_figure(work / FIGURES[3], shape, frames)
@@ -731,8 +767,10 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
         'contacts': contacts,
         'figures': list(figures),
         'commands': commands,
-        'method': ('one bounded sample of one production leg: gmx trjconv extracted it once, and gmx gyrate (Rg), '
-                   'gmx rdf (radial distributions) and the bead-contact pair counts read that one file. The two '
+        'method': ('one production leg: gmx trjconv extracted a whole-leg sample for the shape, contacts and '
+                   'aggregation numbers, and a second final-window sample for the radial distributions; gmx gyrate '
+                   '(Rg) and the bead-contact pair counts read the whole-leg file, gmx rdf reads the final-window '
+                   'file. The two '
                    "protein RDF rows use the receptor's centre of mass as one reference point and report the "
                    'strongest shell; head–head and tail–tail report their first contact peak. The protein '
                    'groups are gmx mindist -on; the water groups are the same pair counts from a periodic KD-tree '
@@ -771,7 +809,7 @@ def rdf_pairs(criterion, head_present):
     return pairs
 
 
-def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present):
+def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_present, sample=SAMPLE):
     """The radial distributions this report states.
 
     The receptor-centre rows report the **strongest shell** (`strongest_peak`); the detergent–detergent rows report
@@ -781,7 +819,7 @@ def _rdf_entries(work, gmx, commands, structure, criterion, thresholds, head_pre
     entries = []
     for first, second, reference, selection, excl in rdf_pairs(criterion, head_present):
         name = f'rdf-{first}-{second}.xvg'
-        arguments = ['rdf', '-s', _work_name(work, structure), '-f', SAMPLE,
+        arguments = ['rdf', '-s', _work_name(work, structure), '-f', sample,
                      '-ref', reference, '-sel', selection,
                      '-bin', f'{thresholds["rdf_bin_nm"]:g}', '-rmax', f'{thresholds["rdf_rmax_nm"]:g}',
                      '-norm', 'rdf', '-o', name, *(['-excl'] if excl else [])]
@@ -974,6 +1012,21 @@ def run(work, payload=None):
     requested_rmax_nm = thresholds['rdf_rmax_nm']
     thresholds['rdf_rmax_nm'] = effective_rmax(requested_rmax_nm, box_nm)
 
+    rdf_info = rdf_window(header.get('first_ns'), header.get('time_ns'), header.get('dt_ps'))
+    rdf_sample = SAMPLE
+    if rdf_info is not None:
+        progress.report(f'pdc-structure: extracting the RDF sample from the final '
+                        f'{rdf_info["window_ns"]:g} ns')
+        rdf_arguments = ['-b', f'{rdf_info["start_ns"] * 1000:g}', '-e', f'{rdf_info["extraction_end_ns"] * 1000:g}',
+                         '-skip', str(rdf_info['stride'])]
+        _invoke(gmx, commands, 'extract RDF sample',
+                ['trjconv', '-s', _work_name(work, source), '-f', _work_name(work, trajectory),
+                 '-o', RDF_SAMPLE, *rdf_arguments], work, stdin='0\n', timeout=EXTRACT_TIMEOUT_S)
+        rdf_header = trajectory_header.read(structure, work / RDF_SAMPLE)
+        rdf_info['frames_sampled'] = rdf_header.get('frames') if rdf_header else None
+        rdf_info['extracted_trajectory'] = RDF_SAMPLE
+        rdf_sample = RDF_SAMPLE
+
     progress.report('pdc-structure: gmx gyrate (Rg)')
     _invoke(gmx, commands, 'gmx gyrate (Rg)',
             ['gyrate', '-s', _work_name(work, source), '-f', SAMPLE, '-o', 'gyrate.xvg',
@@ -1014,7 +1067,7 @@ def run(work, payload=None):
 
     head_present = measured['head_beads'] > 0
     water_present = measured['water_present']
-    rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present)
+    rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present, rdf_sample)
     group_plan = contact_group_plan(criterion, head_present, water_present)
     groups = _contact_groups(work, gmx, commands, source, group_plan, thresholds,
                              water_series=measured.get('water_contacts'),
@@ -1069,9 +1122,10 @@ def run(work, payload=None):
                 'last_ns': (round(first_ns + span_ns, 6) if first_ns is not None and span_ns is not None else None),
                 'span_ns': span_ns,
                 'frame_dt_ps': header.get('dt_ps'),
-                'read': ('one gmx trjconv sample extracted once and clustered on the detergent '
-                         '(sample.xtc), then every tool read that file; the header was read by '
-                         'trajectory_header.read')}
+                'read': ('one whole-leg gmx trjconv sample extracted and clustered on the detergent '
+                         '(sample.xtc) for shape, contacts and aggregation; a second final-window sample '
+                         '(rdf-sample.xtc) for the RDF curves; the header was read by trajectory_header.read'),
+                'rdf': rdf_info}
     micelle = {'definition': ('largest connected cluster of tail beads, run criterion '
                               '(pdc_assessment.assess_micelle)'),
                'contact_nm': criterion['contact_nm'],
@@ -1083,6 +1137,12 @@ def run(work, payload=None):
         f'{measured["frames"]} frames of {header["frames"]} (stride {stride}): the {MAX_FRAMES}-frame bound is a '
         'cost bound, not a sampling-science claim, and frames that far apart are neither independent nor a '
         'converged ensemble.',
+        (f'The RDF curves use their own sample: {rdf_info["frames_sampled"]} frames from the final '
+         f'{rdf_info["window_ns"]:g} ns (the shorter of 100 ns and half the leg; {rdf_info["basis"]}), while the '
+         'shape, contact and aggregation numbers use the whole-leg sample.'
+         if rdf_info else
+         'The RDF curves use the whole-leg sample because the leg states no usable time span for a final-window '
+         'sample.'),
         "These numbers describe this leg's coordinates only; they are not comparable with another run's, or with a "
         'leg of a different atom count.',
         f'Rg is gmx gyrate\'s mass-weighted radius over every {criterion["detergent_residue"]} bead in the sample; '
@@ -1136,7 +1196,9 @@ def run(work, payload=None):
                        'system was never rebuilt, and its numbers are not comparable with an extension leg\'s.')
 
     figures = write_figures(work, rdf=rdf, contact_groups=groups, shape=shape_summary,
-                            aggregation=aggregation, thresholds=thresholds, frames=measured['frames'])
+                            aggregation=aggregation, thresholds=thresholds, frames=measured['frames'],
+                            rdf_frames=(rdf_info or {}).get('frames_sampled') or measured['frames'],
+                            rdf_window=rdf_info)
     report = build_report(leg=leg, sampling=sampling, thresholds=thresholds, micelle=micelle,
                           shape=shape_summary, aggregation=aggregation, rdf=rdf, contacts=contacts,
                           figures=figures, commands=commands, caveats=caveats,

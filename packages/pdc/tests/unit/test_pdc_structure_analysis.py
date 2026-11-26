@@ -48,6 +48,20 @@ def test_the_existing_frame_bound_survives_every_length():
         assert len(range(0, frames, stride)) <= structure.MAX_FRAMES
 
 
+def test_the_rdf_window_is_the_shorter_of_100_ns_and_half_the_leg():
+    assert structure.rdf_window(0.0, 500.0, 25.0) == {
+        'window_ns': 100.0, 'start_ns': 400.0, 'end_ns': 500.0, 'extraction_end_ns': 499.9875,
+        'frames_in_window': 4000, 'stride': 10, 'basis': 'last 100 ns'}
+    assert structure.rdf_window(0.0, 160.0, 25.0) == {
+        'window_ns': 80.0, 'start_ns': 80.0, 'end_ns': 160.0, 'extraction_end_ns': 159.9875,
+        'frames_in_window': 3200, 'stride': 8, 'basis': 'last 50% of the leg'}
+    assert structure.rdf_window(0.0, 100.0, 25.0)['window_ns'] == 50.0
+    assert structure.rdf_window(0.0, 100.0, 25.0)['stride'] == 5
+    assert structure.rdf_window(0.0, 50.0, 25.0)['window_ns'] == 25.0
+    assert structure.rdf_window(0.0, None, 25.0) is None
+    assert structure.rdf_window(0.0, 500.0, None) is None
+
+
 def test_the_sample_is_extracted_with_the_stride_converted_to_the_files_own_step():
     arguments, stride = structure.sample_arguments(45_001, 0.0, 20.0)
     assert stride == 113

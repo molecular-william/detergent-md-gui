@@ -10,6 +10,19 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc-structure RDF: sample the final 100 ns or final 50%, whichever is shorter (2026-11-26).** The user's
+  request. The RDF curves now read their own `rdf-sample.xtc`, extracted from the final
+  `min(100 ns, half the leg)` window at a stride that gives at most 400 frames (a 500 ns leg: 400–500 ns, stride
+  10, **400 frames**). `trjconv -e` is stopped half a frame step short so the window's inclusive end frame doesn't
+  make it 401. The shape, contact and aggregation numbers keep the whole-leg 400-frame sample. The record's
+  `sampling.rdf` states the window, basis, frame count and stride; the RDF figure note and table hint state the
+  window, and a caveat says the RDF and the other numbers use different samples.
+  Direct producer on `OG_2ydo_123_libconf_500ns-4`: 400-frame RDF sample from 400–500 ns, **85.5 s**; receptor
+  COM→head **2.60 nm / g 22.88**, receptor COM→tail **1.95 nm / g 41.77**, head–head 0.45 nm / 26.16, tail–tail
+  0.50 nm / 126.82. The live `pdc-structure` attempt is queued after the restart and recorded below.
+  Checks: pdc-structure unit **31 passed**; full fast tier **3,229 passed / 1 xfailed**; full browser tier
+  **435 passed**; ruff clean.
+
 - **Analysis sampling: the shared frame bound is 400 by default (2026-11-26).** The user's request.
   `readers.MAX_FRAMES` is now **400** (was 200), so `trajectory-overview`, `pdc-structure` and
   `pdc-interaction-energy` sample up to 400 frames; a 20,001-frame leg now takes 393 at stride 51 (was 199 at

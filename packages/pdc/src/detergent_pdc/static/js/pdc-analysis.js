@@ -590,14 +590,19 @@ export function createPdcAnalysis() {
     const byPair = new Map(curves.map(curve => [`${curve.first}/${curve.second}`, curve]));
     const noProtein = body.protein_present === false;
     const receptorCom = curves.some(curve => curve.reference === 'com');
-    const hint = receptorCom
+    const rdfSampling = body.sampling?.rdf;
+    const window = rdfSampling
+      ? ` Sampled from the ${rdfSampling.basis} (${fixed(rdfSampling.window_ns, 0)} ns; `
+        + `${cell(thousands(rdfSampling.frames_sampled))} frames, stride ${cell(rdfSampling.stride)}).`
+      : '';
+    const hint = (receptorCom
       ? `How crowded the detergent is at a distance from the receptor or from another detergent. <b>g(r) = 1</b>
          is the bulk average. The two protein rows use the receptor's centre of mass as one reference point and
          report the strongest shell; head–head and tail–tail report their first contact peak. A pair this record
          does not carry says “not measured”.`
       : `How crowded the other beads are at a distance from the protein or from each other. <b>g(r) = 1</b> is the
          bulk average. This record predates the receptor-centre rows; its protein rows use every protein bead. A pair
-         this record does not carry says “not measured”.`;
+         this record does not carry says “not measured”.`) + window;
     sub.append(subHead('Radial distribution', [['gmx rdf', 'kind'], ['data only', 'gmx']]));
     sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">${hint}</p>`);
     const rows = RDF_PAIRS.map(pair => {
