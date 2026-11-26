@@ -40,8 +40,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
   two-track grid that becomes one per row at 900 px (`pdc.html`, `pdc-analysis.js`, `pdc.css`).
   Checks: resume/continue/GPU tests **36 passed**; pdc-structure unit **29 passed**; PDC analysis browser **14
   passed**; full fast tier **3,226 passed / 1 xfailed**; full browser tier **434 passed**; ruff clean on the
-  changed Python. The dashboard was not restarted for this slice: the coordinator fix and the panel template need a
-  restart (static JS/CSS are read per request), so check active jobs and restart it before judging the live tab.
+  changed Python. The dashboard was restarted at 11:10 HKT with no jobs active (transient unit, as before); a live
+  attempt `0005-20261126` (code `b967c22`) completed in **64.43 s** end to end with the same contact/RDF/shape
+  numbers and no `mindist` leftovers, and the live panel renders the two-column grid (1440 px: two 662 px tracks;
+  two figure tracks; screenshot `docs/design/drafts/2026-11-26-pdc-analysis-layout.png`).
 
 - **pdc: the New run form offers the validation panel's unit cells (2026-11-26).** Plan:
   `docs/plans/2026-11-26-pdc-cell-shapes.md`. The user's request, and their direction to take the cells from the
