@@ -23,8 +23,12 @@ state, what is next, what is open, and the measurements and incidents a reader h
   COM→tail **1.65 nm / g 38.6**, head–head first peak 0.45 nm / 25.5 and tail–tail 0.50 nm / 124.2 (the two packing
   curves are unchanged). The 2 nm default remains on the older stored records; a new attempt is needed to read the
   new method.
-  Checks: pdc-structure unit **30 passed**, pdc analysis + Run view browser **14 passed**, producer replay **61.9 s**,
-  ruff clean. The live attempt on `OG_2ydo_123_libconf_500ns-4` is queued after the restart.
+  Checks: full fast tier **3,227 passed / 1 xfailed**; full browser tier **434 passed**; pdc-structure unit
+  **30 passed**; pdc analysis + Run view browser **14 passed**; producer replay **61.9 s**; ruff clean. The live
+  attempt `0002-20261126` (code `319a0fb`, dashboard restarted first) completed in **73.33 s** with the same values;
+  the panel labels the two rows `receptor COM → head` / `receptor COM → tail` and reports **2.50 nm / g 21.40** and
+  **1.65 nm / g 38.65**, with the 8 → 6.3927 nm cut stated in the methods caveat (screenshot
+  `docs/design/drafts/2026-11-26-pdc-rdf-receptor-com.png`).
 
 - **pdc: a resumed run keeps the settings its prepare derived; `pdc-structure` counts water contacts with a KD-tree,
   and the PDC analysis tab is a two-column grid (2026-11-26).** The reported failure: three `pdc-structure` attempts
