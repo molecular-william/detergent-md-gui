@@ -54,8 +54,8 @@ def test_two_columns_sharing_one_legend_still_interleave_row_major(tmp_path):
 
 
 def test_the_frame_bound_is_the_pre_refactor_stride_table(tmp_path):
-    assert (structure.MAX_FRAMES, readers.MAX_FRAMES) == (200, 200)
-    assert [structure.stride_for(frames) for frames in (1, 199, 200, 201, 45001, 100000)] == [1, 1, 1, 2, 226, 500]
+    assert (structure.MAX_FRAMES, readers.MAX_FRAMES) == (400, 400)
+    assert [structure.stride_for(frames) for frames in (1, 199, 200, 201, 45001, 100000)] == [1, 1, 1, 1, 113, 250]
     with pytest.raises(ValueError, match='no frames'):
         structure.stride_for(0)
     with pytest.raises(ValueError, match='no frames'):

@@ -39,10 +39,10 @@ def test_xvg_without_legends_keeps_a_positional_name_rather_than_losing_the_colu
 
 
 def test_the_existing_frame_bound_survives_every_length():
-    """At most 200 frames, stride `ceil(frames / 200)`, exactly as `trajectory_overview` does it."""
+    """At most 400 frames, stride `ceil(frames / 400)`, exactly as `trajectory_overview` does it."""
     assert structure.stride_for(200) == 1
-    assert structure.stride_for(201) == 2
-    assert structure.stride_for(45001) == 226
+    assert structure.stride_for(201) == 1
+    assert structure.stride_for(45001) == 113
     for frames in (1, 199, 200, 201, 4_501, 45_001, 100_000):
         stride = structure.stride_for(frames)
         assert len(range(0, frames, stride)) <= structure.MAX_FRAMES
@@ -50,11 +50,11 @@ def test_the_existing_frame_bound_survives_every_length():
 
 def test_the_sample_is_extracted_with_the_stride_converted_to_the_files_own_step():
     arguments, stride = structure.sample_arguments(45_001, 0.0, 20.0)
-    assert stride == 226
-    assert arguments == ['-dt', '4520']
+    assert stride == 113
+    assert arguments == ['-dt', '2260']
     # A file whose first frame is not t = 0, or that states no step, keeps the exact frame stride.
-    assert structure.sample_arguments(45_001, 100.0, 20.0)[0] == ['-skip', '226']
-    assert structure.sample_arguments(4_501, 0.0, None)[0] == ['-skip', '23']
+    assert structure.sample_arguments(45_001, 100.0, 20.0)[0] == ['-skip', '113']
+    assert structure.sample_arguments(4_501, 0.0, None)[0] == ['-skip', '12']
 
 
 def test_gyration_tensor_is_ordered_and_scales_with_the_square_of_the_coordinates():

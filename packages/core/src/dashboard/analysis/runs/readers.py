@@ -14,9 +14,9 @@ from pathlib import Path
 
 import numpy as np
 
-#: The most frames one analysis samples. A 900 ns CG leg writes 45,000 frames; 200 keeps a pass short while still
-#: showing the shape of the series.
-MAX_FRAMES = 200
+#: The most frames one analysis samples. A 900 ns CG leg writes 45,000 frames; 400 keeps a pass short while
+#: giving the PDC tables a denser sample.
+MAX_FRAMES = 400
 
 #: The structure names a stage writes beside its trajectory, preferred in this order. A leg may also leave an
 #: equilibrium gro; `run.gro` is the one its production leg wrote.

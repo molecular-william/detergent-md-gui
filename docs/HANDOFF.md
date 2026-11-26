@@ -10,6 +10,15 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **Analysis sampling: the shared frame bound is 400 by default (2026-11-26).** The user's request.
+  `readers.MAX_FRAMES` is now **400** (was 200), so `trajectory-overview`, `pdc-structure` and
+  `pdc-interaction-energy` sample up to 400 frames; a 20,001-frame leg now takes 393 at stride 51 (was 199 at
+  101). The conformation-library extractor keeps its own separate 200-frame bound. Existing records keep their
+  200-frame samples until a new attempt is computed; the live PDC attempts are queued after the restart and their
+  new sample counts are recorded below.
+  Checks: shared/PDC unit tests pin the 400 bound and its strides; full fast tier **3,229 passed / 1 xfailed**;
+  full browser tier **435 passed**; ruff clean.
+
 - **pdc-interaction-energy: receptor–detergent, receptor–receptor and receptor–water energies (2026-11-26).**
   The user asked to split the energy table. The run's `.edr` carries no `energygrps`, so the total energy terms cannot
   be decomposed from it. Built the planned `pdc-interaction-energy` kind
