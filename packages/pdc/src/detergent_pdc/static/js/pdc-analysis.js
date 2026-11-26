@@ -237,6 +237,7 @@ export function createPdcAnalysis() {
   const title = () => $('#pdc-analysis-title');
   const identity = () => $('#pdc-analysis-identity');
   const status = () => $('#pdc-analysis-status');
+  const stats = () => $('#pdc-analysis-stats');
   const body = () => $('#pdc-analysis-body');
 
   function clearTimer() {
@@ -484,50 +485,75 @@ export function createPdcAnalysis() {
     return paths;
   }
 
-  function figureGrid(host) {
-    // The per-metric PNGs sit two to a row: each section keeps one grid at its end, and the overview's own image joins it.
-    const last = host.lastElementChild;
-    if (last && last.classList.contains('pds-figure-grid')) return last;
+  function statGrid(metrics) {
     const grid = document.createElement('div');
-    grid.className = 'pds-figure-grid';
-    host.append(grid);
+    grid.className = 'pds-figures pdc-stat-grid';
+    grid.innerHTML = metrics;
     return grid;
   }
 
-  function appendFigure(host, figure) {
-    figureGrid(host).append(figure);
+  function figureRow(job, paths, specs) {
+    // One row of figures, one equal column each. A figure the record does not carry is simply absent.
+    const cells = [];
+    for (const [name, caption] of specs) {
+      const path = paths.get(name);
+      if (!path) continue;
+      const cell = document.createElement('div');
+      cell.className = 'pdc-row-cell pdc-figure-cell';
+      cell.append(imageFigure(job, path, caption));
+      cells.push(cell);
+    }
+    if (!cells.length) return null;
+    const row = document.createElement('div');
+    row.className = `pdc-analysis-row pdc-figure-row columns-${cells.length}`;
+    row.append(...cells);
+    return row;
   }
 
-  function appendImage(host, job, paths, name, caption) {
-    const path = paths.get(name);
-    if (path) appendFigure(host, imageFigure(job, path, caption));
+  function cellRow(columns, children) {
+    const row = document.createElement('div');
+    row.className = `pdc-analysis-row columns-${columns}`;
+    for (const child of children) {
+      if (!child) continue;
+      const cell = document.createElement('div');
+      cell.className = 'pdc-row-cell';
+      cell.append(child);
+      row.append(cell);
+    }
+    return row;
   }
 
-  function micelleSection(job, body, paths) {
+  function micelleStats(body) {
     const sub = document.createElement('div');
-    // The tab's grid pairs this section with the options in its first row.
-    sub.className = 'pds-sub pds-micelle';
+    sub.className = 'pds-sub pdc-micelle-stats';
     const shape = body.shape_nm || {};
     const aggregation = body.aggregation || {};
     const rg = shape.rg || {};
     const asphericity = shape.asphericity || shape.asphericity_nm2 || {};
     const anisotropy = shape.relative_shape_anisotropy || {};
     sub.append(subHead('Micelle', [['pdc-structure', 'kind'], ['gmx gyrate · read-only', 'gmx']]));
-    sub.insertAdjacentHTML('beforeend', `<div class="pds-figures">
+    sub.append(statGrid(`
       ${metric('Radius of gyration', fixed(rg.mean, 2), 'nm')}
       ${metric('Largest cluster', fixed(aggregation.largest_mean, 1), 'molecules')}
       ${metric('Free detergents', fixed(aggregation.free_mean, 1), 'molecules')}
       ${metric('Clusters', fixed(aggregation.cluster_count_mean, 1))}
       ${metric('Asphericity', fixed(asphericity.mean, 3), 'nm²')}
       ${metric('Relative shape anisotropy', fixed(anisotropy.mean, 3))}
-    </div>`);
+    `));
     sub.append(meta('Subject:', body.micelle?.subject || shape.subject || 'the run’s detergent micelle'));
-    appendImage(sub, job, paths, FIGURES.shape, 'Radius of gyration and the shape numbers over the sampled frames.');
-    appendImage(sub, job, paths, FIGURES.aggregation, 'Largest cluster and free detergents per sampled frame.');
     return sub;
   }
 
-  function rdfSection(job, body, paths) {
+  function micellePlaceholder() {
+    const sub = document.createElement('div');
+    sub.className = 'pds-sub pdc-micelle-stats';
+    sub.append(subHead('Micelle', [['pdc-structure', 'kind']]));
+    sub.insertAdjacentHTML('beforeend', '<div class="pds-empty"><b>Not computed.</b> Compute structure to publish '
+      + 'the micelle shape and aggregation numbers.</div>');
+    return sub;
+  }
+
+  function rdfTable(body) {
     const sub = document.createElement('div');
     sub.className = 'pds-sub';
     const curves = Array.isArray(body.rdf) ? body.rdf : [];
@@ -545,11 +571,10 @@ export function createPdcAnalysis() {
               [curve ? fixed(curve.first_peak_g, 2) : '—', true]];
     });
     sub.append(table([['Pair', false], ['First peak (nm)', true], ['g at peak', true]], rows));
-    appendImage(sub, job, paths, FIGURES.rdf, 'The four radial distribution curves on one axis.');
     return sub;
   }
 
-  function contactsSection(job, body, paths) {
+  function contactsTable(body) {
     const sub = document.createElement('div');
     sub.className = 'pds-sub';
     const contacts = body.contacts || {};
@@ -578,8 +603,6 @@ export function createPdcAnalysis() {
                  [`${fixed(contacts.mean, 0)} ± ${fixed(contacts.sem, 1)}`, true]]);
     }
     sub.append(table([['Group', false], ['Cutoff (nm)', true], ['Mean ± SEM (beads)', true]], rows));
-    appendImage(sub, job, paths, FIGURES.proteinContacts, 'Protein–head and protein–tail contacts per sampled frame.');
-    appendImage(sub, job, paths, FIGURES.waterContacts, 'Water–head and water–tail bead contacts per sampled frame.');
     return sub;
   }
 
@@ -602,17 +625,20 @@ export function createPdcAnalysis() {
     return rows;
   }
 
-  function overviewSection(job) {
+  function overviewReason() {
+    return overview?.error || (overview?.failed
+      ? `The latest overview attempt ${overview.failed.status}: ${overview.failed.error || 'no reason recorded'}.`
+      : null);
+  }
+
+  function overviewStats(job) {
     const sub = document.createElement('div');
-    sub.className = 'pds-sub';
+    sub.className = 'pds-sub pdc-overview-stats';
     sub.append(subHead('Protein shape and energy', [['trajectory-overview', 'kind'], ['read, not recomputed', 'gmx']]));
     if (!overview || overview.missing) {
-      const reason = overview?.error || (overview?.failed
-        ? `The latest overview attempt ${overview.failed.status}: ${overview.failed.error || 'no reason recorded'}.`
-        : null);
       sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Read from the run’s own <b>trajectory-overview</b>
         record; this tab does not run a second pass for these numbers.</p>
-        <div class="pds-empty"><b>Not computed.</b> ${cell(reason || 'This run has no trajectory overview yet.')}</div>`);
+        <div class="pds-empty"><b>Not computed.</b> ${cell(overviewReason() || 'This run has no trajectory overview yet.')}</div>`);
       if (overview?.pending) {
         sub.insertAdjacentHTML('beforeend',
           `<p class="pds-meta"><span class="pds-dot"></span> The overview attempt is ${cell(overview.pending.status)}.</p>`);
@@ -623,18 +649,43 @@ export function createPdcAnalysis() {
     }
     const data = overview.data || {};
     sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Read from the run’s existing trajectory-overview record
-      (the core kind on the same production leg). These are summary values; the overview’s own PNG is linked below.</p>
-      <div class="pds-figures">
-        ${metric('RMSD', fixed(data.rmsd_nm?.mean, 2), 'nm')}
-        ${metric('RMSF, mean', fixed(data.rmsf_nm?.mean, 2), 'nm')}
-        ${metric('Rg, protein', fixed(data.gyration_nm?.mean, 2), 'nm')}
-      </div>`);
-    const energies = energyRows(data);
-    if (energies.length) sub.append(table([['Energy term', false], ['Mean (kJ/mol)', true]], energies));
+      (the core kind on the same production leg).</p>`);
+    sub.append(statGrid(`
+      ${metric('RMSD', fixed(data.rmsd_nm?.mean, 2), 'nm')}
+      ${metric('RMSF, mean', fixed(data.rmsf_nm?.mean, 2), 'nm')}
+      ${metric('Rg, protein', fixed(data.gyration_nm?.mean, 2), 'nm')}
+    `));
     if (data.energy_absent) sub.append(meta('Energy absent:', data.energy_absent));
-    const image = imageFigure(job, overview.pngPath, 'The overview’s own figure: RMSD, radius of gyration and the '
-      + 'sampled energy trace.');
-    appendFigure(sub, image);
+    return sub;
+  }
+
+  function overviewEnergyTable(job) {
+    const sub = document.createElement('div');
+    sub.className = 'pds-sub pdc-energy-table';
+    sub.append(subHead('Energy terms', [['protein shape and energy', 'kind']]));
+    if (!overview || overview.missing) {
+      sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Read from the run’s own trajectory-overview record.</p>
+        <div class="pds-empty"><b>Not computed.</b> ${cell(overviewReason() || 'This run has no trajectory overview yet.')}</div>`);
+      return sub;
+    }
+    const data = overview.data || {};
+    const energies = energyRows(data);
+    if (energies.length) {
+      sub.append(table([['Energy term', false], ['Mean (kJ/mol)', true]], energies));
+    } else {
+      sub.insertAdjacentHTML('beforeend', '<p class="pds-hint">This overview reports no energy terms.</p>');
+    }
+    return sub;
+  }
+
+  function overviewFigureBlock(job) {
+    if (!overview || overview.missing) return null;
+    const sub = document.createElement('div');
+    sub.className = 'pds-sub pdc-overview-figure';
+    sub.append(subHead('Trajectory overview', [['trajectory-overview', 'kind']]));
+    sub.append(imageFigure(job, overview.pngPath, 'The overview’s own figure: RMSD, radius of gyration and the '
+      + 'sampled energy trace.'));
+    const data = overview.data || {};
     sub.append(meta('Sample:', `${thousands(data.frames_sampled)} of ${thousands(data.frames_in_file)} frames`
       + (data.segment ? ` from ${data.segment}` : '')));
     return sub;
@@ -710,20 +761,23 @@ export function createPdcAnalysis() {
     updateControls();
     renderIdentity();
     renderStatus();
+    const statsHost = stats();
     const host = body();
+    statsHost.replaceChildren();
     host.replaceChildren();
     if (!current) return;
     if (current.status !== 'completed') return;
     if (!record) {
+      statsHost.append(micellePlaceholder(), overviewStats(current));
       host.append(emptyState('Nothing computed yet.',
         'Shape, micelle size, radial distribution and bead contacts are read from one bounded sample of this run’s '
-        + 'production leg with gmx gyrate, gmx rdf and gmx mindist. Use Compute structure above.'));
-      renderOverviewOnly(host);
+        + 'production leg with gmx gyrate, gmx rdf and the bead-contact counts. Use Compute structure above.'));
       return;
     }
     const paths = figurePaths(record);
     const legacy = !(number(record.schema_version) >= 2
       || (Array.isArray(record.contacts?.groups) && record.contacts.groups.length));
+    statsHost.append(micelleStats(record), overviewStats(current));
     if (record.protein_present === false) {
       host.append(notice('This run has no protein.',
         'The protein–detergent interface is not defined for it, so only the detergent-only forms are reported: the '
@@ -751,25 +805,24 @@ export function createPdcAnalysis() {
       · <b>${cell(record.leg?.name)}</b>
       · <span class="pds-chip gmx">scientifically_validated: ${cell(record.scientifically_validated === true)}</span>`;
     host.append(statusLine);
-    host.append(micelleSection(current, record, paths));
-    host.append(rdfSection(current, record, paths));
-    host.append(contactsSection(current, record, paths));
-    host.append(overviewSection(current));
-    // Method and downloads share the grid cell beside the overview.
-    const stack = document.createElement('div');
-    stack.className = 'pds-stack';
-    stack.append(methodsSection(current, record), downloadsSection(current, record, paths));
-    host.append(stack);
+    // The micelle's two graphs span the card; the tables and the radial/contact graphs are separate rows of three.
+    const micelleFigures = figureRow(current, paths, [
+      [FIGURES.shape, 'Radius of gyration and the shape numbers over the sampled frames.'],
+      [FIGURES.aggregation, 'Largest cluster and free detergents per sampled frame.'],
+    ]);
+    if (micelleFigures) host.append(micelleFigures);
+    host.append(cellRow(3, [rdfTable(record), contactsTable(record), overviewEnergyTable(current)]));
+    const analysisFigures = figureRow(current, paths, [
+      [FIGURES.rdf, 'The four radial distribution curves on one axis.'],
+      [FIGURES.proteinContacts, 'Protein–head and protein–tail contacts per sampled frame.'],
+      [FIGURES.waterContacts, 'Water–head and water–tail bead contacts per sampled frame.'],
+    ]);
+    if (analysisFigures) host.append(analysisFigures);
+    const overviewFigure = overviewFigureBlock(current);
+    if (overviewFigure) host.append(cellRow(1, [overviewFigure]));
+    host.append(cellRow(2, [methodsSection(current, record), downloadsSection(current, record, paths)]));
     const caveats = caveatsSection(record);
     if (caveats) host.append(caveats);
-  }
-
-  function renderOverviewOnly(host) {
-    // A run with no structure record can still have an overview: it is a separate core kind, so it is shown (and
-    // computable) even while the structure record does not exist.
-    const sub = overviewSection(current);
-    sub.classList.add('pds-wide');
-    host.append(sub);
   }
 
   // -------------------------------------------------------------------------------------------------- the wire

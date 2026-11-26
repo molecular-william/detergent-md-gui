@@ -270,11 +270,6 @@ def assert_right_of(left, right):
         f'{right} is not beside {left}: {first} {second}')
 
 
-def section(body, title):
-    """One data section selected by the heading its text starts with, so a download's file name cannot stand in."""
-    return body.locator('.pds-sub', has_text=re.compile(rf'^{re.escape(title)}'))
-
-
 def test_the_tab_is_pdc_analysis_and_lists_only_completed_pdc_runs(dashboard, live_page):
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
@@ -332,7 +327,7 @@ def test_compute_structure_posts_the_thresholds_and_draws_the_published_record(d
     compute.click()
     expect(compute).to_be_enabled(timeout=30000)
     assert stub.posts == [('pdc-structure', {})], stub.posts
-    expect(page.locator('#pdc-analysis-body')).to_contain_text('Radius of gyration', timeout=30000)
+    expect(page.locator('#pdc-analysis-stats')).to_contain_text('Radius of gyration', timeout=30000)
 
     # A stated threshold travels alone; the blank fields stay absent, which is what "the default" means.
     page.locator('#pdc-opt-bin').fill('0.1')
@@ -348,11 +343,13 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
     Stub(page, record=V2, tasks=[overview_task()], overview_data=OVERVIEW)
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
     body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+    stats = page.locator('#pdc-analysis-stats')
+    expect(stats).to_contain_text('Radius of gyration', timeout=30000)
 
-    # Micelle, RDF and contacts are the record's own numbers.
-    expect(body.locator('.pds-fig', has_text='Radius of gyration')).to_contain_text('3.21')
-    expect(body.locator('.pds-fig', has_text='Largest cluster')).to_contain_text('141')
+    # Micelle, RDF and contacts are the record's own numbers. The summary statistics live beside the options; the
+    # tables keep only their own numbers.
+    expect(stats.locator('.pds-fig', has_text='Radius of gyration')).to_contain_text('3.21')
+    expect(stats.locator('.pds-fig', has_text='Largest cluster')).to_contain_text('141')
     rdf_table = body.locator('.pds-sub', has_text='Radial distribution')
     expect(rdf_table.locator('tr', has_text='protein → tail')).to_contain_text('0.96')
     contacts_table = body.locator('.pds-sub', has_text='Contacts')
@@ -366,9 +363,9 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
     for name in FIGURE_NAMES[1:]:
         expect(page.locator(f'img[src*="{name}"]')).to_have_count(1)
 
-    # The overview's summary values and its own PNG, read through the same artifact route.
-    expect(body.locator('.pds-fig', has_text='RMSD')).to_contain_text('0.41')
-    expect(body.locator('.pds-fig', has_text='RMSF, mean')).to_contain_text('0.29')
+    # The overview's summary values live in the statistics column; its own PNG is full width.
+    expect(stats.locator('.pds-fig', has_text='RMSD')).to_contain_text('0.41')
+    expect(stats.locator('.pds-fig', has_text='RMSF, mean')).to_contain_text('0.29')
     expect(page.locator('img[src*="trajectory-overview.png"]')).to_have_count(1)
 
     # Downloads carry the record's own run-relative source (the job prefix dropped), the CSV and each PNG.
@@ -387,97 +384,131 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
     assert errors == [], errors
 
 
-def test_the_body_is_two_columns_with_the_options_beside_the_micelle(dashboard, live_page):
-    """The layout: two tracks, options beside the micelle, the two tables beside each other, the overview beside the
-    method and downloads, and the status line and caveats across both tracks."""
+def test_the_layout_separates_statistics_tables_and_figures(dashboard, live_page):
+    """Statistics left of Options; the micelle graphs full width; three tables and then three graphs in three equal
+    columns; the overview full width; method and downloads together."""
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
-    # A fallback leg so the record also carries a notice, which must span both tracks like the status line and caveat.
+    # A fallback leg so the record also carries a notice, which must span the body like the status line and caveat.
     record = {**V2, 'leg': {**V2['leg'], 'name': 'CG assessment MD', 'stage_directory': '06_assessment'}}
     Stub(page, record=record, tasks=[overview_task()], overview_data=OVERVIEW)
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
+    stats = page.locator('#pdc-analysis-stats')
     body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+    expect(stats).to_contain_text('Radius of gyration', timeout=30000)
 
-    grid = page.locator('.pdc-analysis-grid')
-    assert grid_columns(grid) == 2, grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
-
-    options = page.locator('.pdc-analysis-grid > .analysis-options')
-    micelle = body.locator('.pds-sub.pds-micelle')
+    top = page.locator('.pdc-analysis-top')
+    assert grid_columns(top) == 2, top.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+    micelle = stats.locator('.pds-sub', has_text=re.compile(r'^Micelle'))
+    protein = stats.locator('.pds-sub', has_text=re.compile(r'^Protein shape and energy'))
     expect(micelle).to_have_count(1)
-    assert shares_a_row(options, micelle), (options.bounding_box(), micelle.bounding_box())
-    assert_right_of(options, micelle)
+    expect(protein).to_have_count(1)
+    options = page.locator('.pdc-analysis-top > .analysis-options')
+    # Both statistics blocks sit left of the options; the protein block is one row below the micelle block.
+    assert_right_of(micelle, options)
+    assert_right_of(protein, options)
+    assert protein.bounding_box()['y'] >= micelle.bounding_box()['y'] + micelle.bounding_box()['height'] - 1
 
-    rdf = section(body, 'Radial distribution')
-    contacts = section(body, 'Contacts')
-    assert shares_a_row(rdf, contacts), (rdf.bounding_box(), contacts.bounding_box())
-    assert_right_of(rdf, contacts)
+    figure_rows = body.locator('.pdc-analysis-row.pdc-figure-row')
+    expect(figure_rows).to_have_count(2)
+    micelle_row = figure_rows.nth(0)
+    assert grid_columns(micelle_row) == 2
+    expect(micelle_row.locator('figure.analysis-figure')).to_have_count(2)
+    assert abs(micelle_row.bounding_box()['width'] - body.bounding_box()['width']) <= 1
 
-    overview = section(body, 'Protein shape and energy')
-    stack = body.locator('.pds-stack')
-    assert shares_a_row(overview, stack), (overview.bounding_box(), stack.bounding_box())
-    assert_right_of(overview, stack)
-    expect(stack.locator('.pds-sub', has_text='Method, sampling, cutoffs')).to_have_count(1)
-    expect(stack.locator('.downloads')).to_have_count(1)
+    # The table row: one cell each for radial distribution, contacts and the energy terms, with no figure among them.
+    table_row = body.locator('.pdc-analysis-row.columns-3:not(.pdc-figure-row)')
+    assert grid_columns(table_row) == 3
+    expect(table_row.locator('.pds-sub')).to_have_count(3)
+    expect(table_row.locator('.pds-sub', has_text='Radial distribution')).to_have_count(1)
+    expect(table_row.locator('.pds-sub', has_text='Contacts')).to_have_count(1)
+    expect(table_row.locator('.pds-sub', has_text='Energy terms')).to_have_count(1)
+    expect(table_row.locator('figure.analysis-figure')).to_have_count(0)
+    table_cells = table_row.locator('.pdc-row-cell')
+    expect(table_cells).to_have_count(3)
+    table_boxes = [table_cells.nth(index).bounding_box() for index in range(3)]
+    assert max(box['y'] for box in table_boxes) - min(box['y'] for box in table_boxes) <= 1
+    assert max(box['width'] for box in table_boxes) - min(box['width'] for box in table_boxes) <= 1
 
-    # The notice, the record's status line and the report's caveat span the whole grid, not one track.
-    width = grid.bounding_box()['width']
-    notices = body.locator('.pds-notice')
-    expect(notices).to_have_count(1)
-    for line in (notices.first, body.locator('.pds-status'), body.locator('.pds-caveat')):
+    # The graph row: RDF, protein contacts and water contacts, three equal columns and no table among them.
+    analysis_row = figure_rows.nth(1)
+    assert grid_columns(analysis_row) == 3
+    figures = analysis_row.locator('figure.analysis-figure')
+    expect(figures).to_have_count(3)
+    assert shares_a_row(figures.nth(0), figures.nth(1))
+    assert_right_of(figures.nth(0), figures.nth(1))
+    assert_right_of(figures.nth(1), figures.nth(2))
+    figure_boxes = [figures.nth(index).bounding_box() for index in range(3)]
+    assert max(box['width'] for box in figure_boxes) - min(box['width'] for box in figure_boxes) <= 1
+    expect(analysis_row.locator('table')).to_have_count(0)
+
+    # The trajectory overview spans the body; method and downloads share another row.
+    overview_row = body.locator('.pdc-analysis-row.columns-1')
+    expect(overview_row).to_have_count(1)
+    assert abs(overview_row.bounding_box()['width'] - body.bounding_box()['width']) <= 1
+    expect(overview_row).to_contain_text('Trajectory overview')
+    method_row = body.locator('.pdc-analysis-row.columns-2:not(.pdc-figure-row)')
+    expect(method_row.locator('.pds-sub', has_text='Method, sampling, cutoffs')).to_have_count(1)
+    expect(method_row.locator('.downloads')).to_have_count(1)
+
+    # Notices, the published status line and the caveat span the body, not one column.
+    width = body.bounding_box()['width']
+    for line in (body.locator('.pds-notice').first, body.locator('.pds-status'), body.locator('.pds-caveat')):
         assert abs(line.bounding_box()['width'] - width) <= 1, (line.bounding_box(), width)
     assert errors == [], errors
 
 
-def test_each_section_groups_its_figures_two_to_a_row(dashboard, live_page):
+def test_each_figure_row_is_equal_and_each_figure_is_separate_from_the_tables(dashboard, live_page):
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
     Stub(page, record=V2, tasks=[overview_task()], overview_data=OVERVIEW)
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
     body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+    expect(body.locator('.pdc-analysis-row.pdc-figure-row')).to_have_count(2, timeout=30000)
 
-    micelle = body.locator('.pds-sub.pds-micelle')
-    micelle_grid = micelle.locator('.pds-figure-grid')
-    figures = micelle_grid.locator('figure.analysis-figure')
-    expect(figures).to_have_count(2)
-    assert grid_columns(micelle_grid) == 2, micelle_grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
-    assert shares_a_row(figures.nth(0), figures.nth(1))
-    assert_right_of(figures.nth(0), figures.nth(1))
-    expect(figures.nth(0).locator('img')).to_have_attribute('loading', 'lazy')
-    expect(figures.nth(0).locator('figcaption')).to_contain_text('Radius of gyration')
+    micelle = body.locator('.pdc-analysis-row.pdc-figure-row').nth(0).locator('figure.analysis-figure')
+    expect(micelle).to_have_count(2)
+    assert shares_a_row(micelle.nth(0), micelle.nth(1))
+    expect(micelle.nth(0).locator('img')).to_have_attribute('loading', 'lazy')
+    expect(micelle.nth(0).locator('figcaption')).to_contain_text('Radius of gyration')
+    expect(micelle.nth(1).locator('figcaption')).to_contain_text('Largest cluster')
 
-    contacts = section(body, 'Contacts').locator('.pds-figure-grid')
-    expect(contacts.locator('figure.analysis-figure')).to_have_count(2)
-    assert grid_columns(contacts) == 2
-    rdf = section(body, 'Radial distribution').locator('.pds-figure-grid')
-    expect(rdf.locator('figure.analysis-figure')).to_have_count(1)
-    # A section with one figure keeps the whole row rather than shrinking to one track.
-    assert abs(rdf.locator('figure').bounding_box()['width'] - rdf.bounding_box()['width']) <= 1
-    overview = section(body, 'Protein shape and energy').locator('.pds-figure-grid')
-    expect(overview.locator('figure.analysis-figure')).to_have_count(1)
+    analysis = body.locator('.pdc-analysis-row.pdc-figure-row').nth(1).locator('figure.analysis-figure')
+    expect(analysis).to_have_count(3)
+    assert shares_a_row(analysis.nth(0), analysis.nth(1))
+    assert shares_a_row(analysis.nth(1), analysis.nth(2))
+    for index in range(3):
+        expect(analysis.nth(index).locator('img')).to_have_attribute('loading', 'lazy')
+    expect(analysis.nth(0).locator('figcaption')).to_contain_text('radial distribution')
+    expect(analysis.nth(1).locator('figcaption')).to_contain_text('Protein–head')
+    expect(analysis.nth(2).locator('figcaption')).to_contain_text('Water–head')
+
+    overview = body.locator('.pdc-analysis-row.columns-1 figure.analysis-figure')
+    expect(overview).to_have_count(1)
     expect(overview.locator('img')).to_have_attribute('loading', 'lazy')
 
-    # Every per-metric figure is inside a grid: none is left as a bare section child.
-    assert body.locator('figure.analysis-figure').count() == body.locator('.pds-figure-grid > figure').count()
+    # Tables and figures are different blocks: no table row carries a figure, and every figure is in a figure row.
+    expect(body.locator('.pdc-analysis-row.columns-3:not(.pdc-figure-row) figure.analysis-figure')).to_have_count(0)
+    assert body.locator('figure.analysis-figure').count() == body.locator(
+        '.pdc-analysis-row.pdc-figure-row figure.analysis-figure, .pdc-analysis-row.columns-1 figure').count()
     assert errors == [], errors
 
 
-def test_a_narrow_window_stacks_the_sections_in_one_column(dashboard, live_page):
+def test_a_narrow_window_stacks_every_row(dashboard, live_page):
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
     Stub(page, record=V2, tasks=[overview_task()], overview_data=OVERVIEW)
     page.set_viewport_size({'width': 820, 'height': 1000})
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
-    body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+    expect(page.locator('#pdc-analysis-stats')).to_contain_text('Radius of gyration', timeout=30000)
 
-    grid = page.locator('.pdc-analysis-grid')
-    assert grid_columns(grid) == 1, grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
-    options = page.locator('.pdc-analysis-grid > .analysis-options')
-    micelle = body.locator('.pds-sub.pds-micelle')
-    assert micelle.bounding_box()['y'] >= options.bounding_box()['y'] + options.bounding_box()['height'] - 1
-    assert grid_columns(micelle.locator('.pds-figure-grid')) == 1
+    top = page.locator('.pdc-analysis-top')
+    assert grid_columns(top) == 1, top.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+    stats = page.locator('#pdc-analysis-stats')
+    options = page.locator('.pdc-analysis-top > .analysis-options')
+    assert options.bounding_box()['y'] >= stats.bounding_box()['y'] + stats.bounding_box()['height'] - 1
+    for row in page.locator('.pdc-analysis-row').all():
+        assert grid_columns(row) == 1, row.evaluate('el => getComputedStyle(el).gridTemplateColumns')
 
     # The existing 640 px behaviour is untouched: the four threshold fields become one per row.
     page.set_viewport_size({'width': 600, 'height': 1000})
@@ -492,8 +523,7 @@ def test_a_v1_record_marks_the_new_metrics_not_measured(dashboard, live_page):
     Stub(page, record=V1)
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
     body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
-
+    expect(page.locator('#pdc-analysis-stats')).to_contain_text('Radius of gyration', timeout=30000)
     expect(body).to_contain_text('This record predates the new metrics')
     rdf_table = body.locator('.pds-sub', has_text='Radial distribution')
     contacts_table = body.locator('.pds-sub', has_text='Contacts')
@@ -540,11 +570,12 @@ def test_compute_overview_queues_the_core_kind_and_reads_the_cached_record(dashb
     stub.after_post = publish(stub, V2, overview_data=OVERVIEW)
     page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
     body = page.locator('#pdc-analysis-body')
-    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+    stats = page.locator('#pdc-analysis-stats')
+    expect(stats).to_contain_text('Radius of gyration', timeout=30000)
     expect(body).to_contain_text('Not computed')
 
     page.get_by_role('button', name='Compute overview').click()
-    expect(body).to_contain_text('RMSD', timeout=30000)
+    expect(stats).to_contain_text('RMSD', timeout=30000)
     assert stub.posts == [('trajectory-overview', {})], stub.posts
     # The overview's cached attempt is the record; once it exists the button is gone.
     expect(page.get_by_role('button', name='Compute overview')).to_have_count(0)

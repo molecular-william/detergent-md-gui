@@ -29,48 +29,37 @@
 .pdc-analysis table{margin:6px 0 2px}
 @media(max-width:900px){.pdc-analysis .opt-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.pdc-analysis .opt-grid{grid-template-columns:1fr}}
-/* The tab's body is two columns: the options share their row with the micelle, the radial-distribution table with the
-   contacts table, and the protein shape/energy section with the method and downloads. `#pdc-analysis-body` is
-   `display:contents`, so its sections are the grid's own items; the notices, the two status lines and the caveat span
-   both tracks, and `order` lifts the micelle beside the options. One column at 900 px. */
-.pdc-analysis .pdc-analysis-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px;
-  align-items:start}
-.pdc-analysis .pdc-analysis-grid > *,
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > *{min-width:0}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body{display:contents}
-.pdc-analysis .pdc-analysis-grid > .analysis-options{grid-column:1/-1;order:1;margin:12px 0 4px}
-.pdc-analysis .pdc-analysis-grid > .statusline,
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-notice,
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-status{grid-column:1/-1;order:0}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-empty{grid-column:1/-1;order:1}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-sub,
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-stack{order:3}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-micelle{grid-column:2;order:2}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-wide,
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-caveat{grid-column:1/-1}
-.pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-caveat{order:4}
-/* Options keep the first column only when there is a micelle section to share the row with. */
-.pdc-analysis .pdc-analysis-grid:has(#pdc-analysis-body > .pds-micelle) > .analysis-options{grid-column:1}
-.pdc-analysis .pdc-analysis-grid:has(#pdc-analysis-body > .pds-micelle) > .analysis-options .opt-grid{
-  grid-template-columns:repeat(2,minmax(0,1fr))}
-/* Two PNG figures per section row, one per row on a narrow window. */
-.pdc-analysis .pds-figure-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;
-  margin:10px 0 6px}
-.pdc-analysis .pds-figure-grid .analysis-figure{margin:0}
-/* A section with one figure keeps the whole row, as it had before the grid. */
-.pdc-analysis .pds-figure-grid > .analysis-figure:only-child{grid-column:1/-1}
-@media(max-width:900px){
-  .pdc-analysis .pdc-analysis-grid{grid-template-columns:minmax(0,1fr)}
-  .pdc-analysis .pdc-analysis-grid > .analysis-options,
-  .pdc-analysis .pdc-analysis-grid > .statusline,
-  .pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > *{grid-column:1/-1}
-  .pdc-analysis .pdc-analysis-grid > #pdc-analysis-body > .pds-micelle{grid-column:1/-1}
-  .pdc-analysis .pdc-analysis-grid:has(#pdc-analysis-body > .pds-micelle) > .analysis-options{grid-column:1/-1}
-  .pdc-analysis .pds-figure-grid{grid-template-columns:minmax(0,1fr)}
+/* The tab's layout: the statistics sit left of the thresholds; then the micelle's two graphs span the card, the three
+   tables share a row, the three radial/contact graphs share a row, the trajectory overview spans the card, and the
+   method/downloads share a row. One column at 900 px; the three-column rows lose a column at 1200 px first. */
+.pdc-analysis .pdc-analysis-top{display:grid;grid-template-columns:minmax(250px,.85fr) minmax(0,2.15fr);
+  gap:14px;align-items:stretch;margin-top:10px}
+.pdc-analysis .pdc-analysis-stats{display:flex;flex-direction:column;min-width:0}
+.pdc-analysis .pdc-analysis-stats > .pds-sub:first-child{border-top:0;padding-top:0}
+.pdc-analysis .pdc-analysis-stats .pds-figures{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px 12px}
+.pdc-analysis .pdc-analysis-stats .pds-fig b{font-size:14px}
+.pdc-analysis .pdc-analysis-top .analysis-options{margin:0;height:100%}
+.pdc-analysis .pdc-analysis-body{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+.pdc-analysis .pdc-analysis-body > .pds-notice,
+.pdc-analysis .pdc-analysis-body > .pds-status,
+.pdc-analysis .pdc-analysis-body > .pds-empty{width:100%}
+.pdc-analysis .pdc-analysis-row{display:grid;gap:14px;align-items:start}
+.pdc-analysis .pdc-analysis-row.columns-1{grid-template-columns:minmax(0,1fr)}
+.pdc-analysis .pdc-analysis-row.columns-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pdc-analysis .pdc-analysis-row.columns-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pdc-analysis .pdc-row-cell{min-width:0}
+.pdc-analysis .pdc-row-cell > .pds-sub:first-child{border-top:0;padding-top:0}
+.pdc-analysis .pdc-figure-cell .analysis-figure{margin:0}
+.pdc-analysis .pdc-figure-cell .analysis-figure img{width:100%;height:auto}
+.pdc-analysis .pdc-figure-cell .analysis-figure figcaption{min-height:2.6em}
+@media(max-width:1200px){
+  .pdc-analysis .pdc-analysis-row.columns-3{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-@media(max-width:640px){
-  .pdc-analysis .pdc-analysis-grid:has(#pdc-analysis-body > .pds-micelle) > .analysis-options .opt-grid{
-    grid-template-columns:1fr}
+@media(max-width:900px){
+  .pdc-analysis .pdc-analysis-top{grid-template-columns:minmax(0,1fr)}
+  .pdc-analysis .pdc-analysis-row.columns-2,
+  .pdc-analysis .pdc-analysis-row.columns-3{grid-template-columns:minmax(0,1fr)}
 }
 .new-pdc-diagram{margin-top:10px}
 .new-pdc-diagram>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--accent,#1b5f9e)}

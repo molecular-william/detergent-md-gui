@@ -14,7 +14,8 @@
         <button id="pdc-analysis-compute" type="button" disabled>Compute structure</button>
       </div>
     </div>
-    <div class="pdc-analysis-grid">
+    <div class="pdc-analysis-top">
+      <div id="pdc-analysis-stats" class="pdc-analysis-stats"></div>
       <details class="analysis-options" open>
         <summary>Options — thresholds (blank = default)</summary>
         <div class="opt-grid">
@@ -33,8 +34,8 @@
         </div>
         <p class="hint">A blank field means the server default. The contact cutoff defaults to the run's own micelle contact distance, not a free-floating choice; the effective values are recorded in the report and shown with the data. Changing an option and pressing Compute starts a new attempt.</p>
       </details>
-      <p class="statusline" id="pdc-analysis-status" role="status"></p>
-      <div id="pdc-analysis-body"></div>
     </div>
+    <p class="statusline" id="pdc-analysis-status" role="status"></p>
+    <div id="pdc-analysis-body" class="pdc-analysis-body"></div>
   </section>
 </section>

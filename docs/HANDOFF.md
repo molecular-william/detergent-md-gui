@@ -35,15 +35,21 @@ state, what is next, what is open, and the measurements and incidents a reader h
   follow-up (44.4 → 11.7 s, researched not built) and the GMXLens evaluation are
   `docs/plans/2026-11-26-pdc-analysis-acceleration.md`; GMXLens is not adopted (a second workbench, PySide6/mdtraj/
   pymbar, no PBC-aware contact code).
-  PDC analysis tab: two columns on desktop -- Options beside Micelle, RDF beside Contacts, protein shape/energy beside
-  method/downloads, notices/status/caveats spanning both -- one column at 900 px; each section's PNGs sit in a
-  two-track grid that becomes one per row at 900 px (`pdc.html`, `pdc-analysis.js`, `pdc.css`).
+  PDC analysis tab: the statistics column sits left of the thresholds (Micelle above the Protein shape and energy
+  summary); the micelle shape and aggregation graphs span the card below the options; the radial-distribution,
+  contacts and energy-term tables share a three-column row; the radial, protein-contact and water-contact graphs
+  share a three-column row; the trajectory overview spans the card; method and downloads share a row;
+  notices/status/caveat span the card. One column at 900 px, and the three-column rows fall to two at 1200 px
+  (`pdc.html`, `pdc-analysis.js`, `pdc.css`; the browser tests assert the rows, equal widths and the table/figure
+  separation).
   Checks: resume/continue/GPU tests **36 passed**; pdc-structure unit **29 passed**; PDC analysis browser **14
   passed**; full fast tier **3,226 passed / 1 xfailed**; full browser tier **434 passed**; ruff clean on the
-  changed Python. The dashboard was restarted at 11:10 HKT with no jobs active (transient unit, as before); a live
+  changed Python. The dashboard was restarted at 11:35 HKT with no jobs active (transient unit, as before); a live
   attempt `0005-20261126` (code `b967c22`) completed in **64.43 s** end to end with the same contact/RDF/shape
-  numbers and no `mindist` leftovers, and the live panel renders the two-column grid (1440 px: two 662 px tracks;
-  two figure tracks; screenshot `docs/design/drafts/2026-11-26-pdc-analysis-layout.png`).
+  numbers and no `mindist` leftovers. The live panel at 1440 px measured options beside the 376 px statistics column,
+  664 + 664 px micelle graphs, 438 px each for the three tables and for the three radial/contact graphs, a 1342 px
+  overview and 664 + 664 px method/downloads; screenshot
+  `docs/design/drafts/2026-11-26-pdc-analysis-layout-v3.png`.
 
 - **pdc: the New run form offers the validation panel's unit cells (2026-11-26).** Plan:
   `docs/plans/2026-11-26-pdc-cell-shapes.md`. The user's request, and their direction to take the cells from the
