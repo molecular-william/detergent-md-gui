@@ -729,11 +729,10 @@ export function createPdcAnalysis() {
       [number(pair.coul_sr_mean_kj_mol) === null ? '—' : fixed(pair.coul_sr_mean_kj_mol, 1), true],
       [number(pair.total_mean_kj_mol) === null ? '—' : fixed(pair.total_mean_kj_mol, 1), true],
     ]);
-    sub.append(table([['Pair', false], ['LJ-SR (kJ/mol)', true], ['Coul-SR (kJ/mol)', true],
-                      ['Total (kJ/mol)', true]], rows));
-    sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Mean over ${cell(thousands(data.sampling?.frames_sampled))}
-      frames; SEM in the record. Short-range LJ and reaction-field Coulomb only; the rows are not additive to the
-      total potential and exclude bonded terms.</p>`);
+    sub.append(table([['Pair', false], ['LJ-SR', true], ['Coul-SR', true], ['Total', true]], rows));
+    sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Values in kJ/mol; mean over
+      ${cell(thousands(data.sampling?.frames_sampled))} frames, SEM in the record. Short-range LJ and reaction-field
+      Coulomb only; the rows are not additive to the total potential and exclude bonded terms.</p>`);
     if (data.energy_absent) sub.append(meta('Energy absent:', data.energy_absent));
     return sub;
   }

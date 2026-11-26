@@ -24,7 +24,9 @@ state, what is next, what is open, and the measurements and incidents a reader h
   long-range/free-energy contributions, and do not add up to the whole-system potential.
   Direct producer on `OG_2ydo_123_libconf_500ns-4`: 199 frames, **43.1 s**; receptor–detergent **-1929.34 kJ/mol**,
   receptor only **-5720.47** (LJ -5405.79, Coul -314.68), receptor–water **-6612.61**; Coulomb is zero for the
-  neutral detergent and W groups. The live attempt is queued after the restart and recorded below.
+  neutral detergent and W groups. The live attempt `0001-20261126` (code `2997410`, dashboard restarted first)
+  completed in **51.46 s** with the same values; the panel shows the three rows and the total-energy table is gone
+  (screenshot `docs/design/drafts/2026-11-26-pdc-interaction-energy-table-v2.png`).
   Checks: full fast tier **3,229 passed / 1 xfailed**; full browser tier **435 passed**; interaction-energy unit
   **2 passed**; ruff clean. The panel's browser case pins the three rows and that the total-energy table is gone.
 
