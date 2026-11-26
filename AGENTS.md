@@ -64,6 +64,9 @@ behind a Flask dashboard over persisted manifests and logs. Reproducible; output
 - `coordinator.automatic_analyses` is the one resolver for a run type's default analyses: `kinds.default_for` is the
   only list, and a `cg` revision run owes exactly that list's kinds; one with nothing to do records `skipped`, never a
   fabricated pass.
+- A resume changes only its scheduling choice: `_queue_in_place` merges `gpu_sharing='queue'` into the manifest's
+  settings instead of replacing them, so what `prepare` derived (detergent model, tail beads, force-field edition)
+  survives; a pdc run that loses it cannot tell its detergents apart and `pdc-structure` refuses.
 - A pdc belt is a **cylinder** about the membrane normal: surface measured locally per site
   (`BELT_LOCAL_ANGLE_DEG` 10 deg, axial `belt_axial_window_nm`, `belt_gap_nm`); `min_body_gap_nm` gates body
   against body; failed slots try local offsets, then one outside-band pass retries empty slots and far/too-close

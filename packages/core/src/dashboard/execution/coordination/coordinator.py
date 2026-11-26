@@ -220,9 +220,16 @@ class Coordinator:
                     workflow.recover_resume_journal(path, job)
                     raise
                 workflow.recover_resume_journal(path, updated)
-                if dict(prepared.get('settings') or {}) != settings:
+                recorded_settings = prepared.get('settings')
+                if not isinstance(recorded_settings, dict):
+                    recorded_settings = {}
+                if recorded_settings.get('gpu_sharing') != 'queue':
                     # The resume's scheduling choice is the run's record too: it must not still say `share`.
-                    prepared['settings'] = settings
+                    # Only that choice changes. The manifest's settings also carry what the run's own prepare
+                    # derived (the detergent model, its tail beads, the force-field edition); replacing the block
+                    # with the job row's advertised settings dropped those, and a resumed pdc run then could not
+                    # tell its detergent molecules apart.
+                    prepared['settings'] = {**recorded_settings, 'gpu_sharing': 'queue'}
                     files.atomic_json(path / 'manifest.json', prepared)
                 worker = self.Worker()
             finally:

@@ -10,6 +10,39 @@ state, what is next, what is open, and the measurements and incidents a reader h
 
 ## Current state (2026-11-24)
 
+- **pdc: a resumed run keeps the settings its prepare derived; `pdc-structure` counts water contacts with a KD-tree,
+  and the PDC analysis tab is a two-column grid (2026-11-26).** The reported failure: three `pdc-structure` attempts
+  on `OG_2ydo_130_libconf_500ns_2nm_gap` (0001–0003) failed with `ValueError: the run records no detergent residue, so
+  its detergent molecules cannot be told apart`. Cause: the stage-boundary resume from `67e5e2c` replaced the run's
+  `manifest.settings` with the job row's advertised settings, dropping what `prepare` had derived (`detergent_model`,
+  `tail_beads`, `force_field`, the `conformations_*` pins). `_criterion` then found no `detergent_model.residue`. Fix:
+  `_queue_in_place` merges `gpu_sharing='queue'` into the existing settings instead of replacing the block
+  (`coordinator.py`; regression `test_a_resume_keeps_the_derived_settings_and_only_changes_gpu_sharing`). The damaged
+  run's settings were restored from its own `inputs/pdc-settings.json` (84 keys; now identical to that file minus
+  `project_root`/`protein`/`template`), with a rollback record at
+  `workspace/dashboard/runs/OG_2ydo_130_libconf_500ns_2nm_gap/manifest.settings-repair.json`; the analysis was
+  re-queued through the route and attempt `0004-20261126` completed in **108.5 s** (schema 2, 199 of 20,001 frames,
+  stride 101, five figures, four RDF pairs; contact means protein–head 277.658, protein–tail 201.367, water–head
+  1921.281, water–tail 294.93).
+  Acceleration: the attempt's own file timeline put 34 s in the `trjconv` extraction and 52 s in the two water
+  `gmx mindist` calls, so `_measure` now counts water–head/tail bead pairs with a periodic
+  `scipy.spatial.cKDTree` (`periodic_contact_counts`); the protein groups and the pooled v1 count stay on
+  `gmx mindist -on`, and a triclinic box keeps GROMACS for every group. A replay of the same staged sources and
+  `contact_nm: 0.5` payload took **53.5 s**, with every contact mean/SEM/series, RDF, aggregation and shape number
+  identical; the record's caveat states that the KD count can differ from GROMACS by one pair at the cutoff (the DM
+  run's one such frame is a GROMACS undercount). The remaining `mindist` calls now name `-o`/`-od` and unlink them, so
+  `mindist.xvg` and `#mindist.xvg.N#` are no longer published. The measured options, the `-b/-e`+`trjcat` extraction
+  follow-up (44.4 → 11.7 s, researched not built) and the GMXLens evaluation are
+  `docs/plans/2026-11-26-pdc-analysis-acceleration.md`; GMXLens is not adopted (a second workbench, PySide6/mdtraj/
+  pymbar, no PBC-aware contact code).
+  PDC analysis tab: two columns on desktop -- Options beside Micelle, RDF beside Contacts, protein shape/energy beside
+  method/downloads, notices/status/caveats spanning both -- one column at 900 px; each section's PNGs sit in a
+  two-track grid that becomes one per row at 900 px (`pdc.html`, `pdc-analysis.js`, `pdc.css`).
+  Checks: resume/continue/GPU tests **36 passed**; pdc-structure unit **29 passed**; PDC analysis browser **14
+  passed**; full fast tier **3,226 passed / 1 xfailed**; full browser tier **434 passed**; ruff clean on the
+  changed Python. The dashboard was not restarted for this slice: the coordinator fix and the panel template need a
+  restart (static JS/CSS are read per request), so check active jobs and restart it before judging the live tab.
+
 - **pdc: the New run form offers the validation panel's unit cells (2026-11-26).** Plan:
   `docs/plans/2026-11-26-pdc-cell-shapes.md`. The user's request, and their direction to take the cells from the
   detergent-validation New run panel. The `Box shape` choice now offers the historical **rectangular** cell (default,

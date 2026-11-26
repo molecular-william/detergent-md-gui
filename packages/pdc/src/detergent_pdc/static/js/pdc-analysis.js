@@ -484,14 +484,29 @@ export function createPdcAnalysis() {
     return paths;
   }
 
+  function figureGrid(host) {
+    // The per-metric PNGs sit two to a row: each section keeps one grid at its end, and the overview's own image joins it.
+    const last = host.lastElementChild;
+    if (last && last.classList.contains('pds-figure-grid')) return last;
+    const grid = document.createElement('div');
+    grid.className = 'pds-figure-grid';
+    host.append(grid);
+    return grid;
+  }
+
+  function appendFigure(host, figure) {
+    figureGrid(host).append(figure);
+  }
+
   function appendImage(host, job, paths, name, caption) {
     const path = paths.get(name);
-    if (path) host.append(imageFigure(job, path, caption));
+    if (path) appendFigure(host, imageFigure(job, path, caption));
   }
 
   function micelleSection(job, body, paths) {
     const sub = document.createElement('div');
-    sub.className = 'pds-sub';
+    // The tab's grid pairs this section with the options in its first row.
+    sub.className = 'pds-sub pds-micelle';
     const shape = body.shape_nm || {};
     const aggregation = body.aggregation || {};
     const rg = shape.rg || {};
@@ -541,7 +556,7 @@ export function createPdcAnalysis() {
     const groups = Array.isArray(contacts.groups) ? contacts.groups : [];
     const byGroup = new Map(groups.map(group => [`${group.first}/${group.second}`, group]));
     const noProtein = body.protein_present === false;
-    sub.append(subHead('Contacts', [['gmx mindist · bead counts', 'kind'], ['not hydrogen bonds', 'gmx']]));
+    sub.append(subHead('Contacts', [['bead contacts · pair counts', 'kind'], ['not hydrogen bonds', 'gmx']]));
     sub.insertAdjacentHTML('beforeend', `<p class="pds-hint">Bead pairs within the cutoff, minimum image. These are
       <b>contacts</b>, not bonds and not hydrogen bonds; the water numbers count Martini <b>W beads</b> near the head
       or tail, not an all-atom hydration number.</p>`);
@@ -619,7 +634,7 @@ export function createPdcAnalysis() {
     if (data.energy_absent) sub.append(meta('Energy absent:', data.energy_absent));
     const image = imageFigure(job, overview.pngPath, 'The overview’s own figure: RMSD, radius of gyration and the '
       + 'sampled energy trace.');
-    sub.append(image);
+    appendFigure(sub, image);
     sub.append(meta('Sample:', `${thousands(data.frames_sampled)} of ${thousands(data.frames_in_file)} frames`
       + (data.segment ? ` from ${data.segment}` : '')));
     return sub;
@@ -740,8 +755,11 @@ export function createPdcAnalysis() {
     host.append(rdfSection(current, record, paths));
     host.append(contactsSection(current, record, paths));
     host.append(overviewSection(current));
-    host.append(methodsSection(current, record));
-    host.append(downloadsSection(current, record, paths));
+    // Method and downloads share the grid cell beside the overview.
+    const stack = document.createElement('div');
+    stack.className = 'pds-stack';
+    stack.append(methodsSection(current, record), downloadsSection(current, record, paths));
+    host.append(stack);
     const caveats = caveatsSection(record);
     if (caveats) host.append(caveats);
   }
@@ -749,7 +767,9 @@ export function createPdcAnalysis() {
   function renderOverviewOnly(host) {
     // A run with no structure record can still have an overview: it is a separate core kind, so it is shown (and
     // computable) even while the structure record does not exist.
-    host.append(overviewSection(current));
+    const sub = overviewSection(current);
+    sub.classList.add('pds-wide');
+    host.append(sub);
   }
 
   // -------------------------------------------------------------------------------------------------- the wire

@@ -79,7 +79,7 @@ function emptyMarkup(job, queue) {
     <div class="pds-status"><span class="pds-dot"></span> Nothing computed yet.</div>
     <div class="pds-empty"><b>Nothing computed yet.</b> Shape, micelle size, radial distribution and contact
       counts are read from one bounded sample of this run's production leg, with <code>gmx gyrate</code>,
-      <code>gmx rdf</code> and <code>gmx mindist</code>.</div>
+      <code>gmx rdf</code> and the run's bead-contact pair counts.</div>
     <p class="pds-hint">Nothing on this section is validation, and an empty state is not a failure.</p>`;
   sub.append(queueButton(job, queue, 'Calculate structure', 'Structure analysis queued.'));
   return sub;

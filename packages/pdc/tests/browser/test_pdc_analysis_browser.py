@@ -250,6 +250,31 @@ def overview_task():
     return task('trajectory-overview', 'completed', directory=OVERVIEW_DIRECTORY)
 
 
+def grid_columns(locator):
+    """The number of used tracks of a CSS grid, read from its computed `grid-template-columns`."""
+    return len(locator.evaluate('el => getComputedStyle(el).gridTemplateColumns').split())
+
+
+def shares_a_row(left, right):
+    """True when two boxes' vertical spans overlap, so they are in the same layout row."""
+    first, second = left.bounding_box(), right.bounding_box()
+    assert first and second, (first, second)
+    return first['y'] < second['y'] + second['height'] and second['y'] < first['y'] + first['height']
+
+
+def assert_right_of(left, right):
+    """Assert the right box starts at or after the left one ends, as a two-column row does."""
+    first, second = left.bounding_box(), right.bounding_box()
+    assert first and second, (first, second)
+    assert second['x'] >= first['x'] + first['width'] - 1, (
+        f'{right} is not beside {left}: {first} {second}')
+
+
+def section(body, title):
+    """One data section selected by the heading its text starts with, so a download's file name cannot stand in."""
+    return body.locator('.pds-sub', has_text=re.compile(rf'^{re.escape(title)}'))
+
+
 def test_the_tab_is_pdc_analysis_and_lists_only_completed_pdc_runs(dashboard, live_page):
     browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
     page, errors = live_page
@@ -359,6 +384,105 @@ def test_a_v2_record_draws_every_metric_its_figures_and_the_overview(dashboard, 
     banned = [word for word in ('verdict', 'mild', 'harsh', 'trend', 'slope')
               if re.search(rf'\b{word}\b', words, re.IGNORECASE)]
     assert not banned, f'the panel states a conclusion: {banned}'
+    assert errors == [], errors
+
+
+def test_the_body_is_two_columns_with_the_options_beside_the_micelle(dashboard, live_page):
+    """The layout: two tracks, options beside the micelle, the two tables beside each other, the overview beside the
+    method and downloads, and the status line and caveats across both tracks."""
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
+    page, errors = live_page
+    # A fallback leg so the record also carries a notice, which must span both tracks like the status line and caveat.
+    record = {**V2, 'leg': {**V2['leg'], 'name': 'CG assessment MD', 'stage_directory': '06_assessment'}}
+    Stub(page, record=record, tasks=[overview_task()], overview_data=OVERVIEW)
+    page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
+    body = page.locator('#pdc-analysis-body')
+    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+
+    grid = page.locator('.pdc-analysis-grid')
+    assert grid_columns(grid) == 2, grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+
+    options = page.locator('.pdc-analysis-grid > .analysis-options')
+    micelle = body.locator('.pds-sub.pds-micelle')
+    expect(micelle).to_have_count(1)
+    assert shares_a_row(options, micelle), (options.bounding_box(), micelle.bounding_box())
+    assert_right_of(options, micelle)
+
+    rdf = section(body, 'Radial distribution')
+    contacts = section(body, 'Contacts')
+    assert shares_a_row(rdf, contacts), (rdf.bounding_box(), contacts.bounding_box())
+    assert_right_of(rdf, contacts)
+
+    overview = section(body, 'Protein shape and energy')
+    stack = body.locator('.pds-stack')
+    assert shares_a_row(overview, stack), (overview.bounding_box(), stack.bounding_box())
+    assert_right_of(overview, stack)
+    expect(stack.locator('.pds-sub', has_text='Method, sampling, cutoffs')).to_have_count(1)
+    expect(stack.locator('.downloads')).to_have_count(1)
+
+    # The notice, the record's status line and the report's caveat span the whole grid, not one track.
+    width = grid.bounding_box()['width']
+    notices = body.locator('.pds-notice')
+    expect(notices).to_have_count(1)
+    for line in (notices.first, body.locator('.pds-status'), body.locator('.pds-caveat')):
+        assert abs(line.bounding_box()['width'] - width) <= 1, (line.bounding_box(), width)
+    assert errors == [], errors
+
+
+def test_each_section_groups_its_figures_two_to_a_row(dashboard, live_page):
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
+    page, errors = live_page
+    Stub(page, record=V2, tasks=[overview_task()], overview_data=OVERVIEW)
+    page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
+    body = page.locator('#pdc-analysis-body')
+    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+
+    micelle = body.locator('.pds-sub.pds-micelle')
+    micelle_grid = micelle.locator('.pds-figure-grid')
+    figures = micelle_grid.locator('figure.analysis-figure')
+    expect(figures).to_have_count(2)
+    assert grid_columns(micelle_grid) == 2, micelle_grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+    assert shares_a_row(figures.nth(0), figures.nth(1))
+    assert_right_of(figures.nth(0), figures.nth(1))
+    expect(figures.nth(0).locator('img')).to_have_attribute('loading', 'lazy')
+    expect(figures.nth(0).locator('figcaption')).to_contain_text('Radius of gyration')
+
+    contacts = section(body, 'Contacts').locator('.pds-figure-grid')
+    expect(contacts.locator('figure.analysis-figure')).to_have_count(2)
+    assert grid_columns(contacts) == 2
+    rdf = section(body, 'Radial distribution').locator('.pds-figure-grid')
+    expect(rdf.locator('figure.analysis-figure')).to_have_count(1)
+    # A section with one figure keeps the whole row rather than shrinking to one track.
+    assert abs(rdf.locator('figure').bounding_box()['width'] - rdf.bounding_box()['width']) <= 1
+    overview = section(body, 'Protein shape and energy').locator('.pds-figure-grid')
+    expect(overview.locator('figure.analysis-figure')).to_have_count(1)
+    expect(overview.locator('img')).to_have_attribute('loading', 'lazy')
+
+    # Every per-metric figure is inside a grid: none is left as a bare section child.
+    assert body.locator('figure.analysis-figure').count() == body.locator('.pds-figure-grid > figure').count()
+    assert errors == [], errors
+
+
+def test_a_narrow_window_stacks_the_sections_in_one_column(dashboard, live_page):
+    browser.seed_pdc_run(dashboard, JOB, created='2026-11-20T00:00:00+00:00')
+    page, errors = live_page
+    Stub(page, record=V2, tasks=[overview_task()], overview_data=OVERVIEW)
+    page.set_viewport_size({'width': 820, 'height': 1000})
+    page.goto(f'{live_page.base_url}{PANEL}?run={JOB}')
+    body = page.locator('#pdc-analysis-body')
+    expect(body).to_contain_text('Radius of gyration', timeout=30000)
+
+    grid = page.locator('.pdc-analysis-grid')
+    assert grid_columns(grid) == 1, grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
+    options = page.locator('.pdc-analysis-grid > .analysis-options')
+    micelle = body.locator('.pds-sub.pds-micelle')
+    assert micelle.bounding_box()['y'] >= options.bounding_box()['y'] + options.bounding_box()['height'] - 1
+    assert grid_columns(micelle.locator('.pds-figure-grid')) == 1
+
+    # The existing 640 px behaviour is untouched: the four threshold fields become one per row.
+    page.set_viewport_size({'width': 600, 'height': 1000})
+    opt_grid = page.locator('.analysis-options .opt-grid')
+    assert grid_columns(opt_grid) == 1, opt_grid.evaluate('el => getComputedStyle(el).gridTemplateColumns')
     assert errors == [], errors
 
 

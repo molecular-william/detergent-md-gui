@@ -14,25 +14,27 @@
         <button id="pdc-analysis-compute" type="button" disabled>Compute structure</button>
       </div>
     </div>
-    <details class="analysis-options" open>
-      <summary>Options — thresholds (blank = default)</summary>
-      <div class="opt-grid">
-        <label for="pdc-opt-bin">RDF bin (nm)
-          <input id="pdc-opt-bin" type="number" min="0.01" max="0.20" step="0.01" placeholder="0.05">
-        </label>
-        <label for="pdc-opt-rmax">RDF r<sub>max</sub> (nm)
-          <input id="pdc-opt-rmax" type="number" min="0.5" max="4.0" step="0.1" placeholder="2.0">
-        </label>
-        <label for="pdc-opt-contact">Contact cutoff (nm)
-          <input id="pdc-opt-contact" type="number" min="0.2" max="1.5" step="0.05" placeholder="run's own">
-        </label>
-        <label for="pdc-opt-water">Water cutoff (nm)
-          <input id="pdc-opt-water" type="number" min="0.2" max="1.5" step="0.05" placeholder="0.60">
-        </label>
-      </div>
-      <p class="hint">A blank field means the server default. The contact cutoff defaults to the run's own micelle contact distance, not a free-floating choice; the effective values are recorded in the report and shown with the data. Changing an option and pressing Compute starts a new attempt.</p>
-    </details>
-    <p class="statusline" id="pdc-analysis-status" role="status"></p>
-    <div id="pdc-analysis-body"></div>
+    <div class="pdc-analysis-grid">
+      <details class="analysis-options" open>
+        <summary>Options — thresholds (blank = default)</summary>
+        <div class="opt-grid">
+          <label for="pdc-opt-bin">RDF bin (nm)
+            <input id="pdc-opt-bin" type="number" min="0.01" max="0.20" step="0.01" placeholder="0.05">
+          </label>
+          <label for="pdc-opt-rmax">RDF r<sub>max</sub> (nm)
+            <input id="pdc-opt-rmax" type="number" min="0.5" max="4.0" step="0.1" placeholder="2.0">
+          </label>
+          <label for="pdc-opt-contact">Contact cutoff (nm)
+            <input id="pdc-opt-contact" type="number" min="0.2" max="1.5" step="0.05" placeholder="run's own">
+          </label>
+          <label for="pdc-opt-water">Water cutoff (nm)
+            <input id="pdc-opt-water" type="number" min="0.2" max="1.5" step="0.05" placeholder="0.60">
+          </label>
+        </div>
+        <p class="hint">A blank field means the server default. The contact cutoff defaults to the run's own micelle contact distance, not a free-floating choice; the effective values are recorded in the report and shown with the data. Changing an option and pressing Compute starts a new attempt.</p>
+      </details>
+      <p class="statusline" id="pdc-analysis-status" role="status"></p>
+      <div id="pdc-analysis-body"></div>
+    </div>
   </section>
 </section>

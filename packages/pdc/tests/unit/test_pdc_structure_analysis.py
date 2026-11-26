@@ -307,6 +307,11 @@ def _fake_gmx(monkeypatch):
         path = work / output
         path.write_text('\n'.join([f'@ s0 legend "{legend}"']
                                   + [f'{time} {value}' for time, value in zip(times, values)] + ['']))
+        if arguments[0] == 'mindist':
+            # A real `mindist` writes its minimum distance and distance distribution too; the producer names them so
+            # the call cannot leave GROMACS' default `mindist.xvg` and its `#mindist.xvg.N#` backups in the output.
+            (work / arguments[arguments.index('-o') + 1]).write_text('distance\n')
+            (work / arguments[arguments.index('-od') + 1]).write_text('distribution\n')
         return None
 
     monkeypatch.setattr(structure, '_invoke', invoke)
@@ -330,9 +335,58 @@ def test_the_contact_groups_run_one_mindist_per_available_group_with_its_own_cut
     mindists = [call for call in calls if call['arguments'][0] == 'mindist']
     assert len(mindists) == 4
     assert [call['arguments'][call['arguments'].index('-d') + 1] for call in mindists] == ['0.7', '0.7', '0.5', '0.5']
+    # Each call names its otherwise-default distance output, and the producer removes it so only the contact XVG is
+    # published -- not `mindist.xvg` with one GROMACS `#mindist.xvg.N#` backup per group.
+    assert all(call['arguments'][call['arguments'].index('-o') + 1] == structure.MINDIST_DISTANCE
+               for call in mindists)
+    assert all(call['arguments'][call['arguments'].index('-od') + 1] == structure.MINDIST_DISTRIBUTION
+               for call in mindists)
+    assert not (tmp_path / structure.MINDIST_DISTANCE).exists()
+    assert not (tmp_path / structure.MINDIST_DISTRIBUTION).exists()
+    assert not list(tmp_path.glob('#mindist*')), 'no GROMACS backup of the default output is left behind'
     # The selections are staged once; each mindist answers its two prompts with group numbers.
     assert len([call for call in calls if call['arguments'][0] == 'select']) == 1
     assert mindists[0]['stdin'] == '0\n1\n' and mindists[2]['stdin'] == '3\n1\n'
+
+
+def test_a_periodic_contact_count_matches_a_brute_force_minimum_image_count():
+    """The KD-tree pass counts the same pairs as `gmx mindist -on`, including pairs across a box face.
+
+    The two water groups were 52 s of a 108 s producer run; the same counts from this helper took about 2 s, and on
+    the run's own 199-frame sample all four groups and the pooled count matched GROMACS exactly.
+    """
+    box = np.array([2.0, 2.0, 2.0])
+    first = np.array([[0.1, 0.1, 0.1], [1.9, 0.1, 0.1], [0.5, 0.5, 0.5]])
+    second = np.array([[1.95, 0.1, 0.1], [0.15, 0.1, 0.1], [1.4, 0.1, 0.1]])
+
+    # (0, 0) and (0, 1) are across/inside the boundary; (1, 0) is the mirror image of (0, 0).
+    assert structure.periodic_contact_counts(first, second, box, 0.2) == 3
+    assert structure.periodic_contact_counts(first, second, box, 0.01) == 0
+    assert structure.periodic_contact_counts(first[:1], second, box, 0.2) == 2
+    assert structure.periodic_contact_counts(np.empty((0, 3)), second, box, 0.2) == 0
+
+
+def test_the_water_groups_use_the_measured_series_and_only_the_protein_groups_run_gmx(tmp_path, monkeypatch):
+    """The measured water counts are the group entries; GROMACS is not asked for them again."""
+    criterion = {'protein_present': True, 'detergent_residue': 'NG', 'tail_beads': ['T1']}
+    plan = structure.contact_group_plan(criterion, head_present=True, water_present=True)
+    thresholds = {'rdf_bin_nm': 0.05, 'rdf_rmax_nm': 2.0, 'contact_nm': 0.7, 'water_cutoff_nm': 0.5}
+    calls = _fake_gmx(monkeypatch)
+    source = tmp_path / 'run.tpr'
+    source.write_text('')
+
+    groups = structure._contact_groups(
+        tmp_path, 'gmx', [], source, plan, thresholds,
+        water_series={('water', 'head'): [10, 20], ('water', 'tail'): [1, 2]}, water_times=[0.0, 10.0])
+
+    mindists = [call for call in calls if call['arguments'][0] == 'mindist']
+    assert [call['step'] for call in mindists] == ['gmx mindist (protein–head)', 'gmx mindist (protein–tail)']
+    water = {(group['first'], group['second']): group for group in groups if group['first'] == 'water'}
+    assert water[('water', 'head')]['mean'] == 15.0
+    assert water[('water', 'head')]['series'] == {'time_ns': [0.0, 10.0], 'contacts': [10.0, 20.0]}
+    assert water[('water', 'tail')]['mean'] == 1.5
+    assert 'KD-tree' in water[('water', 'head')]['tool']
+    assert water[('water', 'head')]['definition'].startswith('W beads within the cutoff of a head bead')
 
 
 def test_an_unavailable_contact_group_is_reported_with_null_numbers_not_a_zero(tmp_path, monkeypatch):

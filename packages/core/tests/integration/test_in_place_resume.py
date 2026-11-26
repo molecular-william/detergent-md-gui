@@ -243,6 +243,33 @@ def test_a_resume_queues_for_a_busy_gpu_and_never_shares(resume_service, monkeyp
     assert owner.lookup(job['id']).get('gpu_queue') is None
 
 
+def test_a_resume_keeps_the_derived_settings_and_only_changes_gpu_sharing(resume_service):
+    """A resume records the scheduling choice; it must not drop settings the run's own prepare derived.
+
+    The job row holds the user-facing settings (the adapter advertises only those), while the run's manifest also
+    records values its prepare computed: the detergent model, its tail beads, the force-field edition. Replacing the
+    whole settings block with the job's left a resumed pdc run with no `detergent_model`, and `pdc-structure` then
+    refused with "the run records no detergent residue".
+    """
+    client, owner, root, job = resume_service
+    manifest = json.loads((root / 'manifest.json').read_text())
+    manifest['settings'] = {'gpu_sharing': 'share', 'mdrun_gpu': 0,
+                            'detergent_model': {'residue': 'DDM', 'beads': 11},
+                            'tail_beads': ['T1', 'T2'],
+                            'force_field': {'version': 'v3.0.0-2121527'}}
+    files.atomic_json(root / 'manifest.json', manifest)
+    owner.database().update(job['id'], settings={'gpu_sharing': 'share', 'mdrun_gpu': 0})
+
+    response = client.post('/api/jobs/123456abcdef/resume', json={'stage': 'second'})
+
+    assert response.status_code == 200, response.json
+    recorded = json.loads((root / 'manifest.json').read_text())['settings']
+    assert recorded['gpu_sharing'] == 'queue', 'the resume records the exclusive scheduling choice'
+    assert recorded['detergent_model'] == {'residue': 'DDM', 'beads': 11}, 'the run keeps what it derived'
+    assert recorded['tail_beads'] == ['T1', 'T2']
+    assert recorded['force_field'] == {'version': 'v3.0.0-2121527'}
+
+
 def test_resume_supersedes_analysis_but_retains_evidence(resume_service):
     client, owner, root, job = resume_service
     evidence = root/'analyses/old/numerical_stability.json'

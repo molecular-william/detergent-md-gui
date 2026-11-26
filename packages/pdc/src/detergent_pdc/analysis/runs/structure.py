@@ -35,6 +35,7 @@ from dashboard.analysis import progress
 from dashboard.analysis.runs import layout, readers, structures, trajectory_header
 from dashboard.analysis.runs import segments as engine_segments
 from dashboard.analysis.runs.statistics import block_summary
+from scipy.spatial import cKDTree
 
 MAX_FRAMES = readers.MAX_FRAMES
 from dashboard.execution import tools
@@ -50,6 +51,12 @@ RECORD = 'pdc-structure.json'
 #: The one extracted sample every tool reads. It is published with the report, so a reader can rerun a tool on the
 #: same frames without copying the leg.
 SAMPLE = 'sample.xtc'
+#: `gmx mindist` writes two optional defaults even when only `-on` is asked for: `-od` (the distance distribution,
+#: default `mindist.xvg`) and `-o` (the closest atom pair, default `atm-pair.out`). Every call names both and the
+#: producer removes them: an unnamed default leaves `mindist.xvg` plus one `#mindist.xvg.N#` backup per group in the
+#: published output, which is clutter a reader cannot use. `-o`'s own parser requires the `.out` suffix.
+MINDIST_DISTANCE = 'mindist-distance.out'
+MINDIST_DISTRIBUTION = 'mindist-distance-distribution.xvg'
 #: The extraction's own output, deleted after clustering so only the file every tool reads is published.
 RAW_SAMPLE = 'sample-raw.xtc'
 #: The radial distribution's own interval: 0.05 nm bins (the interval measured in §1.1) and 2 nm. Both are the
@@ -408,31 +415,67 @@ def _water_selection():
     return f'resname {WATER_RESIDUE}'
 
 
+#: A hair past the stated cutoff, so the KD-tree's candidate search never drops a pair that numpy would call a
+#: contact. The tree's C distance and numpy's can disagree in the last bits at exactly the cutoff; the distance
+#: filter below makes the decision, as `pdc_assessment` does for the micelle graph.
+_CONTACT_SLACK = 1.0 + 1e-12
+
+
+def periodic_contact_counts(first, second, box, cutoff_nm):
+    """Pairs within `cutoff_nm` between two point sets, minimum image, for an orthorhombic box.
+
+    `gmx mindist -on` is the reference definition -- one contact per bead pair -- but on a 20k-bead water group it
+    spent 34 s and 18 s in the two water groups of a 199-frame sample. The same counts from a periodic KD-tree took
+    about 2 s, and all four groups plus the pooled count matched `gmx mindist -on` on every frame of that sample.
+    A triclinic box has no rectangular `boxsize`, so the caller keeps GROMACS for it.
+    """
+    first = np.asarray(first, dtype=float)
+    second = np.asarray(second, dtype=float)
+    box = np.asarray(box, dtype=float)
+    if len(first) == 0 or len(second) == 0:
+        return 0
+    first = np.mod(first, box)
+    second = np.mod(second, box)
+    found = cKDTree(second, boxsize=box).query_ball_point(first, r=cutoff_nm * _CONTACT_SLACK)
+    counts = np.fromiter((len(neighbours) for neighbours in found), dtype=int, count=len(found))
+    if counts.sum() == 0:
+        return 0
+    row = np.repeat(np.arange(len(first)), counts)
+    column = np.concatenate([np.asarray(neighbours, dtype=int) for neighbours in found])
+    # The tree found the pair; numpy decides the cutoff on the minimum image, so a boundary pair is not counted
+    # from the two points' raw separation.
+    difference = first[row] - second[column]
+    difference -= box * np.round(difference / box)
+    return int(np.count_nonzero(np.einsum('ij,ij->i', difference, difference) <= cutoff_nm ** 2))
+
+
 #: The four contact groups the report states, in the order the panel reads them. `first`/`second` are the labels the
 #: report and the panel use; the cutoff is a thresholds key, never a literal, because the payload can move it.
 CONTACT_GROUPS = (
     ('protein', 'head', 'contact_nm',
-     'protein bead–head bead pairs within the cutoff, minimum image (gmx mindist -on, one contact per bead pair); '
+     'protein bead–head bead pairs within the cutoff, minimum image (one contact per bead pair); '
      'not hydrogen bonds'),
     ('protein', 'tail', 'contact_nm',
-     'protein bead–tail bead pairs within the cutoff, minimum image (gmx mindist -on, one contact per bead pair); '
+     'protein bead–tail bead pairs within the cutoff, minimum image (one contact per bead pair); '
      'not hydrogen bonds'),
     ('water', 'head', 'water_cutoff_nm',
-     'W beads within the cutoff of a head bead, minimum image (gmx mindist -on, one contact per bead pair); a bead '
+     'W beads within the cutoff of a head bead, minimum image (one contact per bead pair); a bead '
      'coordination count, not an all-atom hydration number, and not hydrogen bonds'),
     ('water', 'tail', 'water_cutoff_nm',
-     'W beads within the cutoff of a tail bead, minimum image (gmx mindist -on, one contact per bead pair); a bead '
+     'W beads within the cutoff of a tail bead, minimum image (one contact per bead pair); a bead '
      'coordination count, not an all-atom hydration number, and not hydrogen bonds'),
 )
 
 
 # --------------------------------------------------------------------------------------------- the MDAnalysis pass
 
-def _measure(work, structure, trajectory, criterion):
-    """Aggregation and the gyration tensor over the extracted sample, with the run's own criterion.
+def _measure(work, structure, trajectory, criterion, water_cutoff_nm):
+    """Aggregation, the gyration tensor and the water contacts over the extracted sample, with the run's criterion.
 
     The sample is opened through symlinks in a temporary directory: MDAnalysis writes its `*_offsets.npz` cache
     beside the file it is given, and every file this producer leaves in `work` is published as the attempt's output.
+    The water contacts are counted in the same one pass as the aggregation; `gmx mindist` reads the water group from
+    the sample again for those two groups, which was the producer's largest cost.
     """
     residue = criterion['detergent_residue']
     tails = set(criterion['tail_beads'])
@@ -443,6 +486,7 @@ def _measure(work, structure, trajectory, criterion):
         os.symlink((work / SAMPLE).resolve(), linked_sample)
         universe = mda.Universe(str(linked_structure), str(linked_sample))
         molecules, tail_groups, protein_atoms, detergent_atoms = [], [], [], []
+        head_atoms, water_atoms = [], []
         water_present = False
         for group in universe.residues:
             name = str(group.resname).strip()
@@ -450,10 +494,14 @@ def _measure(work, structure, trajectory, criterion):
             if name == residue:
                 molecules.append(indices)
                 detergent_atoms.append(indices)
-                tail_groups.append(np.asarray([atom.index for atom in group.atoms
-                                               if str(atom.name).strip() in tails], dtype=int))
+                tail_group = np.asarray([atom.index for atom in group.atoms
+                                         if str(atom.name).strip() in tails], dtype=int)
+                tail_groups.append(tail_group)
+                head_atoms.extend(np.setdiff1d(indices, tail_group, assume_unique=True).tolist())
             elif name.upper() in SOLVENT_RESIDUES:
-                water_present = water_present or name.upper() == WATER_RESIDUE
+                if name.upper() == WATER_RESIDUE:
+                    water_present = True
+                    water_atoms.extend(indices.tolist())
                 continue
             else:
                 protein_atoms.append(indices)
@@ -463,17 +511,42 @@ def _measure(work, structure, trajectory, criterion):
         if criterion['protein_present'] and len(protein) == 0:
             raise ValueError(f'the run records a protein but {trajectory.name} holds no non-solvent bead for it')
         cloud = np.concatenate(detergent_atoms)
-        head_beads = sum(1 for group in universe.residues if str(group.resname).strip() == residue
-                         for atom in group.atoms if str(atom.name).strip() not in tails)
+        head_atoms = np.asarray(head_atoms, dtype=int)
+        water_atoms = np.asarray(water_atoms, dtype=int)
+        tail_atoms = np.concatenate(tail_groups) if tail_groups else np.array([], dtype=int)
+        head_beads = int(len(head_atoms))
         largest, counts, free, sizes, eigenvalues = [], [], [], [], []
         box_nm = None
         frames = 0
+        orthorhombic = None
+        water_contacts = None
+        contact_times_ns = []
         for _step in universe.trajectory:
             frames += 1
             positions = universe.atoms.positions / 10.0
             box = np.asarray(universe.dimensions[:3], dtype=float) / 10.0
             if box_nm is None:
                 box_nm = box
+                # `cKDTree` has a rectangular `boxsize` only; a triclinic box keeps the GROMACS path, which is
+                # why the water contacts are optional in this record.
+                orthorhombic = bool(np.allclose(np.asarray(universe.dimensions, dtype=float)[3:], 90.0))
+                if orthorhombic and len(water_atoms):
+                    water_contacts = {}
+                    if len(head_atoms):
+                        water_contacts[('water', 'head')] = []
+                    if len(tail_atoms):
+                        water_contacts[('water', 'tail')] = []
+                    if not water_contacts:
+                        water_contacts = None
+            if water_contacts is not None:
+                wrapped = np.mod(positions, box)
+                if ('water', 'head') in water_contacts:
+                    water_contacts[('water', 'head')].append(
+                        periodic_contact_counts(wrapped[head_atoms], wrapped[water_atoms], box, water_cutoff_nm))
+                if ('water', 'tail') in water_contacts:
+                    water_contacts[('water', 'tail')].append(
+                        periodic_contact_counts(wrapped[tail_atoms], wrapped[water_atoms], box, water_cutoff_nm))
+                contact_times_ns.append(round(float(_step.time) / 1000.0, 4))
             moved = unwrap(molecules, positions, box)
             if tails:
                 detergents = [{'name': f'{residue}{index + 1}', 'tail': moved[group].tolist()}
@@ -489,7 +562,8 @@ def _measure(work, structure, trajectory, criterion):
     return {'frames': frames, 'molecules': len(molecules), 'head_beads': head_beads,
             'protein_beads': int(len(protein)), 'water_present': water_present,
             'box_nm': [float(value) for value in box_nm] if box_nm is not None else [],
-            'largest': largest, 'counts': counts, 'free': free, 'sizes': sizes, 'eigenvalues': eigenvalues}
+            'largest': largest, 'counts': counts, 'free': free, 'sizes': sizes, 'eigenvalues': eigenvalues,
+            'water_contacts': water_contacts, 'contact_times_ns': contact_times_ns}
 
 
 # ------------------------------------------------------------------------------------------------------- the figures
@@ -558,8 +632,7 @@ def draw_contact_figure(path, groups, first, title, frames):
         axis.text(.5, .5, 'not measured for this run', ha='center', va='center', transform=axis.transAxes)
         axis.set(title=title)
     axis.grid(alpha=.18)
-    _note(figure, f'{frames} sampled frames · gmx mindist -on, minimum image, one contact per bead pair · '
-                  'not hydrogen bonds')
+    _note(figure, f'{frames} sampled frames · minimum image, one contact per bead pair · not hydrogen bonds')
     figure.savefig(path, dpi=150)
 
 
@@ -643,7 +716,9 @@ def build_report(*, leg, sampling, thresholds, micelle, shape, aggregation, rdf,
         'figures': list(figures),
         'commands': commands,
         'method': ('one bounded sample of one production leg: gmx trjconv extracted it once, and gmx gyrate (Rg), '
-                   'gmx rdf (radial distributions), gmx mindist -on (bead contacts) read that one file; the '
+                   'gmx rdf (radial distributions) and the bead-contact pair counts read that one file. The protein '
+                   'groups are gmx mindist -on; the water groups are the same pair counts from a periodic KD-tree '
+                   'over the sample, with gmx mindist as the fallback for a triclinic box. The '
                    "micelle membership is the run's own criterion (pdc_assessment.assess_micelle: tail beads "
                    'within the contact distance, largest connected cluster); the gyration tensor and its shape '
                    "numbers are the producer's own (numpy eigvalsh: b = λ1 - (λ2 + λ3)/2, "
@@ -739,38 +814,65 @@ def contact_group_plan(criterion, head_present, water_present):
     return plan
 
 
-def _contact_groups(work, gmx, commands, structure, plan, thresholds):
-    """Protein–head/tail and water–head/tail bead contacts, per frame: one `gmx mindist -on` per group.
+def _contact_groups(work, gmx, commands, structure, plan, thresholds, *, water_series=None, water_times=None):
+    """Protein–head/tail and water–head/tail bead contacts, per frame.
 
-    One index file holds every selection the available groups read; `mindist` is then asked for one group pair at a
-    time (`-ng 1`), its two group numbers answering its two prompts. The groups this run cannot measure are reported
-    with null numbers rather than dropped, so the panel's four rows are stable.
+    The protein groups use `gmx mindist -on`: one index file holds their selections and `mindist` is asked for one
+    group pair at a time (`-ng 1`), its two group numbers answering its two prompts. The water groups come from the
+    producer's own KD-tree pass over the sampled frames when the box is orthorhombic (`_measure`), because the same
+    pair counts from GROMACS over a 20k-bead water group were the producer's largest cost. A triclinic box, or a
+    sample this pass did not measure, keeps the GROMACS path for every group. The groups a run cannot measure are
+    reported with null numbers rather than dropped, so the panel's four rows are stable.
     """
     available = [group for group in plan if group['available']]
     measured = {}
-    if available:
+    from_sample, from_gmx = [], []
+    for group in available:
+        key = (group['first'], group['second'])
+        if (group['first'] == 'water' and water_series is not None and key in water_series
+                and water_times is not None and len(water_times) == len(water_series[key])):
+            from_sample.append(group)
+        else:
+            from_gmx.append(group)
+    for group in from_sample:
+        key = (group['first'], group['second'])
+        cutoff = thresholds[group['cutoff_key']]
+        summary = block_summary(water_series[key])
+        measured[key] = {'first': group['first'], 'second': group['second'], 'cutoff_nm': float(cutoff),
+                         'tool': 'producer periodic KD-tree (same pair definition as gmx mindist -on)',
+                         'mean': round(summary['mean'], 3), 'sem': round(summary['stderr'], 3),
+                         'series': {'time_ns': [round(float(value), 4) for value in water_times],
+                                    'contacts': [round(float(value), 3) for value in water_series[key]]},
+                         'definition': group['definition']}
+    if from_gmx:
         selections = []
-        for group in available:
+        for group in from_gmx:
             for key in ('first_selection', 'second_selection'):
                 if group[key] not in selections:
                     selections.append(group[key])
         _invoke(gmx, commands, 'gmx select (contact group selections)',
                 ['select', '-s', _work_name(work, structure), '-select', *selections,
                  '-on', 'contact-groups.ndx'], work)
-        for group in available:
+        for group in from_gmx:
             cutoff = thresholds[group['cutoff_key']]
             name = f'contacts-{group["first"]}-{group["second"]}.xvg'
+            (work / MINDIST_DISTANCE).unlink(missing_ok=True)
+            (work / MINDIST_DISTRIBUTION).unlink(missing_ok=True)
             arguments = ['mindist', '-s', _work_name(work, structure), '-f', SAMPLE, '-n', 'contact-groups.ndx',
-                         '-ng', '1', '-d', f'{cutoff:g}', '-on', name]
+                         '-ng', '1', '-d', f'{cutoff:g}', '-on', name,
+                         '-od', MINDIST_DISTRIBUTION, '-o', MINDIST_DISTANCE]
             progress.report(f'pdc-structure: gmx mindist ({group["first"]}–{group["second"]})')
             _invoke(gmx, commands, f'gmx mindist ({group["first"]}–{group["second"]})', arguments, work,
                     stdin=f'{selections.index(group["first_selection"])}\n'
                           f'{selections.index(group["second_selection"])}\n')
-            measured[(group['first'], group['second'])] = _contact_reading(
-                work / name, cutoff, group['first'], group['second'], group['definition'])
+            (work / MINDIST_DISTANCE).unlink(missing_ok=True)
+            (work / MINDIST_DISTRIBUTION).unlink(missing_ok=True)
+            entry = _contact_reading(work / name, cutoff, group['first'], group['second'], group['definition'])
+            entry['tool'] = 'gmx mindist -on'
+            measured[(group['first'], group['second'])] = entry
     return [measured.get((group['first'], group['second']))
             or {'first': group['first'], 'second': group['second'],
-                'cutoff_nm': thresholds[group['cutoff_key']],
+                'cutoff_nm': thresholds[group['cutoff_key']], 'tool': None,
                 'mean': None, 'sem': None, 'series': None, 'definition': group['definition']}
             for group in plan]
 
@@ -784,10 +886,15 @@ def _contacts(work, gmx, commands, structure, residue, cutoff_nm):
     _invoke(gmx, commands, 'gmx select (index groups)',
             ['select', '-s', _work_name(work, structure), '-select', _protein_selection(residue),
              _detergent_selection(residue), '-on', 'contacts.ndx'], work)
+    (work / MINDIST_DISTANCE).unlink(missing_ok=True)
+    (work / MINDIST_DISTRIBUTION).unlink(missing_ok=True)
     arguments = ['mindist', '-s', _work_name(work, structure), '-f', SAMPLE, '-n', 'contacts.ndx', '-ng', '1',
-                 '-d', f'{cutoff_nm:g}', '-on', 'numcont.xvg']
+                 '-d', f'{cutoff_nm:g}', '-on', 'numcont.xvg',
+                 '-od', MINDIST_DISTRIBUTION, '-o', MINDIST_DISTANCE]
     progress.report('pdc-structure: gmx mindist (contacts)')
     _invoke(gmx, commands, 'gmx mindist (contacts)', arguments, work, stdin='0\n1\n')
+    (work / MINDIST_DISTANCE).unlink(missing_ok=True)
+    (work / MINDIST_DISTRIBUTION).unlink(missing_ok=True)
     entry = _contact_reading(work / 'numcont.xvg', cutoff_nm, 'protein', 'detergent',
                              'protein bead–detergent bead pairs within the cutoff, minimum image '
                              '(gmx mindist -on, one contact per bead pair); not hydrogen bonds')
@@ -832,10 +939,10 @@ def run(work, payload=None):
             timeout=EXTRACT_TIMEOUT_S)
     (work / RAW_SAMPLE).unlink(missing_ok=True)
 
-    measured = _measure(work, structure, trajectory, criterion)
+    thresholds = resolve_thresholds(payload, criterion['contact_nm'])
+    measured = _measure(work, structure, trajectory, criterion, thresholds['water_cutoff_nm'])
     box_nm = measured['box_nm']
     box_half = min(box_nm) / 2.0 if len(box_nm) == 3 and min(box_nm) > 0 else None
-    thresholds = resolve_thresholds(payload, criterion['contact_nm'])
     requested_rmax_nm = thresholds['rdf_rmax_nm']
     thresholds['rdf_rmax_nm'] = effective_rmax(requested_rmax_nm, box_nm)
 
@@ -881,7 +988,9 @@ def run(work, payload=None):
     water_present = measured['water_present']
     rdf = _rdf_entries(work, gmx, commands, source, criterion, thresholds, head_present)
     group_plan = contact_group_plan(criterion, head_present, water_present)
-    groups = _contact_groups(work, gmx, commands, source, group_plan, thresholds)
+    groups = _contact_groups(work, gmx, commands, source, group_plan, thresholds,
+                             water_series=measured.get('water_contacts'),
+                             water_times=measured.get('contact_times_ns'))
     pooled = _contacts(work, gmx, commands, source, criterion['detergent_residue'],
                        thresholds['contact_nm']) if criterion['protein_present'] else None
     contacts = {
@@ -984,6 +1093,9 @@ def run(work, payload=None):
     caveats.append('The water–head and water–tail numbers count Martini W beads within the cutoff of a head or tail '
                    'bead (one contact per bead pair); a W bead stands for several waters, so this is a bead '
                    'coordination count, not an all-atom hydration number.')
+    caveats.append('The water groups use the same pair definition as gmx mindist -on, computed by a periodic '
+                   'KD-tree over the sample; a pair at the cutoff can be decided differently by GROMACS (it '
+                   'undercounts), so a frame may differ by one pair.')
     caveats.append('The measurement cutoff (thresholds.contact_nm) is the bead-contact distance; it is separate '
                    'from the micelle criterion\'s own contact distance (micelle.contact_nm), which is unchanged by '
                    'the payload.')
