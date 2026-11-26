@@ -592,8 +592,9 @@ export function createPdcAnalysis() {
     const receptorCom = curves.some(curve => curve.reference === 'com');
     const rdfSampling = body.sampling?.rdf;
     const window = rdfSampling
-      ? ` Sampled from the ${rdfSampling.basis} (${fixed(rdfSampling.window_ns, 0)} ns; `
-        + `${cell(thousands(rdfSampling.frames_sampled))} frames, stride ${cell(rdfSampling.stride)}).`
+      ? ` Sampled from the ${rdfSampling.basis}`
+        + (rdfSampling.basis === 'last 100 ns' ? '' : ` (${fixed(rdfSampling.window_ns, 0)} ns)`)
+        + ` (${cell(thousands(rdfSampling.frames_sampled))} frames, stride ${cell(rdfSampling.stride)}).`
       : '';
     const hint = (receptorCom
       ? `How crowded the detergent is at a distance from the receptor or from another detergent. <b>g(r) = 1</b>

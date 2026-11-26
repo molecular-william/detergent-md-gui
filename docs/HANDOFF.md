@@ -19,8 +19,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
   window, and a caveat says the RDF and the other numbers use different samples.
   Direct producer on `OG_2ydo_123_libconf_500ns-4`: 400-frame RDF sample from 400–500 ns, **85.5 s**; receptor
   COM→head **2.60 nm / g 22.88**, receptor COM→tail **1.95 nm / g 41.77**, head–head 0.45 nm / 26.16, tail–tail
-  0.50 nm / 126.82. The live `pdc-structure` attempt is queued after the restart and recorded below.
-  Checks: pdc-structure unit **31 passed**; full fast tier **3,229 passed / 1 xfailed**; full browser tier
+  0.50 nm / 126.82. The live attempt `0004-20261126` (code `bdc92cb`, dashboard restarted) completed in
+  **96.64 s** with the same 400-frame RDF sample and values; the panel hint reads "Sampled from the last 100 ns
+  (400 frames, stride 10)" (screenshot `docs/design/drafts/2026-11-26-pdc-rdf-final-window-v2.png`).
+  Checks: pdc-structure unit **31 passed**; full fast tier **3,230 passed / 1 xfailed**; full browser tier
   **435 passed**; ruff clean.
 
 - **Analysis sampling: the shared frame bound is 400 by default (2026-11-26).** The user's request.
