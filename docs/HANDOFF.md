@@ -22,8 +22,10 @@ state, what is next, what is open, and the measurements and incidents a reader h
   500 ns run).
   Direct producer on `OG_2ydo_123_libconf_500ns-4`: final-window 400-frame RDF sample, **80.84 s**; receptor
   COM→head COM **2.60 nm / g 24.83**, receptor COM→tail (TAIL1) **1.65 nm / g 52.06**, head COM–head COM 0.65 nm /
-  22.87, tail (TAIL1)–tail 0.50 nm / 197.54. The live `pdc-structure` attempt is queued after the restart and
-  recorded below.
+  22.87, tail (TAIL1)–tail 0.50 nm / 197.54. The live attempt `0005-20261126` (code `ac5f369`, dashboard
+  restarted) completed in **94.84 s** with the same 400-frame final-window sample and values; the panel prints
+  `receptor COM → head COM`, `receptor COM → tail (TAIL1)`, `head COM – head COM` and
+  `tail (TAIL1) – tail (TAIL1)` (screenshot `docs/design/drafts/2026-11-26-pdc-rdf-headcom-edgetail.png`).
   Checks: pdc-structure unit **32 passed**; full fast tier **3,231 passed / 1 xfailed**; full browser tier
   **435 passed**; ruff clean.
 
